@@ -1,0 +1,17 @@
+{
+    "name": "crazy-goat/streamy-carrot",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "CrazyGoat\\StreamyCarrot\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Hałas Piotr",
+            "email": "halaspiotr@gmail.com"
+        }
+    ],
+    "require": {}
+}
