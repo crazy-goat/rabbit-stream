@@ -1,6 +1,6 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot;
+namespace CrazyGoat\StreamyCarrot\Trait;
 
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 use CrazyGoat\StreamyCarrot\Enum\ResponseCodeEnum;

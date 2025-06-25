@@ -1,8 +1,6 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot;
-
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
+namespace CrazyGoat\StreamyCarrot\Buffer;
 
 interface FromStreamBufferInterface
 {

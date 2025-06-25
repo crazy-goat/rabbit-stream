@@ -3,7 +3,9 @@
 namespace CrazyGoat\StreamyCarrot;
 
 use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
+use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
+use CrazyGoat\StreamyCarrot\Trait\CorrelationInterface;
 
 class StreamConnection
 {

@@ -3,10 +3,10 @@
 namespace CrazyGoat\StreamyCarrot\VO;
 
 
+use CrazyGoat\StreamyCarrot\Buffer\FromStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
+use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
 
 class KeyValue implements FromStreamBufferInterface, ToStreamBufferInterface
 {

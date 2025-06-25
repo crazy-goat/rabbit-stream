@@ -1,6 +1,6 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot;
+namespace CrazyGoat\StreamyCarrot\Trait;
 
 trait CorrelationTrait
 {

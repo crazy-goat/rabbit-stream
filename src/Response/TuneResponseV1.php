@@ -2,10 +2,10 @@
 
 namespace CrazyGoat\StreamyCarrot\Response;
 
+use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\Trait\KeyVersionInterface;
 
 class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface
 {

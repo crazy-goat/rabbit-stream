@@ -2,15 +2,15 @@
 
 namespace CrazyGoat\StreamyCarrot\Request;
 
+use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\CommandTrait;
-use CrazyGoat\StreamyCarrot\CorrelationInterface;
-use CrazyGoat\StreamyCarrot\CorrelationTrait;
 use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\StreamBufferInterface;
-use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\V1Trait;
+use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
+use CrazyGoat\StreamyCarrot\Trait\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\Trait\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\Trait\KeyVersionInterface;
+use CrazyGoat\StreamyCarrot\Trait\V1Trait;
 use CrazyGoat\StreamyCarrot\VO\KeyValue;
 
 class PeerPropertiesToStreamBufferV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
