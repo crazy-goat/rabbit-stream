@@ -3,10 +3,10 @@
 namespace CrazyGoat\StreamyCarrot\Response;
 
 use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\CommandCode;
 use CrazyGoat\StreamyCarrot\CommandTrait;
 use CrazyGoat\StreamyCarrot\CorrelationInterface;
 use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
 use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\V1Trait;
@@ -42,6 +42,6 @@ class OpenResponseV1 implements KeyVersionInterface, CorrelationInterface, FromS
 
     static public function getKey(): int
     {
-        return CommandCode::OPEN_RESPONSE->value;
+        return KeyEnum::OPEN_RESPONSE->value;
     }
 }

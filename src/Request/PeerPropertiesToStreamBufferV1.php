@@ -3,10 +3,10 @@
 namespace CrazyGoat\StreamyCarrot\Request;
 
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\CommandCode;
 use CrazyGoat\StreamyCarrot\CommandTrait;
 use CrazyGoat\StreamyCarrot\CorrelationInterface;
 use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\StreamBufferInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
@@ -34,6 +34,6 @@ class PeerPropertiesToStreamBufferV1 implements ToStreamBufferInterface, Correla
 
     static public function getKey(): int
     {
-        return CommandCode::PEER_PROPERTIES->value;
+        return KeyEnum::PEER_PROPERTIES->value;
     }
 }

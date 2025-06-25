@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot;
+namespace CrazyGoat\StreamyCarrot\Enum;
 
-enum CommandCode: int
+enum KeyEnum: int
 {
     case DECLARE_PUBLISHER = 0x0001;
     case PUBLISH = 0x0002;
@@ -41,44 +41,7 @@ enum CommandCode: int
     case TUNE_RESPONSE = 0x8014;
     case OPEN_RESPONSE = 0x8015;
 
-    public function hasReturn(): bool
-    {
-        return match ($this) {
-            self::DECLARE_PUBLISHER,
-            self::QUERY_PUBLISHER_SEQUENCE,
-            self::DELETE_PUBLISHER,
-            self::SUBSCRIBE,
-            self::QUERY_OFFSET,
-            self::UNSUBSCRIBE,
-            self::CREATE,
-            self::DELETE,
-            self::METADATA,
-            self::PEER_PROPERTIES,
-            self::SASL_HANDSHAKE,
-            self::SASL_AUTHENTICATE,
-            self::TUNE,
-            self::OPEN,
-            self::CLOSE,
-            self::ROUTE,
-            self::PARTITIONS,
-            self::CONSUMER_UPDATE,
-            self::EXCHANGE_COMMAND_VERSIONS,
-            self::STREAM_STATS,
-            self::CREATE_SUPER_STREAM,
-            self::DELETE_SUPER_STREAM => true,
-
-            self::PUBLISH,
-            self::PUBLISH_CONFIRM,
-            self::PUBLISH_ERROR,
-            self::DELIVER,
-            self::CREDIT,
-            self::STORE_OFFSET,
-            self::METADATA_UPDATE,
-            self::HEARTBEAT => false,
-        };
-    }
-
-    public static function fromStreamCode(int $code): CommandCode
+    public static function fromStreamCode(int $code): KeyEnum
     {
         return self::tryFrom($code) ?? self::from($code - 0x8000);
     }

@@ -4,8 +4,8 @@ namespace CrazyGoat\StreamyCarrot\Request;
 
 use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\CommandCode;
 use CrazyGoat\StreamyCarrot\CommandTrait;
+use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
 use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
@@ -22,7 +22,7 @@ class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterfac
 
     static public function getKey(): int
     {
-        return CommandCode::TUNE->value;
+        return KeyEnum::TUNE->value;
     }
 
     public function toStreamBuffer(): WriteBuffer

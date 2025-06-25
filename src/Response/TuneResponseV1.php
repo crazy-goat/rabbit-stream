@@ -3,7 +3,7 @@
 namespace CrazyGoat\StreamyCarrot\Response;
 
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
 
@@ -20,7 +20,7 @@ class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface
 
     static public function getKey(): int
     {
-        return CommandCode::TUNE_RESPONSE->value;
+        return KeyEnum::TUNE_RESPONSE->value;
     }
 
     public function toStreamBuffer(): WriteBuffer

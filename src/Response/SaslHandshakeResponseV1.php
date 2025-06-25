@@ -3,10 +3,10 @@
 namespace CrazyGoat\StreamyCarrot\Response;
 
 use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\CommandCode;
 use CrazyGoat\StreamyCarrot\CommandTrait;
 use CrazyGoat\StreamyCarrot\CorrelationInterface;
 use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
 use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\V1Trait;
@@ -26,7 +26,7 @@ class SaslHandshakeResponseV1 implements KeyVersionInterface, CorrelationInterfa
 
     public static function getKey(): int
     {
-        return CommandCode::SASL_HANDSHAKE_RESPONSE->value;
+        return KeyEnum::SASL_HANDSHAKE_RESPONSE->value;
     }
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?object
