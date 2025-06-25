@@ -3,6 +3,7 @@
 namespace CrazyGoat\StreamyCarrot;
 
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
+use CrazyGoat\StreamyCarrot\Enum\ResponseCodeEnum;
 
 trait CommandTrait
 {
@@ -35,7 +36,7 @@ trait CommandTrait
 
     private static function isResponseCodeOk(int $responseCode): void
     {
-        if (ResponseCode::from($responseCode) !== ResponseCode::OK) {
+        if (ResponseCodeEnum::from($responseCode) !== ResponseCodeEnum::OK) {
             throw new \Exception('Unexpected response code');
         };
     }

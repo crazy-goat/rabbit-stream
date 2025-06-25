@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot;
+namespace CrazyGoat\StreamyCarrot\Enum;
 
-enum ResponseCode: int
+enum ResponseCodeEnum: int
 {
     case OK = 0x01;
     case STREAM_NOT_EXIST = 0x02;
