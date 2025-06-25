@@ -13,12 +13,20 @@ class ResponseBuilder
         $version = $responseBuffer->getUint16();
 
         $responseBuffer->rewind();
+        return match ($version) {
+            1 => self::getV1($command, $responseBuffer),
+            default => throw new \Exception('Unexpected match value'),
+        };
+    }
+
+    private static function getV1(CommandCode $command, ReadBuffer $responseBuffer): ?object
+    {
         return match ($command) {
-            CommandCode::PEER_PROPERTIES => $version === 1 ? new PeerPropertiesResponseV1($responseBuffer) : throw new \Exception('Unexpected version'),
-            CommandCode::SASL_HANDSHAKE => $version === 1 ? new SaslHandshakeResponseV1($responseBuffer) : throw new \Exception('Unexpected version'),
-            CommandCode::SASL_AUTHENTICATE => $version === 1 ? new SaslAuthenticateResponseV1($responseBuffer) : throw new \Exception('Unexpected version'),
-            CommandCode::TUNE => $version === 1 ? TuneRequestV1::fromStreamBuffer($responseBuffer): throw new \Exception('Unexpected version'),
-            CommandCode::OPEN_RESPONSE => $version === 1 ? OpenResponseV1::fromStreamBuffer($responseBuffer): throw new \Exception('Unexpected version'),
+            CommandCode::TUNE =>  TuneRequestV1::fromStreamBuffer($responseBuffer),
+            CommandCode::SASL_HANDSHAKE_RESPONSE => SaslHandshakeResponseV1::fromStreamBuffer($responseBuffer),
+            CommandCode::SASL_AUTHENTICATE_RESPONSE => SaslAuthenticateResponseV1::fromStreamBuffer($responseBuffer),
+            CommandCode::OPEN_RESPONSE =>  OpenResponseV1::fromStreamBuffer($responseBuffer),
+            CommandCode::PEER_PROPERTIES_RESPONSE => PeerPropertiesResponseV1::fromStreamBuffer($responseBuffer),
             default => throw new \Exception('Unexpected match value'),
         };
     }

@@ -3,28 +3,31 @@
 namespace CrazyGoat\StreamyCarrot\Request;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
+use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\V1Trait;
 
-class SaslAuthenticateRequestV1 extends RequestAbstract implements ToStreamBufferInterface, RequestInterface
+class SaslAuthenticateRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
 {
-    private const VERSION = 1;
+    use CorrelationTrait;
+    use V1Trait;
+    use CommandTrait;
 
     public function __construct(private string $mechanism, private string $username, private string $password)
     {
     }
-
-    public function getCommandCode(): CommandCode
-    {
-        return CommandCode::SASL_AUTHENTICATE;
-    }
-
     public function toStreamBuffer(): WriteBuffer
     {
-        return (new WriteBuffer())
-            ->addUInt16($this->getCommandCode()->value)
-            ->addUInt16(self::VERSION)
-            ->addUInt32($this->getCorrelationId())
+        return  self::getKeYVersion($this->getCorrelationId())
             ->addString($this->mechanism)
             ->addBytes("\0" . $this->username . "\0" . $this->password);
+    }
+
+    static public function getKey(): int
+    {
+        return CommandCode::SASL_AUTHENTICATE->value;
     }
 }

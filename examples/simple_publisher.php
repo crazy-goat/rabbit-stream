@@ -14,13 +14,16 @@ include __DIR__ . '/../vendor/autoload.php';
 
 $connection = new StreamConnection('172.17.0.2', 5552);
 $connection->connect();
-$response = ResponseBuilder::fromResponseBuffer($connection->sendMessage(new PeerPropertiesToStreamBufferV1()));
+$connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+$response = $connection->readMessage();
 var_dump($response);
 
-$response = ResponseBuilder::fromResponseBuffer($connection->sendMessage(new SaslHandshakeRequestV1()));
+$connection->sendMessage(new SaslHandshakeRequestV1());
+$response = $response = $connection->readMessage();
 var_dump($response);
 
-$response = ResponseBuilder::fromResponseBuffer($connection->sendMessage(new SaslAuthenticateRequestV1("PLAIN", "guest", "guest")));
+$connection->sendMessage(new SaslAuthenticateRequestV1("PLAIN", "guest", "guest"));
+$response = $response = $connection->readMessage();
 var_dump($response);
 
 $response = $connection->readMessage();

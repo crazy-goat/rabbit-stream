@@ -3,25 +3,37 @@
 namespace CrazyGoat\StreamyCarrot\Response;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
+use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\ResponseCode;
+use CrazyGoat\StreamyCarrot\V1Trait;
+use CrazyGoat\StreamyCarrot\VO\KeyValue;
 
-class SaslAuthenticateResponseV1 implements ResponseInterface
+class SaslAuthenticateResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
 {
+    use CorrelationTrait;
+    use CommandTrait;
+    use V1Trait;
 
-    private int $correlationId;
-    private ResponseCode $responseCode;
-
-    public function __construct(ReadBuffer $responseBuffer)
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
     {
-        if (CommandCode::fromStreamCode($responseBuffer->getUint16()) !== CommandCode::SASL_AUTHENTICATE) {
-            throw new \Exception('Unexpected command code');
-        }
+        self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
-        if ($responseBuffer->getUint16() !== 1) {
-            throw new \Exception('Unexpected version');
-        }
+        $correlationId = $buffer->getUint32();
 
-        $this->correlationId = $responseBuffer->getUint32();
-        $this->responseCode = ResponseCode::from($responseBuffer->getUint16());
+        self::isResponseCodeOk($buffer->getUint16());
+
+        $object = new self();
+        $object->withCorrelationId($correlationId);
+
+        return $object;
+    }
+
+    public static function getKey(): int
+    {
+        return CommandCode::SASL_AUTHENTICATE_RESPONSE->value;
     }
 }

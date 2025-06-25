@@ -4,6 +4,6 @@ namespace CrazyGoat\StreamyCarrot;
 
 interface KeyVersionInterface
 {
-    public function getVersion(): int;
-    public function getKey(): int;
+    public static function getVersion(): int;
+    public static function getKey(): int;
 }

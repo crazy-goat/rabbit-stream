@@ -3,23 +3,26 @@
 namespace CrazyGoat\StreamyCarrot\Request;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
+use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\V1Trait;
 
-class SaslHandshakeRequestV1 extends RequestAbstract implements ToStreamBufferInterface, RequestInterface
+class SaslHandshakeRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
 {
-
-    const VERSION = 1;
-
-    public function getCommandCode(): CommandCode
-    {
-        return CommandCode::SASL_HANDSHAKE;
-    }
+    use CorrelationTrait;
+    use V1Trait;
+    use CommandTrait;
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return (new WriteBuffer())
-            ->addUInt16($this->getCommandCode()->value)
-            ->addUInt16(self::VERSION)
-            ->addUInt32($this->getCorrelationId());
+        return self::getKeyVersion($this->getCorrelationId());
+    }
+
+    static public function getKey(): int
+    {
+        return CommandCode::SASL_HANDSHAKE->value;
     }
 }

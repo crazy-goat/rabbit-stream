@@ -3,14 +3,22 @@
 namespace CrazyGoat\StreamyCarrot\Request;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
+use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\Response\ReadBuffer;
 use CrazyGoat\StreamyCarrot\StreamBufferInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\V1Trait;
 use CrazyGoat\StreamyCarrot\VO\KeyValue;
 
-class PeerPropertiesToStreamBufferV1 extends RequestAbstract implements ToStreamBufferInterface, RequestInterface
+class PeerPropertiesToStreamBufferV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
 {
-    private const VERSION = 1;
+    use CorrelationTrait;
+    use V1Trait;
+    use CommandTrait;
+
     private array $keyValues;
 
     public function __construct(KeyValue ...$keyValues)
@@ -20,15 +28,12 @@ class PeerPropertiesToStreamBufferV1 extends RequestAbstract implements ToStream
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return (new WriteBuffer())
-            ->addUInt16($this->getCommandCode()->value)
-            ->addUInt16(self::VERSION)
-            ->addUInt32($this->getCorrelationId())
+        return self::getKeYVersion($this->getCorrelationId())
             ->addArray(...$this->keyValues);
     }
 
-    public function getCommandCode(): CommandCode
+    static public function getKey(): int
     {
-        return CommandCode::PEER_PROPERTIES;
+        return CommandCode::PEER_PROPERTIES->value;
     }
 }

@@ -3,36 +3,42 @@
 namespace CrazyGoat\StreamyCarrot\Response;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
-use CrazyGoat\StreamyCarrot\ResponseCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
+use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\KeyVersionInterface;
+use CrazyGoat\StreamyCarrot\V1Trait;
 
-class SaslHandshakeResponseV1 implements ResponseInterface
+class SaslHandshakeResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
 {
-    private int $correlationId;
-    private ResponseCode $responseCode;
+    use CorrelationTrait;
+    use CommandTrait;
+    use V1Trait;
+
     private array $mechanisms;
 
-    public function __construct(ReadBuffer $responseBuffer)
+    public function __construct(array $mechanisms)
     {
-        if (CommandCode::fromStreamCode($responseBuffer->getUint16()) !== CommandCode::SASL_HANDSHAKE) {
-            throw new \Exception('Unexpected command code');
-        }
-
-        if ($responseBuffer->getUint16() !== 1) {
-            throw new \Exception('Unexpected version');
-        }
-
-        $this->correlationId = $responseBuffer->getUint32();
-        $this->responseCode = ResponseCode::from($responseBuffer->getUint16());
-        $this->mechanisms = $responseBuffer->getStringArray();
+        $this->mechanisms = $mechanisms;
     }
 
-    public function getResponseCode(): ResponseCode
+    public static function getKey(): int
     {
-        return $this->responseCode;
+        return CommandCode::SASL_HANDSHAKE_RESPONSE->value;
     }
 
-    public function getCorrelationId(): int
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
     {
-        return $this->correlationId;
+        self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
+
+        $correlationId = $buffer->getUint32();
+
+        self::isResponseCodeOk($buffer->getUint16());
+
+        $object = new self($buffer->getStringArray());
+        $object->withCorrelationId($correlationId);
+
+        return $object;
     }
 }

@@ -3,13 +3,18 @@
 namespace CrazyGoat\StreamyCarrot\Request;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
 use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\V1Trait;
 
 class OpenRequest implements KeyVersionInterface, ToStreamBufferInterface, CorrelationInterface
 {
-    private int $correlationId;
+    use CorrelationTrait;
+    use V1Trait;
+    use CommandTrait;
 
     public function __construct(private string $vhost = '/')
     {
@@ -17,30 +22,12 @@ class OpenRequest implements KeyVersionInterface, ToStreamBufferInterface, Corre
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return (new WriteBuffer())
-            ->addUInt16($this->getKey())
-            ->addUInt16($this->getVersion())
-            ->addUInt32($this->getCorrelationId())
+        return self::getKeyVersion($this->getCorrelationId())
             ->addString($this->vhost);
     }
 
-    public function getVersion(): int
-    {
-        return 1;
-    }
-
-    public function getKey(): int
+    static public function getKey(): int
     {
         return CommandCode::OPEN->value;
-    }
-
-    public function getCorrelationId(): int
-    {
-        return $this->correlationId;
-    }
-
-    public function withCorrelationId(int $correlationId): void
-    {
-        $this->correlationId = $correlationId;
     }
 }

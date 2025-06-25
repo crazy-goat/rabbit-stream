@@ -3,20 +3,21 @@
 namespace CrazyGoat\StreamyCarrot\Response;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
 use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
 use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\Request\ResponseCodeInterface;
-use CrazyGoat\StreamyCarrot\ResponseCode;
+use CrazyGoat\StreamyCarrot\V1Trait;
 use CrazyGoat\StreamyCarrot\VO\KeyValue;
 
 class OpenResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
 {
-    private int $correlationId;
-    private ResponseCode $responseCode;
-    /**
-     * @var KeyValue[]
-     */
+    use CorrelationTrait;
+    use CommandTrait;
+    use V1Trait;
+
+    /** @var KeyValue[] */
     private array $connectionProperties;
 
     public function __construct(KeyValue ...$connectionProperties)
@@ -24,31 +25,13 @@ class OpenResponseV1 implements KeyVersionInterface, CorrelationInterface, FromS
         $this->connectionProperties = $connectionProperties;
     }
 
-    public function getCorrelationId(): int
-    {
-        return $this->correlationId;
-    }
-
-    public function withCorrelationId(int $correlationId): void
-    {
-        $this->correlationId = $correlationId;
-    }
-
     public static function fromStreamBuffer(ReadBuffer $buffer): ?object
     {
-        if (CommandCode::fromStreamCode($buffer->getUint16()) !== CommandCode::OPEN_RESPONSE) {
-            throw new \Exception('Unexpected command code');
-        }
-
-        if ($buffer->getUint16() !== 1) {
-            throw new \Exception('Unexpected version');
-        }
+        self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
         $correlationId = $buffer->getUint32();
 
-        if (ResponseCode::from($buffer->getUint16()) !== ResponseCode::OK) {
-            throw new \Exception('Unexpected response code');
-        };
+        self::isResponseCodeOk($buffer->getUint16());
 
         $object = new self(...$buffer->getObjectArray(KeyValue::class));
         $object->withCorrelationId($correlationId);
@@ -56,12 +39,7 @@ class OpenResponseV1 implements KeyVersionInterface, CorrelationInterface, FromS
         return $object;
     }
 
-    public function getVersion(): int
-    {
-        return 1;
-    }
-
-    public function getKey(): int
+    static public function getKey(): int
     {
         return CommandCode::OPEN_RESPONSE->value;
     }

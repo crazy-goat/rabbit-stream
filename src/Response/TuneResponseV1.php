@@ -13,12 +13,12 @@ class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface
     {
     }
 
-    public function getVersion(): int
+    static public function getVersion(): int
     {
         return 1;
     }
 
-    public function getKey(): int
+    static public function getKey(): int
     {
         return CommandCode::TUNE_RESPONSE->value;
     }
@@ -26,8 +26,8 @@ class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface
     public function toStreamBuffer(): WriteBuffer
     {
         return (new WriteBuffer())
-            ->addUInt16($this->getKey())
-            ->addUInt16($this->getVersion())
+            ->addUInt16(self::getKey())
+            ->addUInt16(self::getVersion())
             ->addUInt32($this->frameMax)
             ->addUInt32($this->heartbeat);
     }

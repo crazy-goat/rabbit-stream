@@ -3,37 +3,46 @@
 namespace CrazyGoat\StreamyCarrot\Response;
 
 use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\CommandTrait;
+use CrazyGoat\StreamyCarrot\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\CorrelationTrait;
+use CrazyGoat\StreamyCarrot\FromStreamBufferInterface;
+use CrazyGoat\StreamyCarrot\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\ResponseCode;
+use CrazyGoat\StreamyCarrot\V1Trait;
 use CrazyGoat\StreamyCarrot\VO\KeyValue;
 
-class PeerPropertiesResponseV1 implements ResponseInterface
+class PeerPropertiesResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
 {
-    private int $correlationId = 0;
-    private ResponseCode $responseCode;
+    use CorrelationTrait;
+    use CommandTrait;
+    use V1Trait;
+
     private array $peerProperty;
 
-    public function __construct(ReadBuffer $responseBuffer)
+    public function __construct(KeyValue ...$peerProperty)
     {
-        if (CommandCode::fromStreamCode($responseBuffer->getUint16()) !== CommandCode::PEER_PROPERTIES) {
-            throw new \Exception('Unexpected command code');
-        }
-
-        if ($responseBuffer->getUint16() !== 1) {
-            throw new \Exception('Unexpected version');
-        }
-
-        $this->correlationId = $responseBuffer->getUint32();
-        $this->responseCode = ResponseCode::from($responseBuffer->getUint16());
-        $this->peerProperty = $responseBuffer->getObjectArray(KeyValue::class);
-    }
-
-    public function getCorrelationId(): int
-    {
-        return $this->correlationId;
+        $this->peerProperty = $peerProperty;
     }
 
     public function getPeerProperty(): array
     {
         return $this->peerProperty;
+    }
+
+    public static function getKey(): int
+    {
+        return CommandCode::PEER_PROPERTIES_RESPONSE->value;
+    }
+
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    {
+        self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
+
+        $correlationId = $buffer->getUint32();
+
+        self::isResponseCodeOk($buffer->getUint16());
+
+        return new self(...$buffer->getObjectArray(KeyValue::class));
     }
 }
