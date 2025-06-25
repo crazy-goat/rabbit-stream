@@ -2,7 +2,7 @@
 
 namespace CrazyGoat\StreamyCarrot;
 
-use CrazyGoat\StreamyCarrot\Request\WriteBuffer;
+use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 
 trait CommandTrait
 {

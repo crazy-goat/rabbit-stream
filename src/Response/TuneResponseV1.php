@@ -2,9 +2,9 @@
 
 namespace CrazyGoat\StreamyCarrot\Response;
 
+use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 use CrazyGoat\StreamyCarrot\CommandCode;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\Request\WriteBuffer;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
 
 class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface

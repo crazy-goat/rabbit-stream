@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\StreamyCarrot\Request;
 
+use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 use CrazyGoat\StreamyCarrot\CommandCode;
 use CrazyGoat\StreamyCarrot\CommandTrait;
 use CrazyGoat\StreamyCarrot\CorrelationInterface;

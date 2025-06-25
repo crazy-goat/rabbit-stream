@@ -2,12 +2,12 @@
 
 namespace CrazyGoat\StreamyCarrot\Request;
 
+use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 use CrazyGoat\StreamyCarrot\CommandCode;
 use CrazyGoat\StreamyCarrot\CommandTrait;
 use CrazyGoat\StreamyCarrot\CorrelationInterface;
 use CrazyGoat\StreamyCarrot\CorrelationTrait;
 use CrazyGoat\StreamyCarrot\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\Response\ReadBuffer;
 use CrazyGoat\StreamyCarrot\StreamBufferInterface;
 use CrazyGoat\StreamyCarrot\ToStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\V1Trait;

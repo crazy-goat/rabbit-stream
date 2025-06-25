@@ -1,6 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Request;
+namespace CrazyGoat\StreamyCarrot\Buffer;
+
+use CrazyGoat\StreamyCarrot\Request\StreamBufferInterface;
 
 class WriteBuffer
 {

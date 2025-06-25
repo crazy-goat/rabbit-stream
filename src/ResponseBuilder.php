@@ -1,9 +1,13 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Response;
+namespace CrazyGoat\StreamyCarrot;
 
-use CrazyGoat\StreamyCarrot\CommandCode;
+use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
 use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
+use CrazyGoat\StreamyCarrot\Response\OpenResponseV1;
+use CrazyGoat\StreamyCarrot\Response\PeerPropertiesResponseV1;
+use CrazyGoat\StreamyCarrot\Response\SaslAuthenticateResponseV1;
+use CrazyGoat\StreamyCarrot\Response\SaslHandshakeResponseV1;
 
 class ResponseBuilder
 {

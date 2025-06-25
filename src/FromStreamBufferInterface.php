@@ -2,7 +2,7 @@
 
 namespace CrazyGoat\StreamyCarrot;
 
-use CrazyGoat\StreamyCarrot\Response\ReadBuffer;
+use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
 
 interface FromStreamBufferInterface
 {

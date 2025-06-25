@@ -2,10 +2,8 @@
 
 namespace CrazyGoat\StreamyCarrot;
 
-use CrazyGoat\StreamyCarrot\Request\WriteBuffer;
-use CrazyGoat\StreamyCarrot\Request\RequestInterface;
-use CrazyGoat\StreamyCarrot\Response\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Response\ResponseBuilder;
+use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
+use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 
 class StreamConnection
 {
@@ -48,11 +46,11 @@ class StreamConnection
         return $this->connected;
     }
 
-    public function sendMessage(object $request): ?ReadBuffer
+    public function sendMessage(object $request): void
     {
         $this->correlationId++;
 
-        if ($request instanceof RequestInterface || $request instanceof CorrelationInterface) {
+        if ($request instanceof CorrelationInterface) {
             $request->withCorrelationId($this->correlationId);
         }
 
@@ -67,12 +65,6 @@ class StreamConnection
             ->getContents();
 
         $this->sendFrame($frame);
-
-        if (!$request instanceof RequestInterface || !$request->getCommandCode()->hasReturn()) {
-            return null;
-        }
-
-        return $this->readFrame();
     }
 
     public function sendFrame(string $frame): int

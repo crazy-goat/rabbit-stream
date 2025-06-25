@@ -6,7 +6,6 @@ use CrazyGoat\StreamyCarrot\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\StreamyCarrot\Request\SaslHandshakeRequestV1;
 use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
 use CrazyGoat\StreamyCarrot\Response\OpenResponseV1;
-use CrazyGoat\StreamyCarrot\Response\ResponseBuilder;
 use CrazyGoat\StreamyCarrot\Response\TuneResponseV1;
 use CrazyGoat\StreamyCarrot\StreamConnection;
 

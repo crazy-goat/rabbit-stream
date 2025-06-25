@@ -1,6 +1,6 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Response;
+namespace CrazyGoat\StreamyCarrot\Buffer;
 
 class ReadBuffer
 {
