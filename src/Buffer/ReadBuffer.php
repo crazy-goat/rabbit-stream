@@ -110,4 +110,16 @@ class ReadBuffer
         $this->position += $size;
         return $data;
     }
+
+    public function getRemainingBytes(): string
+    {
+        $data = substr($this->buffer, $this->position);
+        $this->position = strlen($this->buffer);
+        return $data;
+    }
+
+    public function peekUint16(): int
+    {
+        return unpack('n', substr($this->buffer, $this->position, 2))[1];
+    }
 }
