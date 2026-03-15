@@ -8,6 +8,7 @@ use CrazyGoat\StreamyCarrot\Request\HeartbeatRequestV1;
 use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
 use CrazyGoat\StreamyCarrot\Response\ConsumerUpdateQueryV1;
 use CrazyGoat\StreamyCarrot\Response\DeclarePublisherResponseV1;
+use CrazyGoat\StreamyCarrot\Response\DeletePublisherResponseV1;
 use CrazyGoat\StreamyCarrot\Response\DeliverResponseV1;
 use CrazyGoat\StreamyCarrot\Response\MetadataUpdateResponseV1;
 use CrazyGoat\StreamyCarrot\Response\OpenResponseV1;
@@ -36,6 +37,7 @@ class ResponseBuilder
     {
         return match ($command) {
             KeyEnum::DECLARE_PUBLISHER_RESPONSE => DeclarePublisherResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::DELETE_PUBLISHER_RESPONSE => DeletePublisherResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PUBLISH_CONFIRM => PublishConfirmResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PUBLISH_ERROR => PublishErrorResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::DELIVER => DeliverResponseV1::fromStreamBuffer($responseBuffer),
