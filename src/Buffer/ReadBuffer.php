@@ -10,6 +10,13 @@ class ReadBuffer
     {
     }
 
+    public function getUint8(): int
+    {
+        $data = unpack('C', substr($this->buffer, $this->position, 1))[1];
+        $this->position += 1;
+        return $data;
+    }
+
     public function getUint16(): int
     {
         $data = unpack('n', substr($this->buffer, $this->position, 2))[1];
@@ -26,6 +33,13 @@ class ReadBuffer
     {
         $data = unpack('N', substr($this->buffer, $this->position, 4))[1];
         $this->position += 4;
+        return $data;
+    }
+
+    public function getUint64(): int
+    {
+        $data = unpack('J', substr($this->buffer, $this->position, 8))[1];
+        $this->position += 8;
         return $data;
     }
 

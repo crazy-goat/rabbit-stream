@@ -225,6 +225,25 @@ After every merge to `main`, always do the following:
 
 ---
 
+## Server-Push Frames (Async)
+
+Some frames are sent **Server → Client** without a correlation ID — they are not responses to a specific request. These require a `readLoop()` dispatcher in `StreamConnection`, not a simple `readMessage()` call.
+
+| Key    | Command         | Routed by        | Notes |
+|--------|-----------------|------------------|-------|
+| `0x0003` | PublishConfirm  | `publisherId`    | Async confirm after Publish |
+| `0x0004` | PublishError    | `publisherId`    | Async error after Publish |
+| `0x0008` | Deliver         | `subscriptionId` | Message delivery to consumer |
+| `0x0010` | MetadataUpdate  | stream name      | Stream topology changed |
+| `0x0017` | Heartbeat       | —                | Must echo back immediately |
+| `0x001a` | ConsumerUpdate  | `subscriptionId` | Server asks client for offset; client must reply |
+
+**Rule:** `PublishConfirm` and `PublishError` use the **request key** (`0x0003`/`0x0004`), NOT the response key (`0x8003`/`0x8004`). Same for `Deliver` (`0x0008`), `MetadataUpdate` (`0x0010`), `Heartbeat` (`0x0017`), `ConsumerUpdate` (`0x001a`).
+
+The `readLoop()` implementation is tracked in `tasks/read-loop.md` and should be done on branch `feature/read-loop` after `feature/publish` is merged.
+
+---
+
 ## Known Issues / Technical Debt
 
 These exist in the current codebase — do not replicate them in new code:
