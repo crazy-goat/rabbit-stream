@@ -9,7 +9,6 @@ use CrazyGoat\StreamyCarrot\Request\PublishRequestV1;
 use CrazyGoat\StreamyCarrot\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\StreamyCarrot\Request\SaslHandshakeRequestV1;
 use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
-use CrazyGoat\StreamyCarrot\Response\PublishConfirmResponseV1;
 use CrazyGoat\StreamyCarrot\Response\TuneResponseV1;
 use CrazyGoat\StreamyCarrot\StreamConnection;
 use CrazyGoat\StreamyCarrot\VO\PublishedMessage;
@@ -57,12 +56,21 @@ class PublishTest extends TestCase
         $connection->sendMessage(new DeclarePublisherRequestV1(1, null, 'test-stream'));
         $connection->readMessage();
 
-        $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(1, 'hello world')));
-        $response = $connection->readMessage();
+        $confirmedIds = [];
+        $connection->registerPublisher(
+            publisherId: 1,
+            onConfirm: function (array $ids) use (&$confirmedIds): void {
+                $confirmedIds = $ids;
+            },
+            onError: function (array $errors): void {
+                $this->fail('Unexpected publish error: ' . json_encode($errors));
+            },
+        );
 
-        $this->assertInstanceOf(PublishConfirmResponseV1::class, $response);
-        $this->assertSame(1, $response->getPublisherId());
-        $this->assertSame([1], $response->getPublishingIds());
+        $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(1, 'hello world')));
+        $connection->readLoop(maxFrames: 1);
+
+        $this->assertSame([1], $confirmedIds);
 
         $connection->close();
     }
@@ -74,17 +82,26 @@ class PublishTest extends TestCase
         $connection->sendMessage(new DeclarePublisherRequestV1(1, null, 'test-stream'));
         $connection->readMessage();
 
+        $confirmedIds = [];
+        $connection->registerPublisher(
+            publisherId: 1,
+            onConfirm: function (array $ids) use (&$confirmedIds): void {
+                $confirmedIds = $ids;
+            },
+            onError: function (array $errors): void {
+                $this->fail('Unexpected publish error: ' . json_encode($errors));
+            },
+        );
+
         $connection->sendMessage(new PublishRequestV1(
             1,
             new PublishedMessage(1, 'message-one'),
             new PublishedMessage(2, 'message-two'),
             new PublishedMessage(3, 'message-three'),
         ));
-        $response = $connection->readMessage();
+        $connection->readLoop(maxFrames: 1);
 
-        $this->assertInstanceOf(PublishConfirmResponseV1::class, $response);
-        $this->assertSame(1, $response->getPublisherId());
-        $this->assertCount(3, $response->getPublishingIds());
+        $this->assertCount(3, $confirmedIds);
 
         $connection->close();
     }

@@ -242,6 +242,38 @@ Some frames are sent **Server → Client** without a correlation ID — they are
 
 The `readLoop()` implementation is tracked in `tasks/read-loop.md` and should be done on branch `feature/read-loop` after `feature/publish` is merged.
 
+### How readMessage() handles server-push frames
+
+`readMessage()` uses an internal loop with `socket_select()` to handle server-push frames transparently:
+
+```
+readMessage():
+    while (true):
+        wait for data via socket_select()
+        frame = readFrame()
+        if frame.key is server-push (0x0003/0x0004/0x0008/0x0010/0x0017/0x001a):
+            dispatch(frame) → call registered callback, echo heartbeat, etc.
+            continue        → keep reading
+        else:
+            return frame    → give caller the response they were waiting for
+```
+
+This mirrors how Go/Java clients work (dedicated goroutine/thread reading all frames), but in single-threaded PHP using `socket_select()` instead. Callers of `readMessage()` never see server-push frames — they are handled transparently inside the loop.
+
+**Consequence:** existing tests do NOT need to change. `readMessage()` still returns the expected response type; it just silently handles any server-push frames that arrive before it.
+
+### readLoop() for pure async use
+
+For publishing/consuming where the caller wants to drive the loop themselves:
+
+```php
+$connection->registerPublisher(1, onConfirm: fn($ids) => ..., onError: fn($errs) => ...);
+$connection->sendMessage(new PublishRequestV1(...));
+$connection->readLoop(maxFrames: 1); // blocks until 1 server-push frame dispatched
+```
+
+`readLoop()` also uses `socket_select()` internally and dispatches all frames to callbacks.
+
 ---
 
 ## Known Issues / Technical Debt
