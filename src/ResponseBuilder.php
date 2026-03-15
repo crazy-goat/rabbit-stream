@@ -5,6 +5,7 @@ namespace CrazyGoat\StreamyCarrot;
 use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
 use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
 use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
+use CrazyGoat\StreamyCarrot\Response\DeclarePublisherResponseV1;
 use CrazyGoat\StreamyCarrot\Response\OpenResponseV1;
 use CrazyGoat\StreamyCarrot\Response\PeerPropertiesResponseV1;
 use CrazyGoat\StreamyCarrot\Response\SaslAuthenticateResponseV1;
@@ -27,6 +28,7 @@ class ResponseBuilder
     private static function getV1(KeyEnum $command, ReadBuffer $responseBuffer): ?object
     {
         return match ($command) {
+            KeyEnum::DECLARE_PUBLISHER_RESPONSE => DeclarePublisherResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::TUNE =>  TuneRequestV1::fromStreamBuffer($responseBuffer),
             KeyEnum::SASL_HANDSHAKE_RESPONSE => SaslHandshakeResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::SASL_AUTHENTICATE_RESPONSE => SaslAuthenticateResponseV1::fromStreamBuffer($responseBuffer),
