@@ -73,13 +73,13 @@ jobs:
     runs-on: ubuntu-latest
     services:
       rabbitmq:
-        image: rabbitmq:4
+        image: rabbitmq:4-management
         env:
           RABBITMQ_DEFAULT_USER: guest
           RABBITMQ_DEFAULT_PASS: guest
-          RABBITMQ_ENABLED_PLUGINS_FILE: /etc/rabbitmq/enabled_plugins
         ports:
           - 5552:5552
+          - 15672:15672
         options: >-
           --health-cmd "rabbitmq-diagnostics check_port_connectivity"
           --health-interval 5s
@@ -106,7 +106,9 @@ jobs:
 
       - name: Create test fixtures
         run: |
-          docker exec ${{ job.services.rabbitmq.id }} rabbitmqadmin declare queue --name test-stream --type stream --durable true
+          curl -sf -u guest:guest -X PUT http://127.0.0.1:15672/api/queues/%2F/test-stream \
+            -H "Content-Type: application/json" \
+            -d '{"durable":true,"arguments":{"x-queue-type":"stream"}}'
 
       - name: Run E2E tests
         env:
