@@ -211,6 +211,20 @@ KeyEnum::EXAMPLE_RESPONSE => ExampleResponseV1::fromStreamBuffer($responseBuffer
 
 ---
 
+## After Merging a Feature Branch
+
+After every merge to `main`, always do the following:
+
+1. **Remove the task file** from `tasks/` — e.g. `tasks/declare-publisher.md`
+2. **Update `README.md`** — change `❌` to `✅` in the Protocol Implementation Status table
+3. **Update `CHANGELOG.md`** — move items from `[Unreleased]` if releasing, or add to it
+4. Commit directly to `main` with a message like:
+   ```
+   docs: mark DeclarePublisher as implemented in README, remove completed task
+   ```
+
+---
+
 ## Known Issues / Technical Debt
 
 These exist in the current codebase — do not replicate them in new code:
