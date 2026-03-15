@@ -41,17 +41,23 @@ class ReadBuffer
         return $data;
     }
 
-    public function getInt16()
+    public function getInt16(): int
     {
         $data = unpack('n', substr($this->buffer, $this->position, 2))[1];
         $this->position += 2;
+        if ($data >= 0x8000) {
+            $data -= 0x10000;
+        }
         return $data;
     }
 
-    public function getInt32()
+    public function getInt32(): int
     {
         $data = unpack('N', substr($this->buffer, $this->position, 4))[1];
         $this->position += 4;
+        if ($data >= 0x80000000) {
+            $data -= 0x100000000;
+        }
         return $data;
     }
 

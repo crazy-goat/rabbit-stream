@@ -13,5 +13,12 @@
             "email": "halaspiotr@gmail.com"
         }
     ],
-    "require": {}
+    "autoload-dev": {
+        "psr-4": {
+            "CrazyGoat\\StreamyCarrot\\Tests\\": "tests/"
+        }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^13.0"
+    }
 }

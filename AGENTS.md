@@ -12,17 +12,39 @@
 
 ## Build / Lint / Test Commands
 
-There are currently **no configured test, lint, or static analysis tools** in this project (no phpunit, phpstan, phpcs, psalm). When adding them:
-
 ```bash
 # Install dependencies
 composer install
+
+# Run all tests
+./vendor/bin/phpunit
+
+# Run a single test file
+./vendor/bin/phpunit tests/Request/SaslHandshakeRequestV1Test.php
+
+# Run a single test method
+./vendor/bin/phpunit --filter testSerializesCorrectly
+
+# Run with verbose output
+./vendor/bin/phpunit --testdox
+
+# Run only unit tests
+./vendor/bin/phpunit --testsuite unit
+
+# Run E2E tests (requires RabbitMQ — use the script below)
+./run-e2e.sh
 
 # Run a single example manually (requires running RabbitMQ on 172.17.0.2:5552)
 php examples/simple_publisher.php
 ```
 
-When tests are eventually added, they should go in `tests/` with PSR-4 autoloading under `CrazyGoat\StreamyCarrot\Tests\`.
+Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\StreamyCarrot\Tests\`, mirroring the `src/` structure:
+- `tests/Buffer/` — ReadBuffer, WriteBuffer tests
+- `tests/Request/` — serialization tests for each request class
+- `tests/Response/` — deserialization tests for each response class
+- `tests/E2E/` — integration tests against real RabbitMQ (via Docker)
+
+The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars (default: `127.0.0.1:5552`).
 
 ---
 

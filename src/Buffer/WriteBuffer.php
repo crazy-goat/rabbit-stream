@@ -2,8 +2,6 @@
 
 namespace CrazyGoat\StreamyCarrot\Buffer;
 
-use CrazyGoat\StreamyCarrot\Request\StreamBufferInterface;
-
 class WriteBuffer
 {
     // Signed integers limits
@@ -24,7 +22,7 @@ class WriteBuffer
     private const UINT32_MIN = 0;
     private const UINT32_MAX = 4294967295;
     private const UINT64_MIN = 0;
-    private const UINT64_MAX = 18446744073709551615;
+    private const UINT64_MAX = PHP_INT_MAX;
 
     public function __construct(private string $buffer = '')
     {
@@ -122,11 +120,11 @@ class WriteBuffer
         return $this;
     }
 
-    public function addArray(StreamBufferInterface ...$items): self
+    public function addArray(ToStreamBufferInterface ...$items): self
     {
         $this->addInt32(count($items));
         foreach ($items as $item) {
-            $this->addRaw($item->getStreamBuffer()->getContents());
+            $this->addRaw($item->toStreamBuffer()->getContents());
         }
 
         return $this;
