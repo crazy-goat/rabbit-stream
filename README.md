@@ -81,12 +81,12 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Command        | Key    | Request | Response |
 |----------------|--------|---------|----------|
 | Subscribe      | 0x0007 | ❌      | ❌       |
-| Deliver        | 0x0008 | —       | ❌       |
+| Deliver        | 0x0008 | —       | ✅       |
 | Credit         | 0x0009 | ❌      | ❌       |
 | StoreOffset    | 0x000a | ❌      | —        |
 | QueryOffset    | 0x000b | ❌      | ❌       |
 | Unsubscribe    | 0x000c | ❌      | ❌       |
-| ConsumerUpdate | 0x001a | —       | ❌       |
+| ConsumerUpdate | 0x001a | ✅      | ✅       |
 
 ### Stream Management
 
@@ -95,7 +95,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Create          | 0x000d | ❌      | ❌       |
 | Delete          | 0x000e | ❌      | ❌       |
 | Metadata        | 0x000f | ❌      | ❌       |
-| MetadataUpdate  | 0x0010 | —       | ❌       |
+| MetadataUpdate  | 0x0010 | —       | ✅       |
 | CreateSuperStream | 0x001d | ❌    | ❌       |
 | DeleteSuperStream | 0x001e | ❌    | ❌       |
 | StreamStats     | 0x001c | ❌      | ❌       |
@@ -112,7 +112,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Command                | Key    | Request | Response |
 |------------------------|--------|---------|----------|
 | Close                  | 0x0016 | ❌      | ❌       |
-| Heartbeat              | 0x0017 | ❌      | —        |
+| Heartbeat              | 0x0017 | ✅      | —        |
 | ExchangeCommandVersions| 0x001b | ❌      | ❌       |
 | ResolveOffsetSpec      | 0x001f | ❌      | ❌       |
 
