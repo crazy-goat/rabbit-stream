@@ -116,7 +116,7 @@ examples/         # Working usage examples
 
 ## Implementing a New Protocol Command
 
-Every protocol command needs up to 4 things. See GitHub issues for per-command specs: https://github.com/crazy-goat/rabbit-stream/issues
+Every protocol command needs up to 4 things.
 
 ### 1. Request class (client → server)
 
