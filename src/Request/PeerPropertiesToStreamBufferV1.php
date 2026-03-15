@@ -5,7 +5,6 @@ namespace CrazyGoat\StreamyCarrot\Request;
 use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\StreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
 use CrazyGoat\StreamyCarrot\Trait\CorrelationInterface;
 use CrazyGoat\StreamyCarrot\Trait\CorrelationTrait;
@@ -28,7 +27,7 @@ class PeerPropertiesToStreamBufferV1 implements ToStreamBufferInterface, Correla
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return self::getKeYVersion($this->getCorrelationId())
+        return self::getKeyVersion($this->getCorrelationId())
             ->addArray(...$this->keyValues);
     }
 
