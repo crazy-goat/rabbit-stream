@@ -10,7 +10,7 @@ class PublishErrorResponseV1Test extends TestCase
 {
     public function testDeserializesWithSingleError(): void
     {
-        $raw = pack('n', 0x8004)
+        $raw = pack('n', 0x0004)
             . pack('n', 1)
             . pack('C', 3)
             . pack('N', 1)
@@ -29,7 +29,7 @@ class PublishErrorResponseV1Test extends TestCase
 
     public function testDeserializesWithMultipleErrors(): void
     {
-        $raw = pack('n', 0x8004)
+        $raw = pack('n', 0x0004)
             . pack('n', 1)
             . pack('C', 1)
             . pack('N', 2)

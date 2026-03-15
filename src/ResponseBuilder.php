@@ -31,8 +31,8 @@ class ResponseBuilder
     {
         return match ($command) {
             KeyEnum::DECLARE_PUBLISHER_RESPONSE => DeclarePublisherResponseV1::fromStreamBuffer($responseBuffer),
-            KeyEnum::PUBLISH_CONFIRM_RESPONSE => PublishConfirmResponseV1::fromStreamBuffer($responseBuffer),
-            KeyEnum::PUBLISH_ERROR_RESPONSE => PublishErrorResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::PUBLISH_CONFIRM => PublishConfirmResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::PUBLISH_ERROR => PublishErrorResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::TUNE =>  TuneRequestV1::fromStreamBuffer($responseBuffer),
             KeyEnum::SASL_HANDSHAKE_RESPONSE => SaslHandshakeResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::SASL_AUTHENTICATE_RESPONSE => SaslAuthenticateResponseV1::fromStreamBuffer($responseBuffer),

@@ -10,7 +10,7 @@ class PublishConfirmResponseV1Test extends TestCase
 {
     public function testDeserializesWithSinglePublishingId(): void
     {
-        $raw = pack('n', 0x8003)
+        $raw = pack('n', 0x0003)
             . pack('n', 1)
             . pack('C', 5)
             . pack('N', 1)
@@ -25,7 +25,7 @@ class PublishConfirmResponseV1Test extends TestCase
 
     public function testDeserializesWithMultiplePublishingIds(): void
     {
-        $raw = pack('n', 0x8003)
+        $raw = pack('n', 0x0003)
             . pack('n', 1)
             . pack('C', 1)
             . pack('N', 3)
@@ -41,7 +41,7 @@ class PublishConfirmResponseV1Test extends TestCase
 
     public function testDeserializesWithNoPublishingIds(): void
     {
-        $raw = pack('n', 0x8003)
+        $raw = pack('n', 0x0003)
             . pack('n', 1)
             . pack('C', 2)
             . pack('N', 0);

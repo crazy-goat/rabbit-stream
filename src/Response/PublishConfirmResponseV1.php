@@ -45,6 +45,6 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
 
     static public function getKey(): int
     {
-        return KeyEnum::PUBLISH_CONFIRM_RESPONSE->value;
+        return KeyEnum::PUBLISH_CONFIRM->value;
     }
 }

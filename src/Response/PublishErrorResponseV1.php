@@ -46,6 +46,6 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
 
     static public function getKey(): int
     {
-        return KeyEnum::PUBLISH_ERROR_RESPONSE->value;
+        return KeyEnum::PUBLISH_ERROR->value;
     }
 }
