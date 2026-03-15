@@ -210,6 +210,19 @@ KeyEnum::EXAMPLE_RESPONSE => ExampleResponseV1::fromStreamBuffer($responseBuffer
 
 ---
 
+## Branching Strategy
+
+Always implement new features on a dedicated branch, never directly on `main`:
+
+```bash
+git checkout -b feature/issue-{number}-{short-description}
+# e.g. git checkout -b feature/issue-9-delete-publisher
+```
+
+Open a PR when done. Merge to `main` only after review.
+
+---
+
 ## After Merging a Feature Branch
 
 After every merge to `main`, always do the following:
