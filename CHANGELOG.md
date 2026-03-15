@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-03-15
+
 ### Added
 - `DeclarePublisherRequestV1` — client-side request to register a publisher on a stream (key `0x0001`)
 - `DeclarePublisherResponseV1` — server response for DeclarePublisher
