@@ -6,11 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-15
+
 ### Added
 - `PublishRequestV1` — client-side request to publish messages to a stream (key `0x0002`, protocol v1)
 - `PublishRequestV2` — publish request with filter value support (key `0x0002`, protocol v2)
-- `PublishConfirmResponseV1` — server confirmation of published messages (key `0x8003`)
-- `PublishErrorResponseV1` — server error response for failed publishes (key `0x8004`)
+- `PublishConfirmResponseV1` — server confirmation of published messages (key `0x0003`)
+- `PublishErrorResponseV1` — server error response for failed publishes (key `0x0004`)
 - `PublishedMessage` VO — wraps publishing ID and message bytes for v1 publish
 - `PublishedMessageV2` VO — wraps publishing ID, filter value and message bytes for v2 publish
 - `PublishingError` VO — wraps publishing ID and error code from server error response

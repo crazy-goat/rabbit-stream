@@ -70,9 +70,9 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Command                | Key    | Request | Response |
 |------------------------|--------|---------|----------|
 | DeclarePublisher       | 0x0001 | ✅      | ✅       |
-| Publish                | 0x0002 | ❌      | —        |
-| PublishConfirm         | 0x0003 | —       | ❌       |
-| PublishError           | 0x0004 | —       | ❌       |
+| Publish                | 0x0002 | ✅      | —        |
+| PublishConfirm         | 0x0003 | —       | ✅       |
+| PublishError           | 0x0004 | —       | ✅       |
 | QueryPublisherSequence | 0x0005 | ❌      | ❌       |
 | DeletePublisher        | 0x0006 | ❌      | ❌       |
 
