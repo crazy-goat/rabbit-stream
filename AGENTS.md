@@ -60,7 +60,6 @@ src/
 ├── VO/           # Value Objects (KeyValue)
 ├── ResponseBuilder.php   # Static dispatcher: raw buffer → typed response object
 └── StreamConnection.php  # TCP socket connection management
-tasks/            # Markdown files describing unimplemented protocol commands
 examples/         # Working usage examples
 ```
 
@@ -215,12 +214,12 @@ KeyEnum::EXAMPLE_RESPONSE => ExampleResponseV1::fromStreamBuffer($responseBuffer
 
 After every merge to `main`, always do the following:
 
-1. **Remove the task file** from `tasks/` — e.g. `tasks/declare-publisher.md`
+1. **Close the GitHub issue** — e.g. `gh issue close 21`
 2. **Update `README.md`** — change `❌` to `✅` in the Protocol Implementation Status table
 3. **Update `CHANGELOG.md`** — move items from `[Unreleased]` if releasing, or add to it
 4. Commit directly to `main` with a message like:
    ```
-   docs: mark DeclarePublisher as implemented in README, remove completed task
+   docs: mark Subscribe as implemented in README, close issue #21
    ```
 
 ---
@@ -240,7 +239,7 @@ Some frames are sent **Server → Client** without a correlation ID — they are
 
 **Rule:** `PublishConfirm` and `PublishError` use the **request key** (`0x0003`/`0x0004`), NOT the response key (`0x8003`/`0x8004`). Same for `Deliver` (`0x0008`), `MetadataUpdate` (`0x0010`), `Heartbeat` (`0x0017`), `ConsumerUpdate` (`0x001a`).
 
-The `readLoop()` implementation is tracked in `tasks/read-loop.md` and should be done on branch `feature/read-loop` after `feature/publish` is merged.
+The `readLoop()` implementation is done — see `src/StreamConnection.php`.
 
 ### How readMessage() handles server-push frames
 
