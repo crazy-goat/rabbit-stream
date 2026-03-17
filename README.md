@@ -94,7 +94,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 |-----------------|--------|---------|----------|
 | Create          | 0x000d | ✅      | ✅       |
 | Delete          | 0x000e | ❌      | ❌       |
-| Metadata        | 0x000f | ❌      | ❌       |
+| Metadata        | 0x000f | ✅      | ✅       |
 | MetadataUpdate  | 0x0010 | —       | ✅       |
 | CreateSuperStream | 0x001d | ❌    | ❌       |
 | DeleteSuperStream | 0x001e | ❌    | ❌       |
