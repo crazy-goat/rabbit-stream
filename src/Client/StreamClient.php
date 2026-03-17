@@ -4,9 +4,11 @@ namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Request\OpenRequest;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 
@@ -58,6 +60,18 @@ class StreamClient
     public function readLoop(?int $maxFrames = null): void
     {
         $this->connection->readLoop($maxFrames);
+    }
+
+    public function queryPublisherSequence(string $reference, string $stream): int
+    {
+        $this->connection->sendMessage(new QueryPublisherSequenceRequestV1($reference, $stream));
+        $response = $this->connection->readMessage();
+
+        if (!$response instanceof QueryPublisherSequenceResponseV1) {
+            throw new \Exception("Expected QueryPublisherSequenceResponseV1, got " . get_class($response));
+        }
+
+        return $response->getSequence();
     }
 
     public function close(): void

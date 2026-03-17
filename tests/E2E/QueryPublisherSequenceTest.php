@@ -1,0 +1,111 @@
+<?php
+
+namespace CrazyGoat\RabbitStream\Tests\E2E;
+
+use CrazyGoat\RabbitStream\Request\CreateStreamRequestV1;
+use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
+use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\CreateStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
+use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
+use CrazyGoat\RabbitStream\StreamConnection;
+use PHPUnit\Framework\TestCase;
+
+class QueryPublisherSequenceTest extends TestCase
+{
+    private static string $host = '127.0.0.1';
+    private static int $port = 5552;
+    private static string $stream = 'test-query-publisher-sequence-stream';
+    private static string $publisherReference = 'test-publisher-ref';
+
+    public static function setUpBeforeClass(): void
+    {
+        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
+        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
+    }
+
+    private function connectAndOpen(): StreamConnection
+    {
+        $connection = new StreamConnection(self::$host, self::$port);
+        $connection->connect();
+
+        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $connection->readMessage();
+
+        $connection->sendMessage(new SaslHandshakeRequestV1());
+        $connection->readMessage();
+
+        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
+        $connection->readMessage();
+
+        $tune = $connection->readMessage();
+        $this->assertInstanceOf(TuneRequestV1::class, $tune);
+        $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
+
+        $connection->sendMessage(new OpenRequest('/'));
+        $connection->readMessage();
+
+        return $connection;
+    }
+
+    public function testQueryPublisherSequenceReturnsZeroForNewPublisher(): void
+    {
+        $connection = $this->connectAndOpen();
+
+        // Create stream
+        $connection->sendMessage(new CreateStreamRequestV1(self::$stream, []));
+        $createResponse = $connection->readMessage();
+        $this->assertInstanceOf(CreateStreamResponseV1::class, $createResponse);
+
+        // Declare publisher with reference
+        $connection->sendMessage(new DeclarePublisherRequestV1(1, self::$publisherReference, self::$stream));
+        $declareResponse = $connection->readMessage();
+        $this->assertInstanceOf(DeclarePublisherResponseV1::class, $declareResponse);
+
+        // Query sequence before publishing
+        $connection->sendMessage(new QueryPublisherSequenceRequestV1(self::$publisherReference, self::$stream));
+        $response = $connection->readMessage();
+
+        $this->assertInstanceOf(QueryPublisherSequenceResponseV1::class, $response);
+        $this->assertSame(0, $response->getSequence());
+
+        $connection->close();
+    }
+
+    public function testQueryPublisherSequenceReturnsLastPublishedId(): void
+    {
+        $connection = $this->connectAndOpen();
+
+        // Create stream
+        $connection->sendMessage(new CreateStreamRequestV1(self::$stream, []));
+        $createResponse = $connection->readMessage();
+        $this->assertInstanceOf(CreateStreamResponseV1::class, $createResponse);
+
+        // Declare publisher
+        $connection->sendMessage(new DeclarePublisherRequestV1(1, self::$publisherReference, self::$stream));
+        $declareResponse = $connection->readMessage();
+        $this->assertInstanceOf(DeclarePublisherResponseV1::class, $declareResponse);
+
+        // Publish a message with publishingId = 5
+        $connection->sendMessage(new PublishRequestV1(1, [
+            ['publishingId' => 5, 'body' => 'test message'],
+        ]));
+        $connection->readMessage(); // Read publish confirm
+
+        // Query sequence - should return 5
+        $connection->sendMessage(new QueryPublisherSequenceRequestV1(self::$publisherReference, self::$stream));
+        $response = $connection->readMessage();
+
+        $this->assertInstanceOf(QueryPublisherSequenceResponseV1::class, $response);
+        $this->assertSame(5, $response->getSequence());
+
+        $connection->close();
+    }
+}
