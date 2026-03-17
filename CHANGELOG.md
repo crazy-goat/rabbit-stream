@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `MetadataRequestV1` — client-side request to query stream broker and replica info (key `0x000f`)
+- `MetadataResponseV1` — server response with broker list and stream metadata (key `0x800f`)
+- `Broker` VO — represents a broker with reference, host, and port
+- `StreamMetadata` VO — represents stream info with leader and replica references
+- `KeyEnum::METADATA_RESPONSE` (`0x800f`)
 - `CreditRequestV1` — client-side request to grant flow-control credits (key `0x0009`)
 - `CreditResponseV1` — server error response for Credit command (key `0x8009`)
 - `KeyEnum::CREDIT_RESPONSE` (`0x8009`)
