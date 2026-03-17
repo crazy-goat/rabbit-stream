@@ -111,7 +111,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 
 | Command                | Key    | Request | Response |
 |------------------------|--------|---------|----------|
-| Close                  | 0x0016 | ❌      | ❌       |
+| Close                  | 0x0016 | ✅      | ✅       |
 | Heartbeat              | 0x0017 | ✅      | —        |
 | ExchangeCommandVersions| 0x001b | ❌      | ❌       |
 | ResolveOffsetSpec      | 0x001f | ❌      | ❌       |
