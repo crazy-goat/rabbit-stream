@@ -43,6 +43,16 @@ class ReadBuffer
         return $data;
     }
 
+    public function getInt64(): int
+    {
+        $data = unpack('J', substr($this->buffer, $this->position, 8))[1];
+        $this->position += 8;
+        if ($data >= 0x8000000000000000) {
+            $data -= 0x10000000000000000;
+        }
+        return $data;
+    }
+
     public function gatString(): ?string
     {
         $len = $this->getInt16();
