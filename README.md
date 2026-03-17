@@ -92,7 +92,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 
 | Command         | Key    | Request | Response |
 |-----------------|--------|---------|----------|
-| Create          | 0x000d | ❌      | ❌       |
+| Create          | 0x000d | ✅      | ✅       |
 | Delete          | 0x000e | ❌      | ❌       |
 | Metadata        | 0x000f | ❌      | ❌       |
 | MetadataUpdate  | 0x0010 | —       | ✅       |

@@ -16,6 +16,7 @@ use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 
@@ -39,6 +40,7 @@ class ResponseBuilder
         return match ($command) {
             KeyEnum::DECLARE_PUBLISHER_RESPONSE => DeclarePublisherResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::DELETE_PUBLISHER_RESPONSE => DeletePublisherResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::CREATE_RESPONSE => CreateResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PUBLISH_CONFIRM => PublishConfirmResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PUBLISH_ERROR => PublishErrorResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::DELIVER => DeliverResponseV1::fromStreamBuffer($responseBuffer),
