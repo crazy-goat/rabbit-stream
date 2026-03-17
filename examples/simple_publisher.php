@@ -1,43 +1,47 @@
 <?php
 
-use CrazyGoat\RabbitStream\Request\OpenRequest;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
-use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
-use CrazyGoat\RabbitStream\Request\TuneRequestV1;
-use CrazyGoat\RabbitStream\Response\OpenResponseV1;
-use CrazyGoat\RabbitStream\Response\TuneResponseV1;
-use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+use CrazyGoat\RabbitStream\Client\ProducerConfig;
+use CrazyGoat\RabbitStream\Client\StreamClient;
+use CrazyGoat\RabbitStream\Client\StreamClientConfig;
 
 include __DIR__ . '/../vendor/autoload.php';
 
-$connection = new StreamConnection('172.17.0.2', 5552);
-$connection->connect();
-$connection->sendMessage(new PeerPropertiesToStreamBufferV1());
-$response = $connection->readMessage();
-var_dump($response);
+$host = getenv('RABBITMQ_HOST') ?: '127.0.0.1';
+$port = (int)(getenv('RABBITMQ_PORT') ?: 5552);
 
-$connection->sendMessage(new SaslHandshakeRequestV1());
-$response = $response = $connection->readMessage();
-var_dump($response);
+echo "Connecting to RabbitMQ Stream at $host:$port...\n";
 
-$connection->sendMessage(new SaslAuthenticateRequestV1("PLAIN", "guest", "guest"));
-$response = $response = $connection->readMessage();
-var_dump($response);
+try {
+    $client = StreamClient::connect(new StreamClientConfig(
+        host: $host,
+        port: $port,
+    ));
 
-$response = $connection->readMessage();
-var_dump($response);
-if (!$response instanceof TuneRequestV1) {
-    throw new Exception("Failed to read Tune request");
+    echo "Connected successfully.\n";
+
+    $producer = $client->createProducer('test-stream', new ProducerConfig(
+        onConfirmation: function (ConfirmationStatus $status): void {
+            if ($status->isConfirmed()) {
+                echo "Message confirmed! ID: {$status->getPublishingId()}\n";
+            } else {
+                echo "Message failed! ID: {$status->getPublishingId()}, Error: {$status->getErrorCode()}\n";
+            }
+        }
+    ));
+
+    echo "Sending message...\n";
+    $producer->send("Hello, RabbitStream!");
+
+    echo "Waiting for confirmation...\n";
+    $client->readLoop(maxFrames: 1);
+
+    echo "Closing...\n";
+    $producer->close();
+    $client->close();
+
+    echo "Done.\n";
+} catch (\Exception $e) {
+    echo "Error: " . $e->getMessage() . "\n";
+    exit(1);
 }
-
-$connection->sendMessage(new TuneResponseV1($response->getFrameMax(), $response->getHeartbeat()));
-$connection->sendMessage(new OpenRequest());
-
-$response = $connection->readMessage();
-var_dump($response);
-if (!$response instanceof OpenResponseV1) {
-    throw new Exception("Failed to read Tune request");
-}
-
-$connection->close();

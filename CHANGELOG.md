@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `StreamClient` — high-level client wrapper with automatic handshake and connection management
+- `StreamClientConfig` — configuration for `StreamClient`
+- `Producer` — high-level producer wrapper for publishing to streams
+- `ProducerConfig` — configuration for `Producer`
+- `ConfirmationStatus` — represents a message confirmation or error event
 - `MetadataRequestV1` — client-side request to query stream broker and replica info (key `0x000f`)
 - `MetadataResponseV1` — server response with broker list and stream metadata (key `0x800f`)
 - `Broker` VO — represents a broker with reference, host, and port
