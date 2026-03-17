@@ -17,36 +17,47 @@ composer require crazy-goat/rabbit-stream
 
 ## Usage
 
+### High-level API (Recommended)
+
+```php
+use CrazyGoat\RabbitStream\Client\StreamClient;
+use CrazyGoat\RabbitStream\Client\StreamClientConfig;
+use CrazyGoat\RabbitStream\Client\ProducerConfig;
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+
+// Connect (handshake and authentication handled automatically)
+$client = StreamClient::connect(new StreamClientConfig(
+    host: '127.0.0.1',
+    user: 'guest',
+    password: 'guest'
+));
+
+// Create a producer for 'my-stream'
+$producer = $client->createProducer('my-stream', new ProducerConfig(
+    onConfirmation: function (ConfirmationStatus $status): void {
+        if ($status->isConfirmed()) {
+            echo "Message {$status->getPublishingId()} confirmed\n";
+        }
+    }
+));
+
+// Send a message
+$producer->send("Hello, RabbitMQ Stream!");
+
+// Drive the loop to receive confirmations (optional, blocking)
+$client->readLoop(maxFrames: 1);
+
+// Close producer and connection
+$producer->close();
+$client->close();
+```
+
+### Low-level Connection API
+
 ```php
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
-use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
-use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\RabbitStream\Request\TuneRequestV1;
-use CrazyGoat\RabbitStream\Request\TuneResponseV1;
-use CrazyGoat\RabbitStream\Request\OpenRequest;
-use CrazyGoat\RabbitStream\Response\TuneResponseV1;
-use CrazyGoat\RabbitStream\Response\OpenResponseV1;
-
-$connection = new StreamConnection('127.0.0.1', 5552);
-$connection->connect();
-
-$connection->sendMessage(new PeerPropertiesToStreamBufferV1());
-$connection->readMessage();
-
-$connection->sendMessage(new SaslHandshakeRequestV1());
-$connection->readMessage();
-
-$connection->sendMessage(new SaslAuthenticateRequestV1("PLAIN", "guest", "guest"));
-$connection->readMessage();
-
-$tune = $connection->readMessage(); // TuneRequest from server
-$connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
-
-$connection->sendMessage(new OpenRequest());
-$connection->readMessage(); // OpenResponse
-
-$connection->close();
+...
 ```
 
 See `examples/simple_publisher.php` for a full working example.

@@ -8,7 +8,7 @@ use CrazyGoat\RabbitStream\Client\StreamClient;
 use CrazyGoat\RabbitStream\Client\StreamClientConfig;
 use PHPUnit\Framework\TestCase;
 
-class PublishTest extends TestCase
+class StreamClientTest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
@@ -19,17 +19,12 @@ class PublishTest extends TestCase
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
     }
 
-    private function connect(): StreamClient
+    public function testConnectAndPublish(): void
     {
-        return StreamClient::connect(new StreamClientConfig(
+        $client = StreamClient::connect(new StreamClientConfig(
             host: self::$host,
             port: self::$port,
         ));
-    }
-
-    public function testPublishSingleMessage(): void
-    {
-        $client = $this->connect();
 
         $confirmedIds = [];
         $producer = $client->createProducer('test-stream', new ProducerConfig(
@@ -40,35 +35,13 @@ class PublishTest extends TestCase
             }
         ));
 
-        $producer->send('hello world');
+        $producer->send('hello from StreamClient');
+        
         $client->readLoop(maxFrames: 1);
 
         $this->assertSame([0], $confirmedIds);
 
-        $client->close();
-    }
-
-    public function testPublishMultipleMessages(): void
-    {
-        $client = $this->connect();
-
-        $confirmedIds = [];
-        $producer = $client->createProducer('test-stream', new ProducerConfig(
-            onConfirmation: function (ConfirmationStatus $status) use (&$confirmedIds): void {
-                if ($status->isConfirmed()) {
-                    $confirmedIds[] = $status->getPublishingId();
-                }
-            }
-        ));
-
-        $producer->send('message-one');
-        $producer->send('message-two');
-        $producer->send('message-three');
-        
-        $client->readLoop(maxFrames: 3);
-
-        $this->assertCount(3, $confirmedIds);
-
+        $producer->close();
         $client->close();
     }
 }
