@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Response;
+namespace CrazyGoat\RabbitStream\Tests\Response;
 
-use CrazyGoat\StreamyCarrot\Response\TuneResponseV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use PHPUnit\Framework\TestCase;
 
 class TuneResponseV1Test extends TestCase

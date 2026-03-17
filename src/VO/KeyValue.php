@@ -1,12 +1,12 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\VO;
+namespace CrazyGoat\RabbitStream\VO;
 
 
-use CrazyGoat\StreamyCarrot\Buffer\FromStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 
 class KeyValue implements FromStreamBufferInterface, ToStreamBufferInterface
 {

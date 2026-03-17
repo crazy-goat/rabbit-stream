@@ -1,4 +1,4 @@
-# StreamyCarrot
+# RabbitStream
 
 A PHP library implementing the [RabbitMQ Streams Protocol](https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/rabbitmq_stream/docs/PROTOCOL.adoc) client.
 
@@ -12,21 +12,21 @@ It provides low-level TCP communication with a RabbitMQ broker over the native S
 ## Installation
 
 ```bash
-composer require crazy-goat/streamy-carrot
+composer require crazy-goat/rabbit-stream
 ```
 
 ## Usage
 
 ```php
-use CrazyGoat\StreamyCarrot\StreamConnection;
-use CrazyGoat\StreamyCarrot\Request\PeerPropertiesToStreamBufferV1;
-use CrazyGoat\StreamyCarrot\Request\SaslHandshakeRequestV1;
-use CrazyGoat\StreamyCarrot\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
-use CrazyGoat\StreamyCarrot\Request\TuneResponseV1;
-use CrazyGoat\StreamyCarrot\Request\OpenRequest;
-use CrazyGoat\StreamyCarrot\Response\TuneResponseV1;
-use CrazyGoat\StreamyCarrot\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneResponseV1;
+use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 
 $connection = new StreamConnection('127.0.0.1', 5552);
 $connection->connect();

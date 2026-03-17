@@ -1,16 +1,16 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Request;
+namespace CrazyGoat\RabbitStream\Request;
 
-use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
-use CrazyGoat\StreamyCarrot\Trait\CorrelationInterface;
-use CrazyGoat\StreamyCarrot\Trait\CorrelationTrait;
-use CrazyGoat\StreamyCarrot\Trait\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\Trait\V1Trait;
-use CrazyGoat\StreamyCarrot\VO\KeyValue;
+use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Trait\CommandTrait;
+use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
+use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
+use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\VO\KeyValue;
 
 class PeerPropertiesToStreamBufferV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
 {

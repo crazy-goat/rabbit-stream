@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Request\PeerPropertiesToStreamBufferV1;
-use CrazyGoat\StreamyCarrot\VO\KeyValue;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\VO\KeyValue;
 use PHPUnit\Framework\TestCase;
 
 class PeerPropertiesToStreamBufferV1Test extends TestCase

@@ -1,19 +1,19 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot;
+namespace CrazyGoat\RabbitStream;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\Request\ConsumerUpdateReplyV1;
-use CrazyGoat\StreamyCarrot\Request\HeartbeatRequestV1;
-use CrazyGoat\StreamyCarrot\Response\ConsumerUpdateQueryV1;
-use CrazyGoat\StreamyCarrot\Response\DeliverResponseV1;
-use CrazyGoat\StreamyCarrot\Response\MetadataUpdateResponseV1;
-use CrazyGoat\StreamyCarrot\Response\PublishConfirmResponseV1;
-use CrazyGoat\StreamyCarrot\Response\PublishErrorResponseV1;
-use CrazyGoat\StreamyCarrot\Trait\CorrelationInterface;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
+use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
+use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
+use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
+use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
 
 class StreamConnection
 {

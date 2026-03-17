@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use PHPUnit\Framework\TestCase;
 
 class SaslAuthenticateRequestV1Test extends TestCase

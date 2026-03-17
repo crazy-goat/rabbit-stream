@@ -1,11 +1,11 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Response;
+namespace CrazyGoat\RabbitStream\Response;
 
-use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 
 class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface
 {

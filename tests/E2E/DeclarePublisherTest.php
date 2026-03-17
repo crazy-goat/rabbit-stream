@@ -1,16 +1,16 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\E2E;
+namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\StreamyCarrot\Request\DeclarePublisherRequestV1;
-use CrazyGoat\StreamyCarrot\Request\OpenRequest;
-use CrazyGoat\StreamyCarrot\Request\PeerPropertiesToStreamBufferV1;
-use CrazyGoat\StreamyCarrot\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\StreamyCarrot\Request\SaslHandshakeRequestV1;
-use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
-use CrazyGoat\StreamyCarrot\Response\DeclarePublisherResponseV1;
-use CrazyGoat\StreamyCarrot\Response\TuneResponseV1;
-use CrazyGoat\StreamyCarrot\StreamConnection;
+use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
+use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
+use CrazyGoat\RabbitStream\StreamConnection;
 use PHPUnit\Framework\TestCase;
 
 class DeclarePublisherTest extends TestCase

@@ -1,6 +1,6 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Trait;
+namespace CrazyGoat\RabbitStream\Trait;
 
 trait V1Trait
 {

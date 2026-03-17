@@ -1,10 +1,10 @@
 {
-    "name": "crazy-goat/streamy-carrot",
+    "name": "crazy-goat/rabbit-stream",
     "type": "library",
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "CrazyGoat\\StreamyCarrot\\": "src/"
+            "CrazyGoat\\RabbitStream\\": "src/"
         }
     },
     "authors": [
@@ -15,7 +15,7 @@
     ],
     "autoload-dev": {
         "psr-4": {
-            "CrazyGoat\\StreamyCarrot\\Tests\\": "tests/"
+            "CrazyGoat\\RabbitStream\\Tests\\": "tests/"
         }
     },
     "require-dev": {

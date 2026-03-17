@@ -1,6 +1,6 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Enum;
+namespace CrazyGoat\RabbitStream\Enum;
 
 enum KeyEnum: int
 {

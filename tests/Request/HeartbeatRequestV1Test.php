@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Request\HeartbeatRequestV1;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use PHPUnit\Framework\TestCase;
 
 class HeartbeatRequestV1Test extends TestCase

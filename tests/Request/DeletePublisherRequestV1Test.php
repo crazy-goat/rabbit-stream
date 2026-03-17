@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Request\DeletePublisherRequestV1;
+use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use PHPUnit\Framework\TestCase;
 
 class DeletePublisherRequestV1Test extends TestCase

@@ -1,13 +1,13 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Response;
+namespace CrazyGoat\RabbitStream\Response;
 
-use CrazyGoat\StreamyCarrot\Buffer\FromStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
-use CrazyGoat\StreamyCarrot\Trait\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Trait\CommandTrait;
+use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferInterface
 {

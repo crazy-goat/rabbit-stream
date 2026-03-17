@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Request\DeclarePublisherRequestV1;
+use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use PHPUnit\Framework\TestCase;
 
 class DeclarePublisherRequestV1Test extends TestCase

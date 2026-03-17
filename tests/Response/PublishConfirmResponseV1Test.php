@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Response;
+namespace CrazyGoat\RabbitStream\Tests\Response;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Response\PublishConfirmResponseV1;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use PHPUnit\Framework\TestCase;
 
 class PublishConfirmResponseV1Test extends TestCase
