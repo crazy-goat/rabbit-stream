@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `SubscribeRequestV1` — client-side request to subscribe to a stream (key `0x0007`)
+- `SubscribeResponseV1` — server response for Subscribe command (key `0x8007`)
+- `OffsetSpec` VO — offset specification with factory methods: `first()`, `last()`, `next()`, `offset()`, `timestamp()`, `interval()`
+- `KeyEnum::SUBSCRIBE_RESPONSE` (`0x8007`)
+
 ## [0.5.0] - 2026-03-17
 
 ### Added
