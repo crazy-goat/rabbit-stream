@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `CreateRequestV1` — client-side request to create a new stream (key `0x000d`)
+- `CreateResponseV1` — server response for Create command (key `0x800d`)
+- `KeyEnum::CREATE_RESPONSE` (`0x800d`)
+- E2E test for Create command
 - `CloseRequestV1` — client-side graceful connection shutdown request (key `0x0016`)
 - `CloseResponseV1` — server response for Close command (key `0x8016`)
 - `KeyEnum::CLOSE_RESPONSE` (`0x8016`)
