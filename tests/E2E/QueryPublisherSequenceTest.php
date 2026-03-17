@@ -2,7 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Request\CreateStreamRequestV1;
+use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequest;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
@@ -11,7 +11,7 @@ use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
-use CrazyGoat\RabbitStream\Response\CreateStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
@@ -60,9 +60,9 @@ class QueryPublisherSequenceTest extends TestCase
         $connection = $this->connectAndOpen();
 
         // Create stream
-        $connection->sendMessage(new CreateStreamRequestV1(self::$stream, []));
+        $connection->sendMessage(new CreateRequestV1(self::$stream, []));
         $createResponse = $connection->readMessage();
-        $this->assertInstanceOf(CreateStreamResponseV1::class, $createResponse);
+        $this->assertInstanceOf(CreateResponseV1::class, $createResponse);
 
         // Declare publisher with reference
         $connection->sendMessage(new DeclarePublisherRequestV1(1, self::$publisherReference, self::$stream));
@@ -84,9 +84,9 @@ class QueryPublisherSequenceTest extends TestCase
         $connection = $this->connectAndOpen();
 
         // Create stream
-        $connection->sendMessage(new CreateStreamRequestV1(self::$stream, []));
+        $connection->sendMessage(new CreateRequestV1(self::$stream, []));
         $createResponse = $connection->readMessage();
-        $this->assertInstanceOf(CreateStreamResponseV1::class, $createResponse);
+        $this->assertInstanceOf(CreateResponseV1::class, $createResponse);
 
         // Declare publisher
         $connection->sendMessage(new DeclarePublisherRequestV1(1, self::$publisherReference, self::$stream));
