@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `QueryPublisherSequenceRequestV1` — client-side request to query last published sequence for deduplication (key `0x0005`)
+- `QueryPublisherSequenceResponseV1` — server response with sequence value (key `0x8005`)
+- `KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE` (`0x8005`)
+- `StreamClient::queryPublisherSequence()` — high-level helper method
+- E2E tests for QueryPublisherSequence command
 - `QueryOffsetRequestV1` — client-side request to query stored consumer offset (key `0x000b`)
 - `QueryOffsetResponseV1` — server response with stored offset value (key `0x800b`)
 - `KeyEnum::QUERY_OFFSET_RESPONSE` (`0x800b`)
