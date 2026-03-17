@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `QueryOffsetRequestV1` — client-side request to query stored consumer offset (key `0x000b`)
+- `QueryOffsetResponseV1` — server response with stored offset value (key `0x800b`)
+- `KeyEnum::QUERY_OFFSET_RESPONSE` (`0x800b`)
+- E2E test for QueryOffset command
 - `StreamClient` — high-level client wrapper with automatic handshake and connection management
 - `StreamClientConfig` — configuration for `StreamClient`
 - `Producer` — high-level producer wrapper for publishing to streams

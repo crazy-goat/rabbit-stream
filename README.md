@@ -95,7 +95,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Deliver        | 0x0008 | —       | ✅       |
 | Credit         | 0x0009 | ✅      | ✅       |
 | StoreOffset    | 0x000a | ✅      | —        |
-| QueryOffset    | 0x000b | ❌      | ❌       |
+| QueryOffset    | 0x000b | ✅      | ✅       |
 | Unsubscribe    | 0x000c | ✅      | ✅       |
 | ConsumerUpdate | 0x001a | ✅      | ✅       |
 
