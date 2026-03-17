@@ -84,7 +84,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Publish                | 0x0002 | ✅      | —        |
 | PublishConfirm         | 0x0003 | —       | ✅       |
 | PublishError           | 0x0004 | —       | ✅       |
-| QueryPublisherSequence | 0x0005 | ❌      | ❌       |
+| QueryPublisherSequence | 0x0005 | ✅      | ✅       |
 | DeletePublisher        | 0x0006 | ❌      | ❌       |
 
 ### Consuming
