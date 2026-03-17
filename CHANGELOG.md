@@ -6,18 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-17
+
 ### Added
 - `CreateRequestV1` — client-side request to create a new stream (key `0x000d`)
 - `CreateResponseV1` — server response for Create command (key `0x800d`)
 - `KeyEnum::CREATE_RESPONSE` (`0x800d`)
 - E2E test for Create command
+- PSR-3 logger support — `StreamConnection` now accepts optional `LoggerInterface` parameter
+- `StreamConnectionTest` — unit tests for logger functionality
+
+### Changed
+- `StreamConnection` — replaced debug `echo` statements with `$logger->debug()` calls
+- `composer.json` — added `psr/log ^3.0` dependency
+
+### Fixed
+- `run-e2e.sh` — added missing test stream creation step
+
+## [0.4.0] - 2026-03-16
+
+### Added
 - `CloseRequestV1` — client-side graceful connection shutdown request (key `0x0016`)
 - `CloseResponseV1` — server response for Close command (key `0x8016`)
 - `KeyEnum::CLOSE_RESPONSE` (`0x8016`)
 - E2E test for Close command
-
-### Fixed
-- `run-e2e.sh` — added missing test stream creation step
 
 ## [0.3.0] - 2026-03-15
 
