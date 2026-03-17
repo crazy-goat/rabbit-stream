@@ -17,6 +17,7 @@ use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
+use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
@@ -54,6 +55,7 @@ class ResponseBuilder
             KeyEnum::DELIVER => DeliverResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::METADATA_UPDATE => MetadataUpdateResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::METADATA_RESPONSE => MetadataResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::QUERY_OFFSET_RESPONSE => QueryOffsetResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::HEARTBEAT => HeartbeatRequestV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CONSUMER_UPDATE => ConsumerUpdateQueryV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CREDIT_RESPONSE => CreditResponseV1::fromStreamBuffer($responseBuffer),
