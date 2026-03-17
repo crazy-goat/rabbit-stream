@@ -80,7 +80,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 
 | Command        | Key    | Request | Response |
 |----------------|--------|---------|----------|
-| Subscribe      | 0x0007 | ❌      | ❌       |
+| Subscribe      | 0x0007 | ✅      | ✅       |
 | Deliver        | 0x0008 | —       | ✅       |
 | Credit         | 0x0009 | ❌      | ❌       |
 | StoreOffset    | 0x000a | ❌      | —        |
