@@ -15,6 +15,7 @@ use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
+use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 
@@ -48,6 +49,7 @@ class ResponseBuilder
             KeyEnum::SASL_HANDSHAKE_RESPONSE => SaslHandshakeResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::SASL_AUTHENTICATE_RESPONSE => SaslAuthenticateResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::OPEN_RESPONSE => OpenResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::CLOSE_RESPONSE => CloseResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PEER_PROPERTIES_RESPONSE => PeerPropertiesResponseV1::fromStreamBuffer($responseBuffer),
             default => throw new \Exception('Unexpected match value'),
         };

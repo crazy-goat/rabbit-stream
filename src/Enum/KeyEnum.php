@@ -46,6 +46,7 @@ enum KeyEnum: int
     case SASL_AUTHENTICATE_RESPONSE = 0x8013;
     case TUNE_RESPONSE = 0x8014;
     case OPEN_RESPONSE = 0x8015;
+    case CLOSE_RESPONSE = 0x8016;
 
     public static function fromStreamCode(int $code): KeyEnum
     {
