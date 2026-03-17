@@ -25,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `OffsetSpec` VO — offset specification with factory methods: `first()`, `last()`, `next()`, `offset()`, `timestamp()`, `interval()`
 - `KeyEnum::SUBSCRIBE_RESPONSE` (`0x8007`)
 - E2E test for Subscribe command
+- `UnsubscribeRequestV1` — client-side request to unsubscribe from a stream (key `0x000c`)
+- `UnsubscribeResponseV1` — server response for Unsubscribe command (key `0x800c`)
+- `KeyEnum::UNSUBSCRIBE_RESPONSE` (`0x800c`)
 
 ## [0.5.0] - 2026-03-17
 
