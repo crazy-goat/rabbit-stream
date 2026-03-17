@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `SubscribeResponseV1` — server response for Subscribe command (key `0x8007`)
 - `OffsetSpec` VO — offset specification with factory methods: `first()`, `last()`, `next()`, `offset()`, `timestamp()`, `interval()`
 - `KeyEnum::SUBSCRIBE_RESPONSE` (`0x8007`)
+- E2E test for Subscribe command
 
 ## [0.5.0] - 2026-03-17
 
