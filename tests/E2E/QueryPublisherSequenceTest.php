@@ -22,8 +22,6 @@ class QueryPublisherSequenceTest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
-    private static string $stream = 'test-query-publisher-sequence-stream';
-    private static string $publisherReference = 'test-publisher-ref';
 
     public static function setUpBeforeClass(): void
     {
@@ -58,19 +56,21 @@ class QueryPublisherSequenceTest extends TestCase
     public function testQueryPublisherSequenceReturnsZeroForNewPublisher(): void
     {
         $connection = $this->connectAndOpen();
+        $stream = 'test-query-pub-seq-stream-1';
+        $publisherRef = 'test-publisher-ref-1';
 
         // Create stream
-        $connection->sendMessage(new CreateRequestV1(self::$stream, []));
+        $connection->sendMessage(new CreateRequestV1($stream, []));
         $createResponse = $connection->readMessage();
         $this->assertInstanceOf(CreateResponseV1::class, $createResponse);
 
         // Declare publisher with reference
-        $connection->sendMessage(new DeclarePublisherRequestV1(1, self::$publisherReference, self::$stream));
+        $connection->sendMessage(new DeclarePublisherRequestV1(1, $publisherRef, $stream));
         $declareResponse = $connection->readMessage();
         $this->assertInstanceOf(DeclarePublisherResponseV1::class, $declareResponse);
 
         // Query sequence before publishing
-        $connection->sendMessage(new QueryPublisherSequenceRequestV1(self::$publisherReference, self::$stream));
+        $connection->sendMessage(new QueryPublisherSequenceRequestV1($publisherRef, $stream));
         $response = $connection->readMessage();
 
         $this->assertInstanceOf(QueryPublisherSequenceResponseV1::class, $response);
@@ -82,14 +82,16 @@ class QueryPublisherSequenceTest extends TestCase
     public function testQueryPublisherSequenceReturnsLastPublishedId(): void
     {
         $connection = $this->connectAndOpen();
+        $stream = 'test-query-pub-seq-stream-2';
+        $publisherRef = 'test-publisher-ref-2';
 
         // Create stream
-        $connection->sendMessage(new CreateRequestV1(self::$stream, []));
+        $connection->sendMessage(new CreateRequestV1($stream, []));
         $createResponse = $connection->readMessage();
         $this->assertInstanceOf(CreateResponseV1::class, $createResponse);
 
         // Declare publisher
-        $connection->sendMessage(new DeclarePublisherRequestV1(1, self::$publisherReference, self::$stream));
+        $connection->sendMessage(new DeclarePublisherRequestV1(1, $publisherRef, $stream));
         $declareResponse = $connection->readMessage();
         $this->assertInstanceOf(DeclarePublisherResponseV1::class, $declareResponse);
 
@@ -100,7 +102,7 @@ class QueryPublisherSequenceTest extends TestCase
         $connection->readMessage(); // Read publish confirm
 
         // Query sequence - should return 5
-        $connection->sendMessage(new QueryPublisherSequenceRequestV1(self::$publisherReference, self::$stream));
+        $connection->sendMessage(new QueryPublisherSequenceRequestV1($publisherRef, $stream));
         $response = $connection->readMessage();
 
         $this->assertInstanceOf(QueryPublisherSequenceResponseV1::class, $response);
