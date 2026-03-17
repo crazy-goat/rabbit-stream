@@ -16,6 +16,7 @@ use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use PHPUnit\Framework\TestCase;
 
 class QueryPublisherSequenceTest extends TestCase
@@ -96,9 +97,7 @@ class QueryPublisherSequenceTest extends TestCase
         $this->assertInstanceOf(DeclarePublisherResponseV1::class, $declareResponse);
 
         // Publish a message with publishingId = 5
-        $connection->sendMessage(new PublishRequestV1(1, [
-            ['publishingId' => 5, 'body' => 'test message'],
-        ]));
+        $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(5, 'test message')));
         $connection->readMessage(); // Read publish confirm
 
         // Query sequence - should return 5
