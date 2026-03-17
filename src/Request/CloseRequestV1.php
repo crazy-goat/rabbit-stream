@@ -17,9 +17,17 @@ class CloseRequestV1 implements ToStreamBufferInterface, CorrelationInterface, K
     use V1Trait;
     use CommandTrait;
 
+    public function __construct(
+        private int $closingCode = 0,
+        private string $closingReason = ''
+    ) {
+    }
+
     public function toStreamBuffer(): WriteBuffer
     {
-        return self::getKeyVersion($this->getCorrelationId());
+        return self::getKeyVersion($this->getCorrelationId())
+            ->addUInt16($this->closingCode)
+            ->addString($this->closingReason);
     }
 
     static public function getKey(): int
