@@ -96,9 +96,15 @@ class QueryPublisherSequenceTest extends TestCase
         $declareResponse = $connection->readMessage();
         $this->assertInstanceOf(DeclarePublisherResponseV1::class, $declareResponse);
 
+        // Register publisher callback to handle PublishConfirm
+        $confirmed = false;
+        $connection->registerPublisher(1, function () use (&$confirmed) {
+            $confirmed = true;
+        }, function () {});
+
         // Publish a message with publishingId = 5
         $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(5, 'test message')));
-        $connection->readMessage(); // Read publish confirm
+        $connection->readLoop(maxFrames: 1); // Wait for PublishConfirm
 
         // Query sequence - should return 5
         $connection->sendMessage(new QueryPublisherSequenceRequestV1($publisherRef, $stream));
