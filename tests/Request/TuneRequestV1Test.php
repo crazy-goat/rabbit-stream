@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use PHPUnit\Framework\TestCase;
 
 class TuneRequestV1Test extends TestCase

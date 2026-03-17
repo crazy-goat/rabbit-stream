@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Buffer;
+namespace CrazyGoat\RabbitStream\Tests\Buffer;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use PHPUnit\Framework\TestCase;
 
 class ReadBufferTest extends TestCase

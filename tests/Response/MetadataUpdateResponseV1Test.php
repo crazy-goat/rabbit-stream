@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Response;
+namespace CrazyGoat\RabbitStream\Tests\Response;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Response\MetadataUpdateResponseV1;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use PHPUnit\Framework\TestCase;
 
 class MetadataUpdateResponseV1Test extends TestCase

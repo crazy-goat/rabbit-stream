@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequest;
 use PHPUnit\Framework\TestCase;
 
 class OpenRequestTest extends TestCase

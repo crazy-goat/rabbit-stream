@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Response;
+namespace CrazyGoat\RabbitStream\Tests\Response;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Response\SaslHandshakeResponseV1;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use PHPUnit\Framework\TestCase;
 
 class SaslHandshakeResponseV1Test extends TestCase

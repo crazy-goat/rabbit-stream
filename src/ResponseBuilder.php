@@ -1,22 +1,22 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot;
+namespace CrazyGoat\RabbitStream;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\Request\HeartbeatRequestV1;
-use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
-use CrazyGoat\StreamyCarrot\Response\ConsumerUpdateQueryV1;
-use CrazyGoat\StreamyCarrot\Response\DeclarePublisherResponseV1;
-use CrazyGoat\StreamyCarrot\Response\DeletePublisherResponseV1;
-use CrazyGoat\StreamyCarrot\Response\DeliverResponseV1;
-use CrazyGoat\StreamyCarrot\Response\MetadataUpdateResponseV1;
-use CrazyGoat\StreamyCarrot\Response\OpenResponseV1;
-use CrazyGoat\StreamyCarrot\Response\PeerPropertiesResponseV1;
-use CrazyGoat\StreamyCarrot\Response\PublishConfirmResponseV1;
-use CrazyGoat\StreamyCarrot\Response\PublishErrorResponseV1;
-use CrazyGoat\StreamyCarrot\Response\SaslAuthenticateResponseV1;
-use CrazyGoat\StreamyCarrot\Response\SaslHandshakeResponseV1;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
+use CrazyGoat\RabbitStream\Response\DeletePublisherResponseV1;
+use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
+use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
+use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
+use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 
 class ResponseBuilder
 {

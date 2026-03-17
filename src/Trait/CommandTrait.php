@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Trait;
+namespace CrazyGoat\RabbitStream\Trait;
 
-use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
 trait CommandTrait
 {

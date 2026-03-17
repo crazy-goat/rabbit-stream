@@ -1,13 +1,13 @@
 <?php
 
-use CrazyGoat\StreamyCarrot\Request\OpenRequest;
-use CrazyGoat\StreamyCarrot\Request\PeerPropertiesToStreamBufferV1;
-use CrazyGoat\StreamyCarrot\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\StreamyCarrot\Request\SaslHandshakeRequestV1;
-use CrazyGoat\StreamyCarrot\Request\TuneRequestV1;
-use CrazyGoat\StreamyCarrot\Response\OpenResponseV1;
-use CrazyGoat\StreamyCarrot\Response\TuneResponseV1;
-use CrazyGoat\StreamyCarrot\StreamConnection;
+use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
+use CrazyGoat\RabbitStream\StreamConnection;
 
 include __DIR__ . '/../vendor/autoload.php';
 

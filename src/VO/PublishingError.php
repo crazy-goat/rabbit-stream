@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\VO;
+namespace CrazyGoat\RabbitStream\VO;
 
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 
 class PublishingError
 {

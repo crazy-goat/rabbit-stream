@@ -1,8 +1,8 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Request\SaslHandshakeRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use PHPUnit\Framework\TestCase;
 
 class SaslHandshakeRequestV1Test extends TestCase

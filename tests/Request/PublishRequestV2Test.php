@@ -1,9 +1,9 @@
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Tests\Request;
+namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\StreamyCarrot\Request\PublishRequestV2;
-use CrazyGoat\StreamyCarrot\VO\PublishedMessageV2;
+use CrazyGoat\RabbitStream\Request\PublishRequestV2;
+use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 use PHPUnit\Framework\TestCase;
 
 class PublishRequestV2Test extends TestCase
