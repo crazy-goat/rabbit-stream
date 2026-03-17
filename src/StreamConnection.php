@@ -14,6 +14,8 @@ use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 class StreamConnection
 {
@@ -37,8 +39,11 @@ class StreamConnection
         0x001a,
     ];
 
-    public function __construct(private string $host = '172.17.0.2', private int $port = 5552)
-    {
+    public function __construct(
+        private string $host = '172.17.0.2',
+        private int $port = 5552,
+        private LoggerInterface $logger = new NullLogger(),
+    ) {
     }
 
     public function connect(): void
@@ -126,7 +131,7 @@ class StreamConnection
 
     public function sendFrame(string $frame): int
     {
-        echo "Socket -> " . bin2hex($frame) . PHP_EOL;
+        $this->logger->debug("Socket -> " . bin2hex($frame));
 
         $written = socket_write($this->socket, $frame, strlen($frame));
         if ($written === false) {
@@ -286,7 +291,7 @@ class StreamConnection
             throw new \Exception("Failed to read frame data");
         }
 
-        echo "Socket <-" . bin2hex($frameData) . PHP_EOL;
+        $this->logger->debug("Socket <-" . bin2hex($frameData));
 
         return new ReadBuffer($frameData);
     }

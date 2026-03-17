@@ -8,6 +8,7 @@
             <directory>tests/Buffer</directory>
             <directory>tests/Request</directory>
             <directory>tests/Response</directory>
+            <file>tests/StreamConnectionTest.php</file>
         </testsuite>
         <testsuite name="e2e">
             <directory>tests/E2E</directory>
