@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `CloseRequestV1` — client-side graceful connection shutdown request (key `0x0016`)
+- `CloseResponseV1` — server response for Close command (key `0x8016`)
+- `KeyEnum::CLOSE_RESPONSE` (`0x8016`)
+- E2E test for Close command
+
+### Fixed
+- `run-e2e.sh` — added missing test stream creation step
+
 ## [0.3.0] - 2026-03-15
 
 ### Added
