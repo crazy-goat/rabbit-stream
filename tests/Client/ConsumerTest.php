@@ -1,0 +1,262 @@
+<?php
+
+namespace CrazyGoat\RabbitStream\Tests\Client;
+
+use CrazyGoat\RabbitStream\Client\Consumer;
+use CrazyGoat\RabbitStream\Client\Message;
+use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
+use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use PHPUnit\Framework\TestCase;
+
+class ConsumerTest extends TestCase
+{
+    private function makeConnection(): StreamConnection
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        return $connection;
+    }
+
+    public function testReadReturnsEmptyArrayOnTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())
+            ->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new \stdClass(),
+                $this->throwException(new \Exception('timeout'))
+            );
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $result = $consumer->read(timeout: 1);
+
+        $this->assertSame([], $result);
+    }
+
+    public function testReadOneReturnsNullOnTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())
+            ->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new \stdClass(),
+                $this->throwException(new \Exception('timeout'))
+            );
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $result = $consumer->readOne(timeout: 1);
+
+        $this->assertNull($result);
+    }
+
+    public function testStoreOffsetThrowsForUnnamedConsumer(): void
+    {
+        $consumer = new Consumer($this->makeConnection(), 'test-stream', 1, OffsetSpec::first());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Cannot store offset for unnamed consumer');
+        $consumer->storeOffset(42);
+    }
+
+    public function testStoreOffsetSendsCorrectRequest(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $capturedRequest = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequest): void {
+                if ($request instanceof StoreOffsetRequestV1) {
+                    $capturedRequest = $request;
+                }
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), 'my-consumer');
+        $consumer->storeOffset(99);
+
+        $this->assertInstanceOf(StoreOffsetRequestV1::class, $capturedRequest);
+    }
+
+    public function testQueryOffsetThrowsForUnnamedConsumer(): void
+    {
+        $consumer = new Consumer($this->makeConnection(), 'test-stream', 1, OffsetSpec::first());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Cannot query offset for unnamed consumer');
+        $consumer->queryOffset();
+    }
+
+    public function testQueryOffsetReturnsOffset(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+
+        $mockResponse = $this->createMock(QueryOffsetResponseV1::class);
+        $mockResponse->method('getOffset')->willReturn(77);
+
+        $connection->expects($this->any())
+            ->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new \stdClass(),
+                $mockResponse
+            );
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), 'my-consumer');
+        $offset = $consumer->queryOffset();
+
+        $this->assertSame(77, $offset);
+    }
+
+    public function testCloseSendsUnsubscribeRequest(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $capturedRequest = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequest): void {
+                if ($request instanceof UnsubscribeRequestV1) {
+                    $capturedRequest = $request;
+                }
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $consumer->close();
+
+        $this->assertInstanceOf(UnsubscribeRequestV1::class, $capturedRequest);
+    }
+
+    public function testCloseDoesNotStoreOffsetWhenNoMessagesProcessed(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $storeOffsetCalled = false;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$storeOffsetCalled): void {
+                if ($request instanceof StoreOffsetRequestV1) {
+                    $storeOffsetCalled = true;
+                }
+            });
+
+        $consumer = new Consumer(
+            $connection, 'test-stream', 1, OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 5,
+        );
+        $consumer->close();
+
+        $this->assertFalse($storeOffsetCalled, 'storeOffset should not be called when no messages processed');
+    }
+
+    public function testReadBuffersMessagesViaCallback(): void
+    {
+        $registeredCallback = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$registeredCallback): void {
+                $registeredCallback = $cb;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+
+        $this->assertNotNull($registeredCallback, 'registerSubscriber callback should be registered');
+    }
+
+    public function testAutoCommitIsDisabledWhenZero(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $storeOffsetCalled = false;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$storeOffsetCalled): void {
+                if ($request instanceof StoreOffsetRequestV1) {
+                    $storeOffsetCalled = true;
+                }
+            });
+
+        $consumer = new Consumer(
+            $connection, 'test-stream', 1, OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 0,
+        );
+        $consumer->close();
+
+        $this->assertFalse($storeOffsetCalled, 'autoCommit=0 should not trigger storeOffset');
+    }
+
+    public function testReadOneBuffersRemainingMessages(): void
+    {
+        $registeredCallback = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$registeredCallback): void {
+                $registeredCallback = $cb;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+        $msg2 = $this->createMock(Message::class);
+        $msg2->method('getOffset')->willReturn(1);
+
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $bufferProp->setValue($consumer, [$msg1, $msg2]);
+
+        $result = $consumer->readOne();
+
+        $this->assertSame($msg1, $result);
+
+        $remaining = $bufferProp->getValue($consumer);
+        $this->assertCount(1, $remaining);
+        $this->assertSame($msg2, $remaining[0]);
+    }
+
+    public function testReadReturnsAllBufferedMessages(): void
+    {
+        $connection = $this->makeConnection();
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+        $msg2 = $this->createMock(Message::class);
+        $msg2->method('getOffset')->willReturn(1);
+
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $bufferProp->setValue($consumer, [$msg1, $msg2]);
+
+        $result = $consumer->read();
+
+        $this->assertCount(2, $result);
+        $this->assertSame($msg1, $result[0]);
+        $this->assertSame($msg2, $result[1]);
+
+        $this->assertSame([], $bufferProp->getValue($consumer));
+    }
+}
