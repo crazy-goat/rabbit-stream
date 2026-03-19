@@ -128,6 +128,23 @@ class ReadBuffer
         return $data;
     }
 
+    public function getPosition(): int
+    {
+        return $this->position;
+    }
+
+    public function skip(int $bytes): void
+    {
+        $this->position += $bytes;
+    }
+
+    public function readBytes(int $length): string
+    {
+        $data = substr($this->buffer, $this->position, $length);
+        $this->position += $length;
+        return $data;
+    }
+
     public function peekUint16(): int
     {
         return unpack('n', substr($this->buffer, $this->position, 2))[1];

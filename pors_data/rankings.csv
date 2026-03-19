@@ -1,0 +1,133 @@
+Position,Player,City,"PORS 1a","PORS 1b","PORS 1c","PORS 1d","PORS 1e","PORS 1f","PORS 1g","PORS 1h",Total
+1,"Bogdan Polek",Skawina,135,0,0,0,0,0,0,0,135
+2,"Wojciech Samborski",Mikołów,0,135,0,0,0,0,0,0,135
+3,"Krzysztof Błaszczak",Gowarzewo,0,0,0,0,135,0,0,0,135
+4,"Mateusz Rybka",Warszawa,0,0,0,0,0,135,0,0,135
+5,"Marek Drobot",Rzeszów,0,0,0,0,0,0,135,0,135
+6,"Karol Lelek",Warszawa,0,0,0,0,0,0,0,135,135
+7,"Piotr Piasek",Radom,0,0,130,0,0,0,0,0,130
+8,"Petro Sydorenko",Warszawa,0,0,0,130,0,0,0,0,130
+9,"Jarosław Mączka",Kraków,105,0,0,0,0,0,0,0,105
+10,"Jakub Kornas","Ruda Śląska",0,105,0,0,0,0,0,0,105
+11,"Marcin Karłyk",Lwówek,0,0,0,0,105,0,0,0,105
+12,"Dariusz Pawłowski",Nałęczów,0,0,0,0,0,105,0,0,105
+13,"Jan Hajda",Bytom,0,0,0,0,0,0,105,0,105
+14,"Adrian Czapnik","Gąsawy Plebańskie",0,0,100,0,0,0,0,0,100
+15,"Piotr Stanek",Mysłowice,0,85,0,0,0,0,0,0,85
+16,"Piotr Leks",Sosnowiec,0,85,0,0,0,0,0,0,85
+17,"Bartłomiej Sienkiewicz",Łódź,0,0,85,0,0,0,0,0,85
+18,"Tomasz Ludew","Skarżysko Kamienna",0,0,85,0,0,0,0,0,85
+19,"Grzegorz Sroka","Ostrów Wielkopolski",0,0,0,85,0,0,0,0,85
+20,"Roch Pniak",Łódź,0,0,0,85,0,0,0,0,85
+21,"Jakub Głodowski",Łódź,0,0,0,85,0,0,0,0,85
+22,"Bartłomiej Urbanowicz",Świnoujście,0,0,0,0,85,0,0,0,85
+23,"Adam Kisieliński",Zamość,0,0,0,0,0,85,0,0,85
+24,"Artur Kowal",Lublin,0,0,0,0,0,0,85,0,85
+25,"Wojciech Chojnacki",Łomianki,0,0,0,0,0,0,0,85,85
+26,"Adam Polak",Warszawa,0,0,0,0,0,0,0,85,85
+27,"Jacek Koźmian",Warszawa,0,0,0,0,0,0,0,85,85
+28,"Jarosław Skorek",Będzin,80,0,0,0,0,0,0,0,80
+29,"Łukasz Górecki",Chorzów,80,0,0,0,0,0,0,0,80
+30,"Paweł Sobczak",Lwówek,0,0,0,0,80,0,0,0,80
+31,"Wiktor Doberschuetz",Poznań,0,0,0,0,80,0,0,0,80
+32,"Grzegorz Ścirka",Lublin,0,0,0,0,0,80,0,0,80
+33,"Krzysztof Kłyż",Biłgoraj,0,0,0,0,0,0,80,0,80
+34,"Maciej Urban",Wrocław,0,0,0,65,0,0,0,0,65
+35,"Łukasz Lewczuk",Toruń,0,0,0,65,0,0,0,0,65
+36,"Piotr Koszel",Zamość,0,0,0,0,0,65,0,0,65
+37,"Remigiusz Hejnar",Krosno,0,0,0,0,0,0,65,0,65
+38,"Aleksander Pikor",Rzeszów,0,0,0,0,0,0,65,0,65
+39,"Jan Stachowiak",Warszawa,0,0,0,0,0,0,0,65,65
+40,"Julian Jasiński",Warszawa,0,0,0,0,0,0,0,65,65
+41,"Łukasz Szlagowski",Będzin,60,0,0,0,0,0,0,0,60
+42,"Michal Sznek",Świętochłowice,0,60,0,0,0,0,0,0,60
+43,"Bruno Sieradzki",Młoszowa,0,60,0,0,0,0,0,0,60
+44,"Adam Olszycka",Świętochłowice,0,60,0,0,0,0,0,0,60
+45,"Szczepan Wójcik",Rumia,0,0,0,60,0,0,0,0,60
+46,"Leszek Pietrusiak",Łódź,0,0,0,60,0,0,0,0,60
+47,"Paweł Błaszczak",Gowarzewo,0,0,0,0,60,0,0,0,60
+48,"Robert Pędziwiatr",Lwówek,0,0,0,0,60,0,0,0,60
+49,"Jerzy Sroka",Lubatowa,0,0,0,0,0,60,0,0,60
+50,"Grzegorz Nakonieczny",Lublin,0,0,0,0,0,60,0,0,60
+51,"Kamil Kot",Rzeszów,0,0,0,0,0,0,60,0,60
+52,"Władysław Średniawa",Warszawa,0,0,0,0,0,0,0,60,60
+53,"Piotr Buczyński",Warszawa,0,0,0,0,0,0,0,60,60
+54,"Piotr Lembryk",Warszawa,0,0,0,0,0,0,0,60,60
+55,"Wojciech Przyłucki",Warszawa,0,0,0,0,0,0,0,60,60
+56,"Patryk Szczygieł",Warszawa,0,0,0,45,0,0,0,0,45
+57,"Marek Chrześcijanek",Łódź,0,0,0,45,0,0,0,0,45
+58,"Piotr Wiśniewski",Łódź,0,0,0,45,0,0,0,0,45
+59,"Waldemar Dębski",Poznań,0,0,0,0,45,0,0,0,45
+60,"Paweł Flantowicz",Szczecin,0,0,0,0,45,0,0,0,45
+61,"Szymon Mulawka",Książenice,0,0,0,0,0,0,0,45,45
+62,"Karol Kaliszewski",Tuchom,0,0,0,0,0,0,0,45,45
+63,"Mateusz Janowicz",Warszawa,0,0,0,0,0,0,0,45,45
+64,"Eugeniusz Krawczuk",Warszawa,0,0,0,0,0,0,0,45,45
+65,"Michał Kupisz",Łódź,0,0,0,40,0,0,0,0,40
+66,"Michał Zakrzewski","Konstantynów Łódzki",0,0,0,40,0,0,0,0,40
+67,"Sebastian Czerw","Konstantynów Łódzki",0,0,0,40,0,0,0,0,40
+68,"Krzysztof Rogoziński",Łódź,0,0,0,40,0,0,0,0,40
+69,"Patryk Sypien",smolec,0,0,0,40,0,0,0,0,40
+70,"Tomasz Sobczak",Poznań,0,0,0,0,40,0,0,0,40
+71,"Adam Goślinowski",Szczecin,0,0,0,0,40,0,0,0,40
+72,"Gracjan Rozmysłowicz","Zielona Góra",0,0,0,0,40,0,0,0,40
+73,"Ryszard Szpecht",Ropczyce,0,0,0,0,0,0,40,0,40
+74,"Jakub Harchut",ROPCZYCE,0,0,0,0,0,0,40,0,40
+75,"Robert Szpecht",Rzeszów,0,0,0,0,0,0,40,0,40
+76,"Maksymilian Lenkajtis",Przeźmierowo,0,0,0,0,0,0,0,40,40
+77,"Filip Płocki",Warszawa,0,0,0,0,0,0,0,40,40
+78,"Marcin Janowicz",Warszawa,0,0,0,0,0,0,0,40,40
+79,"Stefan Stachowiak",Warszawa,0,0,0,0,0,0,0,40,40
+80,"Bartosz Pustuł",Warszawa,0,0,0,0,0,0,0,40,40
+81,"Paweł Kajzer",Warszawa,0,0,0,0,0,0,0,40,40
+82,"Sławomir Firaza","Konstantynów Łódzki",0,0,0,25,0,0,0,0,25
+83,"Anna Sor",Będzin,20,0,0,0,0,0,0,0,20
+84,"Łukasz Różycki",Kraków,20,0,0,0,0,0,0,0,20
+85,"Piotr Sampolski",Będzin,0,20,0,0,0,0,0,0,20
+86,"Tomasz Halko","Głuszyca Górna",0,20,0,0,0,0,0,0,20
+87,"Michał Malczewski",Szczawno-Zdrój,0,20,0,0,0,0,0,0,20
+88,"Maksymilian Starzak",Kielce,0,0,20,0,0,0,0,0,20
+89,"Paweł Mazur",Radom,0,0,20,0,0,0,0,0,20
+90,"Krzysztof Woś",Radom,0,0,20,0,0,0,0,0,20
+91,"Norbert Dąbrowa",Skarżysko-Kamienna,0,0,20,0,0,0,0,0,20
+92,"Paulina Delega",Warszawa,0,0,0,20,0,0,0,0,20
+93,"Daniel Król","Konstantynów Łódzki",0,0,0,20,0,0,0,0,20
+94,"Bartosz Jach","Konstantynów Łódzki",0,0,0,20,0,0,0,0,20
+95,"Jacek Czarciński",Łódź,0,0,0,20,0,0,0,0,20
+96,"Ignacy Cydejko",Pabianice,0,0,0,20,0,0,0,0,20
+97,"Jędrzej Janicki",Łódź,0,0,0,20,0,0,0,0,20
+98,"Paweł Szmaj",Smolec,0,0,0,20,0,0,0,0,20
+99,"Grzegorz Zieliński",Krzeptów,0,0,0,20,0,0,0,0,20
+100,"Sebastian Chmielewski",Toruń,0,0,0,20,0,0,0,0,20
+101,"Patryk Ceranka","Piotrków Trybunalski",0,0,0,20,0,0,0,0,20
+102,"Anatol Woźniuk",Smolec,0,0,0,20,0,0,0,0,20
+103,"Patryk Wachowski",Lwówek,0,0,0,0,20,0,0,0,20
+104,"Dominik Teda",Margonin,0,0,0,0,20,0,0,0,20
+105,"Marek Górny",Pniewy,0,0,0,0,20,0,0,0,20
+106,"Grzegorz Tomczak",Poznań,0,0,0,0,20,0,0,0,20
+107,"Przemysław Sitek",Poznań,0,0,0,0,20,0,0,0,20
+108,"Michał Bułatowicz","Stargard Szczeciński",0,0,0,0,20,0,0,0,20
+109,"Waldemar Kowalik",Szczecin,0,0,0,0,20,0,0,0,20
+110,"Marcin Małyska",Lubartów,0,0,0,0,0,20,0,0,20
+111,"Krzysztof Bujak",Lublin,0,0,0,0,0,20,0,0,20
+112,"Robert Sekuła",Lublin,0,0,0,0,0,20,0,0,20
+113,"Łukasz Ścirka",Lublin,0,0,0,0,0,20,0,0,20
+114,"Artur Szyba",Lublin,0,0,0,0,0,20,0,0,20
+115,"Govinda Bhandari",Lublin,0,0,0,0,0,20,0,0,20
+116,"Mateusz Pomianek","Sędziszów Małopolski",0,0,0,0,0,20,0,0,20
+117,"Łukasz Kosiba",Zamość,0,0,0,0,0,20,0,0,20
+118,"Piotr Łój",Zamość,0,0,0,0,0,20,0,0,20
+119,"Piotr Buczek",Krosno,0,0,0,0,0,0,20,0,20
+120,"Dominik Piwiński",Rzeszów,0,0,0,0,0,0,20,0,20
+121,"Yuriy Fylypiv",Rzeszów,0,0,0,0,0,0,20,0,20
+122,"Leszek Błahut",Rzeszów,0,0,0,0,0,0,20,0,20
+123,"Wlodzimierz Bylinowski",Rzeszow,0,0,0,0,0,0,20,0,20
+124,"Andrzej Ankiersztejn",Rzeszów,0,0,0,0,0,0,20,0,20
+125,"Marek Krawczyk",Rzeszów,0,0,0,0,0,0,20,0,20
+126,"Maciej Harazim",Konstancin-Jeziorna,0,0,0,0,0,0,0,20,20
+127,"Robert Gajzler",Warszawa,0,0,0,0,0,0,0,20,20
+128,"Ksawery Świdzicki",Warszawa,0,0,0,0,0,0,0,20,20
+129,"Julian Karmański",Warszawa,0,0,0,0,0,0,0,20,20
+130,"Kornelia Jonczyk",Warszawa,0,0,0,0,0,0,0,20,20
+131,"Antoni Bień",Warszawa,0,0,0,0,0,0,0,20,20
+132,"Karol Misiak",Warszawa,0,0,0,0,0,0,0,20,20

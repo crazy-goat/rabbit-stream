@@ -29,8 +29,16 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?object
     {
-        self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
+        $key = $buffer->getUint16();
+        $version = $buffer->getUint16();
+        self::validateKeyVersion($key, $version);
         $subscriptionId = $buffer->getUint8();
+
+        // Deliver v2 has CommittedChunkId (uint64) before OsirisChunk
+        if ($version === 2) {
+            $buffer->skip(8);
+        }
+
         $chunkBytes = $buffer->getRemainingBytes();
         return new self($subscriptionId, $chunkBytes);
     }
