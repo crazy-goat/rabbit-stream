@@ -176,8 +176,7 @@ class Connection
         ?callable $onConfirm = null,
     ): Producer {
         $publisherId = $this->publisherIdCounter++;
-        $config = new ProducerConfig($name, $onConfirm);
-        return new Producer($this->streamConnection, $stream, $publisherId, $config);
+        return new Producer($this->streamConnection, $stream, $publisherId, $name, $onConfirm);
     }
 
     public function createConsumer(
@@ -191,9 +190,9 @@ class Connection
         return new Consumer($this->streamConnection, $stream, $subscriptionId, $offset, $name, $autoCommit, $initialCredit);
     }
 
-    public function readLoop(?int $maxFrames = null): void
+    public function readLoop(?int $maxFrames = null, ?int $timeout = null): void
     {
-        $this->streamConnection->readLoop($maxFrames);
+        $this->streamConnection->readLoop($maxFrames, $timeout);
     }
 
     public function storeOffset(string $reference, string $stream, int $offset): void

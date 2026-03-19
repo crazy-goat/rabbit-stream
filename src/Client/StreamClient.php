@@ -52,11 +52,13 @@ class StreamClient
 
     public function createProducer(string $stream, ?ProducerConfig $config = null): Producer
     {
+        $config = $config ?? new ProducerConfig();
         return new Producer(
             $this->connection,
             $stream,
             $this->publisherIdCounter++,
-            $config ?? new ProducerConfig()
+            $config->name,
+            $config->onConfirmation,
         );
     }
 
