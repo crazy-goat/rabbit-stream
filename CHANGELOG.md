@@ -41,6 +41,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `PartitionsResponseV1` — server response with array of partition stream names (key `0x8019`)
 - `KeyEnum::PARTITIONS_RESPONSE` (`0x8019`)
 - E2E test for Partitions command
+- `CreateSuperStreamRequestV1` — client-side request to create partitioned super stream (key `0x001d`)
+- `CreateSuperStreamResponseV1` — server response for CreateSuperStream command (key `0x801d`)
+- `WriteBuffer::addStringArray()` — helper method for serializing string arrays
+- E2E tests for CreateSuperStream command (including verification via Partitions)
 
 ## [0.5.0] - 2026-03-17
 
