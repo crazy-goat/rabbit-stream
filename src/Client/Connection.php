@@ -190,9 +190,9 @@ class Connection
         return new Consumer($this->streamConnection, $stream, $subscriptionId, $offset, $name, $autoCommit, $initialCredit);
     }
 
-    public function readLoop(?int $maxFrames = null): void
+    public function readLoop(?int $maxFrames = null, ?int $timeout = null): void
     {
-        $this->streamConnection->readLoop($maxFrames);
+        $this->streamConnection->readLoop($maxFrames, $timeout);
     }
 
     public function storeOffset(string $reference, string $stream, int $offset): void

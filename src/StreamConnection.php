@@ -171,17 +171,33 @@ class StreamConnection
         }
     }
 
-    public function readLoop(?int $maxFrames = null): void
+    public function readLoop(?int $maxFrames = null, ?int $timeout = null): void
     {
         $this->running = true;
         $dispatched = 0;
+        $deadline = $timeout !== null ? time() + $timeout : null;
 
         while ($this->running && $this->connected) {
+            // Check if timeout has expired
+            if ($deadline !== null && time() >= $deadline) {
+                break;
+            }
+
             $read = [$this->socket];
             $write = null;
             $except = null;
 
-            $ready = socket_select($read, $write, $except, 1);
+            // Calculate remaining timeout for socket_select
+            $selectTimeout = 1;
+            if ($deadline !== null) {
+                $remaining = $deadline - time();
+                if ($remaining <= 0) {
+                    break;
+                }
+                $selectTimeout = min($remaining, 1);
+            }
+
+            $ready = socket_select($read, $write, $except, $selectTimeout);
 
             if ($ready === false) {
                 throw new \Exception('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));

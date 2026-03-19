@@ -99,7 +99,7 @@ class Producer
             if ($remaining <= 0) {
                 break;
             }
-            $this->connection->readMessage((int) $remaining);
+            $this->connection->readLoop(timeout: (int) $remaining);
         }
         if ($this->pendingConfirms > 0) {
             throw new \RuntimeException(
