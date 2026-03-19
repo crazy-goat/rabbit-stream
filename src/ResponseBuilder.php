@@ -22,6 +22,7 @@ use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
@@ -71,6 +72,7 @@ class ResponseBuilder
             KeyEnum::PEER_PROPERTIES_RESPONSE => PeerPropertiesResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::STREAM_STATS_RESPONSE => StreamStatsResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PARTITIONS_RESPONSE => PartitionsResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::CREATE_SUPER_STREAM_RESPONSE => CreateSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
             default => throw new \Exception('Unexpected match value'),
         };
     }
