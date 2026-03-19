@@ -12,14 +12,18 @@ class Producer
 {
     private int $publishingId = 0;
     private int $pendingConfirms = 0;
+    
+    /** @var ?callable */
+    private readonly mixed $onConfirm;
 
     public function __construct(
         private readonly StreamConnection $connection,
         private readonly string $stream,
         private readonly int $publisherId,
         private readonly ?string $name = null,
-        private readonly ?callable $onConfirm = null,
+        ?callable $onConfirm = null,
     ) {
+        $this->onConfirm = $onConfirm;
         $this->declare();
     }
 
@@ -64,6 +68,19 @@ class Producer
             $this->publisherId,
             new PublishedMessage($this->publishingId++, $message)
         ));
+    }
+
+    /**
+     * @param string[] $messages
+     */
+    public function sendBatch(array $messages): void
+    {
+        $published = [];
+        foreach ($messages as $message) {
+            $published[] = new PublishedMessage($this->publishingId++, $message);
+            $this->pendingConfirms++;
+        }
+        $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published));
     }
 
     public function close(): void
