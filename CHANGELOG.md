@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `Connection` — new high-level entry point class replacing `StreamClient` with full handshake, stream management, and producer/consumer factory methods
+- `Connection::create()` — factory method with automatic handshake (PeerProperties → SASL → Tune → Open)
+- `Connection::createStream()`, `Connection::deleteStream()`, `Connection::streamExists()` — stream management methods
+- `Connection::getStreamStats()`, `Connection::getMetadata()`, `Connection::queryOffset()` — metadata operations
+- `Connection::close()` — graceful shutdown with CloseRequestV1
+- `Connection::createProducer()`, `Connection::createConsumer()` — factory methods for producers and consumers
+- `Connection::readLoop()`, `Connection::storeOffset()` — additional convenience methods
+- `Consumer` — stub class for future consumer implementation
+- Unit tests for `Connection` class
+- E2E tests for `Connection` class
+- `SaslHandshakeResponseV1::getMechanisms()` — getter for available SASL mechanisms
+
+### Deprecated
+- `StreamClient` — use `Connection::create()` instead
 - `Message` — value object representing a decoded AMQP 1.0 message with offset, timestamp, body, properties, and application properties
 - `AmqpDecoder` — low-level AMQP 1.0 binary decoder supporting all common types (null, bool, integers, strings, binary, lists, maps, described types)
 - `AmqpMessageDecoder` — high-level decoder converting `ChunkEntry` objects into `Message` objects
