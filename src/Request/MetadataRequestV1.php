@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class MetadataRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
+class MetadataRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -32,6 +33,11 @@ class MetadataRequestV1 implements ToStreamBufferInterface, CorrelationInterface
         }
 
         return $buffer;
+    }
+
+    public function toArray(): array
+    {
+        return ['streams' => $this->streams];
     }
 
     static public function getKey(): int

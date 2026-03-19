@@ -2,10 +2,11 @@
 
 namespace CrazyGoat\RabbitStream\VO;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 
-class PublishedMessage implements ToStreamBufferInterface
+class PublishedMessage implements ToStreamBufferInterface, ToArrayInterface
 {
     public function __construct(
         private int $publishingId,
@@ -22,5 +23,10 @@ class PublishedMessage implements ToStreamBufferInterface
     public function getPublishingId(): int
     {
         return $this->publishingId;
+    }
+
+    public function toArray(): array
+    {
+        return ['publishingId' => $this->publishingId, 'data' => $this->message];
     }
 }

@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class CloseRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
+class CloseRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -28,6 +29,14 @@ class CloseRequestV1 implements ToStreamBufferInterface, CorrelationInterface, K
         return self::getKeyVersion($this->getCorrelationId())
             ->addUInt16($this->closingCode)
             ->addString($this->closingReason);
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'closingCode' => $this->closingCode,
+            'closingReason' => $this->closingReason,
+        ];
     }
 
     static public function getKey(): int

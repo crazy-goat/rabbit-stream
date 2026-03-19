@@ -2,10 +2,12 @@
 
 namespace CrazyGoat\RabbitStream\VO;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 
-class StreamMetadata implements FromStreamBufferInterface
+class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
         private string $streamName,
@@ -47,5 +49,20 @@ class StreamMetadata implements FromStreamBufferInterface
         }
 
         return new self($streamName, $responseCode, $leaderReference, $replicasReferences);
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'stream' => $this->streamName,
+            'responseCode' => $this->responseCode,
+            'leaderReference' => $this->leaderReference,
+            'replicasReferences' => $this->replicasReferences,
+        ];
+    }
+
+    public static function fromArray(array $data): static
+    {
+        return new self($data['stream'], $data['responseCode'], $data['leaderReference'], $data['replicasReferences']);
     }
 }

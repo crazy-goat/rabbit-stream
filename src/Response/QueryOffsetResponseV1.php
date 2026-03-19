@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Response;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class QueryOffsetResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
+class QueryOffsetResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -35,6 +36,14 @@ class QueryOffsetResponseV1 implements KeyVersionInterface, CorrelationInterface
     static public function getKey(): int
     {
         return KeyEnum::QUERY_OFFSET_RESPONSE->value;
+    }
+
+    public static function fromArray(array $data): static
+    {
+        $object = new self();
+        $object->withCorrelationId($data['correlationId']);
+        $object->offset = $data['offset'];
+        return $object;
     }
 
     public function getOffset(): int

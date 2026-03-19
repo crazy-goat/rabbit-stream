@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Response;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class SaslAuthenticateResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
+class SaslAuthenticateResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -28,6 +29,13 @@ class SaslAuthenticateResponseV1 implements KeyVersionInterface, CorrelationInte
         $object = new self();
         $object->withCorrelationId($correlationId);
 
+        return $object;
+    }
+
+    public static function fromArray(array $data): static
+    {
+        $object = new self();
+        $object->withCorrelationId($data['correlationId']);
         return $object;
     }
 

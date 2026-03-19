@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class SaslAuthenticateRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
+class SaslAuthenticateRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -25,6 +26,15 @@ class SaslAuthenticateRequestV1 implements ToStreamBufferInterface, CorrelationI
         return  self::getKeYVersion($this->getCorrelationId())
             ->addString($this->mechanism)
             ->addBytes("\0" . $this->username . "\0" . $this->password);
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'mechanism' => $this->mechanism,
+            'username' => $this->username,
+            'password' => $this->password,
+        ];
     }
 
     static public function getKey(): int

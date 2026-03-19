@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Response;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class SaslHandshakeResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
+class SaslHandshakeResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -22,6 +23,13 @@ class SaslHandshakeResponseV1 implements KeyVersionInterface, CorrelationInterfa
     public function __construct(array $mechanisms)
     {
         $this->mechanisms = $mechanisms;
+    }
+
+    public static function fromArray(array $data): static
+    {
+        $object = new self($data['mechanisms']);
+        $object->withCorrelationId($data['correlationId']);
+        return $object;
     }
 
     public static function getKey(): int

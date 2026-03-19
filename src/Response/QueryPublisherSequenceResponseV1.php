@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Response;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class QueryPublisherSequenceResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
+class QueryPublisherSequenceResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -35,6 +36,14 @@ class QueryPublisherSequenceResponseV1 implements KeyVersionInterface, Correlati
     static public function getKey(): int
     {
         return KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE->value;
+    }
+
+    public static function fromArray(array $data): static
+    {
+        $object = new self();
+        $object->withCorrelationId($data['correlationId']);
+        $object->sequence = $data['sequence'];
+        return $object;
     }
 
     public function getSequence(): int

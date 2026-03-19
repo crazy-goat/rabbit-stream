@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Response;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -12,7 +13,7 @@ use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 
-class ExchangeCommandVersionsResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
+class ExchangeCommandVersionsResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -41,6 +42,17 @@ class ExchangeCommandVersionsResponseV1 implements KeyVersionInterface, Correlat
         $object = new self($commands);
         $object->withCorrelationId($correlationId);
 
+        return $object;
+    }
+
+    public static function fromArray(array $data): static
+    {
+        $commands = array_map(
+            fn(array $c) => new CommandVersion($c['key'], $c['minVersion'], $c['maxVersion']),
+            $data['commands']
+        );
+        $object = new self($commands);
+        $object->withCorrelationId($data['correlationId']);
         return $object;
     }
 

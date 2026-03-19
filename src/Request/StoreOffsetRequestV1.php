@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -9,7 +10,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class StoreOffsetRequestV1 implements ToStreamBufferInterface, KeyVersionInterface
+class StoreOffsetRequestV1 implements ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
 {
     use V1Trait;
     use CommandTrait;
@@ -26,6 +27,15 @@ class StoreOffsetRequestV1 implements ToStreamBufferInterface, KeyVersionInterfa
             ->addString($this->reference)
             ->addString($this->stream)
             ->addUInt64($this->offset);
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'reference' => $this->reference,
+            'stream' => $this->stream,
+            'offset' => $this->offset,
+        ];
     }
 
     static public function getKey(): int

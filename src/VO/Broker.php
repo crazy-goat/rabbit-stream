@@ -2,10 +2,12 @@
 
 namespace CrazyGoat\RabbitStream\VO;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 
-class Broker implements FromStreamBufferInterface
+class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
         private int $reference,
@@ -35,5 +37,19 @@ class Broker implements FromStreamBufferInterface
             $buffer->gatString(),
             $buffer->getUint32()
         );
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'reference' => $this->reference,
+            'host' => $this->host,
+            'port' => $this->port,
+        ];
+    }
+
+    public static function fromArray(array $data): static
+    {
+        return new self($data['reference'], $data['host'], $data['port']);
     }
 }

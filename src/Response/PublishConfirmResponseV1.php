@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Response;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -9,7 +10,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferInterface
+class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CommandTrait;
     use V1Trait;
@@ -41,6 +42,11 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
             $publishingIds[] = $buffer->getUint64();
         }
         return new self($publisherId, ...$publishingIds);
+    }
+
+    public static function fromArray(array $data): static
+    {
+        return new self($data['publisherId'], ...$data['publishingIds']);
     }
 
     static public function getKey(): int

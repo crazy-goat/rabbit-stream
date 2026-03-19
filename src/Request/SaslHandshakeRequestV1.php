@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class SaslHandshakeRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
+class SaslHandshakeRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -20,6 +21,11 @@ class SaslHandshakeRequestV1 implements ToStreamBufferInterface, CorrelationInte
     public function toStreamBuffer(): WriteBuffer
     {
         return self::getKeyVersion($this->getCorrelationId());
+    }
+
+    public function toArray(): array
+    {
+        return [];
     }
 
     static public function getKey(): int
