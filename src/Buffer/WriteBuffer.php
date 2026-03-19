@@ -130,6 +130,16 @@ class WriteBuffer
         return $this;
     }
 
+    public function addStringArray(string ...$strings): self
+    {
+        $this->addInt32(count($strings));
+        foreach ($strings as $string) {
+            $this->addString($string);
+        }
+
+        return $this;
+    }
+
     public function addRaw(string $value): self
     {
         $this->buffer .= $value;
