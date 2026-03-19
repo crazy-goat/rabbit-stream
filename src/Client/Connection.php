@@ -176,8 +176,7 @@ class Connection
         ?callable $onConfirm = null,
     ): Producer {
         $publisherId = $this->publisherIdCounter++;
-        $config = new ProducerConfig($name, $onConfirm);
-        return new Producer($this->streamConnection, $stream, $publisherId, $config);
+        return new Producer($this->streamConnection, $stream, $publisherId, $name, $onConfirm);
     }
 
     public function createConsumer(

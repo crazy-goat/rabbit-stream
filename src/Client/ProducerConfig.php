@@ -2,6 +2,9 @@
 
 namespace CrazyGoat\RabbitStream\Client;
 
+/**
+ * @deprecated Use Connection::createProducer() parameters instead
+ */
 class ProducerConfig
 {
     /** @var ?callable */

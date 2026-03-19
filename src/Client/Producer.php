@@ -59,6 +59,7 @@ class Producer
 
     public function send(string $message): void
     {
+        $this->pendingConfirms++;
         $this->connection->sendMessage(new PublishRequestV1(
             $this->publisherId,
             new PublishedMessage($this->publishingId++, $message)
