@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `ResolveOffsetSpecRequestV1` — client-side request to resolve offset specification to concrete offset (key `0x001f`)
+- `ResolveOffsetSpecResponseV1` — server response with resolved offset value and offset type (key `0x801f`)
+- `KeyEnum::RESOLVE_OFFSET_SPEC` (`0x001f`) and `KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE` (`0x801f`)
+- Unit tests for ResolveOffsetSpec Request and Response
+- E2E tests for ResolveOffsetSpec with automatic skip when server doesn't support the command (RabbitMQ < 4.3)
 - `QueryPublisherSequenceRequestV1` — client-side request to query last published sequence for deduplication (key `0x0005`)
 - `QueryPublisherSequenceResponseV1` — server response with sequence value (key `0x8005`)
 - `KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE` (`0x8005`)

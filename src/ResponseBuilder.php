@@ -31,13 +31,15 @@ use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
+use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
 use CrazyGoat\RabbitStream\Response\RouteResponseV1;
 
 class ResponseBuilder
 {
     public static function fromResponseBuffer(ReadBuffer $responseBuffer): object
     {
-        $command = KeyEnum::fromStreamCode($responseBuffer->getUint16());
+        $commandCode = $responseBuffer->getUint16();
+        $command = KeyEnum::fromStreamCode($commandCode);
         $version = $responseBuffer->getUint16();
 
         $responseBuffer->rewind();
@@ -79,7 +81,8 @@ class ResponseBuilder
             KeyEnum::CREATE_SUPER_STREAM_RESPONSE => CreateSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::DELETE_SUPER_STREAM_RESPONSE => DeleteSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::EXCHANGE_COMMAND_VERSIONS_RESPONSE => ExchangeCommandVersionsResponseV1::fromStreamBuffer($responseBuffer),
-            default => throw new \Exception('Unexpected match value'),
+            KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE => ResolveOffsetSpecResponseV1::fromStreamBuffer($responseBuffer),
+            default => throw new \Exception('Unexpected match value: ' . $command->name . ' (0x' . dechex($command->value) . ')'),
         };
     }
 
