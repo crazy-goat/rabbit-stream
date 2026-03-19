@@ -14,8 +14,13 @@ class OsirisChunkParser
         $buffer = new ReadBuffer($chunkBytes);
 
         $magicVersion = $buffer->getUint8();
-        if ($magicVersion !== 0x00) {
-            throw new \RuntimeException(sprintf('Invalid magic version: expected 0x00, got 0x%02x', $magicVersion));
+        $magic = ($magicVersion >> 4) & 0x0F;
+        $version = $magicVersion & 0x0F;
+        if ($magic !== 5) {
+            throw new \RuntimeException(sprintf('Invalid chunk magic: expected 5, got %d (raw byte: 0x%02x)', $magic, $magicVersion));
+        }
+        if ($version !== 0) {
+            throw new \RuntimeException(sprintf('Unsupported chunk version: expected 0, got %d', $version));
         }
 
         $chunkType = $buffer->getUint8();
@@ -31,7 +36,8 @@ class OsirisChunkParser
         $chunkCrc = $buffer->getInt32();
         $dataLength = $buffer->getUint32();
         $trailerLength = $buffer->getUint32();
-        $reserved = $buffer->getUint32();
+        $bloomSize = $buffer->getUint8();
+        $reserved = $buffer->readBytes(3);
 
         $entries = [];
         $currentOffset = $chunkFirstOffset;

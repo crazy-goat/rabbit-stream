@@ -32,12 +32,13 @@ class StreamConnection
     private ?\Closure $consumerUpdateCallback = null;
 
     private const SERVER_PUSH_KEYS = [
-        0x0003,
-        0x0004,
-        0x0008,
-        0x0010,
-        0x0017,
-        0x001a,
+        0x0003, // PublishConfirm
+        0x0004, // PublishError
+        0x0008, // Deliver
+        0x0010, // MetadataUpdate
+        0x0016, // Close (server-initiated)
+        0x0017, // Heartbeat
+        0x001a, // ConsumerUpdate
     ];
 
     public function __construct(
@@ -66,8 +67,9 @@ class StreamConnection
 
     public function close(): void
     {
-        if ($this->socket) {
+        if ($this->connected && $this->socket) {
             socket_close($this->socket);
+            $this->socket = null;
         }
         $this->connected = false;
     }
@@ -143,6 +145,10 @@ class StreamConnection
     public function readMessage(int $timeout = 30): object
     {
         while (true) {
+            if (!$this->connected) {
+                throw new \Exception("Connection closed");
+            }
+
             $frame = $this->readFrame($timeout);
             if ($frame === null) {
                 throw new \Exception("Read timeout");
@@ -152,6 +158,12 @@ class StreamConnection
 
             if (in_array($key, self::SERVER_PUSH_KEYS, true)) {
                 $this->dispatchServerPush($frame);
+
+                // Connection may have been closed by server-initiated close
+                if (!$this->connected) {
+                    throw new \Exception("Connection closed by server");
+                }
+
                 continue;
             }
 
@@ -164,7 +176,7 @@ class StreamConnection
         $this->running = true;
         $dispatched = 0;
 
-        while ($this->running) {
+        while ($this->running && $this->connected) {
             $read = [$this->socket];
             $write = null;
             $except = null;
@@ -189,6 +201,11 @@ class StreamConnection
             if (in_array($key, self::SERVER_PUSH_KEYS, true)) {
                 $this->dispatchServerPush($frame);
                 $dispatched++;
+
+                // Connection may have been closed by server-initiated close
+                if (!$this->connected) {
+                    break;
+                }
             }
 
             if ($maxFrames !== null && $dispatched >= $maxFrames) {
@@ -234,6 +251,31 @@ class StreamConnection
                 if (isset($this->subscriberCallbacks[$subscriptionId])) {
                     ($this->subscriberCallbacks[$subscriptionId])($deliver);
                 }
+                break;
+
+            case KeyEnum::CLOSE->value:
+                // Server-initiated close: read the close request and send response
+                $frame->getUint16(); // key
+                $frame->getUint16(); // version
+                $correlationId = $frame->getUint32();
+                $closingCode = $frame->getUint16();
+                $closingReason = $frame->gatString();
+                $this->logger->debug(sprintf(
+                    'Server-initiated close: code=%d, reason=%s',
+                    $closingCode,
+                    $closingReason ?? ''
+                ));
+                // Send close response with OK
+                $response = (new WriteBuffer())
+                    ->addUInt16(KeyEnum::CLOSE_RESPONSE->value)
+                    ->addUInt16(1) // version
+                    ->addUInt32($correlationId)
+                    ->addUInt16(0x0001); // responseCode OK
+                $content = $response->getContents();
+                $this->sendFrame(
+                    (new WriteBuffer())->addUInt32(strlen($content))->addRaw($content)->getContents()
+                );
+                $this->close();
                 break;
 
             case KeyEnum::METADATA_UPDATE->value:

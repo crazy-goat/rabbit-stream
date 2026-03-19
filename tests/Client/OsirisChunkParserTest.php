@@ -84,12 +84,23 @@ class OsirisChunkParserTest extends TestCase
         $this->assertSame(999999999, $entries[0]->getTimestamp());
     }
 
-    public function testInvalidMagicVersionThrowsException(): void
+    public function testInvalidMagicThrowsException(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Invalid magic version');
+        $this->expectExceptionMessage('Invalid chunk magic: expected 5, got 0');
 
-        $chunk = "\x01" . str_repeat("\x00", 100);
+        // 0x00 has magic=0, version=0 → invalid magic
+        $chunk = "\x00" . str_repeat("\x00", 100);
+        OsirisChunkParser::parse($chunk);
+    }
+
+    public function testUnsupportedChunkVersionThrowsException(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Unsupported chunk version: expected 0, got 1');
+
+        // 0x51 has magic=5, version=1 → unsupported version
+        $chunk = "\x51" . str_repeat("\x00", 100);
         OsirisChunkParser::parse($chunk);
     }
 
@@ -98,7 +109,8 @@ class OsirisChunkParserTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Unsupported chunk type');
 
-        $chunk = "\x00\x01" . str_repeat("\x00", 100);
+        // 0x50 = valid magic+version, then 0x01 = invalid chunk type
+        $chunk = "\x50\x01" . str_repeat("\x00", 100);
         OsirisChunkParser::parse($chunk);
     }
 
@@ -190,8 +202,8 @@ class OsirisChunkParserTest extends TestCase
         $trailerLength = 0;
 
         $header = '';
-        $header .= pack('C', 0x00);
-        $header .= pack('C', 0x00);
+        $header .= pack('C', 0x50); // MagicVersion: magic=5, version=0
+        $header .= pack('C', 0x00); // ChunkType: 0 = user data
         $header .= pack('n', $numEntries);
         $header .= pack('N', $numRecords);
         $header .= pack('J', $timestamp);
@@ -200,7 +212,8 @@ class OsirisChunkParserTest extends TestCase
         $header .= pack('N', 0);
         $header .= pack('N', $dataLength);
         $header .= pack('N', $trailerLength);
-        $header .= pack('N', 0);
+        $header .= pack('C', 0);   // BloomSize (uint8)
+        $header .= "\x00\x00\x00"; // Reserved (3 bytes)
 
         return $header . $dataSection;
     }
