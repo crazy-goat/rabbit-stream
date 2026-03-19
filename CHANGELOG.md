@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `ToArrayInterface` and `FromArrayInterface` in `src/Buffer/` — foundation for swappable serialization backends
+- `toArray()` on all 28 Request classes and 9 VO classes
+- `fromArray()` on all 28 Response classes and 6 VO classes
+- 57 roundtrip tests for `toArray()`/`fromArray()`
 - `ResolveOffsetSpecRequestV1` — client-side request to resolve offset specification to concrete offset (key `0x001f`)
 - `ResolveOffsetSpecResponseV1` — server response with resolved offset value and offset type (key `0x801f`)
 - `KeyEnum::RESOLVE_OFFSET_SPEC` (`0x001f`) and `KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE` (`0x801f`)
