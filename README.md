@@ -125,6 +125,6 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Close                  | 0x0016 | ✅      | ✅       |
 | Heartbeat              | 0x0017 | ✅      | —        |
 | ExchangeCommandVersions| 0x001b | ✅      | ✅       |
-| ResolveOffsetSpec      | 0x001f | ❌      | ❌       |
+| ResolveOffsetSpec      | 0x001f | ✅      | ✅       |
 
 Legend: ✅ implemented, ❌ not implemented, — not applicable (one-direction command)
