@@ -3,7 +3,6 @@
 namespace CrazyGoat\RabbitStream;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
-use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
@@ -13,6 +12,8 @@ use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
+use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
+use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -43,6 +44,7 @@ class StreamConnection
         private string $host = '172.17.0.2',
         private int $port = 5552,
         private LoggerInterface $logger = new NullLogger(),
+        private BinarySerializerInterface $serializer = new PhpBinarySerializer(),
     ) {
     }
 
@@ -116,10 +118,7 @@ class StreamConnection
             $request->withCorrelationId($this->correlationId);
         }
 
-        if (!$request instanceof ToStreamBufferInterface) {
-            throw new \Exception("Request must implement ToStreamBufferInterface");
-        }
-        $content = $request->toStreamBuffer()->getContents();
+        $content = $this->serializer->serialize($request);
 
         $frame = (new WriteBuffer())
             ->addUInt32(strlen($content))
@@ -156,7 +155,7 @@ class StreamConnection
                 continue;
             }
 
-            return ResponseBuilder::fromResponseBuffer($frame);
+            return $this->serializer->deserialize($frame->getRemainingBytes());
         }
     }
 
@@ -257,7 +256,7 @@ class StreamConnection
                     offsetType: $offsetType,
                     offset: $offset,
                 );
-                $content = $reply->toStreamBuffer()->getContents();
+                $content = $this->serializer->serialize($reply);
                 $this->sendFrame((new WriteBuffer())->addUInt32(strlen($content))->addRaw($content)->getContents());
                 break;
         }
