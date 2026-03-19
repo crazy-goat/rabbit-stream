@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `BinarySerializerInterface` — abstraction layer for binary serialization backends (C++ FFI, PHP extension)
 - `PhpBinarySerializer` — PHP implementation wrapping existing WriteBuffer/ReadBuffer/ResponseBuilder
 - 29 unit tests for PhpBinarySerializer covering 16 request types and 12 response types
+- `StreamConnection` now accepts optional `BinarySerializerInterface` parameter (defaults to `PhpBinarySerializer`) — swapping serialization backend is now a one-line change
 - `ToArrayInterface` and `FromArrayInterface` in `src/Buffer/` — foundation for swappable serialization backends
 - `toArray()` on all 28 Request classes and 9 VO classes
 - `fromArray()` on all 28 Response classes and 6 VO classes
