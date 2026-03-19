@@ -4,6 +4,7 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use PHPUnit\Framework\TestCase;
 
@@ -112,5 +113,54 @@ class ProducerTest extends TestCase
         
         $producer->send('msg2');
         $this->assertEquals(1, $producer->getLastPublishingId());
+    }
+
+    public function testQuerySequenceThrowsForUnnamedProducer(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage');
+        
+        $producer = new Producer($connection, 'test-stream', 1); // No name provided
+        
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Cannot query sequence for unnamed producer');
+        
+        $producer->querySequence();
+    }
+
+    public function testQuerySequenceReturnsSequenceForNamedProducer(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        
+        $mockResponse = $this->createMock(\CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1::class);
+        $mockResponse->method('getSequence')->willReturn(42);
+        
+        // Constructor calls sendMessage with DeclarePublisherRequestV1
+        // querySequence calls sendMessage with QueryPublisherSequenceRequestV1
+        $capturedRequest = null;
+        $connection->expects($this->exactly(2))
+            ->method('sendMessage')
+            ->with($this->callback(function ($request) use (&$capturedRequest) {
+                if ($request instanceof QueryPublisherSequenceRequestV1) {
+                    $capturedRequest = $request;
+                }
+                return true;
+            }));
+        
+        $connection->expects($this->exactly(2))
+            ->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new \stdClass(), // For DeclarePublisher response
+                $mockResponse     // For QueryPublisherSequence response
+            );
+        
+        $producer = new Producer($connection, 'test-stream', 1, 'my-producer');
+        
+        $sequence = $producer->querySequence();
+        $this->assertEquals(42, $sequence);
+        $this->assertNotNull($capturedRequest, 'QueryPublisherSequenceRequestV1 should have been sent');
     }
 }

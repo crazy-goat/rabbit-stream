@@ -5,6 +5,8 @@ namespace CrazyGoat\RabbitStream\Client;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
+use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 
@@ -109,5 +111,20 @@ class Producer
     public function getLastPublishingId(): int
     {
         return $this->publishingId - 1;
+    }
+
+    public function querySequence(): int
+    {
+        if ($this->name === null) {
+            throw new \RuntimeException('Cannot query sequence for unnamed producer');
+        }
+        $this->connection->sendMessage(
+            new QueryPublisherSequenceRequestV1($this->name, $this->stream)
+        );
+        $response = $this->connection->readMessage();
+        if (!$response instanceof QueryPublisherSequenceResponseV1) {
+            throw new \Exception("Expected QueryPublisherSequenceResponseV1, got " . get_class($response));
+        }
+        return $response->getSequence();
     }
 }
