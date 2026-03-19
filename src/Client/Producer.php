@@ -34,7 +34,7 @@ class Producer
         $this->connection->registerPublisher(
             $this->publisherId,
             onConfirm: function (array $publishingIds): void {
-                $this->pendingConfirms -= count($publishingIds);
+                $this->pendingConfirms = max(0, $this->pendingConfirms - count($publishingIds));
                 if ($this->onConfirm !== null) {
                     foreach ($publishingIds as $id) {
                         ($this->onConfirm)(new ConfirmationStatus(true, publishingId: $id));
@@ -42,7 +42,7 @@ class Producer
                 }
             },
             onError: function (array $errors): void {
-                $this->pendingConfirms -= count($errors);
+                $this->pendingConfirms = max(0, $this->pendingConfirms - count($errors));
                 if ($this->onConfirm !== null) {
                     foreach ($errors as $error) {
                         ($this->onConfirm)(new ConfirmationStatus(
@@ -77,6 +77,9 @@ class Producer
      */
     public function sendBatch(array $messages): void
     {
+        if (empty($messages)) {
+            return;
+        }
         $published = [];
         foreach ($messages as $message) {
             $published[] = new PublishedMessage($this->publishingId++, $message);

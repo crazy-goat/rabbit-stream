@@ -67,8 +67,8 @@ Internal update to use new `Producer` constructor while maintaining backward-com
 
 1. Calculate deadline: `time() + $timeout`
 2. Loop while `$pendingConfirms > 0` and `time() < deadline`:
-   - Call `$connection->readMessage($remainingTime)`
-   - `readMessage()` internally dispatches server-push frames (PublishConfirm/PublishError)
+   - Call `$connection->readLoop(timeout: $remaining)`
+   - `readLoop()` dispatches server-push frames (PublishConfirm/PublishError) via registered callbacks
    - Registered callbacks decrement `$pendingConfirms`
 3. If `$pendingConfirms > 0` after timeout: throw `\RuntimeException`
 

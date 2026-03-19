@@ -13,8 +13,7 @@ class ProducerTest extends TestCase
     public function testWaitForConfirmsResolvesWhenConfirmsArrive(): void
     {
         $connection = $this->createMock(StreamConnection::class);
-        
-        // Simulate confirm callback being triggered
+
         $registeredCallbacks = null;
         $connection->expects($this->once())
             ->method('registerPublisher')
@@ -22,28 +21,28 @@ class ProducerTest extends TestCase
             ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks) {
                 $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
             });
-        
+
         $connection->expects($this->any())
             ->method('sendMessage');
-        
+
         $connection->expects($this->any())
             ->method('readMessage')
+            ->willReturn(new \stdClass());
+
+        $connection->expects($this->once())
+            ->method('readLoop')
             ->willReturnCallback(function () use (&$registeredCallbacks) {
-                // Simulate confirm arriving
-                if ($registeredCallbacks !== null) {
-                    ($registeredCallbacks['onConfirm'])([0]);
-                }
-                return new \stdClass();
+                ($registeredCallbacks['onConfirm'])([0]);
             });
-        
+
         $producer = new Producer($connection, 'test-stream', 1);
         $producer->send('test message');
-        
-        // Should not throw
+
         $producer->waitForConfirms(timeout: 1);
-        
-        $this->assertTrue(true); // If we get here, test passed
+
+        $this->assertTrue(true);
     }
+
     public function testSendBatchCreatesSingleRequestWithMultipleMessages(): void
     {
         $connection = $this->createMock(StreamConnection::class);
@@ -113,6 +112,51 @@ class ProducerTest extends TestCase
         
         $producer->send('msg2');
         $this->assertEquals(1, $producer->getLastPublishingId());
+    }
+
+    public function testSendIncrementsPendingConfirms(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+
+        $registeredCallbacks = null;
+        $connection->expects($this->once())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks) {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $readLoopCalled = false;
+        $connection->expects($this->once())
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled) {
+                $readLoopCalled = true;
+                ($registeredCallbacks['onConfirm'])([0, 1, 2]);
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('msg1');
+        $producer->send('msg2');
+        $producer->send('msg3');
+
+        $producer->waitForConfirms(timeout: 1);
+
+        $this->assertTrue($readLoopCalled, 'readLoop should have been called to wait for confirms');
+    }
+
+    public function testSendBatchWithEmptyArrayDoesNotSend(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $connection->expects($this->once())
+            ->method('sendMessage');
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->sendBatch([]);
     }
 
     public function testQuerySequenceThrowsForUnnamedProducer(): void
