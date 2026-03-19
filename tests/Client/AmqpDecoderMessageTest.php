@@ -402,4 +402,17 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame('With footer', $sections['body']);
         $this->assertSame([], $sections['footer']);
     }
+
+    public function testDecodeMessageWithHeaderList0(): void
+    {
+        // Header section using list0 (0x45) — empty list without size/count bytes
+        $headerSection = "\x00\x53\x70\x45"; // described(0x70, list0)
+
+        $message = $headerSection . $this->buildDataSection('With list0 header');
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame('With list0 header', $sections['body']);
+        $this->assertSame([], $sections['header']);
+    }
 }

@@ -381,4 +381,39 @@ class AmqpMessageDecoderTest extends TestCase
         $this->assertNull($message->getCreationTime());
         $this->assertNull($message->getGroupId());
     }
+
+    public function testDecodeAmqpValueWithIntBody(): void
+    {
+        // AmqpValue section with integer body (descriptor 0x77)
+        // 0x00 + smallulong 0x77 + smalluint 42
+        $amqpData = "\x00\x53\x77\x52\x2a";
+
+        $entry = new ChunkEntry(
+            offset: 1000,
+            data: $amqpData,
+            timestamp: 1111111111
+        );
+
+        $message = AmqpMessageDecoder::decode($entry);
+
+        $this->assertSame(42, $message->getBody());
+        $this->assertSame(1000, $message->getOffset());
+    }
+
+    public function testDecodeAmqpValueWithNullBody(): void
+    {
+        // AmqpValue section with null body (descriptor 0x77)
+        // 0x00 + smallulong 0x77 + null
+        $amqpData = "\x00\x53\x77\x40";
+
+        $entry = new ChunkEntry(
+            offset: 1001,
+            data: $amqpData,
+            timestamp: 2222222222
+        );
+
+        $message = AmqpMessageDecoder::decode($entry);
+
+        $this->assertNull($message->getBody());
+    }
 }

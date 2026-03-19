@@ -13,7 +13,7 @@ class AmqpMessageDecoder
         return new Message(
             offset: $entry->getOffset(),
             timestamp: $entry->getTimestamp(),
-            body: $sections['body'] ?? '',
+            body: $sections['body'],
             properties: $sections['properties'] ?? [],
             applicationProperties: $sections['applicationProperties'] ?? [],
             messageAnnotations: $sections['messageAnnotations'] ?? [],

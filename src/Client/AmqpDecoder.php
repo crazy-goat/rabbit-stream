@@ -26,6 +26,7 @@ class AmqpDecoder
             0x42 => [false, $position], // boolean false
             0x43 => [0, $position], // uint zero
             0x44 => [0, $position], // ulong zero
+            0x45 => [[], $position], // list0 (empty list)
             0x50 => self::readUint8($data, $position), // ubyte
             0x51 => self::readInt8($data, $position), // byte
             0x52 => self::readUint8($data, $position), // smalluint

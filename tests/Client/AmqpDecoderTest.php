@@ -44,6 +44,13 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame(1, $pos);
     }
 
+    public function testDecodeList0(): void
+    {
+        [$value, $pos] = AmqpDecoder::decodeValue("\x45", 0);
+        $this->assertSame([], $value);
+        $this->assertSame(1, $pos);
+    }
+
     public function testDecodeUbyte(): void
     {
         [$value, $pos] = AmqpDecoder::decodeValue("\x50\xff", 0);
