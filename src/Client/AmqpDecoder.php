@@ -1,0 +1,553 @@
+<?php
+
+namespace CrazyGoat\RabbitStream\Client;
+
+class AmqpDecoder
+{
+    /**
+     * Decode a single AMQP 1.0 value from the binary data at the given position.
+     * Returns [value, newPosition].
+     *
+     * @return array{0: mixed, 1: int}
+     */
+    static public function decodeValue(string $data, int $position): array
+    {
+        if ($position >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data');
+        }
+
+        $formatCode = ord($data[$position]);
+        $position++;
+
+        return match ($formatCode) {
+            // Fixed-width types
+            0x40 => [null, $position], // null
+            0x41 => [true, $position], // boolean true
+            0x42 => [false, $position], // boolean false
+            0x43 => [0, $position], // uint zero
+            0x44 => [0, $position], // ulong zero
+            0x45 => [[], $position], // list0 (empty list)
+            0x50 => self::readUint8($data, $position), // ubyte
+            0x51 => self::readInt8($data, $position), // byte
+            0x52 => self::readUint8($data, $position), // smalluint
+            0x53 => self::readUint8($data, $position), // smallulong
+            0x54 => self::readInt8($data, $position), // smallint
+            0x55 => self::readInt8($data, $position), // smalllong
+            0x56 => self::readBoolean($data, $position), // boolean
+            0x60 => self::readUint16($data, $position), // ushort
+            0x61 => self::readInt16($data, $position), // short
+            0x70 => self::readUint32($data, $position), // uint
+            0x71 => self::readInt32($data, $position), // int
+            0x72 => self::readFloat($data, $position), // float
+            0x80 => self::readUint64($data, $position), // ulong
+            0x81 => self::readInt64($data, $position), // long
+            0x82 => self::readDouble($data, $position), // double
+            0x83 => self::readTimestamp($data, $position), // timestamp
+            0x98 => self::readUuid($data, $position), // uuid
+
+            // Variable-width types (8-bit length)
+            0xa0 => self::readBinary8($data, $position), // vbin8
+            0xa1 => self::readString8($data, $position), // str8-utf8
+            0xa3 => self::readSymbol8($data, $position), // sym8
+
+            // Variable-width types (32-bit length)
+            0xb0 => self::readBinary32($data, $position), // vbin32
+            0xb1 => self::readString32($data, $position), // str32-utf8
+            0xb3 => self::readSymbol32($data, $position), // sym32
+
+            // Compound types (8-bit length)
+            0xc0 => self::readList8($data, $position), // list8
+            0xc1 => self::readMap8($data, $position), // map8
+
+            // Compound types (32-bit length)
+            0xd0 => self::readList32($data, $position), // list32
+            0xd1 => self::readMap32($data, $position), // map32
+
+            // Described type
+            0x00 => self::readDescribedType($data, $position),
+
+            default => throw new \RuntimeException(sprintf('Unsupported AMQP type: 0x%02x', $formatCode)),
+        };
+    }
+
+    /**
+     * Decode a full AMQP 1.0 message into sections.
+     * Returns ['header' => [...], 'properties' => [...], 'applicationProperties' => [...],
+     *          'messageAnnotations' => [...], 'body' => string|mixed]
+     */
+    static public function decodeMessage(string $data): array
+    {
+        if (strlen($data) === 0) {
+            throw new \RuntimeException('Empty message data');
+        }
+
+        $sections = [
+            'header' => null,
+            'deliveryAnnotations' => null,
+            'messageAnnotations' => [],
+            'properties' => [],
+            'applicationProperties' => [],
+            'body' => '',
+            'footer' => null,
+        ];
+
+        $position = 0;
+        $dataLength = strlen($data);
+
+        while ($position < $dataLength) {
+            // Check for described type marker
+            if (ord($data[$position]) !== 0x00) {
+                throw new \RuntimeException(sprintf('Expected described type marker (0x00) at position %d, got 0x%02x', $position, ord($data[$position])));
+            }
+
+            // Read the described type
+            [$descriptor, $value, $position] = self::readDescribedTypeWithPosition($data, $position);
+
+            // Match descriptor to section
+            switch ($descriptor) {
+                case 0x70: // Header
+                    $sections['header'] = $value;
+                    break;
+
+                case 0x71: // DeliveryAnnotations
+                    $sections['deliveryAnnotations'] = $value;
+                    break;
+
+                case 0x72: // MessageAnnotations
+                    $sections['messageAnnotations'] = $value;
+                    break;
+
+                case 0x73: // Properties
+                    $sections['properties'] = self::parsePropertiesList($value);
+                    break;
+
+                case 0x74: // ApplicationProperties
+                    $sections['applicationProperties'] = $value;
+                    break;
+
+                case 0x75: // Data (body)
+                    if (is_string($value)) {
+                        $sections['body'] .= $value;
+                    }
+                    break;
+
+                case 0x76: // AmqpSequence (body)
+                    // For now, treat as array
+                    $sections['body'] = $value;
+                    break;
+
+                case 0x77: // AmqpValue (body)
+                    $sections['body'] = $value;
+                    break;
+
+                case 0x78: // Footer
+                    $sections['footer'] = $value;
+                    break;
+
+                default:
+                    // Skip unknown sections
+                    break;
+            }
+        }
+
+        return $sections;
+    }
+
+    /**
+     * Parse Properties list (descriptor 0x73) into named fields.
+     */
+    private static function parsePropertiesList(array $list): array
+    {
+        $propertyNames = [
+            0 => 'message-id',
+            1 => 'user-id',
+            2 => 'to',
+            3 => 'subject',
+            4 => 'reply-to',
+            5 => 'correlation-id',
+            6 => 'content-type',
+            7 => 'content-encoding',
+            8 => 'absolute-expiry-time',
+            9 => 'creation-time',
+            10 => 'group-id',
+            11 => 'group-sequence',
+            12 => 'reply-to-group-id',
+        ];
+
+        $properties = [];
+        foreach ($list as $index => $value) {
+            if (isset($propertyNames[$index]) && $value !== null) {
+                $properties[$propertyNames[$index]] = $value;
+            }
+        }
+
+        return $properties;
+    }
+
+    // Fixed-width type readers
+
+    private static function readUint8(string $data, int $position): array
+    {
+        if ($position >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading uint8');
+        }
+        return [ord($data[$position]), $position + 1];
+    }
+
+    private static function readInt8(string $data, int $position): array
+    {
+        if ($position >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading int8');
+        }
+        $value = unpack('c', $data[$position])[1];
+        return [$value, $position + 1];
+    }
+
+    private static function readUint16(string $data, int $position): array
+    {
+        if ($position + 1 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading uint16');
+        }
+        $value = unpack('n', substr($data, $position, 2))[1];
+        return [$value, $position + 2];
+    }
+
+    private static function readInt16(string $data, int $position): array
+    {
+        if ($position + 1 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading int16');
+        }
+        $value = unpack('s', strrev(substr($data, $position, 2)))[1];
+        return [$value, $position + 2];
+    }
+
+    private static function readUint32(string $data, int $position): array
+    {
+        if ($position + 3 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading uint32');
+        }
+        $value = unpack('N', substr($data, $position, 4))[1];
+        // Handle unsigned 32-bit values > PHP_INT_MAX
+        if ($value < 0) {
+            $value = $value + 4294967296;
+        }
+        return [$value, $position + 4];
+    }
+
+    private static function readInt32(string $data, int $position): array
+    {
+        if ($position + 3 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading int32');
+        }
+        $value = unpack('l', strrev(substr($data, $position, 4)))[1];
+        return [$value, $position + 4];
+    }
+
+    private static function readFloat(string $data, int $position): array
+    {
+        if ($position + 3 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading float');
+        }
+        $value = unpack('f', strrev(substr($data, $position, 4)))[1];
+        return [$value, $position + 4];
+    }
+
+    private static function readUint64(string $data, int $position): array
+    {
+        if ($position + 7 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading uint64');
+        }
+        $high = unpack('N', substr($data, $position, 4))[1];
+        $low = unpack('N', substr($data, $position + 4, 4))[1];
+        // Handle as string for large values
+        if ($high < 0) {
+            $high = $high + 4294967296;
+        }
+        if ($low < 0) {
+            $low = $low + 4294967296;
+        }
+        $value = ($high << 32) | $low;
+        return [$value, $position + 8];
+    }
+
+    private static function readInt64(string $data, int $position): array
+    {
+        if ($position + 7 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading int64');
+        }
+        $value = unpack('q', strrev(substr($data, $position, 8)))[1];
+        return [$value, $position + 8];
+    }
+
+    private static function readDouble(string $data, int $position): array
+    {
+        if ($position + 7 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading double');
+        }
+        $value = unpack('d', strrev(substr($data, $position, 8)))[1];
+        return [$value, $position + 8];
+    }
+
+    private static function readTimestamp(string $data, int $position): array
+    {
+        if ($position + 7 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading timestamp');
+        }
+        // Timestamp is milliseconds since Unix epoch (int64)
+        $value = unpack('q', strrev(substr($data, $position, 8)))[1];
+        return [$value, $position + 8];
+    }
+
+    private static function readUuid(string $data, int $position): array
+    {
+        if ($position + 15 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading uuid');
+        }
+        $bytes = substr($data, $position, 16);
+        // Format as UUID string: 8-4-4-4-12 hex digits
+        $value = sprintf(
+            '%08x-%04x-%04x-%04x-%012x',
+            unpack('N', substr($bytes, 0, 4))[1],
+            unpack('n', substr($bytes, 4, 2))[1],
+            unpack('n', substr($bytes, 6, 2))[1],
+            unpack('n', substr($bytes, 8, 2))[1],
+            unpack('N', substr($bytes, 10, 4))[1] * 65536 + unpack('n', substr($bytes, 14, 2))[1]
+        );
+        return [$value, $position + 16];
+    }
+
+    private static function readBoolean(string $data, int $position): array
+    {
+        if ($position >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading boolean');
+        }
+        return [ord($data[$position]) !== 0, $position + 1];
+    }
+
+    // Variable-width type readers
+
+    private static function readBinary8(string $data, int $position): array
+    {
+        if ($position >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading binary8 length');
+        }
+        $length = ord($data[$position]);
+        $position++;
+        if ($position + $length > strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading binary8 content');
+        }
+        return [substr($data, $position, $length), $position + $length];
+    }
+
+    private static function readBinary32(string $data, int $position): array
+    {
+        if ($position + 3 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading binary32 length');
+        }
+        $length = unpack('N', substr($data, $position, 4))[1];
+        if ($length < 0) {
+            $length = $length + 4294967296;
+        }
+        $position += 4;
+        if ($position + $length > strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading binary32 content');
+        }
+        return [substr($data, $position, $length), $position + $length];
+    }
+
+    private static function readString8(string $data, int $position): array
+    {
+        if ($position >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading string8 length');
+        }
+        $length = ord($data[$position]);
+        $position++;
+        if ($position + $length > strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading string8 content');
+        }
+        return [substr($data, $position, $length), $position + $length];
+    }
+
+    private static function readString32(string $data, int $position): array
+    {
+        if ($position + 3 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading string32 length');
+        }
+        $length = unpack('N', substr($data, $position, 4))[1];
+        if ($length < 0) {
+            $length = $length + 4294967296;
+        }
+        $position += 4;
+        if ($position + $length > strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading string32 content');
+        }
+        return [substr($data, $position, $length), $position + $length];
+    }
+
+    private static function readSymbol8(string $data, int $position): array
+    {
+        if ($position >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading symbol8 length');
+        }
+        $length = ord($data[$position]);
+        $position++;
+        if ($position + $length > strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading symbol8 content');
+        }
+        return [substr($data, $position, $length), $position + $length];
+    }
+
+    private static function readSymbol32(string $data, int $position): array
+    {
+        if ($position + 3 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading symbol32 length');
+        }
+        $length = unpack('N', substr($data, $position, 4))[1];
+        if ($length < 0) {
+            $length = $length + 4294967296;
+        }
+        $position += 4;
+        if ($position + $length > strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading symbol32 content');
+        }
+        return [substr($data, $position, $length), $position + $length];
+    }
+
+    // Compound type readers
+
+    private static function readList8(string $data, int $position): array
+    {
+        if ($position + 1 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading list8 header');
+        }
+        $size = ord($data[$position]);
+        $count = ord($data[$position + 1]);
+        $position += 2;
+        $endPosition = $position + $size - 1; // size includes the count byte
+
+        $list = [];
+        for ($i = 0; $i < $count; $i++) {
+            if ($position > $endPosition) {
+                throw new \RuntimeException('List8 count exceeds available data');
+            }
+            [$value, $position] = self::decodeValue($data, $position);
+            $list[] = $value;
+        }
+
+        return [$list, $position];
+    }
+
+    private static function readList32(string $data, int $position): array
+    {
+        if ($position + 7 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading list32 header');
+        }
+        $size = unpack('N', substr($data, $position, 4))[1];
+        if ($size < 0) {
+            $size = $size + 4294967296;
+        }
+        $count = unpack('N', substr($data, $position + 4, 4))[1];
+        if ($count < 0) {
+            $count = $count + 4294967296;
+        }
+        $position += 8;
+        $endPosition = $position + $size - 4; // size includes the 4 count bytes
+
+        $list = [];
+        for ($i = 0; $i < $count; $i++) {
+            if ($position > $endPosition) {
+                throw new \RuntimeException('List32 count exceeds available data');
+            }
+            [$value, $position] = self::decodeValue($data, $position);
+            $list[] = $value;
+        }
+
+        return [$list, $position];
+    }
+
+    private static function readMap8(string $data, int $position): array
+    {
+        if ($position + 1 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading map8 header');
+        }
+        $size = ord($data[$position]);
+        $count = ord($data[$position + 1]); // count is number of key-value pairs * 2
+        $position += 2;
+        $endPosition = $position + $size - 1; // size includes the count byte
+
+        $map = [];
+        $numPairs = (int)($count / 2);
+        for ($i = 0; $i < $numPairs; $i++) {
+            if ($position > $endPosition) {
+                throw new \RuntimeException('Map8 count exceeds available data');
+            }
+            [$key, $position] = self::decodeValue($data, $position);
+            if ($position > $endPosition) {
+                throw new \RuntimeException('Map8 missing value for key');
+            }
+            [$value, $position] = self::decodeValue($data, $position);
+            $map[$key] = $value;
+        }
+
+        return [$map, $position];
+    }
+
+    private static function readMap32(string $data, int $position): array
+    {
+        if ($position + 7 >= strlen($data)) {
+            throw new \RuntimeException('Unexpected end of data reading map32 header');
+        }
+        $size = unpack('N', substr($data, $position, 4))[1];
+        if ($size < 0) {
+            $size = $size + 4294967296;
+        }
+        $count = unpack('N', substr($data, $position + 4, 4))[1];
+        if ($count < 0) {
+            $count = $count + 4294967296;
+        }
+        $position += 8;
+        $endPosition = $position + $size - 4; // size includes the 4 count bytes
+
+        $map = [];
+        $numPairs = (int)($count / 2);
+        for ($i = 0; $i < $numPairs; $i++) {
+            if ($position > $endPosition) {
+                throw new \RuntimeException('Map32 count exceeds available data');
+            }
+            [$key, $position] = self::decodeValue($data, $position);
+            if ($position > $endPosition) {
+                throw new \RuntimeException('Map32 missing value for key');
+            }
+            [$value, $position] = self::decodeValue($data, $position);
+            $map[$key] = $value;
+        }
+
+        return [$map, $position];
+    }
+
+    // Described type reader
+
+    private static function readDescribedType(string $data, int $position): array
+    {
+        [$descriptor, $position] = self::decodeValue($data, $position);
+        [$value, $position] = self::decodeValue($data, $position);
+        return [['descriptor' => $descriptor, 'value' => $value], $position];
+    }
+
+    /**
+     * Read a described type and return [descriptor, value, newPosition].
+     */
+    private static function readDescribedTypeWithPosition(string $data, int $position): array
+    {
+        // Skip the 0x00 marker (already checked by caller)
+        $position++;
+
+        // Read the descriptor
+        [$descriptor, $position] = self::decodeValue($data, $position);
+
+        // Read the value
+        [$value, $position] = self::decodeValue($data, $position);
+
+        return [$descriptor, $value, $position];
+    }
+}

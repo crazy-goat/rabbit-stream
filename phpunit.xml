@@ -6,6 +6,7 @@
     <testsuites>
         <testsuite name="unit">
             <directory>tests/Buffer</directory>
+            <directory>tests/Client</directory>
             <directory>tests/Request</directory>
             <directory>tests/Response</directory>
             <file>tests/StreamConnectionTest.php</file>
