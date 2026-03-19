@@ -2,10 +2,8 @@
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
-use CrazyGoat\RabbitStream\Client\ProducerConfig;
-use CrazyGoat\RabbitStream\Client\StreamClient;
-use CrazyGoat\RabbitStream\Client\StreamClientConfig;
 use PHPUnit\Framework\TestCase;
 
 class PublishTest extends TestCase
@@ -19,56 +17,63 @@ class PublishTest extends TestCase
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
     }
 
-    private function connect(): StreamClient
+    private function connect(): Connection
     {
-        return StreamClient::connect(new StreamClientConfig(
+        return Connection::create(
             host: self::$host,
             port: self::$port,
-        ));
+            user: 'guest',
+            password: 'guest',
+            vhost: '/'
+        );
     }
 
     public function testPublishSingleMessage(): void
     {
-        $client = $this->connect();
+        $connection = $this->connect();
 
         $confirmedIds = [];
-        $producer = $client->createProducer('test-stream', new ProducerConfig(
-            onConfirmation: function (ConfirmationStatus $status) use (&$confirmedIds): void {
+        $producer = $connection->createProducer(
+            stream: 'test-stream',
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmedIds): void {
                 if ($status->isConfirmed()) {
                     $confirmedIds[] = $status->getPublishingId();
                 }
             }
-        ));
+        );
 
         $producer->send('hello world');
-        $client->readLoop(maxFrames: 1);
+        $connection->readLoop(maxFrames: 1);
 
         $this->assertSame([0], $confirmedIds);
 
-        $client->close();
+        $producer->close();
+        $connection->close();
     }
 
     public function testPublishMultipleMessages(): void
     {
-        $client = $this->connect();
+        $connection = $this->connect();
 
         $confirmedIds = [];
-        $producer = $client->createProducer('test-stream', new ProducerConfig(
-            onConfirmation: function (ConfirmationStatus $status) use (&$confirmedIds): void {
+        $producer = $connection->createProducer(
+            stream: 'test-stream',
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmedIds): void {
                 if ($status->isConfirmed()) {
                     $confirmedIds[] = $status->getPublishingId();
                 }
             }
-        ));
+        );
 
         $producer->send('message-one');
         $producer->send('message-two');
         $producer->send('message-three');
         
-        $client->readLoop(maxFrames: 3);
+        $connection->readLoop(maxFrames: 3);
 
         $this->assertCount(3, $confirmedIds);
 
-        $client->close();
+        $producer->close();
+        $connection->close();
     }
 }

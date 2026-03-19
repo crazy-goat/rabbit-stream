@@ -32,6 +32,11 @@ class SaslHandshakeResponseV1 implements KeyVersionInterface, CorrelationInterfa
         return $object;
     }
 
+    public function getMechanisms(): array
+    {
+        return $this->mechanisms;
+    }
+
     public static function getKey(): int
     {
         return KeyEnum::SASL_HANDSHAKE_RESPONSE->value;

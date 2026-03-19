@@ -7,7 +7,7 @@ class Message
     public function __construct(
         private readonly int $offset,
         private readonly int $timestamp,
-        private readonly string|int|float|array|null $body,
+        private readonly string|int|float|bool|array|null $body,
         private readonly array $properties = [],
         private readonly array $applicationProperties = [],
         private readonly array $messageAnnotations = [],
@@ -23,7 +23,7 @@ class Message
         return $this->timestamp;
     }
 
-    public function getBody(): string|int|float|array|null
+    public function getBody(): string|int|float|bool|array|null
     {
         return $this->body;
     }

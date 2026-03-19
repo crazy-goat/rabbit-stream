@@ -12,6 +12,9 @@ use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 
+/**
+ * @deprecated Use Connection::create() instead
+ */
 class StreamClient
 {
     private int $publisherIdCounter = 0;

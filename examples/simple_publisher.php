@@ -1,9 +1,7 @@
 <?php
 
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
-use CrazyGoat\RabbitStream\Client\ProducerConfig;
-use CrazyGoat\RabbitStream\Client\StreamClient;
-use CrazyGoat\RabbitStream\Client\StreamClientConfig;
 
 include __DIR__ . '/../vendor/autoload.php';
 
@@ -13,32 +11,36 @@ $port = (int)(getenv('RABBITMQ_PORT') ?: 5552);
 echo "Connecting to RabbitMQ Stream at $host:$port...\n";
 
 try {
-    $client = StreamClient::connect(new StreamClientConfig(
+    $connection = Connection::create(
         host: $host,
         port: $port,
-    ));
+        user: 'guest',
+        password: 'guest',
+        vhost: '/'
+    );
 
     echo "Connected successfully.\n";
 
-    $producer = $client->createProducer('test-stream', new ProducerConfig(
-        onConfirmation: function (ConfirmationStatus $status): void {
+    $producer = $connection->createProducer(
+        stream: 'test-stream',
+        onConfirm: function (ConfirmationStatus $status): void {
             if ($status->isConfirmed()) {
                 echo "Message confirmed! ID: {$status->getPublishingId()}\n";
             } else {
                 echo "Message failed! ID: {$status->getPublishingId()}, Error: {$status->getErrorCode()}\n";
             }
         }
-    ));
+    );
 
     echo "Sending message...\n";
     $producer->send("Hello, RabbitStream!");
 
     echo "Waiting for confirmation...\n";
-    $client->readLoop(maxFrames: 1);
+    $connection->readLoop(maxFrames: 1);
 
     echo "Closing...\n";
     $producer->close();
-    $client->close();
+    $connection->close();
 
     echo "Done.\n";
 } catch (\Exception $e) {
