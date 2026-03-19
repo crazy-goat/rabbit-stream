@@ -3,6 +3,7 @@
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
+use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequest;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\ResolveOffsetSpecRequestV1;
@@ -10,6 +11,7 @@ use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -19,19 +21,71 @@ use PHPUnit\Framework\TestCase;
 /**
  * E2E tests for ResolveOffsetSpec command.
  * 
- * NOTE: These tests require RabbitMQ 4.3+ which supports the ResolveOffsetSpec command (0x001f).
- * RabbitMQ 4.2.x and earlier versions do not support this command and will close the connection.
- * The tests are skipped until RabbitMQ 4.3 is released.
+ * These tests check if the server supports the ResolveOffsetSpec command (0x001f)
+ * via ExchangeCommandVersions. If the command is not supported (RabbitMQ < 4.3),
+ * all tests are skipped.
  */
 class ResolveOffsetSpecE2ETest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
+    private static bool $commandSupported = false;
 
     public static function setUpBeforeClass(): void
     {
         self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
+        
+        // Check if server supports ResolveOffsetSpec command
+        try {
+            $connection = new StreamConnection(self::$host, self::$port);
+            $connection->connect();
+
+            $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+            $connection->readMessage();
+
+            $connection->sendMessage(new SaslHandshakeRequestV1());
+            $connection->readMessage();
+
+            $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
+            $connection->readMessage();
+
+            $tune = $connection->readMessage();
+            $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
+
+            $connection->sendMessage(new OpenRequest('/'));
+            $connection->readMessage();
+
+            // Query supported commands
+            $request = new ExchangeCommandVersionsRequestV1([]);
+            $request->withCorrelationId(999);
+            $connection->sendMessage($request);
+            $response = $connection->readMessage();
+
+            if ($response instanceof ExchangeCommandVersionsResponseV1) {
+                foreach ($response->getCommands() as $command) {
+                    if ($command->getKey() === 0x001f) {
+                        self::$commandSupported = true;
+                        break;
+                    }
+                }
+            }
+
+            $connection->close();
+        } catch (\Throwable $e) {
+            // If we can't connect or check, assume not supported
+            self::$commandSupported = false;
+        }
+    }
+
+    protected function setUp(): void
+    {
+        if (!self::$commandSupported) {
+            $this->markTestSkipped(
+                'ResolveOffsetSpec command (0x001f) is not supported by the server. ' .
+                'This command requires RabbitMQ 4.3+. Current version does not support this command.'
+            );
+        }
     }
 
     private function connectAndOpen(): StreamConnection
@@ -60,8 +114,6 @@ class ResolveOffsetSpecE2ETest extends TestCase
 
     public function testResolveFirstOffset(): void
     {
-        $this->markTestSkipped('ResolveOffsetSpec command requires RabbitMQ 4.3+. Current version does not support this command.');
-        
         $connection = $this->connectAndOpen();
         $stream = 'test-resolve-first-stream-' . uniqid();
 
@@ -88,8 +140,6 @@ class ResolveOffsetSpecE2ETest extends TestCase
 
     public function testResolveLastOffset(): void
     {
-        $this->markTestSkipped('ResolveOffsetSpec command requires RabbitMQ 4.3+. Current version does not support this command.');
-        
         $connection = $this->connectAndOpen();
         $stream = 'test-resolve-last-stream-' . uniqid();
 
@@ -114,8 +164,6 @@ class ResolveOffsetSpecE2ETest extends TestCase
 
     public function testResolveOffsetSpec(): void
     {
-        $this->markTestSkipped('ResolveOffsetSpec command requires RabbitMQ 4.3+. Current version does not support this command.');
-        
         $connection = $this->connectAndOpen();
         $stream = 'test-resolve-offset-stream-' . uniqid();
 
