@@ -30,6 +30,7 @@ use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
+use CrazyGoat\RabbitStream\Response\RouteResponseV1;
 
 class ResponseBuilder
 {
@@ -73,6 +74,7 @@ class ResponseBuilder
             KeyEnum::PEER_PROPERTIES_RESPONSE => PeerPropertiesResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::STREAM_STATS_RESPONSE => StreamStatsResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PARTITIONS_RESPONSE => PartitionsResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::ROUTE_RESPONSE => RouteResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CREATE_SUPER_STREAM_RESPONSE => CreateSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::DELETE_SUPER_STREAM_RESPONSE => DeleteSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
             default => throw new \Exception('Unexpected match value'),
