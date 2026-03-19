@@ -22,7 +22,8 @@ class ResolveOffsetSpecRequestV1Test extends TestCase
             . pack('N', 42)                            // correlationId
             . pack('n', strlen('my-stream'))          // stream length
             . 'my-stream'                              // stream
-            . pack('n', 0x0001);                       // offsetSpec type (FIRST = 0x0001)
+            . pack('n', 0x0001)                        // offsetSpec type (FIRST = 0x0001)
+            . pack('N', 0);                            // properties array length (0 = empty)
 
         $this->assertSame($expected, $bytes);
     }
@@ -43,7 +44,8 @@ class ResolveOffsetSpecRequestV1Test extends TestCase
             . pack('n', strlen('my-stream'))
             . 'my-stream'
             . pack('n', 0x0004)                        // type OFFSET = 0x0004
-            . pack('J', 12345);                        // value uint64
+            . pack('J', 12345)                         // value uint64
+            . pack('N', 0);                            // properties array length (0 = empty)
 
         $this->assertSame($expected, $bytes);
     }

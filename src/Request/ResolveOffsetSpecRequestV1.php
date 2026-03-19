@@ -27,7 +27,8 @@ class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, Correlation
     {
         return self::getKeyVersion($this->getCorrelationId())
             ->addString($this->stream)
-            ->addRaw($this->offsetSpec->toStreamBuffer()->getContents());
+            ->addRaw($this->offsetSpec->toStreamBuffer()->getContents())
+            ->addUInt32(0); // Properties array length (0 = empty array)
     }
 
     static public function getKey(): int

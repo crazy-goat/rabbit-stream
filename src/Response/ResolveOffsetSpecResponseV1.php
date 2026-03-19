@@ -24,6 +24,7 @@ class ResolveOffsetSpecResponseV1 implements KeyVersionInterface, CorrelationInt
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
         self::isResponseCodeOk($buffer->getUint16());
+        $offsetType = $buffer->getUint16(); // OffsetType: 1 (first), 2 (last), 3 (next), 4 (offset), 5 (timestamp)
         $offset = $buffer->getUint64();
 
         $object = new self();

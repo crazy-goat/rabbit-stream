@@ -14,6 +14,7 @@ class ResolveOffsetSpecResponseV1Test extends TestCase
             . pack('n', 1)          // version
             . pack('N', 7)          // correlationId
             . pack('n', 0x0001)     // responseCode OK
+            . pack('n', 0x0004)     // offsetType (OFFSET = 4)
             . pack('J', 123456);    // offset (uint64 big-endian)
 
         $response = ResolveOffsetSpecResponseV1::fromStreamBuffer(new ReadBuffer($raw));
