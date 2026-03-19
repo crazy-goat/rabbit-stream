@@ -2,10 +2,11 @@
 
 namespace CrazyGoat\RabbitStream\VO;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 
-class OffsetSpec implements ToStreamBufferInterface
+class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
 {
     public const TYPE_FIRST = 0x0001;
     public const TYPE_LAST = 0x0002;
@@ -73,5 +74,10 @@ class OffsetSpec implements ToStreamBufferInterface
     public function getValue(): ?int
     {
         return $this->value;
+    }
+
+    public function toArray(): array
+    {
+        return ['type' => $this->type, 'value' => $this->value];
     }
 }

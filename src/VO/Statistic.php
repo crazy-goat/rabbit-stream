@@ -2,12 +2,14 @@
 
 namespace CrazyGoat\RabbitStream\VO;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 
-class Statistic implements FromStreamBufferInterface, ToStreamBufferInterface
+class Statistic implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(private string $key, private int $value)
     {
@@ -33,5 +35,15 @@ class Statistic implements FromStreamBufferInterface, ToStreamBufferInterface
     public static function fromStreamBuffer(ReadBuffer $buffer): ?object
     {
         return new self($buffer->gatString(), $buffer->getInt64());
+    }
+
+    public function toArray(): array
+    {
+        return ['key' => $this->key, 'value' => $this->value];
+    }
+
+    public static function fromArray(array $data): static
+    {
+        return new self($data['key'], $data['value']);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class DeclarePublisherRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
+class DeclarePublisherRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -29,6 +30,15 @@ class DeclarePublisherRequestV1 implements ToStreamBufferInterface, CorrelationI
             ->addUInt8($this->publisherId)
             ->addString($this->publisherReference ?? '')
             ->addString($this->stream);
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'publisherId' => $this->publisherId,
+            'publisherReference' => $this->publisherReference,
+            'stream' => $this->stream,
+        ];
     }
 
     static public function getKey(): int

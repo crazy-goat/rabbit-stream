@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -9,7 +10,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class ConsumerUpdateReplyV1 implements ToStreamBufferInterface, KeyVersionInterface
+class ConsumerUpdateReplyV1 implements ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
 {
     use V1Trait;
     use CommandTrait;
@@ -30,6 +31,16 @@ class ConsumerUpdateReplyV1 implements ToStreamBufferInterface, KeyVersionInterf
             ->addUInt16($this->responseCode)
             ->addUInt16($this->offsetType)
             ->addUInt64($this->offset);
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'correlationId' => $this->correlationId,
+            'responseCode' => $this->responseCode,
+            'offsetType' => $this->offsetType,
+            'offset' => $this->offset,
+        ];
     }
 
     static public function getKey(): int

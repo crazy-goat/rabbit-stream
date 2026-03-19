@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class DeleteSuperStreamRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
+class DeleteSuperStreamRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -23,6 +24,11 @@ class DeleteSuperStreamRequestV1 implements ToStreamBufferInterface, Correlation
     {
         return self::getKeyVersion($this->getCorrelationId())
             ->addString($this->name);
+    }
+
+    public function toArray(): array
+    {
+        return ['name' => $this->name];
     }
 
     static public function getKey(): int

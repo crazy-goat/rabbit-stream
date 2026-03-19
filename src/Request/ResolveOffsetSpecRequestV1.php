@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -12,7 +13,7 @@ use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
+class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -29,6 +30,14 @@ class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, Correlation
             ->addString($this->stream)
             ->addRaw($this->offsetSpec->toStreamBuffer()->getContents())
             ->addUInt32(0); // Properties array length (0 = empty array)
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'stream' => $this->stream,
+            'offsetSpec' => $this->offsetSpec->toArray(),
+        ];
     }
 
     static public function getKey(): int

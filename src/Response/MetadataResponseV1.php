@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Response;
 
+use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -13,7 +14,7 @@ use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\Broker;
 use CrazyGoat\RabbitStream\VO\StreamMetadata;
 
-class MetadataResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
+class MetadataResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -56,6 +57,21 @@ class MetadataResponseV1 implements KeyVersionInterface, CorrelationInterface, F
         $object = new self($brokers, $streamMetadata);
         $object->withCorrelationId($correlationId);
 
+        return $object;
+    }
+
+    public static function fromArray(array $data): static
+    {
+        $brokers = array_map(
+            fn(array $b) => new Broker($b['reference'], $b['host'], $b['port']),
+            $data['brokers']
+        );
+        $streamMetadata = array_map(
+            fn(array $s) => new StreamMetadata($s['stream'], $s['responseCode'], $s['leaderReference'], $s['replicasReferences']),
+            $data['streamMetadata']
+        );
+        $object = new self($brokers, $streamMetadata);
+        $object->withCorrelationId($data['correlationId']);
         return $object;
     }
 

@@ -2,6 +2,7 @@
 
 namespace CrazyGoat\RabbitStream\Request;
 
+use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -11,7 +12,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class OpenRequest implements KeyVersionInterface, ToStreamBufferInterface, CorrelationInterface
+class OpenRequest implements KeyVersionInterface, ToStreamBufferInterface, ToArrayInterface, CorrelationInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -25,6 +26,11 @@ class OpenRequest implements KeyVersionInterface, ToStreamBufferInterface, Corre
     {
         return self::getKeyVersion($this->getCorrelationId())
             ->addString($this->vhost);
+    }
+
+    public function toArray(): array
+    {
+        return ['vhost' => $this->vhost];
     }
 
     static public function getKey(): int
