@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
@@ -69,6 +70,7 @@ class ResponseBuilder
             KeyEnum::CLOSE_RESPONSE => CloseResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::PEER_PROPERTIES_RESPONSE => PeerPropertiesResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::STREAM_STATS_RESPONSE => StreamStatsResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::PARTITIONS_RESPONSE => PartitionsResponseV1::fromStreamBuffer($responseBuffer),
             default => throw new \Exception('Unexpected match value'),
         };
     }
