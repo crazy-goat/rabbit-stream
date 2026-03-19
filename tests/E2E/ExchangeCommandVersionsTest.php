@@ -2,18 +2,19 @@
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequest;
-use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
-use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
+use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use PHPUnit\Framework\TestCase;
 
-class PartitionsTest extends TestCase
+class ExchangeCommandVersionsTest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
@@ -48,44 +49,32 @@ class PartitionsTest extends TestCase
         return $connection;
     }
 
-    public function testPartitionsForNonExistentSuperStreamThrows(): void
+    public function testExchangeCommandVersions(): void
     {
         $connection = $this->connectAndOpen();
 
-        $superStreamName = 'test-nonexistent-partitions-' . uniqid();
+        $commands = [
+            new CommandVersion(KeyEnum::DECLARE_PUBLISHER->value, 1, 1),
+            new CommandVersion(KeyEnum::PUBLISH->value, 1, 1),
+            new CommandVersion(KeyEnum::SUBSCRIBE->value, 1, 1),
+            new CommandVersion(KeyEnum::CREATE->value, 1, 1),
+            new CommandVersion(KeyEnum::DELETE->value, 1, 1),
+            new CommandVersion(KeyEnum::METADATA->value, 1, 1),
+            new CommandVersion(KeyEnum::OPEN->value, 1, 1),
+            new CommandVersion(KeyEnum::CLOSE->value, 1, 1),
+        ];
 
-        $this->expectException(\Exception::class);
-        $connection->sendMessage(new PartitionsRequestV1($superStreamName));
-        $connection->readMessage();
-
-        $connection->close();
-    }
-
-    public function testPartitionsReturnsStreamsForSuperStream(): void
-    {
-        $connection = $this->connectAndOpen();
-
-        $superStreamName = 'test-partitions-super-stream-' . uniqid();
-        $partition1 = $superStreamName . '-0';
-        $partition2 = $superStreamName . '-1';
-        $partition3 = $superStreamName . '-2';
-
-        $connection->sendMessage(new CreateSuperStreamRequestV1(
-            $superStreamName,
-            [$partition1, $partition2, $partition3],
-            ['0', '1', '2']
-        ));
-        $connection->readMessage();
-
-        $connection->sendMessage(new PartitionsRequestV1($superStreamName));
+        $connection->sendMessage(new ExchangeCommandVersionsRequestV1($commands));
         $response = $connection->readMessage();
 
-        $this->assertInstanceOf(PartitionsResponseV1::class, $response);
-        $streams = $response->getStreams();
-        $this->assertCount(3, $streams);
-        $this->assertContains($partition1, $streams);
-        $this->assertContains($partition2, $streams);
-        $this->assertContains($partition3, $streams);
+        $this->assertInstanceOf(ExchangeCommandVersionsResponseV1::class, $response);
+        $this->assertNotEmpty($response->getCommands());
+
+        foreach ($response->getCommands() as $command) {
+            $this->assertGreaterThan(0, $command->getKey());
+            $this->assertGreaterThanOrEqual(1, $command->getMinVersion());
+            $this->assertGreaterThanOrEqual($command->getMinVersion(), $command->getMaxVersion());
+        }
 
         $connection->close();
     }
