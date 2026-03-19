@@ -88,4 +88,21 @@ class Producer
         $this->connection->sendMessage(new DeletePublisherRequestV1($this->publisherId));
         $this->connection->readMessage();
     }
+
+    public function waitForConfirms(int $timeout = 5): void
+    {
+        $deadline = time() + $timeout;
+        while ($this->pendingConfirms > 0 && time() < $deadline) {
+            $remaining = $deadline - time();
+            if ($remaining <= 0) {
+                break;
+            }
+            $this->connection->readMessage((int) $remaining);
+        }
+        if ($this->pendingConfirms > 0) {
+            throw new \RuntimeException(
+                "Timed out waiting for {$this->pendingConfirms} publish confirms"
+            );
+        }
+    }
 }

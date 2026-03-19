@@ -9,6 +9,40 @@ use PHPUnit\Framework\TestCase;
 
 class ProducerTest extends TestCase
 {
+    public function testWaitForConfirmsResolvesWhenConfirmsArrive(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        
+        // Simulate confirm callback being triggered
+        $registeredCallbacks = null;
+        $connection->expects($this->once())
+            ->method('registerPublisher')
+            ->with(1, $this->anything(), $this->anything())
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks) {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+        
+        $connection->expects($this->any())
+            ->method('sendMessage');
+        
+        $connection->expects($this->any())
+            ->method('readMessage')
+            ->willReturnCallback(function () use (&$registeredCallbacks) {
+                // Simulate confirm arriving
+                if ($registeredCallbacks !== null) {
+                    ($registeredCallbacks['onConfirm'])([0]);
+                }
+                return new \stdClass();
+            });
+        
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('test message');
+        
+        // Should not throw
+        $producer->waitForConfirms(timeout: 1);
+        
+        $this->assertTrue(true); // If we get here, test passed
+    }
     public function testSendBatchCreatesSingleRequestWithMultipleMessages(): void
     {
         $connection = $this->createMock(StreamConnection::class);
@@ -36,5 +70,28 @@ class ProducerTest extends TestCase
         $this->assertInstanceOf(PublishRequestV1::class, $capturedRequest);
         /** @var PublishRequestV1 $capturedRequest */
         $this->assertSame(3, count($capturedRequest->toArray()['messages']), 'Should have 3 messages');
+    }
+
+    public function testWaitForConfirmsThrowsOnTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        
+        $connection->expects($this->any())
+            ->method('registerPublisher');
+        
+        $connection->expects($this->any())
+            ->method('sendMessage');
+        
+        $connection->expects($this->any())
+            ->method('readMessage')
+            ->willReturn(new \stdClass());
+        
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('test message');
+        
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Timed out waiting for 1 publish confirms');
+        
+        $producer->waitForConfirms(timeout: 0);
     }
 }
