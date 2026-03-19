@@ -94,4 +94,23 @@ class ProducerTest extends TestCase
         
         $producer->waitForConfirms(timeout: 0);
     }
+
+    public function testGetLastPublishingIdReturnsCorrectValue(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage');
+        
+        $producer = new Producer($connection, 'test-stream', 1);
+        
+        // Before any sends
+        $this->assertEquals(-1, $producer->getLastPublishingId());
+        
+        $producer->send('msg1');
+        $this->assertEquals(0, $producer->getLastPublishingId());
+        
+        $producer->send('msg2');
+        $this->assertEquals(1, $producer->getLastPublishingId());
+    }
 }

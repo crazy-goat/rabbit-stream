@@ -105,4 +105,9 @@ class Producer
             );
         }
     }
+
+    public function getLastPublishingId(): int
+    {
+        return $this->publishingId - 1;
+    }
 }
