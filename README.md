@@ -85,7 +85,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | PublishConfirm         | 0x0003 | —       | ✅       |
 | PublishError           | 0x0004 | —       | ✅       |
 | QueryPublisherSequence | 0x0005 | ✅      | ✅       |
-| DeletePublisher        | 0x0006 | ❌      | ❌       |
+| DeletePublisher        | 0x0006 | ✅      | ✅       |
 
 ### Consuming
 
@@ -104,12 +104,12 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Command         | Key    | Request | Response |
 |-----------------|--------|---------|----------|
 | Create          | 0x000d | ✅      | ✅       |
-| Delete          | 0x000e | ❌      | ❌       |
+| Delete          | 0x000e | ✅      | ✅       |
 | Metadata        | 0x000f | ✅      | ✅       |
 | MetadataUpdate  | 0x0010 | —       | ✅       |
 | CreateSuperStream | 0x001d | ✅      | ✅       |
 | DeleteSuperStream | 0x001e | ❌    | ❌       |
-| StreamStats     | 0x001c | ❌      | ❌       |
+| StreamStats     | 0x001c | ✅      | ✅       |
 
 ### Routing (Super Streams)
 
