@@ -20,36 +20,35 @@ composer require crazy-goat/rabbit-stream
 ### High-level API (Recommended)
 
 ```php
-use CrazyGoat\RabbitStream\Client\StreamClient;
-use CrazyGoat\RabbitStream\Client\StreamClientConfig;
-use CrazyGoat\RabbitStream\Client\ProducerConfig;
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 
 // Connect (handshake and authentication handled automatically)
-$client = StreamClient::connect(new StreamClientConfig(
+$connection = Connection::create(
     host: '127.0.0.1',
     user: 'guest',
     password: 'guest'
-));
+);
 
 // Create a producer for 'my-stream'
-$producer = $client->createProducer('my-stream', new ProducerConfig(
-    onConfirmation: function (ConfirmationStatus $status): void {
+$producer = $connection->createProducer(
+    stream: 'my-stream',
+    onConfirm: function (ConfirmationStatus $status): void {
         if ($status->isConfirmed()) {
             echo "Message {$status->getPublishingId()} confirmed\n";
         }
     }
-));
+);
 
 // Send a message
 $producer->send("Hello, RabbitMQ Stream!");
 
 // Drive the loop to receive confirmations (optional, blocking)
-$client->readLoop(maxFrames: 1);
+$connection->readLoop(maxFrames: 1);
 
 // Close producer and connection
 $producer->close();
-$client->close();
+$connection->close();
 ```
 
 ### Consuming with Message Decoding
