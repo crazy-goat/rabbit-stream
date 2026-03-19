@@ -45,6 +45,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `CreateSuperStreamResponseV1` — server response for CreateSuperStream command (key `0x801d`)
 - `WriteBuffer::addStringArray()` — helper method for serializing string arrays
 - E2E tests for CreateSuperStream command (including verification via Partitions)
+- `RouteRequestV1` — client-side request to resolve routing key to stream partition (key `0x0018`)
+- `RouteResponseV1` — server response with array of matching stream names (key `0x8018`)
+- `KeyEnum::ROUTE_RESPONSE` (`0x8018`)
+- E2E tests for Route command (including CreateSuperStream integration)
 
 ## [0.5.0] - 2026-03-17
 
