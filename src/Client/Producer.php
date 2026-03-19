@@ -11,12 +11,14 @@ use CrazyGoat\RabbitStream\VO\PublishedMessage;
 class Producer
 {
     private int $publishingId = 0;
+    private int $pendingConfirms = 0;
 
     public function __construct(
         private readonly StreamConnection $connection,
         private readonly string $stream,
         private readonly int $publisherId,
-        private readonly ProducerConfig $config,
+        private readonly ?string $name = null,
+        private readonly ?callable $onConfirm = null,
     ) {
         $this->declare();
     }
@@ -26,16 +28,18 @@ class Producer
         $this->connection->registerPublisher(
             $this->publisherId,
             onConfirm: function (array $publishingIds): void {
-                if ($this->config->onConfirmation) {
+                $this->pendingConfirms -= count($publishingIds);
+                if ($this->onConfirm !== null) {
                     foreach ($publishingIds as $id) {
-                        ($this->config->onConfirmation)(new ConfirmationStatus(true, publishingId: $id));
+                        ($this->onConfirm)(new ConfirmationStatus(true, publishingId: $id));
                     }
                 }
             },
             onError: function (array $errors): void {
-                if ($this->config->onConfirmation) {
+                $this->pendingConfirms -= count($errors);
+                if ($this->onConfirm !== null) {
                     foreach ($errors as $error) {
-                        ($this->config->onConfirmation)(new ConfirmationStatus(
+                        ($this->onConfirm)(new ConfirmationStatus(
                             false,
                             errorCode: $error->getCode(),
                             publishingId: $error->getPublishingId()
@@ -47,7 +51,7 @@ class Producer
 
         $this->connection->sendMessage(new DeclarePublisherRequestV1(
             $this->publisherId,
-            $this->config->name,
+            $this->name,
             $this->stream
         ));
         $this->connection->readMessage();
