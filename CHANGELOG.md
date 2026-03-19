@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `Connection::getStreamStats()`, `Connection::getMetadata()`, `Connection::queryOffset()` — metadata operations
 - `Connection::close()` — graceful shutdown with CloseRequestV1
 - `Connection::createProducer()`, `Connection::createConsumer()` — factory methods for producers and consumers
+- `Producer::sendBatch()` — send multiple messages in a single frame
+- `Producer::waitForConfirms()` — block until all pending publish confirms are received (with timeout)
+- `Producer::getLastPublishingId()` — returns the last used publishing ID
+- `Producer::querySequence()` — queries the server for the last confirmed publishing ID (named producers only)
 - `Connection::readLoop()`, `Connection::storeOffset()` — additional convenience methods
 - `Consumer` — stub class for future consumer implementation
 - Unit tests for `Connection` class
@@ -21,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Deprecated
 - `StreamClient` — use `Connection::create()` instead
+- `ProducerConfig` — use `Connection::createProducer()` parameters instead
 - `Message` — value object representing a decoded AMQP 1.0 message with offset, timestamp, body, properties, and application properties
 - `AmqpDecoder` — low-level AMQP 1.0 binary decoder supporting all common types (null, bool, integers, strings, binary, lists, maps, described types)
 - `AmqpMessageDecoder` — high-level decoder converting `ChunkEntry` objects into `Message` objects
