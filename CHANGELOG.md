@@ -7,7 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- `BinarySerializerInterface` — abstraction layer for binary serialization backends (C++ FFI, PHP extension)
+- `Message` — value object representing a decoded AMQP 1.0 message with offset, timestamp, body, properties, and application properties
+- `AmqpDecoder` — low-level AMQP 1.0 binary decoder supporting all common types (null, bool, integers, strings, binary, lists, maps, described types)
+- `AmqpMessageDecoder` — high-level decoder converting `ChunkEntry` objects into `Message` objects
+- `AmqpDecoderTest` — 45 unit tests for AMQP type decoding
+- `AmqpDecoderMessageTest` — 14 unit tests for message section parsing
+- `AmqpMessageDecoderTest` — 12 unit tests for ChunkEntry to Message conversion
+- Support for decoding AMQP 1.0 message sections: Header, Properties, ApplicationProperties, MessageAnnotations, Data, AmqpValue, Footer
+- Convenience getters on `Message`: `getMessageId()`, `getCorrelationId()`, `getContentType()`, `getSubject()`, `getCreationTime()`, `getGroupId()`
 - `PhpBinarySerializer` — PHP implementation wrapping existing WriteBuffer/ReadBuffer/ResponseBuilder
 - 29 unit tests for PhpBinarySerializer covering 16 request types and 12 response types
 - `StreamConnection` now accepts optional `BinarySerializerInterface` parameter (defaults to `PhpBinarySerializer`) — swapping serialization backend is now a one-line change

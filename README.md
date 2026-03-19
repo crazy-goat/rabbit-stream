@@ -52,6 +52,28 @@ $producer->close();
 $client->close();
 ```
 
+### Consuming with Message Decoding
+
+```php
+use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
+
+// ... subscribe to stream and receive Deliver response
+
+$chunk = $deliverResponse->getChunk();
+$entries = OsirisChunkParser::parse($chunk);
+
+// Decode AMQP 1.0 messages into Message objects
+$messages = AmqpMessageDecoder::decodeAll($entries);
+
+foreach ($messages as $message) {
+    echo "Offset: {$message->getOffset()}\n";
+    echo "Body: {$message->getBody()}\n";
+    echo "Content-Type: {$message->getContentType()}\n";
+    echo "Message-ID: {$message->getMessageId()}\n";
+}
+```
+
 ### Low-level Connection API
 
 ```php
