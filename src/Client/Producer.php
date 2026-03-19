@@ -123,7 +123,8 @@ class Producer
         );
         $response = $this->connection->readMessage();
         if (!$response instanceof QueryPublisherSequenceResponseV1) {
-            throw new \Exception("Expected QueryPublisherSequenceResponseV1, got " . get_class($response));
+            $type = is_object($response) ? get_class($response) : gettype($response);
+            throw new \Exception("Expected QueryPublisherSequenceResponseV1, got " . $type);
         }
         return $response->getSequence();
     }
