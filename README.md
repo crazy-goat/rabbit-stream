@@ -116,7 +116,7 @@ Protocol reference: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/r
 | Command    | Key    | Request | Response |
 |------------|--------|---------|----------|
 | Route      | 0x0018 | ❌      | ❌       |
-| Partitions | 0x0019 | ❌      | ❌       |
+| Partitions | 0x0019 | ✅      | ✅       |
 
 ### Connection Management
 

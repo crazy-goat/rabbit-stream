@@ -37,6 +37,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `UnsubscribeRequestV1` — client-side request to unsubscribe from a stream (key `0x000c`)
 - `UnsubscribeResponseV1` — server response for Unsubscribe command (key `0x800c`)
 - `KeyEnum::UNSUBSCRIBE_RESPONSE` (`0x800c`)
+- `PartitionsRequestV1` — client-side request to list partitions of a super stream (key `0x0019`)
+- `PartitionsResponseV1` — server response with array of partition stream names (key `0x8019`)
+- `KeyEnum::PARTITIONS_RESPONSE` (`0x8019`)
+- E2E test for Partitions command
 
 ## [0.5.0] - 2026-03-17
 
