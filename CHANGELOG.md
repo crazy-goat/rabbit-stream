@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `StreamConnection` — configurable max frame size limit (default 8MB) to prevent memory exhaustion from malformed frames; `setMaxFrameSize(0)` disables the limit; connection is closed before throwing on violation
 
 ### Fixed
+- `WriteBuffer::addString()` — replaced unreliable `mb_convert_encoding($value, 'UTF-8', 'auto')` with strict UTF-8 validation using `mb_check_encoding()`; prevents silent data corruption from misidentified encodings (#117)
 - `Connection` and `StreamConnection` — added `__destruct()` methods to ensure sockets are properly closed when objects are garbage collected, preventing resource leaks when users forget to call `close()` explicitly (#113)
 - `Connection::create()` — added response type validation for PeerProperties, SaslAuthenticate, and Open handshake steps; previously these responses were silently discarded, masking server errors (#106)
 - `StreamConnection::connect()` — fixed use of unassigned `$this->socket` in error path that masked real connection failures; socket is now properly closed before throwing (#104)
