@@ -14,7 +14,7 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
-use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -319,7 +319,7 @@ class StreamConnection
                 $frame->getUint16(); // version
                 $correlationId = $frame->getUint32();
                 $closingCode = $frame->getUint16();
-                $closingReason = $frame->gatString();
+                $closingReason = $frame->getString();
                 $this->logger->debug(sprintf(
                     'Server-initiated close: code=%d, reason=%s',
                     $closingCode,

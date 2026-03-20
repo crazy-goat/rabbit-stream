@@ -87,17 +87,17 @@ class WriteBuffer
     private function validateInt(int $value, int $min, int $max, string $type): void
     {
         if ($value < $min || $value > $max) {
-            throw new \InvalidArgumentException("Wartość $value jest poza zakresem $type ($min do $max)");
+            throw new \InvalidArgumentException("Value $value is out of range for $type ($min to $max)");
         }
     }
 
     public function addBytes(?string $value): self
     {
         if ($value === null) {
-            // Wartość null reprezentowana jako długość -1
-            $this->buffer .= pack('N', 0xFFFFFFFF); // -1 jako unsigned int32
+            // Null value represented as length -1
+            $this->buffer .= pack('N', 0xFFFFFFFF); // -1 as unsigned int32
         } else {
-            // Dodaj długość jako int32 a następnie bajty zawartości
+            // Add length as int32 followed by content bytes
             $length = strlen($value);
             $this->validateInt($length, 0, self::INT32_MAX, 'bytes length');
             $this->buffer .= pack('N', $length);
@@ -109,7 +109,7 @@ class WriteBuffer
     public function addString(?string $value): self
     {
         if ($value === null) {
-            $this->buffer .= pack('n', 0xFFFF); // -1 jako unsigned int16
+            $this->buffer .= pack('n', 0xFFFF); // -1 as unsigned int16
         } else {
             $utf8Value = mb_convert_encoding($value, 'UTF-8', 'auto');
             $length = strlen($utf8Value);

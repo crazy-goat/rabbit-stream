@@ -7,7 +7,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
@@ -31,7 +31,7 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $code = $buffer->getUint16();
-        $stream = $buffer->gatString();
+        $stream = $buffer->getString();
         return new self($code, $stream);
     }
 
@@ -40,7 +40,7 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return new self($data['code'], $data['stream']);
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::METADATA_UPDATE->value;
     }

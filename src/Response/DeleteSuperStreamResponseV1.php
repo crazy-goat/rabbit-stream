@@ -7,9 +7,9 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
-use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class DeleteSuperStreamResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
@@ -35,7 +35,7 @@ class DeleteSuperStreamResponseV1 implements KeyVersionInterface, CorrelationInt
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DELETE_SUPER_STREAM_RESPONSE->value;
     }

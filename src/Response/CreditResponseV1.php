@@ -7,7 +7,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class CreditResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
@@ -27,7 +27,7 @@ class CreditResponseV1 implements KeyVersionInterface, FromStreamBufferInterface
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CREDIT_RESPONSE->value;
     }

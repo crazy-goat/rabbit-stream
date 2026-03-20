@@ -38,7 +38,7 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?object
     {
-        $streamName = $buffer->gatString();
+        $streamName = $buffer->getString();
         $responseCode = $buffer->getUint16();
         $leaderReference = $buffer->getUint16();
 

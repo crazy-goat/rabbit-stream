@@ -9,7 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
@@ -21,7 +21,7 @@ class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterfac
     {
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::TUNE->value;
     }

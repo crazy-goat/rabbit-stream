@@ -53,7 +53,7 @@ class ReadBuffer
         return $data;
     }
 
-    public function gatString(): ?string
+    public function getString(): ?string
     {
         $len = $this->getInt16();
         if ($len === -1) {
@@ -103,7 +103,7 @@ class ReadBuffer
 
         $data = [];
         for ($i = 0; $i < $arrayLength; $i++) {
-            $data[] = $this->gatString();
+            $data[] = $this->getString();
         }
 
         return $data;

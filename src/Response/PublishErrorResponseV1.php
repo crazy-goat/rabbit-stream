@@ -7,7 +7,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\PublishingError;
 
@@ -51,7 +51,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         return new self($data['publisherId'], ...$errors);
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::PUBLISH_ERROR->value;
     }

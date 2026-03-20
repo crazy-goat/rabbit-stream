@@ -19,16 +19,16 @@ class ReadBufferTest extends TestCase
         $this->assertSame(1, $buf->getUint32());
     }
 
-    public function testGatString(): void
+    public function testGetString(): void
     {
         $buf = new ReadBuffer("\x00\x05hello");
-        $this->assertSame('hello', $buf->gatString());
+        $this->assertSame('hello', $buf->getString());
     }
 
-    public function testGatStringNull(): void
+    public function testGetStringNull(): void
     {
         $buf = new ReadBuffer("\xFF\xFF");
-        $this->assertNull($buf->gatString());
+        $this->assertNull($buf->getString());
     }
 
     public function testGetBytes(): void

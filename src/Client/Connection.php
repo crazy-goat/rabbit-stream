@@ -39,7 +39,7 @@ class Connection
         private readonly StreamConnection $streamConnection,
     ) {}
 
-    static public function create(
+    public static function create(
         string $host = '127.0.0.1',
         int $port = 5552,
         string $user = 'guest',

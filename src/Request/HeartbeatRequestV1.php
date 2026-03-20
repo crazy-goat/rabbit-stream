@@ -9,7 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class HeartbeatRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
@@ -17,7 +17,7 @@ class HeartbeatRequestV1 implements FromStreamBufferInterface, ToStreamBufferInt
     use V1Trait;
     use CommandTrait;
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::HEARTBEAT->value;
     }
