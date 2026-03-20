@@ -10,13 +10,11 @@ class CreditRequestV1Test extends TestCase
     public function testSerializesCorrectly(): void
     {
         $request = new CreditRequestV1(5, 100);
-        $request->withCorrelationId(42);
 
         $bytes = $request->toStreamBuffer()->getContents();
 
         $expected = pack('n', 0x0009)   // key
             . pack('n', 1)              // version
-            . pack('N', 42)             // correlationId
             . pack('C', 5)              // subscriptionId
             . pack('n', 100);           // credit
 
