@@ -59,6 +59,18 @@ The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be
 
 ---
 
+## QA Commands
+
+```bash
+composer phpstan     # static analysis (PHPStan)
+composer cs          # check code style (PHPCS PSR-12)
+composer cs-fix      # auto-fix code style (phpcbf)
+composer rector      # preview refactoring suggestions (dry-run)
+composer rector:fix  # apply Rector refactoring
+```
+
+---
+
 ## Directory Structure
 
 ```
