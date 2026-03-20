@@ -88,7 +88,7 @@ class ProducerTest extends TestCase
         $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
 
-        $this->assertEquals(-1, $producer->getLastPublishingId());
+        $this->assertNull($producer->getLastPublishingId());
 
         $producer->send('msg1');
         $this->assertEquals(0, $producer->getLastPublishingId());

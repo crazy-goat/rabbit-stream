@@ -116,9 +116,9 @@ class Producer
         }
     }
 
-    public function getLastPublishingId(): int
+    public function getLastPublishingId(): ?int
     {
-        return $this->publishingId - 1;
+        return $this->publishingId === 0 ? null : $this->publishingId - 1;
     }
 
     public function querySequence(): int
