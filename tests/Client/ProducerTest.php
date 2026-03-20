@@ -21,7 +21,7 @@ class ProducerTest extends TestCase
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('sendMessage')
-            ->willReturnCallback(function ($request, $timeout) use (&$capturedTimeout): null {
+            ->willReturnCallback(function ($request, $timeout) use (&$capturedTimeout) {
                 $capturedTimeout = $timeout;
                 return null;
             });
@@ -52,7 +52,7 @@ class ProducerTest extends TestCase
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('sendMessage')
-            ->willReturnCallback(function ($request, $timeout) use (&$capturedTimeout): null {
+            ->willReturnCallback(function ($request, $timeout) use (&$capturedTimeout) {
                 $capturedTimeout = $timeout;
                 return null;
             });
@@ -84,7 +84,7 @@ class ProducerTest extends TestCase
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('readLoop')
-            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout): null {
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout) {
                 $capturedTimeout = $timeout;
                 return null;
             });
