@@ -40,11 +40,13 @@ class KeyValue implements FromStreamBufferInterface, ToStreamBufferInterface, To
         return new self($buffer->getString(), $buffer->getString());
     }
 
+    /** @return array<string, string|null> */
     public function toArray(): array
     {
         return ['key' => $this->key, 'value' => $this->value];
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['key'], $data['value']);

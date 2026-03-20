@@ -30,6 +30,7 @@ class PublishedMessageV2 implements ToStreamBufferInterface, ToArrayInterface
         return $this->publishingId;
     }
 
+    /** @return array<string, int|string> */
     public function toArray(): array
     {
         return [

@@ -27,6 +27,7 @@ class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, Fr
         return KeyEnum::TUNE_RESPONSE->value;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['frameMax'], $data['heartbeat']);

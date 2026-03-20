@@ -18,6 +18,7 @@ class PublishRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Key
     use V1Trait;
     use CommandTrait;
 
+    /** @var array<int, PublishedMessage> */
     private array $messages;
 
     public function __construct(private int $publisherId, PublishedMessage ...$messages)
@@ -32,6 +33,7 @@ class PublishRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Key
             ->addArray(...$this->messages);
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [

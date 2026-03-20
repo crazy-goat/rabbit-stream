@@ -6,6 +6,12 @@ namespace CrazyGoat\RabbitStream\Client;
 
 class Message
 {
+    /**
+     * @param array<int, mixed>|string|int|float|bool|null $body
+     * @param array<string, mixed> $properties
+     * @param array<string, mixed> $applicationProperties
+     * @param array<string, mixed> $messageAnnotations
+     */
     public function __construct(
         private readonly int $offset,
         private readonly int $timestamp,
@@ -26,21 +32,25 @@ class Message
         return $this->timestamp;
     }
 
+    /** @return array<int, mixed>|string|int|float|bool|null */
     public function getBody(): string|int|float|bool|array|null
     {
         return $this->body;
     }
 
+    /** @return array<string, mixed> */
     public function getProperties(): array
     {
         return $this->properties;
     }
 
+    /** @return array<string, mixed> */
     public function getApplicationProperties(): array
     {
         return $this->applicationProperties;
     }
 
+    /** @return array<string, mixed> */
     public function getMessageAnnotations(): array
     {
         return $this->messageAnnotations;

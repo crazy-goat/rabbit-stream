@@ -45,6 +45,7 @@ class QueryPublisherSequenceResponseV1 implements
         return KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE->value;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $object = new static();

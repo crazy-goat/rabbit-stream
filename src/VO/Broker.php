@@ -43,6 +43,7 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
         );
     }
 
+    /** @return array<string, int|string> */
     public function toArray(): array
     {
         return [
@@ -52,6 +53,7 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
         ];
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['reference'], $data['host'], $data['port']);

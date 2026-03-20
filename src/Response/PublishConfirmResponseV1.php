@@ -18,6 +18,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
     use CommandTrait;
     use V1Trait;
 
+    /** @var array<int, int> */
     private array $publishingIds;
 
     public function __construct(private int $publisherId, int ...$publishingIds)
@@ -30,6 +31,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return $this->publisherId;
     }
 
+    /** @return array<int, int> */
     public function getPublishingIds(): array
     {
         return $this->publishingIds;
@@ -47,6 +49,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return new self($publisherId, ...$publishingIds);
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['publisherId'], ...$data['publishingIds']);

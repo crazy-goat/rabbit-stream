@@ -164,6 +164,9 @@ class OsirisChunkParserTest extends TestCase
         $this->assertSame('Last', $entries[3]->getData());
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     */
     private function createChunk(
         int $numEntries,
         int $numRecords,

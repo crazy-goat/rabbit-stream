@@ -30,6 +30,7 @@ class OpenRequest implements KeyVersionInterface, ToStreamBufferInterface, ToArr
             ->addString($this->vhost);
     }
 
+    /** @return array<string, string> */
     public function toArray(): array
     {
         return ['vhost' => $this->vhost];

@@ -38,6 +38,7 @@ class ExchangeCommandVersionsRequestV1 implements
             ->addArray(...$this->commands);
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return ['commands' => array_map(fn(CommandVersion $cv): array => $cv->toArray(), $this->commands)];

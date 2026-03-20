@@ -34,6 +34,7 @@ class UnsubscribeRequestV1 implements
             ->addUInt8($this->subscriptionId);
     }
 
+    /** @return array<string, int> */
     public function toArray(): array
     {
         return ['subscriptionId' => $this->subscriptionId];

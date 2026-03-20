@@ -26,6 +26,7 @@ class PeerPropertiesResponseV1 implements
     use CommandTrait;
     use V1Trait;
 
+    /** @var array<int, KeyValue> */
     private array $peerProperty;
 
     public function __construct(KeyValue ...$peerProperty)
@@ -33,6 +34,7 @@ class PeerPropertiesResponseV1 implements
         $this->peerProperty = $peerProperty;
     }
 
+    /** @return array<int, KeyValue> */
     public function getPeerProperty(): array
     {
         return $this->peerProperty;
@@ -43,6 +45,7 @@ class PeerPropertiesResponseV1 implements
         return KeyEnum::PEER_PROPERTIES_RESPONSE->value;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $properties = array_map(

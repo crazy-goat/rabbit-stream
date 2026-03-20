@@ -40,6 +40,7 @@ class CreditResponseV1 implements KeyVersionInterface, FromStreamBufferInterface
         return $this->responseCode;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $object = new static();

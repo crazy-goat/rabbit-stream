@@ -91,6 +91,7 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         return $this->value;
     }
 
+    /** @return array<string, int|null> */
     public function toArray(): array
     {
         return ['type' => $this->type, 'value' => $this->value];

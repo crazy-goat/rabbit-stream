@@ -27,7 +27,9 @@ class StreamConnection
     private int $correlationId = 0;
     private bool $running = false;
 
+    /** @var array<int, array{onConfirm: callable, onError: callable}> */
     private array $publisherCallbacks = [];
+    /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
     private ?\Closure $metadataUpdateCallback = null;
     private ?\Closure $heartbeatCallback = null;

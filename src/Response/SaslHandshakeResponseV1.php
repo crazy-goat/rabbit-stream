@@ -25,10 +25,12 @@ class SaslHandshakeResponseV1 implements
     use CommandTrait;
     use V1Trait;
 
+    /** @param array<int, string|null> $mechanisms */
     public function __construct(private array $mechanisms)
     {
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $object = new static($data['mechanisms']);
@@ -36,6 +38,7 @@ class SaslHandshakeResponseV1 implements
         return $object;
     }
 
+    /** @return array<int, string|null> */
     public function getMechanisms(): array
     {
         return $this->mechanisms;

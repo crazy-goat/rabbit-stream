@@ -56,6 +56,7 @@ class PartitionsResponseV1 implements
         return $object;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $object = new static($data['streams']);

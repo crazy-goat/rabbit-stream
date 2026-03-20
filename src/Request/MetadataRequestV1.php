@@ -39,6 +39,7 @@ class MetadataRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Co
         return $buffer;
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return ['streams' => $this->streams];

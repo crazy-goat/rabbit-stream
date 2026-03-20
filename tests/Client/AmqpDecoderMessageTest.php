@@ -31,6 +31,8 @@ class AmqpDecoderMessageTest extends TestCase
 
     /**
      * Helper to build a Properties section (0x73) from a list.
+     *
+     * @param array<string, string|int> $properties
      */
     private function buildPropertiesSection(array $properties): string
     {
@@ -96,6 +98,8 @@ class AmqpDecoderMessageTest extends TestCase
 
     /**
      * Helper to build an ApplicationProperties section (0x74) from a map.
+     *
+     * @param array<string, string|int|bool|null> $properties
      */
     private function buildApplicationPropertiesSection(array $properties): string
     {
@@ -134,6 +138,8 @@ class AmqpDecoderMessageTest extends TestCase
 
     /**
      * Helper to build a MessageAnnotations section (0x72) from a map.
+     *
+     * @param array<string, string|int> $annotations
      */
     private function buildMessageAnnotationsSection(array $annotations): string
     {

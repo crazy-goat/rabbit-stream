@@ -40,6 +40,7 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return new self($code, $stream);
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['code'], $data['stream']);

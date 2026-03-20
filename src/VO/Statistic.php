@@ -40,11 +40,13 @@ class Statistic implements FromStreamBufferInterface, ToStreamBufferInterface, T
         return new self($buffer->getString(), $buffer->getInt64());
     }
 
+    /** @return array<string, int|string> */
     public function toArray(): array
     {
         return ['key' => $this->key, 'value' => $this->value];
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['key'], $data['value']);

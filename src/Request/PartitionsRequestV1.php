@@ -34,6 +34,7 @@ class PartitionsRequestV1 implements
             ->addString($this->superStream);
     }
 
+    /** @return array<string, string> */
     public function toArray(): array
     {
         return ['superStream' => $this->superStream];

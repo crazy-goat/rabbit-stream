@@ -45,6 +45,7 @@ class CreateRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corr
         return $buffer;
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [

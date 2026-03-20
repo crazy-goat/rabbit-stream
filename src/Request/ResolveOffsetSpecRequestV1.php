@@ -39,6 +39,7 @@ class ResolveOffsetSpecRequestV1 implements
             ->addUInt32(0); // Properties array length (0 = empty array)
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [

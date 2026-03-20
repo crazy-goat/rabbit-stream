@@ -55,6 +55,7 @@ class CreateSuperStreamRequestV1 implements
         return $buffer;
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [

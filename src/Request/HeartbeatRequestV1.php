@@ -33,6 +33,7 @@ class HeartbeatRequestV1 implements
         return self::getKeyVersion();
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [];

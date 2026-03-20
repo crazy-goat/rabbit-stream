@@ -32,11 +32,13 @@ class PublishingError implements ToArrayInterface, FromArrayInterface
         return new self($buffer->getUint64(), $buffer->getUint16());
     }
 
+    /** @return array<string, int> */
     public function toArray(): array
     {
         return ['publishingId' => $this->publishingId, 'code' => $this->code];
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['publishingId'], $data['code']);
