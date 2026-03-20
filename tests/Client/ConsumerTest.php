@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Message;
+use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
@@ -39,11 +40,11 @@ class ConsumerTest extends TestCase
         $params = $reflection->getParameters();
 
         $this->assertCount(1, $params);
-        $this->assertEquals('timeout', $params[0]->getName());
+        $this->assertSame('timeout', $params[0]->getName());
         $type = $params[0]->getType();
         $this->assertInstanceOf(\ReflectionNamedType::class, $type);
-        $this->assertEquals('float', $type->getName());
-        $this->assertEquals(5.0, $params[0]->getDefaultValue());
+        $this->assertSame('float', $type->getName());
+        $this->assertSame(5.0, $params[0]->getDefaultValue());
 
         // Test calling with float timeout works
         $result = $consumer->read(timeout: 0.5);
@@ -65,11 +66,11 @@ class ConsumerTest extends TestCase
         $params = $reflection->getParameters();
 
         $this->assertCount(1, $params);
-        $this->assertEquals('timeout', $params[0]->getName());
+        $this->assertSame('timeout', $params[0]->getName());
         $type = $params[0]->getType();
         $this->assertInstanceOf(\ReflectionNamedType::class, $type);
-        $this->assertEquals('float', $type->getName());
-        $this->assertEquals(5.0, $params[0]->getDefaultValue());
+        $this->assertSame('float', $type->getName());
+        $this->assertSame(5.0, $params[0]->getDefaultValue());
 
         // Test calling with float timeout works
         $result = $consumer->readOne(timeout: 0.5);
@@ -311,5 +312,153 @@ class ConsumerTest extends TestCase
         $this->assertSame($msg2, $result[1]);
 
         $this->assertSame([], $bufferProp->getValue($consumer));
+    }
+
+    public function testMaxBufferSizeMustBeGreaterThanZero(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxBufferSize must be greater than 0');
+
+        new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 0);
+    }
+
+    public function testMaxBufferSizeRejectsNegativeValues(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxBufferSize must be greater than 0');
+
+        new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: -1);
+    }
+
+    public function testCreditWithheldWhenBufferExceedsMaxBufferSize(): void
+    {
+        $creditRequests = [];
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$creditRequests): void {
+                if ($request instanceof CreditRequestV1) {
+                    $creditRequests[] = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 2);
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+        $msg2 = $this->createMock(Message::class);
+        $msg2->method('getOffset')->willReturn(1);
+
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+
+        $bufferProp->setValue($consumer, [$msg1]);
+        $creditRequests = [];
+
+        $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertCount(0, $creditRequests);
+
+        $bufferProp->setValue($consumer, [$msg1, $msg2]);
+        $pendingCreditsProp->setValue($consumer, 1);
+        $creditRequests = [];
+
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertCount(0, $creditRequests, 'Credits should be withheld when buffer at maxBufferSize');
+        $this->assertSame(1, $pendingCreditsProp->getValue($consumer));
+    }
+
+    public function testPendingCreditsSentAfterReadDrainsBuffer(): void
+    {
+        $capturedRequest = null;
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequest): void {
+                if ($request instanceof CreditRequestV1) {
+                    $capturedRequest = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('readLoop');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 2);
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+        $msg2 = $this->createMock(Message::class);
+        $msg2->method('getOffset')->willReturn(1);
+
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+
+        $bufferProp->setValue($consumer, [$msg1, $msg2]);
+        $pendingCreditsProp->setValue($consumer, 2);
+
+        $consumer->read();
+
+        $this->assertInstanceOf(
+            CreditRequestV1::class,
+            $capturedRequest,
+            'Pending credits should be sent after read()'
+        );
+        $this->assertSame(2, $capturedRequest->toArray()['credit']);
+        $this->assertSame(0, $pendingCreditsProp->getValue($consumer));
+    }
+
+    public function testPendingCreditsSentAfterReadOneDrainsBuffer(): void
+    {
+        $capturedRequest = null;
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequest): void {
+                if ($request instanceof CreditRequestV1) {
+                    $capturedRequest = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('readLoop');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 2);
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+        $msg2 = $this->createMock(Message::class);
+        $msg2->method('getOffset')->willReturn(1);
+
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+
+        $bufferProp->setValue($consumer, [$msg1, $msg2]);
+        $pendingCreditsProp->setValue($consumer, 1);
+
+        $consumer->readOne();
+
+        $this->assertInstanceOf(
+            CreditRequestV1::class,
+            $capturedRequest,
+            'Pending credits should be sent after readOne()'
+        );
+        $this->assertSame(1, $capturedRequest->toArray()['credit']);
     }
 }
