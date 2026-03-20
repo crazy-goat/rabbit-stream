@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - `StreamConnection::dispatchServerPush()` — heartbeat echo now uses `sendFrame()` directly instead of `sendMessage()`, preventing spurious `correlationId` increments that caused ID mismatches in long-running connections
+- `StreamConnection::sendMessage()` — `correlationId` is now only incremented for requests implementing `CorrelationInterface`, fixing drift caused by `PublishRequestV1`, `CreditRequestV1`, `StoreOffsetRequestV1`, and `TuneResponseV1`
 
 ## [1.0.0] - 2026-03-20
 
