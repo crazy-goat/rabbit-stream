@@ -37,7 +37,11 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
     {
         $key = $buffer->getUint16();
         $version = $buffer->getUint16();
-        self::validateKeyVersion($key, $version);
+
+        if (self::getKey() !== $key) {
+            throw new \Exception('Unexpected command code');
+        }
+
         $subscriptionId = $buffer->getUint8();
 
         // Deliver v2 has CommittedChunkId (uint64) before OsirisChunk
