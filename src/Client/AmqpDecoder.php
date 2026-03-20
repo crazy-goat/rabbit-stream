@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Client;
 
 class AmqpDecoder
@@ -97,7 +99,11 @@ class AmqpDecoder
         while ($position < $dataLength) {
             // Check for described type marker
             if (ord($data[$position]) !== 0x00) {
-                throw new \RuntimeException(sprintf('Expected described type marker (0x00) at position %d, got 0x%02x', $position, ord($data[$position])));
+                throw new \RuntimeException(sprintf(
+                    'Expected described type marker (0x00) at position %d, got 0x%02x',
+                    $position,
+                    ord($data[$position])
+                ));
             }
 
             // Read the described type

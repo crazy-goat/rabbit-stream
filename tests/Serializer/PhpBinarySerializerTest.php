@@ -1,36 +1,38 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\Serializer;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
-use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
-use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\RabbitStream\Request\TuneRequestV1;
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
-use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
-use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
-use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
-use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
-use CrazyGoat\RabbitStream\Request\CloseRequestV1;
+use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
+use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
+use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
-use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
-use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
-use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
-use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
+use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
-use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
-use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\DeletePublisherResponseV1;
+use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
-use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\ResponseBuilder;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\VO\KeyValue;

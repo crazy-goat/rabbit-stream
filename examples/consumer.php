@@ -17,7 +17,8 @@ $connection = Connection::create(
     password: 'guest',
 );
 
-$consumer = $connection->createConsumer('my-stream',
+$consumer = $connection->createConsumer(
+    'my-stream',
     offset: OffsetSpec::first(),
     name: 'my-consumer',
 );

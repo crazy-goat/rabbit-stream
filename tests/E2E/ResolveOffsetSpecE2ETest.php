@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -10,7 +12,6 @@ use CrazyGoat\RabbitStream\Request\ResolveOffsetSpecRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
-use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
@@ -20,7 +21,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * E2E tests for ResolveOffsetSpec command.
- * 
+ *
  * These tests check if the server supports the ResolveOffsetSpec command (0x001f)
  * via ExchangeCommandVersions. If the command is not supported (RabbitMQ < 4.3),
  * all tests are skipped.
@@ -35,7 +36,7 @@ class ResolveOffsetSpecE2ETest extends TestCase
     {
         self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-        
+
         // Check if server supports ResolveOffsetSpec command
         try {
             $connection = new StreamConnection(self::$host, self::$port);

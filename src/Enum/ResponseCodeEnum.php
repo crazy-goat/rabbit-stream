@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Enum;
 
 enum ResponseCodeEnum: int
@@ -26,7 +28,7 @@ enum ResponseCodeEnum: int
 
     public function getMessage(): string
     {
-        return match($this) {
+        return match ($this) {
             self::OK => 'OK',
             self::STREAM_NOT_EXIST => 'Stream does not exist',
             self::SUBSCRIPTION_ID_ALREADY_EXISTS => 'Subscription ID already exists',

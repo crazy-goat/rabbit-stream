@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Trait;
 
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
@@ -23,7 +25,7 @@ trait CommandTrait
         return $buffer;
     }
 
-    private static function ValidateKeYVersion(int $key, int $version): void
+    private static function validateKeyVersion(int $key, int $version): void
     {
         if (self::getKey() !== $key) {
             throw new \Exception('Unexpected command code');

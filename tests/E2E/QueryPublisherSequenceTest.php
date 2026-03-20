@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -100,7 +102,8 @@ class QueryPublisherSequenceTest extends TestCase
         $confirmed = false;
         $connection->registerPublisher(1, function () use (&$confirmed) {
             $confirmed = true;
-        }, function () {});
+        }, function () {
+        });
 
         // Publish a message with publishingId = 5
         $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(5, 'test message')));

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\VO;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
@@ -13,7 +15,8 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
         private int $reference,
         private string $host,
         private int $port
-    ) {}
+    ) {
+    }
 
     public function getReference(): int
     {

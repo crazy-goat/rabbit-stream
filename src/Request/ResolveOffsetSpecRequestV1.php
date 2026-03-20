@@ -1,19 +1,25 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Request;
 
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
-use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
+class ResolveOffsetSpecRequestV1 implements
+    ToStreamBufferInterface,
+    ToArrayInterface,
+    CorrelationInterface,
+    KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;
@@ -22,7 +28,8 @@ class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, ToArrayInte
     public function __construct(
         private string $stream,
         private OffsetSpec $offsetSpec
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
@@ -37,7 +39,8 @@ class Connection
 
     private function __construct(
         private readonly StreamConnection $streamConnection,
-    ) {}
+    ) {
+    }
 
     public static function create(
         string $host = '127.0.0.1',
@@ -187,7 +190,15 @@ class Connection
         int $initialCredit = 10,
     ): Consumer {
         $subscriptionId = $this->subscriptionIdCounter++;
-        return new Consumer($this->streamConnection, $stream, $subscriptionId, $offset, $name, $autoCommit, $initialCredit);
+        return new Consumer(
+            $this->streamConnection,
+            $stream,
+            $subscriptionId,
+            $offset,
+            $name,
+            $autoCommit,
+            $initialCredit
+        );
     }
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void

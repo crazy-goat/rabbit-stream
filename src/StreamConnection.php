@@ -1,9 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
@@ -14,7 +17,6 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
-use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -58,7 +60,10 @@ class StreamConnection
 
         $result = socket_connect($socket, $this->host, $this->port);
         if (!$result) {
-            throw new \RuntimeException("Cannot connect to {$this->host}:{$this->port}: " . socket_strerror(socket_last_error($this->socket)));
+            throw new \RuntimeException(
+                "Cannot connect to {$this->host}:{$this->port}: " .
+                socket_strerror(socket_last_error($this->socket))
+            );
         }
 
         $this->connected = true;
@@ -142,25 +147,27 @@ class StreamConnection
         // If timeout is specified, wait for socket to be ready for writing
         if ($timeout !== null && $timeout > 0) {
             $deadline = microtime(true) + $timeout;
-            
+
             $read = null;
             $write = [$this->socket];
             $except = null;
-            
+
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 throw new \RuntimeException("Write timeout: socket not ready for writing");
             }
-            
+
             $timeoutSec = (int) $remaining;
             $timeoutUsec = (int) (($remaining - $timeoutSec) * 1_000_000);
-            
+
             $ready = socket_select($read, $write, $except, $timeoutSec, $timeoutUsec);
-            
+
             if ($ready === false) {
-                throw new \RuntimeException("socket_select failed: " . socket_strerror(socket_last_error($this->socket)));
+                throw new \RuntimeException(
+                    "socket_select failed: " . socket_strerror(socket_last_error($this->socket))
+                );
             }
-            
+
             if ($ready === 0) {
                 throw new \RuntimeException("Write timeout: socket not ready for writing");
             }
@@ -168,7 +175,9 @@ class StreamConnection
 
         $written = socket_write($this->socket, $frame, strlen($frame));
         if ($written === false) {
-            throw new \RuntimeException("Failed to write to socket: " . socket_strerror(socket_last_error($this->socket)));
+            throw new \RuntimeException(
+                "Failed to write to socket: " . socket_strerror(socket_last_error($this->socket))
+            );
         }
 
         return $written;
@@ -177,7 +186,7 @@ class StreamConnection
     public function readMessage(float $timeout = 30.0): object
     {
         $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
-        
+
         while (true) {
             if (!$this->connected) {
                 throw new \RuntimeException("Connection closed");
@@ -244,7 +253,9 @@ class StreamConnection
             $ready = socket_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
-                throw new \RuntimeException('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
+                throw new \RuntimeException(
+                    'socket_select failed: ' . socket_strerror(socket_last_error($this->socket))
+                );
             }
 
             if ($ready === 0) {
@@ -372,7 +383,7 @@ class StreamConnection
 
         $timeoutSec = (int) $timeout;
         $timeoutUsec = (int) (($timeout - $timeoutSec) * 1_000_000);
-        
+
         $ready = socket_select($read, $write, $except, $timeout > 0 ? $timeoutSec : 0, $timeout > 0 ? $timeoutUsec : 0);
 
         if ($ready === false) {

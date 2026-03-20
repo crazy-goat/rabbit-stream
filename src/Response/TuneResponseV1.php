@@ -1,12 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Response;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
-use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
 
 class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, FromArrayInterface
 {

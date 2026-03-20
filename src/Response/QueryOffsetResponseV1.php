@@ -1,18 +1,24 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Response;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
-use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class QueryOffsetResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
+class QueryOffsetResponseV1 implements
+    KeyVersionInterface,
+    CorrelationInterface,
+    FromStreamBufferInterface,
+    FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -26,7 +32,7 @@ class QueryOffsetResponseV1 implements KeyVersionInterface, CorrelationInterface
         $correlationId = $buffer->getUint32();
         self::isResponseCodeOk($buffer->getUint16());
         $offset = $buffer->getUint64();
-        
+
         $object = new self();
         $object->withCorrelationId($correlationId);
         $object->offset = $offset;

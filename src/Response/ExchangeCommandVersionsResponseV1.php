@@ -1,19 +1,25 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Response;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
-use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 
-class ExchangeCommandVersionsResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
+class ExchangeCommandVersionsResponseV1 implements
+    KeyVersionInterface,
+    CorrelationInterface,
+    FromStreamBufferInterface,
+    FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -22,7 +28,9 @@ class ExchangeCommandVersionsResponseV1 implements KeyVersionInterface, Correlat
     /**
      * @param CommandVersion[] $commands
      */
-    public function __construct(private array $commands) {}
+    public function __construct(private array $commands)
+    {
+    }
 
     /**
      * @return CommandVersion[]

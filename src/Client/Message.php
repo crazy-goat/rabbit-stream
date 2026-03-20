@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Client;
 
 class Message
@@ -11,7 +13,8 @@ class Message
         private readonly array $properties = [],
         private readonly array $applicationProperties = [],
         private readonly array $messageAnnotations = [],
-    ) {}
+    ) {
+    }
 
     public function getOffset(): int
     {

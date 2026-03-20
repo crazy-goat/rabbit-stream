@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Producer;
@@ -15,7 +17,7 @@ class ProducerTest extends TestCase
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
-        
+
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('sendMessage')
@@ -23,19 +25,19 @@ class ProducerTest extends TestCase
                 $capturedTimeout = $timeout;
                 return null;
             });
-        
+
         $producer = new Producer($connection, 'test-stream', 1);
-        
+
         // Test method signature accepts optional timeout
         $reflection = new \ReflectionMethod($producer, 'send');
         $params = $reflection->getParameters();
-        
+
         $this->assertCount(2, $params);
         $this->assertEquals('message', $params[0]->getName());
         $this->assertEquals('timeout', $params[1]->getName());
         $this->assertTrue($params[1]->isOptional());
         $this->assertNull($params[1]->getDefaultValue());
-        
+
         // Test calling with timeout passes it to connection
         $producer->send('test', 0.5);
         $this->assertEquals(0.5, $capturedTimeout);
@@ -46,7 +48,7 @@ class ProducerTest extends TestCase
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
-        
+
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('sendMessage')
@@ -54,19 +56,19 @@ class ProducerTest extends TestCase
                 $capturedTimeout = $timeout;
                 return null;
             });
-        
+
         $producer = new Producer($connection, 'test-stream', 1);
-        
+
         // Test method signature accepts optional timeout
         $reflection = new \ReflectionMethod($producer, 'sendBatch');
         $params = $reflection->getParameters();
-        
+
         $this->assertCount(2, $params);
         $this->assertEquals('messages', $params[0]->getName());
         $this->assertEquals('timeout', $params[1]->getName());
         $this->assertTrue($params[1]->isOptional());
         $this->assertNull($params[1]->getDefaultValue());
-        
+
         // Test calling with timeout passes it to connection
         $producer->sendBatch(['test1', 'test2'], 1.0);
         $this->assertEquals(1.0, $capturedTimeout);
@@ -78,7 +80,7 @@ class ProducerTest extends TestCase
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
-        
+
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('readLoop')
@@ -86,18 +88,18 @@ class ProducerTest extends TestCase
                 $capturedTimeout = $timeout;
                 return null;
             });
-        
+
         $producer = new Producer($connection, 'test-stream', 1);
-        
+
         // Test method signature accepts float timeout
         $reflection = new \ReflectionMethod($producer, 'waitForConfirms');
         $params = $reflection->getParameters();
-        
+
         $this->assertCount(1, $params);
         $this->assertEquals('timeout', $params[0]->getName());
         $this->assertEquals('float', $params[0]->getType()->getName());
         $this->assertEquals(5.0, $params[0]->getDefaultValue());
-        
+
         // Test calling with float timeout passes it to connection
         $producer->send('test');
         try {
@@ -146,7 +148,7 @@ class ProducerTest extends TestCase
     {
         $connection = $this->createMock(StreamConnection::class);
         $capturedRequest = null;
-        
+
         // Allow constructor calls (declare() sends DeclarePublisherRequestV1 and reads response)
         $connection->expects($this->exactly(2))
             ->method('sendMessage')
@@ -156,14 +158,14 @@ class ProducerTest extends TestCase
                 }
                 return true;
             }));
-        
+
         // Only declare() reads response, sendBatch() is fire-and-forget like send()
         $connection->expects($this->once())
             ->method('readMessage');
-        
+
         $producer = new Producer($connection, 'test-stream', 1);
         $producer->sendBatch(['msg1', 'msg2', 'msg3']);
-        
+
         // Verify the request has 3 messages
         $this->assertNotNull($capturedRequest, 'PublishRequestV1 should have been captured');
         $this->assertInstanceOf(PublishRequestV1::class, $capturedRequest);
@@ -174,23 +176,23 @@ class ProducerTest extends TestCase
     public function testWaitForConfirmsThrowsOnTimeout(): void
     {
         $connection = $this->createMock(StreamConnection::class);
-        
+
         $connection->expects($this->any())
             ->method('registerPublisher');
-        
+
         $connection->expects($this->any())
             ->method('sendMessage');
-        
+
         $connection->expects($this->any())
             ->method('readMessage')
             ->willReturn(new \stdClass());
-        
+
         $producer = new Producer($connection, 'test-stream', 1);
         $producer->send('test message');
-        
+
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Timed out waiting for 1 publish confirms');
-        
+
         $producer->waitForConfirms(timeout: 0);
     }
 
@@ -200,15 +202,15 @@ class ProducerTest extends TestCase
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage');
-        
+
         $producer = new Producer($connection, 'test-stream', 1);
-        
+
         // Before any sends
         $this->assertEquals(-1, $producer->getLastPublishingId());
-        
+
         $producer->send('msg1');
         $this->assertEquals(0, $producer->getLastPublishingId());
-        
+
         $producer->send('msg2');
         $this->assertEquals(1, $producer->getLastPublishingId());
     }
@@ -264,12 +266,12 @@ class ProducerTest extends TestCase
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage');
-        
+
         $producer = new Producer($connection, 'test-stream', 1); // No name provided
-        
+
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Cannot query sequence for unnamed producer');
-        
+
         $producer->querySequence();
     }
 
@@ -277,10 +279,10 @@ class ProducerTest extends TestCase
     {
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerPublisher');
-        
+
         $mockResponse = $this->createMock(\CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1::class);
         $mockResponse->method('getSequence')->willReturn(42);
-        
+
         // Constructor calls sendMessage with DeclarePublisherRequestV1
         // querySequence calls sendMessage with QueryPublisherSequenceRequestV1
         $capturedRequest = null;
@@ -292,16 +294,16 @@ class ProducerTest extends TestCase
                 }
                 return true;
             }));
-        
+
         $connection->expects($this->exactly(2))
             ->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 new \stdClass(), // For DeclarePublisher response
                 $mockResponse     // For QueryPublisherSequence response
             );
-        
+
         $producer = new Producer($connection, 'test-stream', 1, 'my-producer');
-        
+
         $sequence = $producer->querySequence();
         $this->assertEquals(42, $sequence);
         $this->assertNotNull($capturedRequest, 'QueryPublisherSequenceRequestV1 should have been sent');

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Client;
 
 class ChunkEntry
@@ -8,7 +10,8 @@ class ChunkEntry
         private readonly int $offset,
         private readonly string $data,
         private readonly int $timestamp,
-    ) {}
+    ) {
+    }
 
     public function getOffset(): int
     {

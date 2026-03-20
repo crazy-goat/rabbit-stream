@@ -1,9 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
-use CrazyGoat\RabbitStream\Client\ChunkEntry;
 use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -21,10 +22,8 @@ use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
-use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
-use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
@@ -32,7 +31,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * E2E tests for AMQP 1.0 Message Decoder
- * 
+ *
  * These tests verify that messages published to RabbitMQ Stream can be
  * correctly decoded using the AmqpMessageDecoder.
  */
@@ -207,7 +206,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmed): void {
                 $confirmed = true;
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertTrue($confirmed, 'Message should be confirmed');
@@ -281,7 +281,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmed): void {
                 $confirmed = true;
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertTrue($confirmed);
@@ -354,7 +355,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmed): void {
                 $confirmed = true;
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertTrue($confirmed);
@@ -431,7 +433,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmedCount): void {
                 $confirmedCount += count($ids);
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertSame(3, $confirmedCount);

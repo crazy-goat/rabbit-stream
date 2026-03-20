@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
@@ -14,7 +16,7 @@ class Producer
 {
     private int $publishingId = 0;
     private int $pendingConfirms = 0;
-    
+
     /** @var ?callable */
     private readonly mixed $onConfirm;
 

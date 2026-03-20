@@ -1,9 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+use CrazyGoat\RabbitStream\Client\Connection;
 use PHPUnit\Framework\TestCase;
 
 class PublishTest extends TestCase
@@ -68,7 +70,7 @@ class PublishTest extends TestCase
         $producer->send('message-one');
         $producer->send('message-two');
         $producer->send('message-three');
-        
+
         $connection->readLoop(maxFrames: 3);
 
         $this->assertCount(3, $confirmedIds);

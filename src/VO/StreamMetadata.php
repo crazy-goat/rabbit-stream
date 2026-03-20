@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\VO;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
@@ -14,7 +16,8 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
         private int $responseCode,
         private int $leaderReference,
         private array $replicasReferences
-    ) {}
+    ) {
+    }
 
     public function getStreamName(): string
     {

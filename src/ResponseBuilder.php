@@ -1,16 +1,24 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\DeletePublisherResponseV1;
+use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
+use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
@@ -20,19 +28,13 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
-use CrazyGoat\RabbitStream\Response\CloseResponseV1;
-use CrazyGoat\RabbitStream\Response\CreateResponseV1;
-use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
-use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
-use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
-use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
-use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
-use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
-use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
-use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
-use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
 use CrazyGoat\RabbitStream\Response\RouteResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
+use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
+use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
+use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
 
 class ResponseBuilder
 {
@@ -64,7 +66,8 @@ class ResponseBuilder
             KeyEnum::DELIVER => DeliverResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::METADATA_UPDATE => MetadataUpdateResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::METADATA_RESPONSE => MetadataResponseV1::fromStreamBuffer($responseBuffer),
-            KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE => QueryPublisherSequenceResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE =>
+                QueryPublisherSequenceResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::QUERY_OFFSET_RESPONSE => QueryOffsetResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::HEARTBEAT => HeartbeatRequestV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CONSUMER_UPDATE => ConsumerUpdateQueryV1::fromStreamBuffer($responseBuffer),
@@ -80,9 +83,12 @@ class ResponseBuilder
             KeyEnum::ROUTE_RESPONSE => RouteResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CREATE_SUPER_STREAM_RESPONSE => CreateSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::DELETE_SUPER_STREAM_RESPONSE => DeleteSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
-            KeyEnum::EXCHANGE_COMMAND_VERSIONS_RESPONSE => ExchangeCommandVersionsResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::EXCHANGE_COMMAND_VERSIONS_RESPONSE =>
+                ExchangeCommandVersionsResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE => ResolveOffsetSpecResponseV1::fromStreamBuffer($responseBuffer),
-            default => throw new \Exception('Unexpected match value: ' . $command->name . ' (0x' . dechex($command->value) . ')'),
+            default => throw new \Exception(
+                'Unexpected match value: ' . $command->name . ' (0x' . dechex($command->value) . ')'
+            ),
         };
     }
 

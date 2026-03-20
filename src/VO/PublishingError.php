@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\VO;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
@@ -11,7 +13,8 @@ class PublishingError implements ToArrayInterface, FromArrayInterface
     public function __construct(
         private int $publishingId,
         private int $code,
-    ) {}
+    ) {
+    }
 
     public function getPublishingId(): int
     {

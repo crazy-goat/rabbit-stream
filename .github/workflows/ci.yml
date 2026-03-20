@@ -43,9 +43,29 @@ jobs:
               core.warning(`Could not determine permissions for "${actor}": ${e.message}`);
             }
 
+  lint:
+    name: Lint (PHP_CodeSniffer)
+    needs: check-actor
+    if: needs.check-actor.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run linter
+        run: composer lint
+
   unit-tests:
     name: Unit Tests (PHP ${{ matrix.php }})
-    needs: check-actor
+    needs: [check-actor, lint]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -68,7 +88,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
-    needs: check-actor
+    needs: [check-actor, lint]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     services:

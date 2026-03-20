@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -68,7 +70,7 @@ class CreateStreamTest extends TestCase
         $streamName = 'test-create-stream-args-' . uniqid();
         $connection->sendMessage(new CreateRequestV1($streamName, [
             'max-length-bytes' => '1000000',
-            'max-age' => '1h'
+            'max-age' => '1h',
         ]));
         $response = $connection->readMessage();
 

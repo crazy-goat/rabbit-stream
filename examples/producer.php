@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+use CrazyGoat\RabbitStream\Client\Connection;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -21,7 +21,8 @@ $connection->createStream('my-stream', [
     'max-length-bytes' => '1000000000',
 ]);
 
-$producer = $connection->createProducer('my-stream',
+$producer = $connection->createProducer(
+    'my-stream',
     name: 'my-producer',
     onConfirm: function (ConfirmationStatus $status) {
         if ($status->isConfirmed()) {

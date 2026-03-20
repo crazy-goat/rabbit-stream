@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\Connection;
@@ -59,7 +61,7 @@ class ConnectionTest extends TestCase
         // Create stream with arguments
         $connection->createStream($streamName, [
             'max-length-bytes' => '1000000',
-            'max-age' => '1h'
+            'max-age' => '1h',
         ]);
 
         // Verify stream exists
@@ -84,7 +86,7 @@ class ConnectionTest extends TestCase
         $connection->createStream($streamName);
 
         $metadata = $connection->getMetadata([$streamName]);
-        
+
         $this->assertNotEmpty($metadata->getStreamMetadata());
         $this->assertSame($streamName, $metadata->getStreamMetadata()[0]->getStreamName());
 
@@ -107,7 +109,7 @@ class ConnectionTest extends TestCase
         $connection->createStream($streamName);
 
         $stats = $connection->getStreamStats($streamName);
-        
+
         // Stats should be an array (may be empty for new stream)
         $this->assertIsArray($stats);
 
@@ -127,7 +129,7 @@ class ConnectionTest extends TestCase
         );
 
         $streamName = 'test-duplicate-stream-' . uniqid();
-        
+
         // Create stream first time
         $connection->createStream($streamName);
 

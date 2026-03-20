@@ -18,6 +18,26 @@ composer install
 
 # Run all tests
 ./vendor/bin/phpunit
+# OR
+composer test
+
+# Run only unit tests
+./vendor/bin/phpunit --testsuite unit
+# OR
+composer test:unit
+
+# Run E2E tests (requires RabbitMQ — use the script below)
+./run-e2e.sh
+
+# Run PHP_CodeSniffer (lint)
+./vendor/bin/phpcs --standard=phpcs.xml.dist
+# OR
+composer lint
+
+# Auto-fix code style violations
+./vendor/bin/phpcbf --standard=phpcs.xml.dist
+# OR
+composer lint:fix
 
 # Run a single test file
 ./vendor/bin/phpunit tests/Request/SaslHandshakeRequestV1Test.php
@@ -27,15 +47,6 @@ composer install
 
 # Run with verbose output
 ./vendor/bin/phpunit --testdox
-
-# Run only unit tests
-./vendor/bin/phpunit --testsuite unit
-
-# Run E2E tests (requires RabbitMQ — use the script below)
-./run-e2e.sh
-
-# Run a single example manually (requires running RabbitMQ on 172.17.0.2:5552)
-php examples/simple_publisher.php
 ```
 
 Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\StreamyCarrot\Tests\`, mirroring the `src/` structure:

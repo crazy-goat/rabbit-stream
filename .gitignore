@@ -4,3 +4,4 @@
 /.phpunit.result.cache
 /phpunit.result.cache
 .worktrees/
+/phpcs-report.json

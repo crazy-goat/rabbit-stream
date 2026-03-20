@@ -1,13 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Request;
 
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class ConsumerUpdateReplyV1 implements ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
@@ -20,7 +22,8 @@ class ConsumerUpdateReplyV1 implements ToStreamBufferInterface, ToArrayInterface
         private int $responseCode,
         private int $offsetType,
         private int $offset,
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

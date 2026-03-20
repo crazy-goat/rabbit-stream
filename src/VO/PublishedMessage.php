@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\VO;
 
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
@@ -11,7 +13,8 @@ class PublishedMessage implements ToStreamBufferInterface, ToArrayInterface
     public function __construct(
         private int $publishingId,
         private string $message,
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

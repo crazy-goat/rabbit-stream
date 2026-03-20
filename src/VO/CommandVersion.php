@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\VO;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
@@ -15,7 +17,8 @@ class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterfa
         private int $key,
         private int $minVersion,
         private int $maxVersion
-    ) {}
+    ) {
+    }
 
     public function getKey(): int
     {

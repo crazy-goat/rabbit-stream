@@ -1,13 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Response;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
@@ -15,7 +17,9 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
     use CommandTrait;
     use V1Trait;
 
-    public function __construct(private int $code, private string $stream) {}
+    public function __construct(private int $code, private string $stream)
+    {
+    }
 
     public function getCode(): int
     {
