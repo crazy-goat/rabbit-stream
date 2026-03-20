@@ -17,8 +17,7 @@ class Producer
     private int $publishingId = 0;
     private int $pendingConfirms = 0;
 
-    /** @var ?callable */
-    private readonly mixed $onConfirm;
+    private ?\Closure $onConfirm = null;
 
     public function __construct(
         private readonly StreamConnection $connection,
@@ -27,7 +26,7 @@ class Producer
         private readonly ?string $name = null,
         ?callable $onConfirm = null,
     ) {
-        $this->onConfirm = $onConfirm;
+        $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->declare();
     }
 
@@ -37,7 +36,7 @@ class Producer
             $this->publisherId,
             onConfirm: function (array $publishingIds): void {
                 $this->pendingConfirms = max(0, $this->pendingConfirms - count($publishingIds));
-                if ($this->onConfirm !== null) {
+                if ($this->onConfirm instanceof \Closure) {
                     foreach ($publishingIds as $id) {
                         ($this->onConfirm)(new ConfirmationStatus(true, publishingId: $id));
                     }
@@ -45,7 +44,7 @@ class Producer
             },
             onError: function (array $errors): void {
                 $this->pendingConfirms = max(0, $this->pendingConfirms - count($errors));
-                if ($this->onConfirm !== null) {
+                if ($this->onConfirm instanceof \Closure) {
                     foreach ($errors as $error) {
                         ($this->onConfirm)(new ConfirmationStatus(
                             false,
@@ -98,6 +97,10 @@ class Producer
 
     public function waitForConfirms(float $timeout = 5.0): void
     {
+        if ($this->pendingConfirms === 0) {
+            return;
+        }
+
         $deadline = microtime(true) + $timeout;
         while ($this->pendingConfirms > 0) {
             $remaining = $deadline - microtime(true);

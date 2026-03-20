@@ -268,6 +268,23 @@ class ProducerTest extends TestCase
         $producer->sendBatch([]);
     }
 
+    public function testWaitForConfirmsReturnsImmediatelyWhenNoPendingConfirms(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $connection->expects($this->never())->method('readLoop');
+
+        $producer = new Producer($connection, 'test-stream', 1);
+
+        // Call waitForConfirms without any prior send() - should return immediately
+        $producer->waitForConfirms();
+
+        $this->addToAssertionCount(1);
+    }
+
     public function testQuerySequenceThrowsForUnnamedProducer(): void
     {
         $connection = $this->createMock(StreamConnection::class);
