@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Timeout precision improvement** — all read and write operations now support sub-second (float) timeouts:
+  - `StreamConnection::readMessage()`, `readFrame()`, `readLoop()` — accept `float` timeout (e.g., `0.5` for 500ms)
+  - `Consumer::read()`, `readOne()` — accept `float` timeout
+  - `Producer::waitForConfirms()` — accept `float` timeout
+  - `Producer::send()`, `sendBatch()` — optional write timeout to limit blocking on socket write
+  - Internal deadline tracking uses `microtime(true)` for millisecond precision
+  - All timeout exceptions now consistently use `\RuntimeException`
 - `Consumer` class with pull-based `read()`/`readOne()`, auto-commit, offset management
 - `OsirisChunkParser` — parses delivery chunks into individual messages
 - `AmqpDecoder` / `AmqpMessageDecoder` — decodes AMQP 1.0 messages
