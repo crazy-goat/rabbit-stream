@@ -45,7 +45,7 @@ class PublishTest extends TestCase
         );
 
         $producer->send('hello world');
-        $connection->readLoop(maxFrames: 1);
+        $producer->waitForConfirms(timeout: 5.0);
 
         $this->assertSame([0], $confirmedIds);
 
@@ -71,9 +71,9 @@ class PublishTest extends TestCase
         $producer->send('message-two');
         $producer->send('message-three');
 
-        $connection->readLoop(maxFrames: 3);
+        $producer->waitForConfirms(timeout: 5.0);
 
-        $this->assertCount(3, $confirmedIds);
+        $this->assertSame([0, 1, 2], $confirmedIds);
 
         $producer->close();
         $connection->close();
