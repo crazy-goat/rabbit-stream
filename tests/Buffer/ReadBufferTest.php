@@ -58,4 +58,136 @@ class ReadBufferTest extends TestCase
         $buf->rewind();
         $this->assertSame(1, $buf->getUint16());
     }
+
+    public function testGetUint8ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer('');
+        $buf->getUint8();
+    }
+
+    public function testGetUint16ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00");
+        $buf->getUint16();
+    }
+
+    public function testGetUint32ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00\x00");
+        $buf->getUint32();
+    }
+
+    public function testGetUint64ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00\x00\x00\x00");
+        $buf->getUint64();
+    }
+
+    public function testGetInt16ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00");
+        $buf->getInt16();
+    }
+
+    public function testGetInt32ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00\x00");
+        $buf->getInt32();
+    }
+
+    public function testGetInt64ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00\x00\x00\x00");
+        $buf->getInt64();
+    }
+
+    public function testGetStringThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer(pack('n', 100));
+        $buf->getString();
+    }
+
+    public function testGetBytesThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer(pack('N', 100));
+        $buf->getBytes();
+    }
+
+    public function testSkipThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer('abc');
+        $buf->skip(10);
+    }
+
+    public function testReadBytesThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer('ab');
+        $buf->readBytes(5);
+    }
+
+    public function testPeekUint16ThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00");
+        $buf->peekUint16();
+    }
+
+    public function testSequentialReadsThrowOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer("\x00\x01\x00\x02");
+        $buf->getUint16();
+        $buf->getUint32();
+    }
+
+    public function testGetRemainingBytesOnEmptyBuffer(): void
+    {
+        $buf = new ReadBuffer('');
+        $this->assertSame('', $buf->getRemainingBytes());
+    }
+
+    public function testGetRemainingBytesAfterFullRead(): void
+    {
+        $buf = new ReadBuffer("\x00\x01");
+        $buf->getUint16();
+        $this->assertSame('', $buf->getRemainingBytes());
+    }
+
+    public function testUnderflowMessageContainsPosition(): void
+    {
+        $buf = new ReadBuffer("\x00\x01");
+        $buf->getUint16();
+        try {
+            $buf->getUint16();
+            $this->fail('Expected RuntimeException');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('position 2', $e->getMessage());
+            $this->assertStringContainsString('need 2 bytes', $e->getMessage());
+            $this->assertStringContainsString('0 available', $e->getMessage());
+        }
+    }
 }
