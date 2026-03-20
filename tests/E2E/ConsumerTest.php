@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
 
@@ -13,13 +14,13 @@ class ConsumerTest extends TestCase
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
 
+    private ?Connection $connection = null;
+    private string $streamName;
+
     private function amqp(string $body): string
     {
         return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
     }
-
-    private ?Connection $connection = null;
-    private string $streamName;
 
     public static function setUpBeforeClass(): void
     {
@@ -42,7 +43,7 @@ class ConsumerTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->connection instanceof \CrazyGoat\RabbitStream\Client\Connection) {
+        if ($this->connection instanceof Connection) {
             try {
                 $this->connection->deleteStream($this->streamName);
             } catch (\Exception) {
@@ -74,9 +75,9 @@ class ConsumerTest extends TestCase
         $consumer = $this->connection->createConsumer($this->streamName, OffsetSpec::first());
 
         $received = [];
-        $deadline = time() + 10;
+        $deadline = time() + 5;
         while (count($received) < 3 && time() < $deadline) {
-            $messages = $consumer->read(timeout: 2);
+            $messages = $consumer->read(timeout: 0.5);
             foreach ($messages as $msg) {
                 $received[] = $msg->getBody();
             }
@@ -101,9 +102,9 @@ class ConsumerTest extends TestCase
         $consumer = $this->connection->createConsumer($this->streamName, OffsetSpec::first());
 
         $msg = null;
-        $deadline = time() + 10;
-        while (!$msg instanceof \CrazyGoat\RabbitStream\Client\Message && time() < $deadline) {
-            $msg = $consumer->readOne(timeout: 2);
+        $deadline = time() + 5;
+        while (!$msg instanceof Message && time() < $deadline) {
+            $msg = $consumer->readOne(timeout: 0.5);
         }
 
         $consumer->close();
@@ -128,9 +129,9 @@ class ConsumerTest extends TestCase
         );
 
         $messages = [];
-        $deadline = time() + 10;
+        $deadline = time() + 5;
         while ($messages === [] && time() < $deadline) {
-            $messages = $consumer->read(timeout: 2);
+            $messages = $consumer->read(timeout: 0.5);
         }
 
         $this->assertNotEmpty($messages);
