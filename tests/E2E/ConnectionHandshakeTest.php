@@ -15,12 +15,14 @@ use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use PHPUnit\Framework\Attributes\Depends;
 use PHPUnit\Framework\TestCase;
 
 class ConnectionHandshakeTest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
+    private ?StreamConnection $connection = null;
 
     public static function setUpBeforeClass(): void
     {
@@ -30,6 +32,22 @@ class ConnectionHandshakeTest extends TestCase
         self::$port = $port;
     }
 
+    protected function tearDown(): void
+    {
+        // Only close connection in tearDown for tests that don't provide it to dependents
+        // Provider tests (testPeerPropertiesExchange, testSaslHandshake) pass connection via return
+        $providerTests = ['testPeerPropertiesExchange', 'testSaslHandshake'];
+        $currentTest = $this->name();
+
+        $isProviderTest = in_array($currentTest, $providerTests, true);
+        $hasOpenConnection = $this->connection instanceof StreamConnection && $this->connection->isConnected();
+
+        if (!$isProviderTest && $hasOpenConnection) {
+            $this->connection->close();
+        }
+        $this->connection = null;
+    }
+
     private function createConnection(): StreamConnection
     {
         $connection = new StreamConnection(self::$host, self::$port);
@@ -37,49 +55,42 @@ class ConnectionHandshakeTest extends TestCase
         return $connection;
     }
 
-    public function testPeerPropertiesExchange(): void
+    public function testPeerPropertiesExchange(): StreamConnection
     {
-        $connection = $this->createConnection();
+        $this->connection = $this->createConnection();
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
-        $response = $connection->readMessage();
+        $this->connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(PeerPropertiesResponseV1::class, $response);
 
-        $connection->close();
+        return $this->connection;
     }
 
-    public function testSaslHandshake(): void
+    #[Depends('testPeerPropertiesExchange')]
+    public function testSaslHandshake(StreamConnection $connection): StreamConnection
     {
-        $connection = $this->createConnection();
+        $this->connection = $connection;
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
-        $connection->readMessage();
-
-        $connection->sendMessage(new SaslHandshakeRequestV1());
-        $response = $connection->readMessage();
+        $this->connection->sendMessage(new SaslHandshakeRequestV1());
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(SaslHandshakeResponseV1::class, $response);
 
-        $connection->close();
+        return $this->connection;
     }
 
-    public function testSaslAuthenticate(): void
+    #[Depends('testSaslHandshake')]
+    public function testSaslAuthenticate(StreamConnection $connection): void
     {
-        $connection = $this->createConnection();
+        $this->connection = $connection;
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
-        $connection->readMessage();
-
-        $connection->sendMessage(new SaslHandshakeRequestV1());
-        $connection->readMessage();
-
-        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
-        $response = $connection->readMessage();
+        $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(SaslAuthenticateResponseV1::class, $response);
 
-        $connection->close();
+        $this->connection->close();
     }
 
     public function testFullHandshake(): void
