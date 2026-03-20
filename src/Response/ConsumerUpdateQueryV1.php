@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class ConsumerUpdateQueryV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -51,7 +52,7 @@ class ConsumerUpdateQueryV1 implements
 
     public static function fromArray(array $data): static
     {
-        $object = new self($data['subscriptionId'], $data['active']);
+        $object = new static($data['subscriptionId'], $data['active']);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }

@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 
+/** @phpstan-consistent-constructor */
 class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
@@ -53,6 +54,6 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
 
     public static function fromArray(array $data): static
     {
-        return new self($data['reference'], $data['host'], $data['port']);
+        return new static($data['reference'], $data['host'], $data['port']);
     }
 }

@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class PartitionsResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -57,7 +58,7 @@ class PartitionsResponseV1 implements
 
     public static function fromArray(array $data): static
     {
-        $object = new self($data['streams']);
+        $object = new static($data['streams']);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }

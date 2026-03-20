@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class SaslHandshakeResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -30,7 +31,7 @@ class SaslHandshakeResponseV1 implements
 
     public static function fromArray(array $data): static
     {
-        $object = new self($data['mechanisms']);
+        $object = new static($data['mechanisms']);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }

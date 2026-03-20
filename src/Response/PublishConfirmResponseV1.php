@@ -12,6 +12,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CommandTrait;
@@ -48,7 +49,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
 
     public static function fromArray(array $data): static
     {
-        return new self($data['publisherId'], ...$data['publishingIds']);
+        return new static($data['publisherId'], ...$data['publishingIds']);
     }
 
     public static function getKey(): int

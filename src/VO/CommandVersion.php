@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 
+/** @phpstan-consistent-constructor */
 class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
@@ -63,6 +64,6 @@ class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterfa
 
     public static function fromArray(array $data): static
     {
-        return new self($data['key'], $data['minVersion'], $data['maxVersion']);
+        return new static($data['key'], $data['minVersion'], $data['maxVersion']);
     }
 }

@@ -10,6 +10,7 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 
+/** @phpstan-consistent-constructor */
 class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, FromArrayInterface
 {
     public function __construct(private readonly int $frameMax = 0, private readonly int $heartbeat = 0)
@@ -28,7 +29,7 @@ class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, Fr
 
     public static function fromArray(array $data): static
     {
-        return new self($data['frameMax'], $data['heartbeat']);
+        return new static($data['frameMax'], $data['heartbeat']);
     }
 
     public function toStreamBuffer(): WriteBuffer

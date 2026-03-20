@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class ResolveOffsetSpecResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -47,7 +48,7 @@ class ResolveOffsetSpecResponseV1 implements
 
     public static function fromArray(array $data): static
     {
-        $object = new self();
+        $object = new static();
         $object->withCorrelationId($data['correlationId']);
         $object->offset = $data['offset'];
         return $object;
