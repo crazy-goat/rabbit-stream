@@ -327,6 +327,19 @@ class ConsumerTest extends TestCase
         new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 0);
     }
 
+    public function testMaxBufferSizeRejectsNegativeValues(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxBufferSize must be greater than 0');
+
+        new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: -1);
+    }
+
     public function testCreditWithheldWhenBufferExceedsMaxBufferSize(): void
     {
         $creditRequests = [];
@@ -367,7 +380,7 @@ class ConsumerTest extends TestCase
         $sendPendingCredits->invoke($consumer);
 
         $this->assertCount(0, $creditRequests, 'Credits should be withheld when buffer at maxBufferSize');
-        $this->assertEquals(1, $pendingCreditsProp->getValue($consumer));
+        $this->assertSame(1, $pendingCreditsProp->getValue($consumer));
     }
 
     public function testPendingCreditsSentAfterReadDrainsBuffer(): void
@@ -406,8 +419,8 @@ class ConsumerTest extends TestCase
             $capturedRequest,
             'Pending credits should be sent after read()'
         );
-        $this->assertEquals(2, $capturedRequest->toArray()['credit']);
-        $this->assertEquals(0, $pendingCreditsProp->getValue($consumer));
+        $this->assertSame(2, $capturedRequest->toArray()['credit']);
+        $this->assertSame(0, $pendingCreditsProp->getValue($consumer));
     }
 
     public function testPendingCreditsSentAfterReadOneDrainsBuffer(): void
@@ -446,6 +459,6 @@ class ConsumerTest extends TestCase
             $capturedRequest,
             'Pending credits should be sent after readOne()'
         );
-        $this->assertEquals(1, $capturedRequest->toArray()['credit']);
+        $this->assertSame(1, $capturedRequest->toArray()['credit']);
     }
 }
