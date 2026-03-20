@@ -171,7 +171,7 @@ class Consumer
             return;
         }
 
-        $creditsToSend = min($this->pendingCredits, $availableSlots);
+        $creditsToSend = min($this->pendingCredits, $availableSlots, 65535);
         $this->connection->sendMessage(
             new CreditRequestV1($this->subscriptionId, $creditsToSend)
         );
