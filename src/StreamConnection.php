@@ -53,12 +53,12 @@ class StreamConnection
     {
         $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
         if ($socket === false) {
-            throw new \Exception("Cannot create socket: " . socket_strerror(socket_last_error()));
+            throw new \RuntimeException("Cannot create socket: " . socket_strerror(socket_last_error()));
         }
 
         $result = socket_connect($socket, $this->host, $this->port);
         if (!$result) {
-            throw new \Exception("Cannot connect to {$this->host}:{$this->port}: " . socket_strerror(socket_last_error($this->socket)));
+            throw new \RuntimeException("Cannot connect to {$this->host}:{$this->port}: " . socket_strerror(socket_last_error($this->socket)));
         }
 
         $this->connected = true;
@@ -117,7 +117,7 @@ class StreamConnection
         $this->running = false;
     }
 
-    public function sendMessage(object $request): void
+    public function sendMessage(object $request, ?float $timeout = null): void
     {
         $this->correlationId++;
 
@@ -132,31 +132,68 @@ class StreamConnection
             ->addRaw($content)
             ->getContents();
 
-        $this->sendFrame($frame);
+        $this->sendFrame($frame, $timeout);
     }
 
-    public function sendFrame(string $frame): int
+    public function sendFrame(string $frame, ?float $timeout = null): int
     {
         $this->logger->debug("Socket -> " . bin2hex($frame));
 
+        // If timeout is specified, wait for socket to be ready for writing
+        if ($timeout !== null && $timeout > 0) {
+            $deadline = microtime(true) + $timeout;
+            
+            $read = null;
+            $write = [$this->socket];
+            $except = null;
+            
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                throw new \RuntimeException("Write timeout: socket not ready for writing");
+            }
+            
+            $timeoutSec = (int) $remaining;
+            $timeoutUsec = (int) (($remaining - $timeoutSec) * 1_000_000);
+            
+            $ready = socket_select($read, $write, $except, $timeoutSec, $timeoutUsec);
+            
+            if ($ready === false) {
+                throw new \RuntimeException("socket_select failed: " . socket_strerror(socket_last_error($this->socket)));
+            }
+            
+            if ($ready === 0) {
+                throw new \RuntimeException("Write timeout: socket not ready for writing");
+            }
+        }
+
         $written = socket_write($this->socket, $frame, strlen($frame));
         if ($written === false) {
-            throw new \Exception("Failed to write to socket: " . socket_strerror(socket_last_error($this->socket)));
+            throw new \RuntimeException("Failed to write to socket: " . socket_strerror(socket_last_error($this->socket)));
         }
 
         return $written;
     }
 
-    public function readMessage(int $timeout = 30): object
+    public function readMessage(float $timeout = 30.0): object
     {
+        $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
+        
         while (true) {
             if (!$this->connected) {
-                throw new \Exception("Connection closed");
+                throw new \RuntimeException("Connection closed");
             }
 
-            $frame = $this->readFrame($timeout);
+            $remainingTimeout = $timeout;
+            if ($deadline !== null) {
+                $remainingTimeout = $deadline - microtime(true);
+                if ($remainingTimeout <= 0) {
+                    throw new \RuntimeException("Read timeout");
+                }
+            }
+
+            $frame = $this->readFrame($remainingTimeout);
             if ($frame === null) {
-                throw new \Exception("Read timeout");
+                throw new \RuntimeException("Read timeout");
             }
 
             $key = $frame->peekUint16();
@@ -166,7 +203,7 @@ class StreamConnection
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
-                    throw new \Exception("Connection closed by server");
+                    throw new \RuntimeException("Connection closed by server");
                 }
 
                 continue;
@@ -176,15 +213,15 @@ class StreamConnection
         }
     }
 
-    public function readLoop(?int $maxFrames = null, ?int $timeout = null): void
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
     {
         $this->running = true;
         $dispatched = 0;
-        $deadline = $timeout !== null ? time() + $timeout : null;
+        $deadline = $timeout !== null ? microtime(true) + $timeout : null;
 
         while ($this->running && $this->connected) {
             // Check if timeout has expired
-            if ($deadline !== null && time() >= $deadline) {
+            if ($deadline !== null && microtime(true) >= $deadline) {
                 break;
             }
 
@@ -193,26 +230,28 @@ class StreamConnection
             $except = null;
 
             // Calculate remaining timeout for socket_select
-            $selectTimeout = 1;
+            $selectTimeoutSec = 1;
+            $selectTimeoutUsec = 0;
             if ($deadline !== null) {
-                $remaining = $deadline - time();
+                $remaining = $deadline - microtime(true);
                 if ($remaining <= 0) {
                     break;
                 }
-                $selectTimeout = min($remaining, 1);
+                $selectTimeoutSec = (int) min($remaining, 1);
+                $selectTimeoutUsec = (int) (($remaining - $selectTimeoutSec) * 1_000_000);
             }
 
-            $ready = socket_select($read, $write, $except, $selectTimeout);
+            $ready = socket_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
-                throw new \Exception('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
+                throw new \RuntimeException('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
             }
 
             if ($ready === 0) {
                 continue;
             }
 
-            $frame = $this->readFrame(timeout: 0);
+            $frame = $this->readFrame(timeout: 0.0);
             if ($frame === null) {
                 continue;
             }
@@ -325,16 +364,19 @@ class StreamConnection
         }
     }
 
-    public function readFrame(int $timeout = 30): ?ReadBuffer
+    public function readFrame(float $timeout = 30.0): ?ReadBuffer
     {
         $read = [$this->socket];
         $write = null;
         $except = null;
 
-        $ready = socket_select($read, $write, $except, $timeout > 0 ? $timeout : 0);
+        $timeoutSec = (int) $timeout;
+        $timeoutUsec = (int) (($timeout - $timeoutSec) * 1_000_000);
+        
+        $ready = socket_select($read, $write, $except, $timeout > 0 ? $timeoutSec : 0, $timeout > 0 ? $timeoutUsec : 0);
 
         if ($ready === false) {
-            throw new \Exception('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
+            throw new \RuntimeException('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
         }
 
         if ($ready === 0) {
@@ -350,7 +392,7 @@ class StreamConnection
 
         $frameData = $this->readBytes($size);
         if ($frameData === null) {
-            throw new \Exception("Failed to read frame data");
+            throw new \RuntimeException("Failed to read frame data");
         }
 
         $this->logger->debug("Socket <-" . bin2hex($frameData));
@@ -370,7 +412,7 @@ class StreamConnection
                 if ($error === SOCKET_ETIMEDOUT) {
                     return null;
                 }
-                throw new \Exception("Failed to read from socket: " . socket_strerror($error));
+                throw new \RuntimeException("Failed to read from socket: " . socket_strerror($error));
             }
 
             $data .= $chunk;

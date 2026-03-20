@@ -22,6 +22,54 @@ class ConsumerTest extends TestCase
         return $connection;
     }
 
+    public function testReadAcceptsFloatTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('readLoop');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        
+        // Test that float timeout is accepted (method signature)
+        $reflection = new \ReflectionMethod($consumer, 'read');
+        $params = $reflection->getParameters();
+        
+        $this->assertCount(1, $params);
+        $this->assertEquals('timeout', $params[0]->getName());
+        $this->assertEquals('float', $params[0]->getType()->getName());
+        $this->assertEquals(5.0, $params[0]->getDefaultValue());
+        
+        // Test calling with float timeout works
+        $result = $consumer->read(timeout: 0.5);
+        $this->assertSame([], $result);
+    }
+
+    public function testReadOneAcceptsFloatTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('readLoop');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        
+        // Test that float timeout is accepted (method signature)
+        $reflection = new \ReflectionMethod($consumer, 'readOne');
+        $params = $reflection->getParameters();
+        
+        $this->assertCount(1, $params);
+        $this->assertEquals('timeout', $params[0]->getName());
+        $this->assertEquals('float', $params[0]->getType()->getName());
+        $this->assertEquals(5.0, $params[0]->getDefaultValue());
+        
+        // Test calling with float timeout works
+        $result = $consumer->readOne(timeout: 0.5);
+        $this->assertNull($result);
+    }
+
     public function testReadReturnsEmptyArrayOnTimeout(): void
     {
         $connection = $this->createMock(StreamConnection::class);

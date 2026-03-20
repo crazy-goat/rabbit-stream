@@ -190,7 +190,7 @@ class Connection
         return new Consumer($this->streamConnection, $stream, $subscriptionId, $offset, $name, $autoCommit, $initialCredit);
     }
 
-    public function readLoop(?int $maxFrames = null, ?int $timeout = null): void
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
     {
         $this->streamConnection->readLoop($maxFrames, $timeout);
     }

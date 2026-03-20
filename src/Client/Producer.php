@@ -63,19 +63,19 @@ class Producer
         $this->connection->readMessage();
     }
 
-    public function send(string $message): void
+    public function send(string $message, ?float $timeout = null): void
     {
         $this->pendingConfirms++;
         $this->connection->sendMessage(new PublishRequestV1(
             $this->publisherId,
             new PublishedMessage($this->publishingId++, $message)
-        ));
+        ), $timeout);
     }
 
     /**
      * @param string[] $messages
      */
-    public function sendBatch(array $messages): void
+    public function sendBatch(array $messages, ?float $timeout = null): void
     {
         if (empty($messages)) {
             return;
@@ -85,7 +85,7 @@ class Producer
             $published[] = new PublishedMessage($this->publishingId++, $message);
             $this->pendingConfirms++;
         }
-        $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published));
+        $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published), $timeout);
     }
 
     public function close(): void
@@ -94,15 +94,15 @@ class Producer
         $this->connection->readMessage();
     }
 
-    public function waitForConfirms(int $timeout = 5): void
+    public function waitForConfirms(float $timeout = 5.0): void
     {
-        $deadline = time() + $timeout;
-        while ($this->pendingConfirms > 0 && time() < $deadline) {
-            $remaining = $deadline - time();
+        $deadline = microtime(true) + $timeout;
+        while ($this->pendingConfirms > 0) {
+            $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 break;
             }
-            $this->connection->readLoop(timeout: (int) $remaining);
+            $this->connection->readLoop(timeout: $remaining);
         }
         if ($this->pendingConfirms > 0) {
             throw new \RuntimeException(
