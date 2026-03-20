@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 use CrazyGoat\RabbitStream\VO\PublishingError;
 
 /** @phpstan-consistent-constructor */
@@ -53,14 +54,18 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
+        $errorsData = TypeCast::toArray($data['errors'] ?? []);
         $errors = array_map(
-            fn(array $e): \CrazyGoat\RabbitStream\VO\PublishingError => new PublishingError(
-                $e['publishingId'],
-                $e['code']
-            ),
-            $data['errors']
+            function (mixed $e): PublishingError {
+                $ea = is_array($e) ? $e : [];
+                return new PublishingError(
+                    TypeCast::toInt($ea['publishingId'] ?? 0),
+                    TypeCast::toInt($ea['code'] ?? 0)
+                );
+            },
+            $errorsData
         );
-        return new static($data['publisherId'], ...$errors);
+        return new static(TypeCast::toInt($data['publisherId']), ...$errors);
     }
 
     public static function getKey(): int

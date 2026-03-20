@@ -126,7 +126,7 @@ class AmqpDecoder
                     break;
 
                 case 0x73: // Properties
-                    $sections['properties'] = self::parsePropertiesList($value);
+                    $sections['properties'] = self::parsePropertiesList(is_array($value) ? $value : []);
                     break;
 
                 case 0x74: // ApplicationProperties
@@ -135,7 +135,8 @@ class AmqpDecoder
 
                 case 0x75: // Data (body)
                     if (is_string($value)) {
-                        $sections['body'] .= $value;
+                        $currentBody = $sections['body'];
+                        $sections['body'] = (is_string($currentBody) ? $currentBody : '') . $value;
                     }
                     break;
 
@@ -215,13 +216,25 @@ class AmqpDecoder
         return $result;
     }
 
+    private static function unpackInt(string $format, string $data, string $context): int
+    {
+        $val = self::safeUnpack($format, $data, $context)[1];
+        return is_scalar($val) ? (int) $val : 0;
+    }
+
+    private static function unpackFloat(string $format, string $data, string $context): float
+    {
+        $val = self::safeUnpack($format, $data, $context)[1];
+        return is_scalar($val) ? (float) $val : 0.0;
+    }
+
     /** @return array{0: int, 1: int} */
     private static function readInt8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading int8');
         }
-        $value = self::safeUnpack('c', $data[$position], 'int8')[1];
+        $value = self::unpackInt('c', $data[$position], 'int8');
         return [$value, $position + 1];
     }
 
@@ -231,7 +244,7 @@ class AmqpDecoder
         if ($position + 1 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading uint16');
         }
-        $value = self::safeUnpack('n', substr($data, $position, 2), 'uint16')[1];
+        $value = self::unpackInt('n', substr($data, $position, 2), 'uint16');
         return [$value, $position + 2];
     }
 
@@ -241,7 +254,7 @@ class AmqpDecoder
         if ($position + 1 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading int16');
         }
-        $value = self::safeUnpack('s', strrev(substr($data, $position, 2)), 'int16')[1];
+        $value = self::unpackInt('s', strrev(substr($data, $position, 2)), 'int16');
         return [$value, $position + 2];
     }
 
@@ -251,7 +264,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading uint32');
         }
-        $value = self::safeUnpack('N', substr($data, $position, 4), 'uint32')[1];
+        $value = self::unpackInt('N', substr($data, $position, 4), 'uint32');
         // Handle unsigned 32-bit values > PHP_INT_MAX
         if ($value < 0) {
             $value += 4294967296;
@@ -265,7 +278,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading int32');
         }
-        $value = self::safeUnpack('l', strrev(substr($data, $position, 4)), 'int32')[1];
+        $value = self::unpackInt('l', strrev(substr($data, $position, 4)), 'int32');
         return [$value, $position + 4];
     }
 
@@ -275,7 +288,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading float');
         }
-        $value = self::safeUnpack('f', strrev(substr($data, $position, 4)), 'float')[1];
+        $value = self::unpackFloat('f', strrev(substr($data, $position, 4)), 'float');
         return [$value, $position + 4];
     }
 
@@ -285,8 +298,8 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading uint64');
         }
-        $high = self::safeUnpack('N', substr($data, $position, 4), 'uint64 high')[1];
-        $low = self::safeUnpack('N', substr($data, $position + 4, 4), 'uint64 low')[1];
+        $high = self::unpackInt('N', substr($data, $position, 4), 'uint64 high');
+        $low = self::unpackInt('N', substr($data, $position + 4, 4), 'uint64 low');
         // Handle as string for large values
         if ($high < 0) {
             $high += 4294967296;
@@ -304,7 +317,7 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading int64');
         }
-        $value = self::safeUnpack('q', strrev(substr($data, $position, 8)), 'int64')[1];
+        $value = self::unpackInt('q', strrev(substr($data, $position, 8)), 'int64');
         return [$value, $position + 8];
     }
 
@@ -314,7 +327,7 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading double');
         }
-        $value = self::safeUnpack('d', strrev(substr($data, $position, 8)), 'double')[1];
+        $value = self::unpackFloat('d', strrev(substr($data, $position, 8)), 'double');
         return [$value, $position + 8];
     }
 
@@ -325,7 +338,7 @@ class AmqpDecoder
             throw new \RuntimeException('Unexpected end of data reading timestamp');
         }
         // Timestamp is milliseconds since Unix epoch (int64)
-        $value = self::safeUnpack('q', strrev(substr($data, $position, 8)), 'timestamp')[1];
+        $value = self::unpackInt('q', strrev(substr($data, $position, 8)), 'timestamp');
         return [$value, $position + 8];
     }
 
@@ -337,12 +350,12 @@ class AmqpDecoder
         }
         $bytes = substr($data, $position, 16);
         // Format as UUID string: 8-4-4-4-12 hex digits
-        $p1 = self::safeUnpack('N', substr($bytes, 0, 4), 'uuid part1')[1];
-        $p2 = self::safeUnpack('n', substr($bytes, 4, 2), 'uuid part2')[1];
-        $p3 = self::safeUnpack('n', substr($bytes, 6, 2), 'uuid part3')[1];
-        $p4 = self::safeUnpack('n', substr($bytes, 8, 2), 'uuid part4')[1];
-        $p5a = self::safeUnpack('N', substr($bytes, 10, 4), 'uuid part5a')[1];
-        $p5b = self::safeUnpack('n', substr($bytes, 14, 2), 'uuid part5b')[1];
+        $p1 = self::unpackInt('N', substr($bytes, 0, 4), 'uuid part1');
+        $p2 = self::unpackInt('n', substr($bytes, 4, 2), 'uuid part2');
+        $p3 = self::unpackInt('n', substr($bytes, 6, 2), 'uuid part3');
+        $p4 = self::unpackInt('n', substr($bytes, 8, 2), 'uuid part4');
+        $p5a = self::unpackInt('N', substr($bytes, 10, 4), 'uuid part5a');
+        $p5b = self::unpackInt('n', substr($bytes, 14, 2), 'uuid part5b');
         $value = sprintf(
             '%08x-%04x-%04x-%04x-%012x',
             $p1,
@@ -385,7 +398,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading binary32 length');
         }
-        $length = self::safeUnpack('N', substr($data, $position, 4), 'binary32 length')[1];
+        $length = self::unpackInt('N', substr($data, $position, 4), 'binary32 length');
         if ($length < 0) {
             $length += 4294967296;
         }
@@ -416,7 +429,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading string32 length');
         }
-        $length = self::safeUnpack('N', substr($data, $position, 4), 'string32 length')[1];
+        $length = self::unpackInt('N', substr($data, $position, 4), 'string32 length');
         if ($length < 0) {
             $length += 4294967296;
         }
@@ -447,7 +460,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading symbol32 length');
         }
-        $length = self::safeUnpack('N', substr($data, $position, 4), 'symbol32 length')[1];
+        $length = self::unpackInt('N', substr($data, $position, 4), 'symbol32 length');
         if ($length < 0) {
             $length += 4294967296;
         }
@@ -489,11 +502,11 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading list32 header');
         }
-        $size = self::safeUnpack('N', substr($data, $position, 4), 'list32 size')[1];
+        $size = self::unpackInt('N', substr($data, $position, 4), 'list32 size');
         if ($size < 0) {
             $size += 4294967296;
         }
-        $count = self::safeUnpack('N', substr($data, $position + 4, 4), 'list32 count')[1];
+        $count = self::unpackInt('N', substr($data, $position + 4, 4), 'list32 count');
         if ($count < 0) {
             $count += 4294967296;
         }
@@ -512,7 +525,7 @@ class AmqpDecoder
         return [$list, $position];
     }
 
-    /** @return array{0: array<mixed, mixed>, 1: int} */
+    /** @return array{0: array<string|int, mixed>, 1: int} */
     private static function readMap8(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
@@ -534,23 +547,24 @@ class AmqpDecoder
                 throw new \RuntimeException('Map8 missing value for key');
             }
             [$value, $position] = self::decodeValue($data, $position);
-            $map[$key] = $value;
+            $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
+            $map[$mapKey] = $value;
         }
 
         return [$map, $position];
     }
 
-    /** @return array{0: array<mixed, mixed>, 1: int} */
+    /** @return array{0: array<string|int, mixed>, 1: int} */
     private static function readMap32(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading map32 header');
         }
-        $size = self::safeUnpack('N', substr($data, $position, 4), 'map32 size')[1];
+        $size = self::unpackInt('N', substr($data, $position, 4), 'map32 size');
         if ($size < 0) {
             $size += 4294967296;
         }
-        $count = self::safeUnpack('N', substr($data, $position + 4, 4), 'map32 count')[1];
+        $count = self::unpackInt('N', substr($data, $position + 4, 4), 'map32 count');
         if ($count < 0) {
             $count += 4294967296;
         }
@@ -568,7 +582,8 @@ class AmqpDecoder
                 throw new \RuntimeException('Map32 missing value for key');
             }
             [$value, $position] = self::decodeValue($data, $position);
-            $map[$key] = $value;
+            $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
+            $map[$mapKey] = $value;
         }
 
         return [$map, $position];

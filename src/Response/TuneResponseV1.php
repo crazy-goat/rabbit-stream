@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, FromArrayInterface
@@ -30,7 +31,7 @@ class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, Fr
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        return new static($data['frameMax'], $data['heartbeat']);
+        return new static(TypeCast::toInt($data['frameMax']), TypeCast::toInt($data['heartbeat']));
     }
 
     public function toStreamBuffer(): WriteBuffer

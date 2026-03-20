@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 
 /** @phpstan-consistent-constructor */
@@ -43,12 +44,19 @@ class OpenResponseV1 implements
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
+        $propsData = TypeCast::toArray($data['connectionProperties'] ?? []);
         $properties = array_map(
-            fn(array $p): \CrazyGoat\RabbitStream\VO\KeyValue => new KeyValue($p['key'], $p['value']),
-            $data['connectionProperties']
+            function (mixed $p): KeyValue {
+                $pa = is_array($p) ? $p : [];
+                return new KeyValue(
+                    TypeCast::toString($pa['key'] ?? ''),
+                    TypeCast::toNullableString($pa['value'] ?? null)
+                );
+            },
+            $propsData
         );
         $object = new static(...$properties);
-        $object->withCorrelationId($data['correlationId']);
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

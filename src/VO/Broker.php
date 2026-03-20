@@ -8,6 +8,7 @@ use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
@@ -56,6 +57,10 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        return new static($data['reference'], $data['host'], $data['port']);
+        return new static(
+            TypeCast::toInt($data['reference']),
+            TypeCast::toString($data['host']),
+            TypeCast::toInt($data['port'])
+        );
     }
 }

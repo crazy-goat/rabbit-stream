@@ -68,21 +68,25 @@ class Message
 
     public function getContentType(): ?string
     {
-        return $this->properties['content-type'] ?? null;
+        $value = $this->properties['content-type'] ?? null;
+        return is_scalar($value) ? (string) $value : null;
     }
 
     public function getSubject(): ?string
     {
-        return $this->properties['subject'] ?? null;
+        $value = $this->properties['subject'] ?? null;
+        return is_scalar($value) ? (string) $value : null;
     }
 
     public function getCreationTime(): ?int
     {
-        return $this->properties['creation-time'] ?? null;
+        $value = $this->properties['creation-time'] ?? null;
+        return is_scalar($value) ? (int) $value : null;
     }
 
     public function getGroupId(): ?string
     {
-        return $this->properties['group-id'] ?? null;
+        $value = $this->properties['group-id'] ?? null;
+        return is_scalar($value) ? (string) $value : null;
     }
 }

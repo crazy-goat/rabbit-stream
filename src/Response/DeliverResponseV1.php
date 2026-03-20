@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
@@ -51,7 +52,7 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        return new static($data['subscriptionId'], $data['chunkBytes']);
+        return new static(TypeCast::toInt($data['subscriptionId']), TypeCast::toString($data['chunkBytes']));
     }
 
     public static function getKey(): int

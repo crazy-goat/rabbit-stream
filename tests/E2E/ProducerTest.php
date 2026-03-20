@@ -14,8 +14,10 @@ class ProducerTest extends TestCase
 
     protected function setUp(): void
     {
-        $host = $_ENV['RABBITMQ_HOST'] ?? '127.0.0.1';
-        $port = (int) ($_ENV['RABBITMQ_PORT'] ?? 5552);
+        $hostVal = $_ENV['RABBITMQ_HOST'] ?? '127.0.0.1';
+        $host = is_scalar($hostVal) ? (string) $hostVal : '127.0.0.1';
+        $portVal = $_ENV['RABBITMQ_PORT'] ?? 5552;
+        $port = is_scalar($portVal) ? (int) $portVal : 5552;
 
         $this->connection = Connection::create($host, $port);
         $this->streamName = 'test-producer-' . uniqid();

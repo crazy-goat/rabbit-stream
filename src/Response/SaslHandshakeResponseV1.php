@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class SaslHandshakeResponseV1 implements
@@ -33,8 +34,13 @@ class SaslHandshakeResponseV1 implements
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        $object = new static($data['mechanisms']);
-        $object->withCorrelationId($data['correlationId']);
+        $rawMechanisms = is_array($data['mechanisms'] ?? null) ? $data['mechanisms'] : [];
+        $mechanisms = array_map(
+            fn(mixed $m): ?string => $m === null ? null : TypeCast::toString($m),
+            array_values($rawMechanisms)
+        );
+        $object = new static($mechanisms);
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

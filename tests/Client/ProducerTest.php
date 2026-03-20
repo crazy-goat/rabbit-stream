@@ -174,7 +174,9 @@ class ProducerTest extends TestCase
         $this->assertNotNull($capturedRequest, 'PublishRequestV1 should have been captured');
         $this->assertInstanceOf(PublishRequestV1::class, $capturedRequest);
         /** @var PublishRequestV1 $capturedRequest */
-        $this->assertSame(3, count($capturedRequest->toArray()['messages']), 'Should have 3 messages');
+        $requestArray = $capturedRequest->toArray();
+        $messages = is_array($requestArray['messages']) ? $requestArray['messages'] : [];
+        $this->assertSame(3, count($messages), 'Should have 3 messages');
     }
 
     public function testWaitForConfirmsThrowsOnTimeout(): void

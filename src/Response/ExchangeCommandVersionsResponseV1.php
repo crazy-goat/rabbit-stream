@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 
 /** @phpstan-consistent-constructor */
@@ -57,16 +58,20 @@ class ExchangeCommandVersionsResponseV1 implements
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
+        $commandsData = TypeCast::toArray($data['commands'] ?? []);
         $commands = array_map(
-            fn(array $c): \CrazyGoat\RabbitStream\VO\CommandVersion => new CommandVersion(
-                $c['key'],
-                $c['minVersion'],
-                $c['maxVersion']
-            ),
-            $data['commands']
+            function (mixed $c): CommandVersion {
+                $ca = is_array($c) ? $c : [];
+                return new CommandVersion(
+                    TypeCast::toInt($ca['key'] ?? 0),
+                    TypeCast::toInt($ca['minVersion'] ?? 0),
+                    TypeCast::toInt($ca['maxVersion'] ?? 0)
+                );
+            },
+            $commandsData
         );
         $object = new static($commands);
-        $object->withCorrelationId($data['correlationId']);
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

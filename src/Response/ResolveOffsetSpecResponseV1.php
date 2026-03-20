@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class ResolveOffsetSpecResponseV1 implements
@@ -50,8 +51,8 @@ class ResolveOffsetSpecResponseV1 implements
     public static function fromArray(array $data): static
     {
         $object = new static();
-        $object->withCorrelationId($data['correlationId']);
-        $object->offset = $data['offset'];
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
+        $object->offset = TypeCast::toInt($data['offset']);
         return $object;
     }
 

@@ -10,6 +10,7 @@ use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class KeyValue implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, FromArrayInterface
@@ -49,6 +50,6 @@ class KeyValue implements FromStreamBufferInterface, ToStreamBufferInterface, To
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        return new static($data['key'], $data['value']);
+        return new static(TypeCast::toString($data['key']), TypeCast::toNullableString($data['value'] ?? null));
     }
 }
