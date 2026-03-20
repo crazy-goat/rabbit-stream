@@ -179,7 +179,7 @@ class StreamConnectionTest extends TestCase
 
         try {
             $connection->readFrame();
-        } catch (\RuntimeException $e) {
+        } catch (\RuntimeException) {
         }
 
         $this->assertFalse($connection->isConnected());
