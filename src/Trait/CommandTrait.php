@@ -36,10 +36,13 @@ trait CommandTrait
         }
     }
 
-    private static function isResponseCodeOk(int $responseCode): void
+    private static function assertResponseCodeOk(int $responseCode): void
     {
-        if (ResponseCodeEnum::from($responseCode) !== ResponseCodeEnum::OK) {
-            throw new \Exception('Unexpected response code');
-        };
+        $code = ResponseCodeEnum::from($responseCode);
+        if ($code !== ResponseCodeEnum::OK) {
+            throw new \Exception(
+                "Unexpected response code: {$responseCode} ({$code->name}: {$code->getMessage()})"
+            );
+        }
     }
 }

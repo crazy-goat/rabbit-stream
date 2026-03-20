@@ -66,7 +66,7 @@ class OpenResponseV1 implements
 
         $correlationId = $buffer->getUint32();
 
-        self::isResponseCodeOk($buffer->getUint16());
+        self::assertResponseCodeOk($buffer->getUint16());
 
         $object = new static(...$buffer->getObjectArray(KeyValue::class));
         $object->withCorrelationId($correlationId);

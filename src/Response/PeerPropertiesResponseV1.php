@@ -71,7 +71,7 @@ class PeerPropertiesResponseV1 implements
 
         $buffer->getUint32();
 
-        self::isResponseCodeOk($buffer->getUint16());
+        self::assertResponseCodeOk($buffer->getUint16());
 
         return new static(...$buffer->getObjectArray(KeyValue::class));
     }

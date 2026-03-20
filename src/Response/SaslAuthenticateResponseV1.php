@@ -32,7 +32,7 @@ class SaslAuthenticateResponseV1 implements
 
         $correlationId = $buffer->getUint32();
 
-        self::isResponseCodeOk($buffer->getUint16());
+        self::assertResponseCodeOk($buffer->getUint16());
 
         $object = new static();
         $object->withCorrelationId($correlationId);
