@@ -101,7 +101,7 @@ class ToArrayTest extends TestCase
         $this->assertSame([
             'mechanism' => 'PLAIN',
             'username' => 'user',
-            'password' => 'pass',
+            'password' => '***',
         ], $request->toArray());
     }
 
