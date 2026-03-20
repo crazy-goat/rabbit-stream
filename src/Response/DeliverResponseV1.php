@@ -38,7 +38,6 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
         $key = $buffer->getUint16();
         $version = $buffer->getUint16();
 
-        // Validate key only, not version - we handle both v1 and v2
         if (self::getKey() !== $key) {
             throw new \Exception('Unexpected command code');
         }
