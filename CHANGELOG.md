@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- `PublishTest::testPublishMultipleMessages()` — changed from `$connection->readLoop(maxFrames: 3)` to `$producer->waitForConfirms(timeout: 5.0)` to fix 30-second timeout caused by RabbitMQ batching confirms into single frame; test now completes in ~5s (6x faster) (#137)
+- `PublishTest::testPublishSingleMessage()` — changed to use `$producer->waitForConfirms()` for consistency
 - `CommandTrait::assertResponseCodeOk()` — renamed from `isResponseCodeOk()` to better communicate its throwing behavior; error messages now include hex response code, enum name, and human-readable description for easier debugging (#109)
 
 ### Security
