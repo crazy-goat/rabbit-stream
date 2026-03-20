@@ -10,6 +10,105 @@ use PHPUnit\Framework\TestCase;
 
 class ProducerTest extends TestCase
 {
+    public function testSendAcceptsOptionalWriteTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        
+        $capturedTimeout = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request, $timeout) use (&$capturedTimeout) {
+                $capturedTimeout = $timeout;
+                return null;
+            });
+        
+        $producer = new Producer($connection, 'test-stream', 1);
+        
+        // Test method signature accepts optional timeout
+        $reflection = new \ReflectionMethod($producer, 'send');
+        $params = $reflection->getParameters();
+        
+        $this->assertCount(2, $params);
+        $this->assertEquals('message', $params[0]->getName());
+        $this->assertEquals('timeout', $params[1]->getName());
+        $this->assertTrue($params[1]->isOptional());
+        $this->assertNull($params[1]->getDefaultValue());
+        
+        // Test calling with timeout passes it to connection
+        $producer->send('test', 0.5);
+        $this->assertEquals(0.5, $capturedTimeout);
+    }
+
+    public function testSendBatchAcceptsOptionalWriteTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        
+        $capturedTimeout = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request, $timeout) use (&$capturedTimeout) {
+                $capturedTimeout = $timeout;
+                return null;
+            });
+        
+        $producer = new Producer($connection, 'test-stream', 1);
+        
+        // Test method signature accepts optional timeout
+        $reflection = new \ReflectionMethod($producer, 'sendBatch');
+        $params = $reflection->getParameters();
+        
+        $this->assertCount(2, $params);
+        $this->assertEquals('messages', $params[0]->getName());
+        $this->assertEquals('timeout', $params[1]->getName());
+        $this->assertTrue($params[1]->isOptional());
+        $this->assertNull($params[1]->getDefaultValue());
+        
+        // Test calling with timeout passes it to connection
+        $producer->sendBatch(['test1', 'test2'], 1.0);
+        $this->assertEquals(1.0, $capturedTimeout);
+    }
+
+    public function testWaitForConfirmsAcceptsFloatTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        
+        $capturedTimeout = null;
+        $connection->expects($this->any())
+            ->method('readLoop')
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout) {
+                $capturedTimeout = $timeout;
+                return null;
+            });
+        
+        $producer = new Producer($connection, 'test-stream', 1);
+        
+        // Test method signature accepts float timeout
+        $reflection = new \ReflectionMethod($producer, 'waitForConfirms');
+        $params = $reflection->getParameters();
+        
+        $this->assertCount(1, $params);
+        $this->assertEquals('timeout', $params[0]->getName());
+        $this->assertEquals('float', $params[0]->getType()->getName());
+        $this->assertEquals(5.0, $params[0]->getDefaultValue());
+        
+        // Test calling with float timeout passes it to connection
+        $producer->send('test');
+        try {
+            $producer->waitForConfirms(timeout: 0.1);
+        } catch (\RuntimeException $e) {
+            // Expected - timeout
+        }
+        $this->assertNotNull($capturedTimeout);
+        $this->assertLessThanOrEqual(0.1, $capturedTimeout);
+    }
+
     public function testWaitForConfirmsResolvesWhenConfirmsArrive(): void
     {
         $connection = $this->createMock(StreamConnection::class);

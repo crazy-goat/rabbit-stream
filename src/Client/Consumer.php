@@ -59,7 +59,7 @@ class Consumer
     /**
      * @return Message[]
      */
-    public function read(int $timeout = 5): array
+    public function read(float $timeout = 5.0): array
     {
         if (empty($this->buffer)) {
             $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
@@ -78,7 +78,7 @@ class Consumer
         return $messages;
     }
 
-    public function readOne(int $timeout = 5): ?Message
+    public function readOne(float $timeout = 5.0): ?Message
     {
         if (empty($this->buffer)) {
             $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
