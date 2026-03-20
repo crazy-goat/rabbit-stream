@@ -162,6 +162,23 @@ Key TDD steps for this project:
 4. Run `composer test:unit` — confirm the test passes
 5. Refactor if needed, keep tests green
 
+**During code review iterations (Step 6.5):**
+
+When dispatched to fix issues after code review:
+
+```bash
+# Read review findings from git notes
+git notes show HEAD
+
+# Parse findings and fix all Critical/Important issues
+# Format: CATEGORY|file:line|description
+```
+
+After fixing, clear the notes so next review can add fresh findings:
+```bash
+git notes remove HEAD 2>/dev/null || true
+```
+
 ---
 
 ## Step 6 — Quality Gates (ALL must pass before pushing)
@@ -201,31 +218,55 @@ Before pushing anything, dispatch a `build-heavy` subagent (Task tool, `subagent
 > - No `@phpstan-ignore` suppressions
 >
 > Return findings categorized as Critical / Important / Minor with file:line references. Be specific.
+> 
+> **ALSO - Check previous review and save new findings:**
+> 
+> First, check if there are previous review notes:
+> ```bash
+> git notes show HEAD
+> ```
+> If notes exist, compare with current code to verify previous issues were fixed.
+> 
+> Then save new findings to git notes:
+> ```bash
+> git notes add -m "REPORT|critical=2|important=1|minor=3" HEAD
+> git notes append -m "CRITICAL|src/File.php:42|Missing type declaration" HEAD
+> git notes append -m "IMPORTANT|src/File.php:55|Wrong return type" HEAD
+> git notes append -m "MINOR|src/File.php:60|Trailing whitespace" HEAD
+> ```
+> Format: `CATEGORY|file:line|description` or `REPORT|critical=N|important=N|minor=N`
 
-**Communication via git notes (optional but recommended):**
+**Communication via git notes (REQUIRED):**
 
-The subagent can leave detailed review findings as git notes for structured parsing:
+Git notes act as shared memory between review and build agents:
 
+1. **Review agent (build-heavy)** → **WRITES** findings to notes
+2. **Build agent** → **READS** notes and fixes issues
+3. **Next review agent** → **READS** previous notes to verify fixes
+
+**For Build agent - read and clear notes:**
 ```bash
-# Subagent adds review notes to HEAD
-git notes add -m "REPORT|critical=2|important=1|minor=3" HEAD
-git notes append -m "CRITICAL|src/File.php:42|Missing type declaration" HEAD
-git notes append -m "IMPORTANT|src/File.php:55|Wrong return type" HEAD
+# Read previous review findings
+git notes show HEAD
+
+# Clear notes after fixing (review will add new ones)
+git notes remove HEAD 2>/dev/null || true
 ```
 
-Format: `CATEGORY|file:line|description` or `REPORT|critical=N|important=N|minor=N`
-
-Main agent reads notes with: `git notes show HEAD`
-
-**Important:** Clean up notes before pushing: `git notes remove HEAD`
+**For Review agent - check previous fixes:**
+```bash
+# Read notes from previous review round
+git notes show HEAD
+# Compare with current code to verify fixes were applied
+```
 
 **Iteration loop — repeat until zero Critical and zero Important:**
 
-1. Subagent returns findings
-2. Fix every Critical and every Important issue
+1. **Review** (build-heavy) analyzes code, WRITES findings to git notes
+2. **Build** (subagent) READS notes, fixes every Critical/Important issue, CLEARS notes
 3. Re-run quality gates: `composer test:unit`, `composer lint`, `composer phpstan`
-4. Dispatch `build-heavy` subagent again with the same prompt
-5. Stop only when subagent reports: no Critical, no Important
+4. **Review** (build-heavy) READS previous notes, verifies fixes, WRITES new findings
+5. Stop only when review reports: no Critical, no Important (and notes show REPORT|critical=0|important=0)
 
 **If Critical or Important issues persist after reasonable effort:**
 
