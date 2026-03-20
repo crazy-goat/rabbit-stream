@@ -6,5 +6,5 @@ namespace CrazyGoat\RabbitStream\Buffer;
 
 interface FromStreamBufferInterface
 {
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object;
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static;
 }

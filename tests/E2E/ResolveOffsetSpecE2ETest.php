@@ -52,6 +52,9 @@ class ResolveOffsetSpecE2ETest extends TestCase
             $connection->readMessage();
 
             $tune = $connection->readMessage();
+            if (!$tune instanceof TuneRequestV1) {
+                throw new \RuntimeException('Expected TuneRequestV1');
+            }
             $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
             $connection->sendMessage(new OpenRequest('/'));

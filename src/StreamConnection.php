@@ -401,7 +401,11 @@ class StreamConnection
             return null;
         }
 
-        $size = unpack('N', $sizeData)[1];
+        $sizeUnpacked = unpack('N', $sizeData);
+        if ($sizeUnpacked === false) {
+            throw new \RuntimeException('Failed to unpack frame size');
+        }
+        $size = $sizeUnpacked[1];
 
         $frameData = $this->readBytes($size);
         if ($frameData === null) {

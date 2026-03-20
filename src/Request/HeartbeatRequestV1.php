@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class HeartbeatRequestV1 implements
     FromStreamBufferInterface,
     ToStreamBufferInterface,
@@ -39,9 +40,9 @@ class HeartbeatRequestV1 implements
         return [];
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
-        return new self();
+        return new static();
     }
 }

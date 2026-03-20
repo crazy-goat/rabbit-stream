@@ -32,7 +32,7 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
         return $this->chunkBytes;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         $key = $buffer->getUint16();
         $version = $buffer->getUint16();
@@ -45,7 +45,7 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
         }
 
         $chunkBytes = $buffer->getRemainingBytes();
-        return new self($subscriptionId, $chunkBytes);
+        return new static($subscriptionId, $chunkBytes);
     }
 
     /** @param array<string, mixed> $data */

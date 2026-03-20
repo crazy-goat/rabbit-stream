@@ -43,6 +43,7 @@ class TuneRequestV1Test extends TestCase
         $original = new TuneRequestV1(65536, 30);
         $bytes = $original->toStreamBuffer()->getContents();
         $decoded = TuneRequestV1::fromStreamBuffer(new ReadBuffer($bytes));
+        $this->assertInstanceOf(TuneRequestV1::class, $decoded);
 
         $this->assertSame($original->getFrameMax(), $decoded->getFrameMax());
         $this->assertSame($original->getHeartbeat(), $decoded->getHeartbeat());

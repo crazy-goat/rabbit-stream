@@ -27,7 +27,7 @@ class ResolveOffsetSpecResponseV1 implements
 
     private int $offset = 0;
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
@@ -35,7 +35,7 @@ class ResolveOffsetSpecResponseV1 implements
         $buffer->getUint16(); // OffsetType: 1 (first), 2 (last), 3 (next), 4 (offset), 5 (timestamp)
         $offset = $buffer->getUint64();
 
-        $object = new self();
+        $object = new static();
         $object->withCorrelationId($correlationId);
         $object->offset = $offset;
         return $object;

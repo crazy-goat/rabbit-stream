@@ -41,14 +41,14 @@ class ExchangeCommandVersionsResponseV1 implements
         return $this->commands;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
         self::isResponseCodeOk($buffer->getUint16());
         $commands = $buffer->getObjectArray(CommandVersion::class);
 
-        $object = new self($commands);
+        $object = new static($commands);
         $object->withCorrelationId($correlationId);
 
         return $object;

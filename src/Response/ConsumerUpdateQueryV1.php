@@ -39,13 +39,13 @@ class ConsumerUpdateQueryV1 implements
         return $this->active;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
         $subscriptionId = $buffer->getUint8();
         $active = $buffer->getUint8() === 1;
-        $object = new self($subscriptionId, $active);
+        $object = new static($subscriptionId, $active);
         $object->withCorrelationId($correlationId);
         return $object;
     }

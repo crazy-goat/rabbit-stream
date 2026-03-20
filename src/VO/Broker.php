@@ -34,9 +34,9 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
         return $this->port;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
-        return new self(
+        return new static(
             $buffer->getUint16(),
             $buffer->getString(),
             $buffer->getUint32()

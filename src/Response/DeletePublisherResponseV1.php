@@ -25,12 +25,12 @@ class DeletePublisherResponseV1 implements
     use CommandTrait;
     use V1Trait;
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
         self::isResponseCodeOk($buffer->getUint16());
-        $object = new self();
+        $object = new static();
         $object->withCorrelationId($correlationId);
         return $object;
     }

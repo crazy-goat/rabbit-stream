@@ -32,12 +32,12 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return $this->stream;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $code = $buffer->getUint16();
         $stream = $buffer->getString();
-        return new self($code, $stream);
+        return new static($code, $stream);
     }
 
     /** @param array<string, mixed> $data */

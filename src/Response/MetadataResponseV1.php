@@ -53,7 +53,7 @@ class MetadataResponseV1 implements
         return $this->streamMetadata;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
@@ -62,7 +62,7 @@ class MetadataResponseV1 implements
         $brokers = $buffer->getObjectArray(Broker::class);
         $streamMetadata = $buffer->getObjectArray(StreamMetadata::class);
 
-        $object = new self($brokers, $streamMetadata);
+        $object = new static($brokers, $streamMetadata);
         $object->withCorrelationId($correlationId);
 
         return $object;

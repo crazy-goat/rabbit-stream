@@ -41,7 +41,7 @@ class PartitionsResponseV1 implements
         return $this->streams;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
@@ -50,7 +50,7 @@ class PartitionsResponseV1 implements
 
         $streams = $buffer->getStringArray();
 
-        $object = new self($streams);
+        $object = new static($streams);
         $object->withCorrelationId($correlationId);
 
         return $object;

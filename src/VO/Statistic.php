@@ -35,9 +35,9 @@ class Statistic implements FromStreamBufferInterface, ToStreamBufferInterface, T
             ->addInt64($this->value);
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
-        return new self($buffer->getString(), $buffer->getInt64());
+        return new static($buffer->getString(), $buffer->getInt64());
     }
 
     /** @return array<string, int|string> */

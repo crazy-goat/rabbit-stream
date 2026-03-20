@@ -14,16 +14,22 @@ class ReadBuffer
 
     public function getUint8(): int
     {
-        $data = unpack('C', substr($this->buffer, $this->position, 1))[1];
+        $data = unpack('C', substr($this->buffer, $this->position, 1));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack uint8 at position ' . $this->position);
+        }
         $this->position += 1;
-        return $data;
+        return $data[1];
     }
 
     public function getUint16(): int
     {
-        $data = unpack('n', substr($this->buffer, $this->position, 2))[1];
+        $data = unpack('n', substr($this->buffer, $this->position, 2));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack uint16 at position ' . $this->position);
+        }
         $this->position += 2;
-        return $data;
+        return $data[1];
     }
 
     public function rewind(): void
@@ -33,26 +39,35 @@ class ReadBuffer
 
     public function getUint32(): int
     {
-        $data = unpack('N', substr($this->buffer, $this->position, 4))[1];
+        $data = unpack('N', substr($this->buffer, $this->position, 4));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack uint32 at position ' . $this->position);
+        }
         $this->position += 4;
-        return $data;
+        return $data[1];
     }
 
     public function getUint64(): int
     {
-        $data = unpack('J', substr($this->buffer, $this->position, 8))[1];
+        $data = unpack('J', substr($this->buffer, $this->position, 8));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack uint64 at position ' . $this->position);
+        }
         $this->position += 8;
-        return $data;
+        return $data[1];
     }
 
     public function getInt64(): int
     {
-        $data = unpack('J', substr($this->buffer, $this->position, 8))[1];
-        $this->position += 8;
-        if ($data >= 0x8000000000000000) {
-            $data -= 0x10000000000000000;
+        $data = unpack('J', substr($this->buffer, $this->position, 8));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack int64 at position ' . $this->position);
         }
-        return $data;
+        $this->position += 8;
+        if ($data[1] >= 0x8000000000000000) {
+            $data[1] -= 0x10000000000000000;
+        }
+        return $data[1];
     }
 
     public function getString(): ?string
@@ -69,32 +84,46 @@ class ReadBuffer
 
     public function getInt16(): int
     {
-        $data = unpack('n', substr($this->buffer, $this->position, 2))[1];
-        $this->position += 2;
-        if ($data >= 0x8000) {
-            $data -= 0x10000;
+        $data = unpack('n', substr($this->buffer, $this->position, 2));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack int16 at position ' . $this->position);
         }
-        return $data;
+        $this->position += 2;
+        if ($data[1] >= 0x8000) {
+            $data[1] -= 0x10000;
+        }
+        return $data[1];
     }
 
     public function getInt32(): int
     {
-        $data = unpack('N', substr($this->buffer, $this->position, 4))[1];
-        $this->position += 4;
-        if ($data >= 0x80000000) {
-            $data -= 0x100000000;
+        $data = unpack('N', substr($this->buffer, $this->position, 4));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack int32 at position ' . $this->position);
         }
-        return $data;
+        $this->position += 4;
+        if ($data[1] >= 0x80000000) {
+            $data[1] -= 0x100000000;
+        }
+        return $data[1];
     }
 
-    /** @return array<int, object> */
+    /**
+     * @template T of FromStreamBufferInterface
+     * @param class-string<T> $class
+     * @return array<int, T>
+     */
     public function getObjectArray(string $class): array
     {
         $arrayLength = $this->getUint32();
 
         $data = [];
         for ($i = 0; $i < $arrayLength; $i++) {
-            $data[] = $class::fromStreamBuffer($this);
+            $item = $class::fromStreamBuffer($this);
+            if ($item === null) {
+                throw new \RuntimeException('Failed to deserialize object of class ' . $class);
+            }
+            $data[] = $item;
         }
 
         return $data;
@@ -151,6 +180,10 @@ class ReadBuffer
 
     public function peekUint16(): int
     {
-        return unpack('n', substr($this->buffer, $this->position, 2))[1];
+        $data = unpack('n', substr($this->buffer, $this->position, 2));
+        if ($data === false) {
+            throw new \RuntimeException('Failed to unpack uint16 at position ' . $this->position);
+        }
+        return $data[1];
     }
 }

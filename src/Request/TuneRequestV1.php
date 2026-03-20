@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
 {
     use V1Trait;
@@ -35,11 +36,11 @@ class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterfac
             ->addUInt32($this->heartbeat);
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
-        return new self($buffer->getUint32(), $buffer->getUint32());
+        return new static($buffer->getUint32(), $buffer->getUint32());
     }
 
     public function getFrameMax(): int

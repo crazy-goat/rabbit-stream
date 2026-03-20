@@ -42,7 +42,7 @@ class StreamStatsResponseV1 implements
         return $this->stats;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
@@ -55,7 +55,7 @@ class StreamStatsResponseV1 implements
 
         $stats = $buffer->getObjectArray(Statistic::class);
 
-        $object = new self($stats);
+        $object = new static($stats);
         $object->withCorrelationId($correlationId);
 
         return $object;

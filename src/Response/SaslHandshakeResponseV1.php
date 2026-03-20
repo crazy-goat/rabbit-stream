@@ -49,7 +49,7 @@ class SaslHandshakeResponseV1 implements
         return KeyEnum::SASL_HANDSHAKE_RESPONSE->value;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
@@ -57,7 +57,7 @@ class SaslHandshakeResponseV1 implements
 
         self::isResponseCodeOk($buffer->getUint16());
 
-        $object = new self($buffer->getStringArray());
+        $object = new static($buffer->getStringArray());
         $object->withCorrelationId($correlationId);
 
         return $object;

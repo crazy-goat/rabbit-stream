@@ -52,7 +52,7 @@ class OpenResponseV1 implements
         return $object;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
@@ -60,7 +60,7 @@ class OpenResponseV1 implements
 
         self::isResponseCodeOk($buffer->getUint16());
 
-        $object = new self(...$buffer->getObjectArray(KeyValue::class));
+        $object = new static(...$buffer->getObjectArray(KeyValue::class));
         $object->withCorrelationId($correlationId);
 
         return $object;

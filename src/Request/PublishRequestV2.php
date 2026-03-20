@@ -23,7 +23,7 @@ class PublishRequestV2 implements ToStreamBufferInterface, ToArrayInterface, Key
 
     public function __construct(private int $publisherId, PublishedMessageV2 ...$messages)
     {
-        $this->messages = $messages;
+        $this->messages = array_values($messages);
     }
 
     public function toStreamBuffer(): WriteBuffer
