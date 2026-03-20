@@ -34,6 +34,12 @@ class OpenResponseV1 implements
         $this->connectionProperties = $connectionProperties;
     }
 
+    /** @return KeyValue[] */
+    public function getConnectionProperties(): array
+    {
+        return $this->connectionProperties;
+    }
+
     public static function fromArray(array $data): static
     {
         $properties = array_map(
