@@ -202,6 +202,23 @@ Before pushing anything, dispatch a `build-heavy` subagent (Task tool, `subagent
 >
 > Return findings categorized as Critical / Important / Minor with file:line references. Be specific.
 
+**Communication via git notes (optional but recommended):**
+
+The subagent can leave detailed review findings as git notes for structured parsing:
+
+```bash
+# Subagent adds review notes to HEAD
+git notes add -m "REPORT|critical=2|important=1|minor=3" HEAD
+git notes append -m "CRITICAL|src/File.php:42|Missing type declaration" HEAD
+git notes append -m "IMPORTANT|src/File.php:55|Wrong return type" HEAD
+```
+
+Format: `CATEGORY|file:line|description` or `REPORT|critical=N|important=N|minor=N`
+
+Main agent reads notes with: `git notes show HEAD`
+
+**Important:** Clean up notes before pushing: `git notes remove HEAD`
+
 **Iteration loop — repeat until zero Critical and zero Important:**
 
 1. Subagent returns findings
@@ -244,6 +261,15 @@ Fix Minor issues if the fix is trivial (< 5 minutes). For non-trivial Minor issu
 ---
 
 ## Step 7 — Push and Open PR
+
+**Clean up git notes before pushing:**
+
+```bash
+# Remove all review notes from commits in this branch
+git log main..HEAD --pretty=format:%H | while read commit; do
+  git notes remove $commit 2>/dev/null || true
+done
+```
 
 Choose the conventional commit prefix based on the issue type: `feat` (new feature/command), `fix` (bug fix), `refactor` (refactoring), `docs` (documentation), `test` (tests only). Replace all `{placeholders}` with actual values before running.
 
