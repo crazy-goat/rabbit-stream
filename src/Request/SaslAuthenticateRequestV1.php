@@ -30,7 +30,7 @@ class SaslAuthenticateRequestV1 implements
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return self::getKeYVersion($this->getCorrelationId())
+        return self::getKeyVersion($this->getCorrelationId())
             ->addString($this->mechanism)
             ->addBytes("\0" . $this->username . "\0" . $this->password);
     }
