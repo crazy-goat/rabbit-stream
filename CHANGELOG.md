@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed
+- **`StreamClient`** — deprecated high-level client (use `Connection::create()` instead)
+- **`StreamClientConfig`** — deprecated config class (use `Connection::create()` parameters instead)
+- **`ProducerConfig`** — deprecated config class (use `Connection::createProducer()` parameters instead)
+- **`examples/legacy/`** — removed legacy example scripts
+
+### Changed (BREAKING)
+- **`ReadBuffer::gatString()` → `getString()`** — fixed typo in method name
+- **`CorrelationInterface`** — moved from `CrazyGoat\StreamyCarrot\Trait\` to `CrazyGoat\StreamyCarrot\Contract\`
+- **`KeyVersionInterface`** — moved from `CrazyGoat\StreamyCarrot\Trait\` to `CrazyGoat\StreamyCarrot\Contract\`
+- **`static public` → `public static`** — all classes now follow PSR-12 method ordering
+- **Error messages in `WriteBuffer`** — translated from Polish to English
+
 ### Added
 - **Timeout precision improvement** — all read and write operations now support sub-second (float) timeouts:
   - `StreamConnection::readMessage()`, `readFrame()`, `readLoop()` — accept `float` timeout (e.g., `0.5` for 500ms)
@@ -99,11 +112,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `RouteResponseV1` — server response with array of matching stream names (key `0x8018`)
 - `KeyEnum::ROUTE_RESPONSE` (`0x8018`)
 - E2E tests for Route command (including CreateSuperStream integration)
-
-### Deprecated
-- `StreamClient` — use `Connection::create()` instead
-- `StreamClientConfig` — use `Connection::create()` parameters instead
-- `ProducerConfig` — use `Connection::createProducer()` parameters instead
 
 ## [0.5.0] - 2026-03-17
 

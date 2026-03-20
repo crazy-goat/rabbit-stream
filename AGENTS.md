@@ -56,7 +56,8 @@ src/
 ├── Enum/         # KeyEnum (protocol command keys), ResponseCodeEnum
 ├── Request/      # Client-sent command classes (*RequestV1.php)
 ├── Response/     # Server-sent response classes (*ResponseV1.php)
-├── Trait/        # Shared traits AND interfaces (CorrelationTrait, V1Trait, CommandTrait)
+├── Contract/     # Interfaces (CorrelationInterface, KeyVersionInterface)
+├── Trait/        # Shared traits (CorrelationTrait, V1Trait, CommandTrait)
 ├── VO/           # Value Objects (KeyValue)
 ├── ResponseBuilder.php   # Static dispatcher: raw buffer → typed response object
 └── StreamConnection.php  # TCP socket connection management
@@ -76,7 +77,7 @@ examples/         # Working usage examples
 - Interfaces: `{Name}Interface` (e.g. `CorrelationInterface`, `KeyVersionInterface`)
 
 ### Methods
-- `static public function` is used in existing code (non-standard order; PSR-12 prefers `public static`) — follow existing style for consistency
+- `public static function` ordering per PSR-12
 - Static factory methods on response/request classes: `fromStreamBuffer(ReadBuffer $buffer): ?object`
 - Fluent builder methods on `WriteBuffer`: all `add*()` return `self`
 
@@ -127,10 +128,10 @@ namespace CrazyGoat\StreamyCarrot\Request;
 use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
 use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
+use CrazyGoat\StreamyCarrot\Contract\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\Contract\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
-use CrazyGoat\StreamyCarrot\Trait\CorrelationInterface;
 use CrazyGoat\StreamyCarrot\Trait\CorrelationTrait;
-use CrazyGoat\StreamyCarrot\Trait\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\Trait\V1Trait;
 
 class ExampleRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
@@ -147,7 +148,7 @@ class ExampleRequestV1 implements ToStreamBufferInterface, CorrelationInterface,
             ->addString($this->stream);
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::EXAMPLE->value;
     }
@@ -164,10 +165,10 @@ namespace CrazyGoat\StreamyCarrot\Response;
 use CrazyGoat\StreamyCarrot\Buffer\FromStreamBufferInterface;
 use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
 use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
+use CrazyGoat\StreamyCarrot\Contract\CorrelationInterface;
+use CrazyGoat\StreamyCarrot\Contract\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
-use CrazyGoat\StreamyCarrot\Trait\CorrelationInterface;
 use CrazyGoat\StreamyCarrot\Trait\CorrelationTrait;
-use CrazyGoat\StreamyCarrot\Trait\KeyVersionInterface;
 use CrazyGoat\StreamyCarrot\Trait\V1Trait;
 
 class ExampleResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
@@ -186,7 +187,7 @@ class ExampleResponseV1 implements KeyVersionInterface, CorrelationInterface, Fr
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::EXAMPLE_RESPONSE->value;
     }
@@ -292,11 +293,6 @@ $connection->readLoop(maxFrames: 1); // blocks until 1 server-push frame dispatc
 
 These exist in the current codebase — do not replicate them in new code:
 
-- **`gatString()` typo** in `ReadBuffer` — should be `getString()`. New code should call `gatString()` for now to stay compatible, but the method should eventually be renamed.
-- **`static public` vs `public static`** — existing code uses `static public function getKey()`. Follow this for consistency in new classes.
-- **Debug `echo` in `StreamConnection`** — `sendFrame()` and `readFrame()` echo raw hex to stdout. This is temporary debug output, not a logging system.
-- **Polish error messages** in `WriteBuffer` — new code should use English.
-- **Interfaces in `Trait\` namespace** — `CorrelationInterface` and `KeyVersionInterface` live in `CrazyGoat\StreamyCarrot\Trait\` despite being interfaces. Follow this convention for now.
 - **No custom exceptions** — use `\Exception` until an exception hierarchy is introduced.
 
 ---
