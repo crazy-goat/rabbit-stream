@@ -31,7 +31,9 @@ class CreateSuperStreamResponseV1Test extends TestCase
             . pack('n', 0x0005);            // response code (Stream already exists)
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Unexpected response code: 0x0005 (STREAM_ALREADY_EXISTS: Stream already exists)');
+        $this->expectExceptionMessage(
+            'Unexpected response code: 0x0005 (STREAM_ALREADY_EXISTS: Stream already exists)'
+        );
 
         CreateSuperStreamResponseV1::fromStreamBuffer(new ReadBuffer($raw));
     }
