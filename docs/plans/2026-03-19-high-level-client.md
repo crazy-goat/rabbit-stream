@@ -93,7 +93,7 @@ New producer, created via `Connection::createProducer()`.
 - `send(string $message): void` — publishes a single message, auto-increments publishingId
 - `sendBatch(array $messages): void` — publishes multiple messages in a single frame
 - `waitForConfirms(timeout): void` — blocks until all confirms are received
-- `getLastPublishingId(): int`
+- `getLastPublishingId(): ?int`
 - `querySequence(): int` — queries the server for the last publishingId for this producer
 - `close(): void` — DeletePublisher + cleanup
 

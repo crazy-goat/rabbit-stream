@@ -83,7 +83,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `Connection::createProducer()`, `Connection::createConsumer()` — factory methods for producers and consumers
 - `Producer::sendBatch()` — send multiple messages in a single frame
 - `Producer::waitForConfirms()` — block until all pending publish confirms are received (with timeout)
-- `Producer::getLastPublishingId()` — returns the last used publishing ID
+- `Producer::getLastPublishingId()` — returns the last used publishing ID (returns `null` before first `send()`)
 - `Producer::querySequence()` — queries the server for the last confirmed publishing ID (named producers only)
 - `Connection::readLoop()`, `Connection::storeOffset()` — additional convenience methods
 - `Consumer` — stub class for future consumer implementation

@@ -212,7 +212,7 @@ class ProducerTest extends TestCase
         $producer = new Producer($connection, 'test-stream', 1);
 
         // Before any sends
-        $this->assertEquals(-1, $producer->getLastPublishingId());
+        $this->assertNull($producer->getLastPublishingId());
 
         $producer->send('msg1');
         $this->assertEquals(0, $producer->getLastPublishingId());

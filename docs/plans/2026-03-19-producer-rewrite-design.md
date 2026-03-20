@@ -39,7 +39,7 @@ class Producer
     // New methods:
     public function sendBatch(array $messages): void;
     public function waitForConfirms(int $timeout = 5): void;
-    public function getLastPublishingId(): int;
+    public function getLastPublishingId(): ?int;
     public function querySequence(): int;
 }
 ```
