@@ -128,7 +128,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
-    needs: [check-actor, lint, rector-check]
+    needs: [check-actor, lint, rector-check, static-analysis]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     services:
