@@ -35,15 +35,15 @@ class OsirisChunkParser
         }
 
         $numEntries = $buffer->getUint16();
-        $numRecords = $buffer->getUint32();
+        $buffer->getUint32();
         $timestamp = $buffer->getInt64();
-        $epoch = $buffer->getUint64();
+        $buffer->getUint64();
         $chunkFirstOffset = $buffer->getUint64();
-        $chunkCrc = $buffer->getInt32();
-        $dataLength = $buffer->getUint32();
-        $trailerLength = $buffer->getUint32();
-        $bloomSize = $buffer->getUint8();
-        $reserved = $buffer->readBytes(3);
+        $buffer->getInt32();
+        $buffer->getUint32();
+        $buffer->getUint32();
+        $buffer->getUint8();
+        $buffer->readBytes(3);
 
         $entries = [];
         $currentOffset = $chunkFirstOffset;

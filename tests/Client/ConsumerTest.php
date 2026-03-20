@@ -222,7 +222,7 @@ class ConsumerTest extends TestCase
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
 
-        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
 
         $this->assertNotNull($registeredCallback, 'registerSubscriber callback should be registered');
     }

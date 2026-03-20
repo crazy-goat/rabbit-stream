@@ -105,7 +105,7 @@ class AmqpDecoderMessageTest extends TestCase
 
         foreach ($properties as $key => $value) {
             // Key: str8-utf8
-            $mapItems .= "\xa1" . chr(strlen($key)) . $key;
+            $mapItems .= "\xa1" . chr(strlen((string) $key)) . $key;
 
             // Value
             if (is_string($value)) {
@@ -143,7 +143,7 @@ class AmqpDecoderMessageTest extends TestCase
 
         foreach ($annotations as $key => $value) {
             // Key: str8-utf8 or sym8
-            $mapItems .= "\xa3" . chr(strlen($key)) . $key;
+            $mapItems .= "\xa3" . chr(strlen((string) $key)) . $key;
 
             // Value
             if (is_string($value)) {
@@ -167,7 +167,7 @@ class AmqpDecoderMessageTest extends TestCase
     /**
      * Helper to build an AmqpValue section (0x77).
      */
-    private function buildAmqpValueSection($value): string
+    private function buildAmqpValueSection(string|int $value): string
     {
         $valueData = '';
 

@@ -18,8 +18,8 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
     public const TYPE_INTERVAL = 0x0006;
 
     public function __construct(
-        private int $type,
-        private ?int $value = null
+        private readonly int $type,
+        private readonly ?int $value = null
     ) {
         if (
             !in_array(

@@ -153,7 +153,7 @@ class AmqpMessageDecoderE2ETest extends TestCase
         $count = 0;
 
         foreach ($appProperties as $key => $value) {
-            $mapItems .= "\xa1" . chr(strlen($key)) . $key;
+            $mapItems .= "\xa1" . chr(strlen((string) $key)) . $key;
 
             if (is_string($value)) {
                 $mapItems .= "\xa1" . chr(strlen($value)) . $value;
@@ -458,7 +458,7 @@ class AmqpMessageDecoderE2ETest extends TestCase
         $this->assertGreaterThanOrEqual(3, count($receivedMessages), 'Should receive at least 3 messages');
 
         // Verify message IDs are present (order may vary)
-        $receivedIds = array_map(fn(Message $m) => $m->getMessageId(), $receivedMessages);
+        $receivedIds = array_map(fn(Message $m): mixed => $m->getMessageId(), $receivedMessages);
         $this->assertContains('msg-1', $receivedIds);
         $this->assertContains('msg-2', $receivedIds);
         $this->assertContains('msg-3', $receivedIds);

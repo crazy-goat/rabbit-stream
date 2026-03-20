@@ -79,7 +79,7 @@ class Producer
      */
     public function sendBatch(array $messages, ?float $timeout = null): void
     {
-        if (empty($messages)) {
+        if ($messages === []) {
             return;
         }
         $published = [];
@@ -128,7 +128,7 @@ class Producer
         );
         $response = $this->connection->readMessage();
         if (!$response instanceof QueryPublisherSequenceResponseV1) {
-            $type = is_object($response) ? get_class($response) : gettype($response);
+            $type = get_debug_type($response);
             throw new \Exception("Expected QueryPublisherSequenceResponseV1, got " . $type);
         }
         return $response->getSequence();

@@ -26,10 +26,8 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(function ($request) {
-                return $request instanceof CreateRequestV1
-                    && $request->toArray()['stream'] === 'test-stream';
-            }));
+            ->with($this->callback(fn($request) => $request instanceof CreateRequestV1
+                && $request->toArray()['stream'] === 'test-stream'));
 
         $streamConnection->expects($this->once())
             ->method('readMessage')
@@ -47,9 +45,7 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(function ($request) {
-                return $request instanceof CloseRequestV1;
-            }));
+            ->with($this->callback(fn($request) => $request instanceof CloseRequestV1));
 
         $streamConnection->expects($this->once())
             ->method('readMessage')
@@ -69,10 +65,8 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(function ($request) {
-                return $request instanceof MetadataRequestV1
-                    && $request->toArray()['streams'] === ['existing-stream'];
-            }));
+            ->with($this->callback(fn($request) => $request instanceof MetadataRequestV1
+                && $request->toArray()['streams'] === ['existing-stream']));
 
         $metadata = new MetadataResponseV1(
             brokers: [new Broker(1, 'localhost', 5552)],
@@ -94,10 +88,8 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(function ($request) {
-                return $request instanceof MetadataRequestV1
-                    && $request->toArray()['streams'] === ['non-existing-stream'];
-            }));
+            ->with($this->callback(fn($request) => $request instanceof MetadataRequestV1
+                && $request->toArray()['streams'] === ['non-existing-stream']));
 
         $metadata = new MetadataResponseV1(
             brokers: [],
@@ -119,10 +111,8 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(function ($request) {
-                return $request instanceof DeleteStreamRequestV1
-                    && $request->toArray()['stream'] === 'stream-to-delete';
-            }));
+            ->with($this->callback(fn($request) => $request instanceof DeleteStreamRequestV1
+                && $request->toArray()['stream'] === 'stream-to-delete'));
 
         $streamConnection->expects($this->once())
             ->method('readMessage')
@@ -137,7 +127,6 @@ class ConnectionTest extends TestCase
     {
         $reflection = new \ReflectionClass(Connection::class);
         $constructor = $reflection->getConstructor();
-        $constructor->setAccessible(true);
 
         $connection = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($connection, $mock);

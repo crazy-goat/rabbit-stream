@@ -8,7 +8,7 @@ class ReadBuffer
 {
     private int $position = 0;
 
-    public function __construct(private string $buffer)
+    public function __construct(private readonly string $buffer)
     {
     }
 

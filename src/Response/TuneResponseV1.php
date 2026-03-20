@@ -12,7 +12,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 
 class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, FromArrayInterface
 {
-    public function __construct(private int $frameMax = 0, private int $heartbeat = 0)
+    public function __construct(private readonly int $frameMax = 0, private readonly int $heartbeat = 0)
     {
     }
 

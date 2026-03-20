@@ -176,7 +176,7 @@ class OsirisChunkParserTest extends TestCase
         foreach ($entries as $entry) {
             if ($entry['type'] === 'simple') {
                 $data = $entry['data'];
-                $size = strlen($data);
+                $size = strlen((string) $data);
                 $dataSection .= pack('N', $size);
                 $dataSection .= $data;
             } elseif ($entry['type'] === 'subbatch') {
@@ -189,7 +189,7 @@ class OsirisChunkParserTest extends TestCase
 
                 $innerData = '';
                 foreach ($innerEntries as $innerEntry) {
-                    $innerData .= pack('N', strlen($innerEntry['data']));
+                    $innerData .= pack('N', strlen((string) $innerEntry['data']));
                     $innerData .= $innerEntry['data'];
                 }
 

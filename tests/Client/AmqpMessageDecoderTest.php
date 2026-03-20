@@ -90,7 +90,7 @@ class AmqpMessageDecoderTest extends TestCase
         $count = 0;
 
         foreach ($properties as $key => $value) {
-            $mapItems .= "\xa1" . chr(strlen($key)) . $key;
+            $mapItems .= "\xa1" . chr(strlen((string) $key)) . $key;
 
             if (is_string($value)) {
                 $mapItems .= "\xa1" . chr(strlen($value)) . $value;

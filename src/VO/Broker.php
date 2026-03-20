@@ -12,9 +12,9 @@ use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
-        private int $reference,
-        private string $host,
-        private int $port
+        private readonly int $reference,
+        private readonly string $host,
+        private readonly int $port
     ) {
     }
 

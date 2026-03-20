@@ -13,7 +13,7 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 
 class Statistic implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
-    public function __construct(private string $key, private int $value)
+    public function __construct(private readonly string $key, private readonly int $value)
     {
     }
 

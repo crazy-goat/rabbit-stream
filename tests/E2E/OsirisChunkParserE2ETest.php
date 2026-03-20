@@ -127,7 +127,7 @@ class OsirisChunkParserE2ETest extends TestCase
             $this->assertGreaterThan(0, $entry->getTimestamp());
         }
 
-        $offsets = array_map(fn(ChunkEntry $e) => $e->getOffset(), $receivedEntries);
+        $offsets = array_map(fn(ChunkEntry $e): int => $e->getOffset(), $receivedEntries);
         $this->assertSame($offsets, array_unique($offsets), 'Offsets should be unique');
 
         try {
