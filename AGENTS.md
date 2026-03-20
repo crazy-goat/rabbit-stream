@@ -1,11 +1,11 @@
-# AGENTS.md — StreamyCarrot Development Guide
+# AGENTS.md — RabbitStream Development Guide
 
 ## Project Overview
 
-`crazy-goat/streamy-carrot` is a pure PHP library implementing the RabbitMQ Streams Protocol client (port 5552). It has zero external dependencies — only native PHP socket functions.
+`crazy-goat/rabbit-stream` is a pure PHP library implementing the RabbitMQ Streams Protocol client (port 5552). It has zero external dependencies — only native PHP socket functions.
 
-- Root namespace: `CrazyGoat\StreamyCarrot`
-- PSR-4 autoloading: `src/` → `CrazyGoat\StreamyCarrot\`
+- Root namespace: `CrazyGoat\RabbitStream`
+- PSR-4 autoloading: `src/` → `CrazyGoat\RabbitStream\`
 - PHP 8.1+ required
 
 ---
@@ -49,7 +49,7 @@ composer lint:fix
 ./vendor/bin/phpunit --testdox
 ```
 
-Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\StreamyCarrot\Tests\`, mirroring the `src/` structure:
+Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\RabbitStream\Tests\`, mirroring the `src/` structure:
 - `tests/Buffer/` — ReadBuffer, WriteBuffer tests
 - `tests/Request/` — serialization tests for each request class
 - `tests/Response/` — deserialization tests for each response class
@@ -146,16 +146,16 @@ Every protocol command needs up to 4 things.
 ```php
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Request;
+namespace CrazyGoat\RabbitStream\Request;
 
-use CrazyGoat\StreamyCarrot\Buffer\ToStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\WriteBuffer;
-use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\Contract\CorrelationInterface;
-use CrazyGoat\StreamyCarrot\Contract\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
-use CrazyGoat\StreamyCarrot\Trait\CorrelationTrait;
-use CrazyGoat\StreamyCarrot\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Trait\CommandTrait;
+use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
+use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class ExampleRequestV1 implements ToStreamBufferInterface, CorrelationInterface, KeyVersionInterface
 {
@@ -183,16 +183,16 @@ class ExampleRequestV1 implements ToStreamBufferInterface, CorrelationInterface,
 ```php
 <?php
 
-namespace CrazyGoat\StreamyCarrot\Response;
+namespace CrazyGoat\RabbitStream\Response;
 
-use CrazyGoat\StreamyCarrot\Buffer\FromStreamBufferInterface;
-use CrazyGoat\StreamyCarrot\Buffer\ReadBuffer;
-use CrazyGoat\StreamyCarrot\Enum\KeyEnum;
-use CrazyGoat\StreamyCarrot\Contract\CorrelationInterface;
-use CrazyGoat\StreamyCarrot\Contract\KeyVersionInterface;
-use CrazyGoat\StreamyCarrot\Trait\CommandTrait;
-use CrazyGoat\StreamyCarrot\Trait\CorrelationTrait;
-use CrazyGoat\StreamyCarrot\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
+use CrazyGoat\RabbitStream\Trait\CommandTrait;
+use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
+use CrazyGoat\RabbitStream\Trait\V1Trait;
 
 class ExampleResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface
 {
