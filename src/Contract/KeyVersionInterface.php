@@ -1,6 +1,6 @@
 <?php
 
-namespace CrazyGoat\RabbitStream\Trait;
+namespace CrazyGoat\RabbitStream\Contract;
 
 interface KeyVersionInterface
 {

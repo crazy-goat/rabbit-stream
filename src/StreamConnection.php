@@ -14,7 +14,7 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
-use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
