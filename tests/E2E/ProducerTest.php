@@ -4,29 +4,34 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
 use PHPUnit\Framework\TestCase;
 
 class ProducerTest extends TestCase
 {
+    private static string $host = '127.0.0.1';
+    private static int $port = 5552;
+
     private ?Connection $connection = null;
     private string $streamName;
 
+    public static function setUpBeforeClass(): void
+    {
+        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
+        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
+    }
+
     protected function setUp(): void
     {
-        $hostVal = $_ENV['RABBITMQ_HOST'] ?? '127.0.0.1';
-        $host = is_scalar($hostVal) ? (string) $hostVal : '127.0.0.1';
-        $portVal = $_ENV['RABBITMQ_PORT'] ?? 5552;
-        $port = is_scalar($portVal) ? (int) $portVal : 5552;
-
-        $this->connection = Connection::create($host, $port);
+        $this->connection = Connection::create(self::$host, self::$port);
         $this->streamName = 'test-producer-' . uniqid();
         $this->connection->createStream($this->streamName);
     }
 
     protected function tearDown(): void
     {
-        if ($this->connection instanceof \CrazyGoat\RabbitStream\Client\Connection) {
+        if ($this->connection instanceof Connection) {
             try {
                 $this->connection->deleteStream($this->streamName);
             } catch (\Exception) {
@@ -42,7 +47,7 @@ class ProducerTest extends TestCase
         $confirmed = [];
         $producer = $this->connection->createProducer(
             $this->streamName,
-            onConfirm: function ($status) use (&$confirmed): void {
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmed): void {
                 $confirmed[] = $status;
             }
         );
@@ -62,7 +67,7 @@ class ProducerTest extends TestCase
         $confirmed = [];
         $producer = $this->connection->createProducer(
             $this->streamName,
-            onConfirm: function ($status) use (&$confirmed): void {
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmed): void {
                 $confirmed[] = $status;
             }
         );
