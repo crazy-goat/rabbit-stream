@@ -38,11 +38,13 @@ trait CommandTrait
 
     private static function assertResponseCodeOk(int $responseCode): void
     {
-        $code = ResponseCodeEnum::from($responseCode);
-        if ($code !== ResponseCodeEnum::OK) {
-            throw new \Exception(
-                "Unexpected response code: {$responseCode} ({$code->name}: {$code->getMessage()})"
-            );
+        $code = ResponseCodeEnum::tryFrom($responseCode);
+        if ($code === null || $code !== ResponseCodeEnum::OK) {
+            $hex = sprintf('0x%04x', $responseCode);
+            $msg = $code instanceof \CrazyGoat\RabbitStream\Enum\ResponseCodeEnum
+                ? "{$hex} ({$code->name}: {$code->getMessage()})"
+                : "{$hex} (unknown)";
+            throw new \Exception("Unexpected response code: {$msg}");
         }
     }
 }

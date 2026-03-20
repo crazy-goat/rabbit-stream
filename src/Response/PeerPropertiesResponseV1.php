@@ -69,10 +69,12 @@ class PeerPropertiesResponseV1 implements
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
-        $buffer->getUint32();
+        $correlationId = $buffer->getUint32();
 
         self::assertResponseCodeOk($buffer->getUint16());
 
-        return new static(...$buffer->getObjectArray(KeyValue::class));
+        $object = new static(...$buffer->getObjectArray(KeyValue::class));
+        $object->withCorrelationId($correlationId);
+        return $object;
     }
 }

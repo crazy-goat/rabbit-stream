@@ -56,7 +56,7 @@ class RouteResponseV1Test extends TestCase
             . pack('n', 0x0002);            // response code (Stream does not exist)
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Unexpected response code: 2 (STREAM_NOT_EXIST: Stream does not exist)');
+        $this->expectExceptionMessage('Unexpected response code: 0x0002 (STREAM_NOT_EXIST: Stream does not exist)');
 
         RouteResponseV1::fromStreamBuffer(new ReadBuffer($raw));
     }
