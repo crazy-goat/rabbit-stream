@@ -175,6 +175,10 @@ class StreamConnection
             }
         }
 
+        if (!$this->socket instanceof \Socket) {
+            throw new \RuntimeException("Cannot write: socket is not connected");
+        }
+
         $written = socket_write($this->socket, $frame, strlen($frame));
         if ($written === false) {
             throw new \RuntimeException(
@@ -304,6 +308,9 @@ class StreamConnection
 
             case KeyEnum::PUBLISH_CONFIRM->value:
                 $confirm = PublishConfirmResponseV1::fromStreamBuffer($frame);
+                if (!$confirm instanceof PublishConfirmResponseV1) {
+                    throw new \RuntimeException('Failed to deserialize PublishConfirm frame');
+                }
                 $publisherId = $confirm->getPublisherId();
                 if (isset($this->publisherCallbacks[$publisherId])) {
                     ($this->publisherCallbacks[$publisherId]['onConfirm'])($confirm->getPublishingIds());
@@ -312,6 +319,9 @@ class StreamConnection
 
             case KeyEnum::PUBLISH_ERROR->value:
                 $error = PublishErrorResponseV1::fromStreamBuffer($frame);
+                if (!$error instanceof PublishErrorResponseV1) {
+                    throw new \RuntimeException('Failed to deserialize PublishError frame');
+                }
                 $publisherId = $error->getPublisherId();
                 if (isset($this->publisherCallbacks[$publisherId])) {
                     ($this->publisherCallbacks[$publisherId]['onError'])($error->getErrors());
@@ -320,6 +330,9 @@ class StreamConnection
 
             case KeyEnum::DELIVER->value:
                 $deliver = DeliverResponseV1::fromStreamBuffer($frame);
+                if (!$deliver instanceof DeliverResponseV1) {
+                    throw new \RuntimeException('Failed to deserialize Deliver frame');
+                }
                 $subscriptionId = $deliver->getSubscriptionId();
                 if (isset($this->subscriberCallbacks[$subscriptionId])) {
                     ($this->subscriberCallbacks[$subscriptionId])($deliver);
@@ -360,6 +373,9 @@ class StreamConnection
 
             case KeyEnum::CONSUMER_UPDATE->value:
                 $query = ConsumerUpdateQueryV1::fromStreamBuffer($frame);
+                if (!$query instanceof ConsumerUpdateQueryV1) {
+                    throw new \RuntimeException('Failed to deserialize ConsumerUpdate frame');
+                }
                 $offsetType = 1;
                 $offset = 0;
                 if ($this->consumerUpdateCallback instanceof \Closure) {
@@ -419,6 +435,10 @@ class StreamConnection
 
     private function readBytes(int $length): ?string
     {
+        if (!$this->socket instanceof \Socket) {
+            throw new \RuntimeException("Cannot read: socket is not connected");
+        }
+
         $data = '';
         $remaining = $length;
 

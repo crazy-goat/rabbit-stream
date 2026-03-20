@@ -37,7 +37,7 @@ class KeyValue implements FromStreamBufferInterface, ToStreamBufferInterface, To
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
-        return new static($buffer->getString(), $buffer->getString());
+        return new static($buffer->getString() ?? '', $buffer->getString());
     }
 
     /** @return array<string, string|null> */

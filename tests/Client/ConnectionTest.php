@@ -127,6 +127,7 @@ class ConnectionTest extends TestCase
     {
         $reflection = new \ReflectionClass(Connection::class);
         $constructor = $reflection->getConstructor();
+        $this->assertNotNull($constructor, 'Connection class must have a constructor');
 
         $connection = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($connection, $mock);

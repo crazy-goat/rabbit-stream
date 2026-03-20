@@ -54,7 +54,7 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
             $replicasReferences[] = $buffer->getUint16();
         }
 
-        return new static($streamName, $responseCode, $leaderReference, $replicasReferences);
+        return new static($streamName ?? '', $responseCode, $leaderReference, $replicasReferences);
     }
 
     /** @return array<string, mixed> */

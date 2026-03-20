@@ -45,14 +45,20 @@ class ResponseBuilder
         $version = $responseBuffer->getUint16();
 
         $responseBuffer->rewind();
-        return match ($version) {
+        $result = match ($version) {
             1 => self::getV1($command, $responseBuffer),
             2 => self::getV2($command, $responseBuffer),
             default => throw new \Exception('Unexpected match value'),
         };
+
+        if ($result === null) {
+            throw new \Exception('Failed to deserialize response for command: ' . $command->name);
+        }
+
+        return $result;
     }
 
-    private static function getV1(KeyEnum $command, ReadBuffer $responseBuffer): object
+    private static function getV1(KeyEnum $command, ReadBuffer $responseBuffer): ?object
     {
         return match ($command) {
             KeyEnum::DECLARE_PUBLISHER_RESPONSE => DeclarePublisherResponseV1::fromStreamBuffer($responseBuffer),
@@ -92,7 +98,7 @@ class ResponseBuilder
         };
     }
 
-    private static function getV2(KeyEnum $command, ReadBuffer $responseBuffer): object
+    private static function getV2(KeyEnum $command, ReadBuffer $responseBuffer): ?object
     {
         return match ($command) {
             KeyEnum::DELIVER => DeliverResponseV1::fromStreamBuffer($responseBuffer),

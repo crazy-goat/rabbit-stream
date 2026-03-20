@@ -48,7 +48,7 @@ class PartitionsResponseV1 implements
         $correlationId = $buffer->getUint32();
         self::isResponseCodeOk($buffer->getUint16());
 
-        $streams = $buffer->getStringArray();
+        $streams = array_map(fn(?string $s): string => $s ?? '', $buffer->getStringArray());
 
         $object = new static($streams);
         $object->withCorrelationId($correlationId);

@@ -53,6 +53,7 @@ class ConsumerTest extends TestCase
 
     public function testReadReturnsEmptyOnTimeout(): void
     {
+        $this->assertNotNull($this->connection);
         $consumer = $this->connection->createConsumer($this->streamName, OffsetSpec::first());
 
         $messages = $consumer->read(timeout: 1);
@@ -64,6 +65,7 @@ class ConsumerTest extends TestCase
 
     public function testProduceAndConsumeWithRead(): void
     {
+        $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
         $producer->sendBatch([$this->amqp('hello'), $this->amqp('world'), $this->amqp('foo')]);
         $producer->waitForConfirms(timeout: 5);
@@ -90,6 +92,7 @@ class ConsumerTest extends TestCase
 
     public function testReadOneReturnsSingleMessage(): void
     {
+        $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
         $producer->sendBatch([$this->amqp('msg1'), $this->amqp('msg2')]);
         $producer->waitForConfirms(timeout: 5);
@@ -111,6 +114,7 @@ class ConsumerTest extends TestCase
 
     public function testStoreAndQueryOffset(): void
     {
+        $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
         $producer->send($this->amqp('offset-test'));
         $producer->waitForConfirms(timeout: 5);
