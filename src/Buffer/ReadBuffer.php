@@ -29,6 +29,7 @@ class ReadBuffer
 
     public function getUint8(): int
     {
+        $this->ensureAvailable(1);
         $data = unpack('C', substr($this->buffer, $this->position, 1));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack uint8 at position ' . $this->position);
@@ -39,6 +40,7 @@ class ReadBuffer
 
     public function getUint16(): int
     {
+        $this->ensureAvailable(2);
         $data = unpack('n', substr($this->buffer, $this->position, 2));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack uint16 at position ' . $this->position);
@@ -54,6 +56,7 @@ class ReadBuffer
 
     public function getUint32(): int
     {
+        $this->ensureAvailable(4);
         $data = unpack('N', substr($this->buffer, $this->position, 4));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack uint32 at position ' . $this->position);
@@ -64,6 +67,7 @@ class ReadBuffer
 
     public function getUint64(): int
     {
+        $this->ensureAvailable(8);
         $data = unpack('J', substr($this->buffer, $this->position, 8));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack uint64 at position ' . $this->position);
@@ -74,6 +78,7 @@ class ReadBuffer
 
     public function getInt64(): int
     {
+        $this->ensureAvailable(8);
         $data = unpack('J', substr($this->buffer, $this->position, 8));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack int64 at position ' . $this->position);
@@ -100,6 +105,7 @@ class ReadBuffer
 
     public function getInt16(): int
     {
+        $this->ensureAvailable(2);
         $data = unpack('n', substr($this->buffer, $this->position, 2));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack int16 at position ' . $this->position);
@@ -113,6 +119,7 @@ class ReadBuffer
 
     public function getInt32(): int
     {
+        $this->ensureAvailable(4);
         $data = unpack('N', substr($this->buffer, $this->position, 4));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack int32 at position ' . $this->position);
@@ -173,7 +180,15 @@ class ReadBuffer
 
     public function getRemainingBytes(): string
     {
-        $this->ensureAvailable(0);
+        if ($this->position > strlen($this->buffer)) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Buffer underflow: position %d is past buffer end %d',
+                    $this->position,
+                    strlen($this->buffer)
+                )
+            );
+        }
         $data = substr($this->buffer, $this->position);
         $this->position = strlen($this->buffer);
         return $data;
@@ -200,6 +215,7 @@ class ReadBuffer
 
     public function peekUint16(): int
     {
+        $this->ensureAvailable(2);
         $data = unpack('n', substr($this->buffer, $this->position, 2));
         if ($data === false) {
             throw new \RuntimeException('Failed to unpack uint16 at position ' . $this->position);
