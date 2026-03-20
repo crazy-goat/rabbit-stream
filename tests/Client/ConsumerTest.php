@@ -40,11 +40,11 @@ class ConsumerTest extends TestCase
         $params = $reflection->getParameters();
 
         $this->assertCount(1, $params);
-        $this->assertEquals('timeout', $params[0]->getName());
+        $this->assertSame('timeout', $params[0]->getName());
         $type = $params[0]->getType();
         $this->assertInstanceOf(\ReflectionNamedType::class, $type);
-        $this->assertEquals('float', $type->getName());
-        $this->assertEquals(5.0, $params[0]->getDefaultValue());
+        $this->assertSame('float', $type->getName());
+        $this->assertSame(5.0, $params[0]->getDefaultValue());
 
         // Test calling with float timeout works
         $result = $consumer->read(timeout: 0.5);
@@ -66,11 +66,11 @@ class ConsumerTest extends TestCase
         $params = $reflection->getParameters();
 
         $this->assertCount(1, $params);
-        $this->assertEquals('timeout', $params[0]->getName());
+        $this->assertSame('timeout', $params[0]->getName());
         $type = $params[0]->getType();
         $this->assertInstanceOf(\ReflectionNamedType::class, $type);
-        $this->assertEquals('float', $type->getName());
-        $this->assertEquals(5.0, $params[0]->getDefaultValue());
+        $this->assertSame('float', $type->getName());
+        $this->assertSame(5.0, $params[0]->getDefaultValue());
 
         // Test calling with float timeout works
         $result = $consumer->readOne(timeout: 0.5);

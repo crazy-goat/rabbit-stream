@@ -15,6 +15,8 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 class Consumer
 {
+    private const MAX_UINT16 = 65535;
+
     /** @var Message[] */
     private array $buffer = [];
     private int $messagesProcessed = 0;
@@ -50,7 +52,7 @@ class Consumer
                     $this->connection->sendMessage(
                         new CreditRequestV1($this->subscriptionId, 1)
                     );
-                } elseif ($this->pendingCredits < 65535) {
+                } elseif ($this->pendingCredits < self::MAX_UINT16) {
                     $this->pendingCredits++;
                 }
             },
@@ -171,7 +173,7 @@ class Consumer
             return;
         }
 
-        $creditsToSend = min($this->pendingCredits, $availableSlots, 65535);
+        $creditsToSend = min($this->pendingCredits, $availableSlots, self::MAX_UINT16);
         $this->connection->sendMessage(
             new CreditRequestV1($this->subscriptionId, $creditsToSend)
         );
