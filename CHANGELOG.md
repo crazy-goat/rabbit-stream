@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Security
+- `SaslAuthenticateRequestV1::toArray()` — password is now masked as `'***'` to prevent credential leakage in logs/debug output; added `__debugInfo()` to protect `var_dump()`/`print_r()` output (#112)
 - `StreamConnection` — configurable max frame size limit (default 8MB) to prevent memory exhaustion from malformed frames; `setMaxFrameSize(0)` disables the limit; connection is closed before throwing on violation
 
 ### Fixed
