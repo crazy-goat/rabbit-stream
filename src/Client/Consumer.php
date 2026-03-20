@@ -128,6 +128,8 @@ class Consumer
             $this->storeOffset($this->lastOffset);
         }
 
+        $this->connection->unregisterSubscriber($this->subscriptionId);
+
         $this->connection->sendMessage(
             new UnsubscribeRequestV1($this->subscriptionId)
         );
