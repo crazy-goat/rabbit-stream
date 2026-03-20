@@ -62,11 +62,7 @@ class Consumer
     public function read(int $timeout = 5): array
     {
         if (empty($this->buffer)) {
-            try {
-                $this->connection->readMessage($timeout);
-            } catch (\Exception $e) {
-                return [];
-            }
+            $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
         }
 
         $messages = $this->buffer;
@@ -85,11 +81,7 @@ class Consumer
     public function readOne(int $timeout = 5): ?Message
     {
         if (empty($this->buffer)) {
-            try {
-                $this->connection->readMessage($timeout);
-            } catch (\Exception $e) {
-                return null;
-            }
+            $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
         }
 
         if (empty($this->buffer)) {

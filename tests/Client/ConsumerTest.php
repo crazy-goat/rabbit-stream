@@ -27,12 +27,8 @@ class ConsumerTest extends TestCase
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerSubscriber');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())
-            ->method('readMessage')
-            ->willReturnOnConsecutiveCalls(
-                new \stdClass(),
-                $this->throwException(new \Exception('timeout'))
-            );
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('readLoop');
 
         $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
         $result = $consumer->read(timeout: 1);
@@ -45,12 +41,8 @@ class ConsumerTest extends TestCase
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerSubscriber');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())
-            ->method('readMessage')
-            ->willReturnOnConsecutiveCalls(
-                new \stdClass(),
-                $this->throwException(new \Exception('timeout'))
-            );
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('readLoop');
 
         $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
         $result = $consumer->readOne(timeout: 1);
