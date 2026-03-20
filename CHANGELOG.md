@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-20
+
 ### Changed
 - **PHPStan level 9 (max)** — bumped static analysis from level 0 to level 9 incrementally:
   - Created `src/Util/TypeCast.php` utility class for safe type narrowing from `mixed`
@@ -15,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Fixed all `mixed` type strictness violations with proper type casting (level 9)
 
 ### Added
+- **High-Level Client API** — `Connection`, `Producer`, `Consumer`, `Message` classes providing a simple, user-friendly API on top of the low-level protocol implementation
 - **PHP_CodeSniffer with PSR-12 and Slevomat Coding Standard** — comprehensive code style enforcement:
   - Added `phpcsstandards/php_codesniffer` ^3.9 and `slevomat/coding-standard` ^8.15 to dev dependencies
   - Created `phpcs.xml.dist` with strict rules (PSR-12 + Slevomat)
