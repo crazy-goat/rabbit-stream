@@ -1,9 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
@@ -14,7 +17,6 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
-use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 

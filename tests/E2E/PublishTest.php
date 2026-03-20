@@ -1,9 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+use CrazyGoat\RabbitStream\Client\Connection;
 use PHPUnit\Framework\TestCase;
 
 class PublishTest extends TestCase

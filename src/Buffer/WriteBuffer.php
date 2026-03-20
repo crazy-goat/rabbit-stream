@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Buffer;
 
 class WriteBuffer
@@ -11,8 +13,8 @@ class WriteBuffer
     private const INT16_MAX = 32767;
     private const INT32_MIN = -2147483648;
     private const INT32_MAX = 2147483647;
-    private const INT64_MIN = -9223372036854775808;
-    private const INT64_MAX = 9223372036854775807;
+    private const INT64_MIN = PHP_INT_MIN;
+    private const INT64_MAX = PHP_INT_MAX;
 
     // Unsigned integers limits
     private const UINT8_MIN = 0;

@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+use CrazyGoat\RabbitStream\Client\Connection;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 

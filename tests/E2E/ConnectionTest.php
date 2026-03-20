@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\Connection;
@@ -59,7 +61,7 @@ class ConnectionTest extends TestCase
         // Create stream with arguments
         $connection->createStream($streamName, [
             'max-length-bytes' => '1000000',
-            'max-age' => '1h'
+            'max-age' => '1h',
         ]);
 
         // Verify stream exists

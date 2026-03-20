@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Serializer;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;

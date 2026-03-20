@@ -1,9 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
-use CrazyGoat\RabbitStream\Client\ChunkEntry;
 use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -21,10 +22,8 @@ use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
-use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
-use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
