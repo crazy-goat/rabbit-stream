@@ -41,7 +41,7 @@ trait CommandTrait
         $code = ResponseCodeEnum::tryFrom($responseCode);
         if ($code === null || $code !== ResponseCodeEnum::OK) {
             $hex = sprintf('0x%04x', $responseCode);
-            $msg = $code instanceof \CrazyGoat\RabbitStream\Enum\ResponseCodeEnum
+            $msg = $code instanceof ResponseCodeEnum
                 ? "{$hex} ({$code->name}: {$code->getMessage()})"
                 : "{$hex} (unknown)";
             throw new \Exception("Unexpected response code: {$msg}");
