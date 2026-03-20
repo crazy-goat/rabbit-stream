@@ -45,7 +45,9 @@ class StreamConnectionTest extends TestCase
 
         $this->assertCount(1, $params);
         $this->assertEquals('timeout', $params[0]->getName());
-        $this->assertEquals('float', $params[0]->getType()->getName());
+        $type = $params[0]->getType();
+        $this->assertInstanceOf(\ReflectionNamedType::class, $type);
+        $this->assertEquals('float', $type->getName());
         $this->assertEquals(30.0, $params[0]->getDefaultValue());
     }
 
@@ -58,7 +60,9 @@ class StreamConnectionTest extends TestCase
 
         $this->assertCount(1, $params);
         $this->assertEquals('timeout', $params[0]->getName());
-        $this->assertEquals('float', $params[0]->getType()->getName());
+        $type = $params[0]->getType();
+        $this->assertInstanceOf(\ReflectionNamedType::class, $type);
+        $this->assertEquals('float', $type->getName());
         $this->assertEquals(30.0, $params[0]->getDefaultValue());
     }
 
@@ -72,7 +76,9 @@ class StreamConnectionTest extends TestCase
         // maxFrames and timeout
         $this->assertCount(2, $params);
         $this->assertEquals('timeout', $params[1]->getName());
-        $this->assertEquals('float', $params[1]->getType()->getName());
+        $type = $params[1]->getType();
+        $this->assertInstanceOf(\ReflectionNamedType::class, $type);
+        $this->assertEquals('float', $type->getName());
         $this->assertNull($params[1]->getDefaultValue());
     }
 
