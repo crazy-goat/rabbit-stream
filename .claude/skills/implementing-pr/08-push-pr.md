@@ -3,9 +3,8 @@
 ## Clean Up Git Notes
 
 ```bash
-git log main..HEAD --pretty=format:%H | while read commit; do
-  git notes remove $commit 2>/dev/null || true
-done
+BRANCH=$(git branch --show-current)
+git notes --ref=refs/notes/review remove $BRANCH 2>/dev/null || true
 ```
 
 ## Push and Create PR

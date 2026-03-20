@@ -26,16 +26,16 @@ Before pushing anything, dispatch a `code-heavy` subagent (Task tool, `subagent_
 > 
 > First, check if there are previous review notes:
 > ```bash
-> git notes show HEAD
+> git notes --ref=refs/notes/review show $(git branch --show-current) 2>/dev/null || echo "No previous notes"
 > ```
 > If notes exist, compare with current code to verify previous issues were fixed.
 > 
 > Then save new findings to git notes:
 > ```bash
-> git notes add -m "REPORT|critical=2|important=1|minor=3" HEAD
-> git notes append -m "CRITICAL|src/File.php:42|Missing type declaration" HEAD
-> git notes append -m "IMPORTANT|src/File.php:55|Wrong return type" HEAD
-> git notes append -m "MINOR|src/File.php:60|Trailing whitespace" HEAD
+> git notes --ref=refs/notes/review add -m "REPORT|critical=2|important=1|minor=3" $(git branch --show-current)
+> git notes --ref=refs/notes/review append -m "CRITICAL|src/File.php:42|Missing type declaration" $(git branch --show-current)
+> git notes --ref=refs/notes/review append -m "IMPORTANT|src/File.php:55|Wrong return type" $(git branch --show-current)
+> git notes --ref=refs/notes/review append -m "MINOR|src/File.php:60|Trailing whitespace" $(git branch --show-current)
 > ```
 > Format: `CATEGORY|file:line|description` or `REPORT|critical=N|important=N|minor=N`
 
@@ -49,13 +49,14 @@ Git notes act as shared memory between review and build agents:
 
 **For Build agent - read and clear notes:**
 ```bash
-git notes show HEAD
-git notes remove HEAD 2>/dev/null || true
+BRANCH=$(git branch --show-current)
+git notes --ref=refs/notes/review show $BRANCH 2>/dev/null || echo "No notes found"
+git notes --ref=refs/notes/review remove $BRANCH 2>/dev/null || true
 ```
 
 **For Review agent - check previous fixes:**
 ```bash
-git notes show HEAD
+git notes --ref=refs/notes/review show $(git branch --show-current) 2>/dev/null || echo "No previous notes"
 ```
 
 ## Iteration Loop
