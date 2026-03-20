@@ -125,18 +125,16 @@ class ConnectionHandshakeTest extends TestCase
 
     public function testInvalidCredentialsThrows(): void
     {
-        $connection = $this->createConnection();
+        $this->connection = $this->createConnection();
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
-        $connection->readMessage();
+        $this->connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $this->connection->readMessage();
 
-        $connection->sendMessage(new SaslHandshakeRequestV1());
-        $connection->readMessage();
+        $this->connection->sendMessage(new SaslHandshakeRequestV1());
+        $this->connection->readMessage();
 
         $this->expectException(\Exception::class);
-        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'wrong', 'credentials'));
-        $connection->readMessage();
-
-        $connection->close();
+        $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'wrong', 'credentials'));
+        $this->connection->readMessage(timeout: 2.0);
     }
 }
