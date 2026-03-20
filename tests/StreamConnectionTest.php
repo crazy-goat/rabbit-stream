@@ -4,7 +4,13 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests;
 
+use CrazyGoat\RabbitStream\Request\CreateRequestV1;
+use CrazyGoat\RabbitStream\Request\CreditRequestV1;
+use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -202,6 +208,65 @@ class StreamConnectionTest extends TestCase
         $buffer = $connection->readFrame();
 
         $this->assertNotNull($buffer);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSendMessageDoesNotIncrementCorrelationIdForNonCorrelatedRequests(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Get initial correlationId via reflection
+        $reflection = new \ReflectionProperty($connection, 'correlationId');
+        $initialId = $reflection->getValue($connection);
+        assert(is_int($initialId));
+
+        // Send non-correlated requests - correlationId should NOT change
+        $nonCorrelatedRequests = [
+            new PublishRequestV1(1, new PublishedMessage(0, 'test')),
+            new CreditRequestV1(1, 10),
+            new StoreOffsetRequestV1('ref', 'stream', 0),
+            new TuneRequestV1(0, 0),
+        ];
+
+        foreach ($nonCorrelatedRequests as $request) {
+            $connection->sendMessage($request);
+            $this->assertEquals(
+                $initialId,
+                $reflection->getValue($connection),
+                $request::class . ' should not increment correlationId'
+            );
+        }
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSendMessageIncrementsCorrelationIdForCorrelatedRequests(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Get initial correlationId via reflection
+        $reflection = new \ReflectionProperty($connection, 'correlationId');
+        $initialId = $reflection->getValue($connection);
+        assert(is_int($initialId));
+
+        // Send correlated request - correlationId SHOULD increment
+        $correlatedRequest = new CreateRequestV1('test-stream');
+        $connection->sendMessage($correlatedRequest);
+
+        $this->assertEquals(
+            $initialId + 1,
+            $reflection->getValue($connection),
+            'Correlated request should increment correlationId'
+        );
 
         socket_close($serverSocket);
         socket_close($clientSocket);
