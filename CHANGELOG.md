@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `Consumer` class with pull-based `read()`/`readOne()`, auto-commit, offset management
+- `OsirisChunkParser` — parses delivery chunks into individual messages
+- `AmqpDecoder` / `AmqpMessageDecoder` — decodes AMQP 1.0 messages
+- `Message` value object with body, properties, application-properties
+- `BinarySerializerInterface` — swappable serialization backend
+- `toArray()` on all Request classes, `fromArray()` on all Response classes
+- New examples: `examples/producer.php`, `examples/consumer.php`, `examples/consumer_auto_commit.php`, `examples/stream_management.php`
+- Quick Start section in README.md
 - `Connection` — new high-level entry point class replacing `StreamClient` with full handshake, stream management, and producer/consumer factory methods
 - `Connection::create()` — factory method with automatic handshake (PeerProperties → SASL → Tune → Open)
 - `Connection::createStream()`, `Connection::deleteStream()`, `Connection::streamExists()` — stream management methods
@@ -22,10 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Unit tests for `Connection` class
 - E2E tests for `Connection` class
 - `SaslHandshakeResponseV1::getMechanisms()` — getter for available SASL mechanisms
-
-### Deprecated
-- `StreamClient` — use `Connection::create()` instead
-- `ProducerConfig` — use `Connection::createProducer()` parameters instead
 - `Message` — value object representing a decoded AMQP 1.0 message with offset, timestamp, body, properties, and application properties
 - `AmqpDecoder` — low-level AMQP 1.0 binary decoder supporting all common types (null, bool, integers, strings, binary, lists, maps, described types)
 - `AmqpMessageDecoder` — high-level decoder converting `ChunkEntry` objects into `Message` objects
@@ -88,6 +92,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `RouteResponseV1` — server response with array of matching stream names (key `0x8018`)
 - `KeyEnum::ROUTE_RESPONSE` (`0x8018`)
 - E2E tests for Route command (including CreateSuperStream integration)
+
+### Deprecated
+- `StreamClient` — use `Connection::create()` instead
+- `StreamClientConfig` — use `Connection::create()` parameters instead
+- `ProducerConfig` — use `Connection::createProducer()` parameters instead
 
 ## [0.5.0] - 2026-03-17
 

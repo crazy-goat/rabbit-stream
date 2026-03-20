@@ -2,6 +2,9 @@
 
 namespace CrazyGoat\RabbitStream\Client;
 
+/**
+ * @deprecated Use Connection::create() parameters instead
+ */
 class StreamClientConfig
 {
     public function __construct(
