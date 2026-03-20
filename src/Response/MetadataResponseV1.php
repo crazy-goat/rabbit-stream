@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 use CrazyGoat\RabbitStream\VO\Broker;
 use CrazyGoat\RabbitStream\VO\StreamMetadata;
 
@@ -71,21 +72,33 @@ class MetadataResponseV1 implements
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
+        $brokersData = TypeCast::toArray($data['brokers'] ?? []);
         $brokers = array_map(
-            fn(array $b): \CrazyGoat\RabbitStream\VO\Broker => new Broker($b['reference'], $b['host'], $b['port']),
-            $data['brokers']
+            function (mixed $b): Broker {
+                $ba = is_array($b) ? $b : [];
+                return new Broker(
+                    TypeCast::toInt($ba['reference'] ?? 0),
+                    TypeCast::toString($ba['host'] ?? ''),
+                    TypeCast::toInt($ba['port'] ?? 0)
+                );
+            },
+            $brokersData
         );
+        $streamMetadataData = TypeCast::toArray($data['streamMetadata'] ?? []);
         $streamMetadata = array_map(
-            fn(array $s): \CrazyGoat\RabbitStream\VO\StreamMetadata => new StreamMetadata(
-                $s['stream'],
-                $s['responseCode'],
-                $s['leaderReference'],
-                $s['replicasReferences']
-            ),
-            $data['streamMetadata']
+            function (mixed $s): StreamMetadata {
+                $sa = is_array($s) ? $s : [];
+                return new StreamMetadata(
+                    TypeCast::toString($sa['stream'] ?? ''),
+                    TypeCast::toInt($sa['responseCode'] ?? 0),
+                    TypeCast::toInt($sa['leaderReference'] ?? 0),
+                    TypeCast::toIntArray($sa['replicasReferences'] ?? [])
+                );
+            },
+            $streamMetadataData
         );
         $object = new static($brokers, $streamMetadata);
-        $object->withCorrelationId($data['correlationId']);
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

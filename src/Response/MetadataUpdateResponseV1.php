@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
@@ -43,7 +44,7 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        return new static($data['code'], $data['stream']);
+        return new static(TypeCast::toInt($data['code']), TypeCast::toString($data['stream']));
     }
 
     public static function getKey(): int

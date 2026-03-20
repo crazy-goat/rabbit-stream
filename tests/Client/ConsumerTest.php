@@ -286,6 +286,7 @@ class ConsumerTest extends TestCase
         $this->assertSame($msg1, $result);
 
         $remaining = $bufferProp->getValue($consumer);
+        $this->assertIsArray($remaining);
         $this->assertCount(1, $remaining);
         $this->assertSame($msg2, $remaining[0]);
     }

@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 use CrazyGoat\RabbitStream\VO\Statistic;
 
 /** @phpstan-consistent-constructor */
@@ -64,12 +65,16 @@ class StreamStatsResponseV1 implements
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
+        $statsData = TypeCast::toArray($data['stats'] ?? []);
         $stats = array_map(
-            fn(array $s): \CrazyGoat\RabbitStream\VO\Statistic => new Statistic($s['key'], $s['value']),
-            $data['stats']
+            function (mixed $s): Statistic {
+                $sa = is_array($s) ? $s : [];
+                return new Statistic(TypeCast::toString($sa['key'] ?? ''), TypeCast::toInt($sa['value'] ?? 0));
+            },
+            $statsData
         );
         $object = new static($stats);
-        $object->withCorrelationId($data['correlationId']);
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

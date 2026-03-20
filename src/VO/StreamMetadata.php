@@ -8,6 +8,7 @@ use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
@@ -72,10 +73,10 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
     public static function fromArray(array $data): static
     {
         return new static(
-            $data['stream'],
-            $data['responseCode'],
-            $data['leaderReference'],
-            $data['replicasReferences']
+            TypeCast::toString($data['stream']),
+            TypeCast::toInt($data['responseCode']),
+            TypeCast::toInt($data['leaderReference']),
+            TypeCast::toIntArray($data['replicasReferences'] ?? [])
         );
     }
 }

@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class ConsumerUpdateQueryV1 implements
@@ -53,8 +54,8 @@ class ConsumerUpdateQueryV1 implements
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        $object = new static($data['subscriptionId'], $data['active']);
-        $object->withCorrelationId($data['correlationId']);
+        $object = new static(TypeCast::toInt($data['subscriptionId']), TypeCast::toBool($data['active']));
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

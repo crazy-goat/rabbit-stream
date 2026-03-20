@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\VO;
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class PublishingError implements ToArrayInterface, FromArrayInterface
@@ -41,6 +42,6 @@ class PublishingError implements ToArrayInterface, FromArrayInterface
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        return new static($data['publishingId'], $data['code']);
+        return new static(TypeCast::toInt($data['publishingId']), TypeCast::toInt($data['code']));
     }
 }

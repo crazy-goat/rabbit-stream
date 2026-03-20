@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class RouteResponseV1 implements
@@ -59,8 +60,8 @@ class RouteResponseV1 implements
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
-        $object = new static($data['streams']);
-        $object->withCorrelationId($data['correlationId']);
+        $object = new static(TypeCast::toStringArray($data['streams'] ?? []));
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

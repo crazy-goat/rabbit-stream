@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class QueryPublisherSequenceResponseV1 implements
@@ -49,8 +50,8 @@ class QueryPublisherSequenceResponseV1 implements
     public static function fromArray(array $data): static
     {
         $object = new static();
-        $object->withCorrelationId($data['correlationId']);
-        $object->sequence = $data['sequence'];
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
+        $object->sequence = TypeCast::toInt($data['sequence']);
         return $object;
     }
 

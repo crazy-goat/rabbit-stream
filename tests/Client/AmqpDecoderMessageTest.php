@@ -208,8 +208,9 @@ class AmqpDecoderMessageTest extends TestCase
         $sections = AmqpDecoder::decodeMessage($message);
 
         $this->assertSame('{"key":"value"}', $sections['body']);
-        $this->assertSame('msg-123', $sections['properties']['message-id']);
-        $this->assertSame('application/json', $sections['properties']['content-type']);
+        $properties = is_array($sections['properties']) ? $sections['properties'] : [];
+        $this->assertSame('msg-123', $properties['message-id']);
+        $this->assertSame('application/json', $properties['content-type']);
     }
 
     public function testDecodeMessageWithApplicationProperties(): void
@@ -226,8 +227,9 @@ class AmqpDecoderMessageTest extends TestCase
         $sections = AmqpDecoder::decodeMessage($message);
 
         $this->assertSame('Body content', $sections['body']);
-        $this->assertSame('custom-value', $sections['applicationProperties']['x-custom-header']);
-        $this->assertSame(5, $sections['applicationProperties']['priority']);
+        $appProps = is_array($sections['applicationProperties']) ? $sections['applicationProperties'] : [];
+        $this->assertSame('custom-value', $appProps['x-custom-header']);
+        $this->assertSame(5, $appProps['priority']);
     }
 
     public function testDecodeFullMessage(): void
@@ -251,11 +253,13 @@ class AmqpDecoderMessageTest extends TestCase
         $sections = AmqpDecoder::decodeMessage($message);
 
         $this->assertSame('Full message body', $sections['body']);
-        $this->assertSame('msg-456', $sections['properties']['message-id']);
-        $this->assertSame('Test Subject', $sections['properties']['subject']);
-        $this->assertSame('text/plain', $sections['properties']['content-type']);
-        $this->assertSame('test-suite', $sections['applicationProperties']['source']);
-        $this->assertSame(1, $sections['applicationProperties']['version']);
+        $properties = is_array($sections['properties']) ? $sections['properties'] : [];
+        $this->assertSame('msg-456', $properties['message-id']);
+        $this->assertSame('Test Subject', $properties['subject']);
+        $this->assertSame('text/plain', $properties['content-type']);
+        $appProps = is_array($sections['applicationProperties']) ? $sections['applicationProperties'] : [];
+        $this->assertSame('test-suite', $appProps['source']);
+        $this->assertSame(1, $appProps['version']);
     }
 
     public function testDecodeMessageWithAmqpValueBody(): void
@@ -291,7 +295,8 @@ class AmqpDecoderMessageTest extends TestCase
         $sections = AmqpDecoder::decodeMessage($message);
 
         $this->assertSame('Annotated message', $sections['body']);
-        $this->assertSame(12345, $sections['messageAnnotations']['x-opt-sequence-number']);
+        $annotations = is_array($sections['messageAnnotations']) ? $sections['messageAnnotations'] : [];
+        $this->assertSame(12345, $annotations['x-opt-sequence-number']);
     }
 
     public function testDecodeMessageWithMultipleDataSections(): void
@@ -330,19 +335,20 @@ class AmqpDecoderMessageTest extends TestCase
 
         $sections = AmqpDecoder::decodeMessage($message);
 
-        $this->assertSame('msg-id', $sections['properties']['message-id']);
-        $this->assertSame('user123', $sections['properties']['user-id']);
-        $this->assertSame('destination', $sections['properties']['to']);
-        $this->assertSame('test-subject', $sections['properties']['subject']);
-        $this->assertSame('reply-dest', $sections['properties']['reply-to']);
-        $this->assertSame('corr-123', $sections['properties']['correlation-id']);
-        $this->assertSame('application/json', $sections['properties']['content-type']);
-        $this->assertSame('gzip', $sections['properties']['content-encoding']);
-        $this->assertSame(1234567890, $sections['properties']['absolute-expiry-time']);
-        $this->assertSame(1234567000, $sections['properties']['creation-time']);
-        $this->assertSame('group-1', $sections['properties']['group-id']);
-        $this->assertSame(1, $sections['properties']['group-sequence']);
-        $this->assertSame('reply-group', $sections['properties']['reply-to-group-id']);
+        $properties = is_array($sections['properties']) ? $sections['properties'] : [];
+        $this->assertSame('msg-id', $properties['message-id']);
+        $this->assertSame('user123', $properties['user-id']);
+        $this->assertSame('destination', $properties['to']);
+        $this->assertSame('test-subject', $properties['subject']);
+        $this->assertSame('reply-dest', $properties['reply-to']);
+        $this->assertSame('corr-123', $properties['correlation-id']);
+        $this->assertSame('application/json', $properties['content-type']);
+        $this->assertSame('gzip', $properties['content-encoding']);
+        $this->assertSame(1234567890, $properties['absolute-expiry-time']);
+        $this->assertSame(1234567000, $properties['creation-time']);
+        $this->assertSame('group-1', $properties['group-id']);
+        $this->assertSame(1, $properties['group-sequence']);
+        $this->assertSame('reply-group', $properties['reply-to-group-id']);
     }
 
     public function testDecodeEmptyMessage(): void

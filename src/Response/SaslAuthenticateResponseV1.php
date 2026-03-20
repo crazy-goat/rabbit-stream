@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
 class SaslAuthenticateResponseV1 implements
@@ -43,7 +44,7 @@ class SaslAuthenticateResponseV1 implements
     public static function fromArray(array $data): static
     {
         $object = new static();
-        $object->withCorrelationId($data['correlationId']);
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
         return $object;
     }
 

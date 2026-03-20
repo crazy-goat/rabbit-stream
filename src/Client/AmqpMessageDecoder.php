@@ -12,13 +12,27 @@ class AmqpMessageDecoder
     public static function decode(ChunkEntry $entry): Message
     {
         $sections = AmqpDecoder::decodeMessage($entry->getData());
+
+        $rawBody = $sections['body'] ?? null;
+        if (is_array($rawBody)) {
+            $body = array_values($rawBody);
+        } elseif ($rawBody === null || is_scalar($rawBody)) {
+            $body = $rawBody;
+        } else {
+            $body = null;
+        }
+
+        $properties = $sections['properties'] ?? [];
+        $applicationProperties = $sections['applicationProperties'] ?? [];
+        $messageAnnotations = $sections['messageAnnotations'] ?? [];
+
         return new Message(
             offset: $entry->getOffset(),
             timestamp: $entry->getTimestamp(),
-            body: $sections['body'],
-            properties: $sections['properties'] ?? [],
-            applicationProperties: $sections['applicationProperties'] ?? [],
-            messageAnnotations: $sections['messageAnnotations'] ?? [],
+            body: $body,
+            properties: is_array($properties) ? $properties : [],
+            applicationProperties: is_array($applicationProperties) ? $applicationProperties : [],
+            messageAnnotations: is_array($messageAnnotations) ? $messageAnnotations : [],
         );
     }
 

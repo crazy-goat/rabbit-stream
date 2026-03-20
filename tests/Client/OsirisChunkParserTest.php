@@ -178,13 +178,13 @@ class OsirisChunkParserTest extends TestCase
 
         foreach ($entries as $entry) {
             if ($entry['type'] === 'simple') {
-                $data = $entry['data'];
-                $size = strlen((string) $data);
+                $entryData = is_scalar($entry['data']) ? (string) $entry['data'] : '';
+                $size = strlen($entryData);
                 $dataSection .= pack('N', $size);
-                $dataSection .= $data;
+                $dataSection .= $entryData;
             } elseif ($entry['type'] === 'subbatch') {
-                $codec = $entry['codec'];
-                $innerEntries = $entry['entries'];
+                $codec = is_scalar($entry['codec']) ? (int) $entry['codec'] : 0;
+                $innerEntries = is_array($entry['entries']) ? $entry['entries'] : [];
                 $count = count($innerEntries);
 
                 $header = 0x80000000 | ($codec << 25) | $count;
@@ -192,8 +192,11 @@ class OsirisChunkParserTest extends TestCase
 
                 $innerData = '';
                 foreach ($innerEntries as $innerEntry) {
-                    $innerData .= pack('N', strlen((string) $innerEntry['data']));
-                    $innerData .= $innerEntry['data'];
+                    $innerEntryArr = is_array($innerEntry) ? $innerEntry : [];
+                    $rawData = $innerEntryArr['data'] ?? '';
+                    $innerEntryData = is_scalar($rawData) ? (string) $rawData : '';
+                    $innerData .= pack('N', strlen($innerEntryData));
+                    $innerData .= $innerEntryData;
                 }
 
                 $uncompressedSize = strlen($innerData);
