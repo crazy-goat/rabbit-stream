@@ -11,6 +11,7 @@ return RectorConfig::configure()
         __DIR__ . '/src',
         __DIR__ . '/tests',
     ])
+    ->withPhpVersion(\Rector\ValueObject\PhpVersion::PHP_81)
     ->withSets([
         LevelSetList::UP_TO_PHP_81,
         SetList::DEAD_CODE,
