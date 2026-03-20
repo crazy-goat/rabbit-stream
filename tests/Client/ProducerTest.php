@@ -117,6 +117,7 @@ class ProducerTest extends TestCase
     {
         $connection = $this->createMock(StreamConnection::class);
 
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
         $connection->expects($this->once())
             ->method('registerPublisher')
@@ -135,6 +136,7 @@ class ProducerTest extends TestCase
         $connection->expects($this->once())
             ->method('readLoop')
             ->willReturnCallback(function () use (&$registeredCallbacks): void {
+                $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0]);
             });
 
@@ -221,6 +223,7 @@ class ProducerTest extends TestCase
     {
         $connection = $this->createMock(StreamConnection::class);
 
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
         $connection->expects($this->once())
             ->method('registerPublisher')
@@ -236,6 +239,7 @@ class ProducerTest extends TestCase
             ->method('readLoop')
             ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled): void {
                 $readLoopCalled = true;
+                $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0, 1, 2]);
             });
 

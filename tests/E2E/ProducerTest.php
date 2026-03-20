@@ -36,6 +36,7 @@ class ProducerTest extends TestCase
 
     public function testSendAndWaitForConfirms(): void
     {
+        $this->assertNotNull($this->connection);
         $confirmed = [];
         $producer = $this->connection->createProducer(
             $this->streamName,
@@ -55,6 +56,7 @@ class ProducerTest extends TestCase
 
     public function testSendBatchAndWaitForConfirms(): void
     {
+        $this->assertNotNull($this->connection);
         $confirmed = [];
         $producer = $this->connection->createProducer(
             $this->streamName,
@@ -76,6 +78,7 @@ class ProducerTest extends TestCase
 
     public function testGetLastPublishingId(): void
     {
+        $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
 
         $this->assertEquals(-1, $producer->getLastPublishingId());
@@ -91,6 +94,7 @@ class ProducerTest extends TestCase
 
     public function testQuerySequenceForNamedProducer(): void
     {
+        $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer(
             $this->streamName,
             name: 'test-producer-ref'
