@@ -8,8 +8,8 @@ Dispatch an `explore` agent to research the issue and reference implementations:
 >
 > 1. Run `gh issue view {NUMBER}` to get issue details
 > 2. Clone/update reference implementations:
->    - Go client: `gh repo clone rabbitmq/rabbitmq-stream-go-client /tmp/go-stream-ref` (or pull if exists)
->    - Java client: `gh repo clone rabbitmq/rabbitmq-stream-java-client /tmp/java-stream-ref` (or pull if exists)
+>    - Go client: `gh repo clone rabbitmq/rabbitmq-stream-go-client .ref-clients/go-stream-client` (or pull if exists)
+>    - Java client: `gh repo clone rabbitmq/rabbitmq-stream-java-client .ref-clients/java-stream-client` (or pull if exists)
 > 3. Analyze the issue and find relevant code in both clients
 > 4. Check protocol spec at: https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/rabbitmq_stream/docs/PROTOCOL.adoc
 >
