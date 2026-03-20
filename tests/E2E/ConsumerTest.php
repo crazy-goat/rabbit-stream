@@ -11,6 +11,11 @@ class ConsumerTest extends TestCase
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
 
+    private function amqp(string $body): string
+    {
+        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
+    }
+
     private ?Connection $connection = null;
     private string $streamName;
 
@@ -58,7 +63,7 @@ class ConsumerTest extends TestCase
     public function testProduceAndConsumeWithRead(): void
     {
         $producer = $this->connection->createProducer($this->streamName);
-        $producer->sendBatch(['hello', 'world', 'foo']);
+        $producer->sendBatch([$this->amqp('hello'), $this->amqp('world'), $this->amqp('foo')]);
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
@@ -84,7 +89,7 @@ class ConsumerTest extends TestCase
     public function testReadOneReturnsSingleMessage(): void
     {
         $producer = $this->connection->createProducer($this->streamName);
-        $producer->sendBatch(['msg1', 'msg2']);
+        $producer->sendBatch([$this->amqp('msg1'), $this->amqp('msg2')]);
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
@@ -105,7 +110,7 @@ class ConsumerTest extends TestCase
     public function testStoreAndQueryOffset(): void
     {
         $producer = $this->connection->createProducer($this->streamName);
-        $producer->send('offset-test');
+        $producer->send($this->amqp('offset-test'));
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
