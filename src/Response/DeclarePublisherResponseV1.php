@@ -35,7 +35,7 @@ class DeclarePublisherResponseV1 implements KeyVersionInterface, CorrelationInte
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DECLARE_PUBLISHER_RESPONSE->value;
     }

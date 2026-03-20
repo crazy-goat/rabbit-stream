@@ -40,7 +40,7 @@ class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, ToArrayInte
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::RESOLVE_OFFSET_SPEC->value;
     }

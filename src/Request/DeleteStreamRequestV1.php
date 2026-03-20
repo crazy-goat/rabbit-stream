@@ -31,7 +31,7 @@ class DeleteStreamRequestV1 implements ToStreamBufferInterface, ToArrayInterface
         return ['stream' => $this->stream];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DELETE->value;
     }

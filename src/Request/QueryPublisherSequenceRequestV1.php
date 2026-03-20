@@ -38,7 +38,7 @@ class QueryPublisherSequenceRequestV1 implements ToStreamBufferInterface, ToArra
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::QUERY_PUBLISHER_SEQUENCE->value;
     }

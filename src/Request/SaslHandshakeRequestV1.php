@@ -28,7 +28,7 @@ class SaslHandshakeRequestV1 implements ToStreamBufferInterface, ToArrayInterfac
         return [];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::SASL_HANDSHAKE->value;
     }

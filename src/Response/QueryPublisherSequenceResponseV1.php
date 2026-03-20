@@ -33,7 +33,7 @@ class QueryPublisherSequenceResponseV1 implements KeyVersionInterface, Correlati
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE->value;
     }

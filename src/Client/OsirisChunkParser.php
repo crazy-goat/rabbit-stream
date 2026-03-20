@@ -9,7 +9,7 @@ class OsirisChunkParser
     /**
      * @return ChunkEntry[]
      */
-    static public function parse(string $chunkBytes): array
+    public static function parse(string $chunkBytes): array
     {
         $buffer = new ReadBuffer($chunkBytes);
 

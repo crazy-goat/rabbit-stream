@@ -35,7 +35,7 @@ class SubscribeResponseV1 implements KeyVersionInterface, CorrelationInterface, 
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::SUBSCRIBE_RESPONSE->value;
     }

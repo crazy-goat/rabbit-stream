@@ -31,7 +31,7 @@ class PartitionsRequestV1 implements ToStreamBufferInterface, ToArrayInterface, 
         return ['superStream' => $this->superStream];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::PARTITIONS->value;
     }

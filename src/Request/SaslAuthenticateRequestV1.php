@@ -37,7 +37,7 @@ class SaslAuthenticateRequestV1 implements ToStreamBufferInterface, ToArrayInter
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::SASL_AUTHENTICATE->value;
     }

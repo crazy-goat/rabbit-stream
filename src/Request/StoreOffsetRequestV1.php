@@ -38,7 +38,7 @@ class StoreOffsetRequestV1 implements ToStreamBufferInterface, ToArrayInterface,
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::STORE_OFFSET->value;
     }

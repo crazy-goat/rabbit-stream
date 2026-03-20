@@ -31,7 +31,7 @@ class DeletePublisherRequestV1 implements ToStreamBufferInterface, ToArrayInterf
         return ['publisherId' => $this->publisherId];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DELETE_PUBLISHER->value;
     }

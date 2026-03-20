@@ -17,7 +17,7 @@ class HeartbeatRequestV1 implements FromStreamBufferInterface, ToStreamBufferInt
     use V1Trait;
     use CommandTrait;
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::HEARTBEAT->value;
     }

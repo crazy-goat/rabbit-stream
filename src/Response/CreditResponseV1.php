@@ -27,7 +27,7 @@ class CreditResponseV1 implements KeyVersionInterface, FromStreamBufferInterface
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CREDIT_RESPONSE->value;
     }

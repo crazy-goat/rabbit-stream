@@ -21,7 +21,7 @@ class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterfac
     {
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::TUNE->value;
     }

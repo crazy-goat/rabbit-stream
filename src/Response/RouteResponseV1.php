@@ -55,7 +55,7 @@ class RouteResponseV1 implements KeyVersionInterface, CorrelationInterface, From
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::ROUTE_RESPONSE->value;
     }

@@ -31,7 +31,7 @@ class DeleteSuperStreamRequestV1 implements ToStreamBufferInterface, ToArrayInte
         return ['name' => $this->name];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DELETE_SUPER_STREAM->value;
     }

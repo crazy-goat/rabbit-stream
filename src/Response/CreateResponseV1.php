@@ -35,7 +35,7 @@ class CreateResponseV1 implements KeyVersionInterface, CorrelationInterface, Fro
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CREATE_RESPONSE->value;
     }

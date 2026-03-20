@@ -49,7 +49,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return new self($data['publisherId'], ...$data['publishingIds']);
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::PUBLISH_CONFIRM->value;
     }

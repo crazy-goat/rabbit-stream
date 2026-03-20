@@ -56,7 +56,7 @@ class ExchangeCommandVersionsResponseV1 implements KeyVersionInterface, Correlat
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::EXCHANGE_COMMAND_VERSIONS_RESPONSE->value;
     }

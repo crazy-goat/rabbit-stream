@@ -48,7 +48,7 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
         return new self($data['subscriptionId'], $data['chunkBytes']);
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DELIVER->value;
     }

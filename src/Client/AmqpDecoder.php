@@ -10,7 +10,7 @@ class AmqpDecoder
      *
      * @return array{0: mixed, 1: int}
      */
-    static public function decodeValue(string $data, int $position): array
+    public static function decodeValue(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data');
@@ -75,7 +75,7 @@ class AmqpDecoder
      * Returns ['header' => [...], 'properties' => [...], 'applicationProperties' => [...],
      *          'messageAnnotations' => [...], 'body' => string|mixed]
      */
-    static public function decodeMessage(string $data): array
+    public static function decodeMessage(string $data): array
     {
         if (strlen($data) === 0) {
             throw new \RuntimeException('Empty message data');

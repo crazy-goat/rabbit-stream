@@ -35,7 +35,7 @@ class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, KeyV
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CREDIT->value;
     }

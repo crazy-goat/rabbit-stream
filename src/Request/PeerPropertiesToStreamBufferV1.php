@@ -37,7 +37,7 @@ class PeerPropertiesToStreamBufferV1 implements ToStreamBufferInterface, ToArray
         return ['properties' => array_map(fn(KeyValue $kv) => $kv->toArray(), $this->keyValues)];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::PEER_PROPERTIES->value;
     }

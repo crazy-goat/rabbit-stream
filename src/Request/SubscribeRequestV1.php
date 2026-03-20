@@ -45,7 +45,7 @@ class SubscribeRequestV1 implements ToStreamBufferInterface, ToArrayInterface, C
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::SUBSCRIBE->value;
     }

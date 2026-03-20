@@ -75,7 +75,7 @@ class MetadataResponseV1 implements KeyVersionInterface, CorrelationInterface, F
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::METADATA_RESPONSE->value;
     }

@@ -33,7 +33,7 @@ class OpenRequest implements KeyVersionInterface, ToStreamBufferInterface, ToArr
         return ['vhost' => $this->vhost];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::OPEN->value;
     }

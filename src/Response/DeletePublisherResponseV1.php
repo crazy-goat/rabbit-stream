@@ -35,7 +35,7 @@ class DeletePublisherResponseV1 implements KeyVersionInterface, CorrelationInter
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DELETE_PUBLISHER_RESPONSE->value;
     }

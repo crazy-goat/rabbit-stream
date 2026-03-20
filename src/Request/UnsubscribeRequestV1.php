@@ -31,7 +31,7 @@ class UnsubscribeRequestV1 implements ToStreamBufferInterface, ToArrayInterface,
         return ['subscriptionId' => $this->subscriptionId];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::UNSUBSCRIBE->value;
     }

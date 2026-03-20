@@ -41,7 +41,7 @@ class DeclarePublisherRequestV1 implements ToStreamBufferInterface, ToArrayInter
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DECLARE_PUBLISHER->value;
     }

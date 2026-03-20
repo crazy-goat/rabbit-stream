@@ -38,7 +38,7 @@ class PublishRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Key
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::PUBLISH->value;
     }

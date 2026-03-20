@@ -52,7 +52,7 @@ class OpenResponseV1 implements KeyVersionInterface, CorrelationInterface, FromS
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::OPEN_RESPONSE->value;
     }

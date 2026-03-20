@@ -34,7 +34,7 @@ class ResolveOffsetSpecResponseV1 implements KeyVersionInterface, CorrelationInt
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE->value;
     }

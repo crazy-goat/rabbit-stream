@@ -58,7 +58,7 @@ class CreateSuperStreamRequestV1 implements ToStreamBufferInterface, ToArrayInte
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CREATE_SUPER_STREAM->value;
     }

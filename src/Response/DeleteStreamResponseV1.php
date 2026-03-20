@@ -35,7 +35,7 @@ class DeleteStreamResponseV1 implements KeyVersionInterface, CorrelationInterfac
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::DELETE_RESPONSE->value;
     }

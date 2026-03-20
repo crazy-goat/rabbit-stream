@@ -14,12 +14,12 @@ class TuneResponseV1 implements KeyVersionInterface, ToStreamBufferInterface, Fr
     {
     }
 
-    static public function getVersion(): int
+    public static function getVersion(): int
     {
         return 1;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::TUNE_RESPONSE->value;
     }

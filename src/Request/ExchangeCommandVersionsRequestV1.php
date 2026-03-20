@@ -35,7 +35,7 @@ class ExchangeCommandVersionsRequestV1 implements ToStreamBufferInterface, ToArr
         return ['commands' => array_map(fn(CommandVersion $cv) => $cv->toArray(), $this->commands)];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::EXCHANGE_COMMAND_VERSIONS->value;
     }

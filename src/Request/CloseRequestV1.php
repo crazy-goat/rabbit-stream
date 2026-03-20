@@ -39,7 +39,7 @@ class CloseRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corre
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CLOSE->value;
     }

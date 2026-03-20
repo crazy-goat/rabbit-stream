@@ -40,7 +40,7 @@ class MetadataRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Co
         return ['streams' => $this->streams];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::METADATA->value;
     }

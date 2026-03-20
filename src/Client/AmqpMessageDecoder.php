@@ -7,7 +7,7 @@ class AmqpMessageDecoder
     /**
      * Decode a ChunkEntry into a Message.
      */
-    static public function decode(ChunkEntry $entry): Message
+    public static function decode(ChunkEntry $entry): Message
     {
         $sections = AmqpDecoder::decodeMessage($entry->getData());
         return new Message(
@@ -25,7 +25,7 @@ class AmqpMessageDecoder
      * @param ChunkEntry[] $entries
      * @return Message[]
      */
-    static public function decodeAll(array $entries): array
+    public static function decodeAll(array $entries): array
     {
         $messages = [];
         foreach ($entries as $entry) {

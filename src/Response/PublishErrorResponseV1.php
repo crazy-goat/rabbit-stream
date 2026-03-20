@@ -51,7 +51,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         return new self($data['publisherId'], ...$errors);
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::PUBLISH_ERROR->value;
     }

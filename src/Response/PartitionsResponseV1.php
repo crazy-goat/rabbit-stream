@@ -55,7 +55,7 @@ class PartitionsResponseV1 implements KeyVersionInterface, CorrelationInterface,
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::PARTITIONS_RESPONSE->value;
     }

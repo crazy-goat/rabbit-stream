@@ -35,7 +35,7 @@ class CloseResponseV1 implements KeyVersionInterface, CorrelationInterface, From
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CLOSE_RESPONSE->value;
     }

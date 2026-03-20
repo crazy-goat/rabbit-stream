@@ -35,7 +35,7 @@ class CreateSuperStreamResponseV1 implements KeyVersionInterface, CorrelationInt
         return $object;
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CREATE_SUPER_STREAM_RESPONSE->value;
     }

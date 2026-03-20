@@ -50,7 +50,7 @@ class CreateRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corr
         ];
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::CREATE->value;
     }

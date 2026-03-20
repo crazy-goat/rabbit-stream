@@ -40,7 +40,7 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return new self($data['code'], $data['stream']);
     }
 
-    static public function getKey(): int
+    public static function getKey(): int
     {
         return KeyEnum::METADATA_UPDATE->value;
     }
