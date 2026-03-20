@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 - `StreamConnection` — configurable max frame size limit (default 8MB) to prevent memory exhaustion from malformed frames; `setMaxFrameSize(0)` disables the limit; connection is closed before throwing on violation
 
+### Fixed
+- `StreamConnection::dispatchServerPush()` — heartbeat echo now uses `sendFrame()` directly instead of `sendMessage()`, preventing spurious `correlationId` increments that caused ID mismatches in long-running connections
+
 ## [1.0.0] - 2026-03-20
 
 ### Changed
