@@ -12,6 +12,21 @@ class ReadBuffer
     {
     }
 
+    private function ensureAvailable(int $bytes): void
+    {
+        $available = strlen($this->buffer) - $this->position;
+        if ($bytes > $available) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Buffer underflow: need %d bytes at position %d, but only %d available',
+                    $bytes,
+                    $this->position,
+                    $available
+                )
+            );
+        }
+    }
+
     public function getUint8(): int
     {
         $data = unpack('C', substr($this->buffer, $this->position, 1));
@@ -77,6 +92,7 @@ class ReadBuffer
             return null;
         }
 
+        $this->ensureAvailable($len);
         $data = substr($this->buffer, $this->position, $len);
         $this->position += $len;
         return $data;
@@ -149,6 +165,7 @@ class ReadBuffer
             return null;
         }
 
+        $this->ensureAvailable($size);
         $data = substr($this->buffer, $this->position, $size);
         $this->position += $size;
         return $data;
@@ -156,6 +173,7 @@ class ReadBuffer
 
     public function getRemainingBytes(): string
     {
+        $this->ensureAvailable(0);
         $data = substr($this->buffer, $this->position);
         $this->position = strlen($this->buffer);
         return $data;
@@ -168,11 +186,13 @@ class ReadBuffer
 
     public function skip(int $bytes): void
     {
+        $this->ensureAvailable($bytes);
         $this->position += $bytes;
     }
 
     public function readBytes(int $length): string
     {
+        $this->ensureAvailable($length);
         $data = substr($this->buffer, $this->position, $length);
         $this->position += $length;
         return $data;
