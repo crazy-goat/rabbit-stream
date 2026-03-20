@@ -50,7 +50,7 @@ class StreamConnection
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
 
     public function __construct(
-        private readonly string $host = '172.17.0.2',
+        private readonly string $host = '127.0.0.1',
         private readonly int $port = 5552,
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
