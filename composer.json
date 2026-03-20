@@ -29,7 +29,7 @@
     },
     "scripts": {
         "lint": "phpcs --standard=phpcs.xml.dist",
-        "lint:fix": "phpcbf --standard=phpcs.xml.dist",
+        "lint:fix": ["@rector:fix", "phpcbf --standard=phpcs.xml.dist"],
         "test": "phpunit",
         "test:unit": "phpunit --testsuite unit",
         "test:e2e": "phpunit --testsuite e2e",
