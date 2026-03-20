@@ -36,7 +36,7 @@ class PublishRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Key
     {
         return [
             'publisherId' => $this->publisherId,
-            'messages' => array_map(fn(PublishedMessage $m) => $m->toArray(), $this->messages),
+            'messages' => array_map(fn(PublishedMessage $m): array => $m->toArray(), $this->messages),
         ];
     }
 

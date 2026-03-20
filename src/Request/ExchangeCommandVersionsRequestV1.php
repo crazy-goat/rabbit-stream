@@ -40,7 +40,7 @@ class ExchangeCommandVersionsRequestV1 implements
 
     public function toArray(): array
     {
-        return ['commands' => array_map(fn(CommandVersion $cv) => $cv->toArray(), $this->commands)];
+        return ['commands' => array_map(fn(CommandVersion $cv): array => $cv->toArray(), $this->commands)];
     }
 
     public static function getKey(): int

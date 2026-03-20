@@ -63,9 +63,29 @@ jobs:
       - name: Run linter
         run: composer lint
 
+  rector-check:
+    name: Rector (dry-run)
+    needs: [check-actor, lint]
+    if: needs.check-actor.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run Rector dry-run
+        run: ./vendor/bin/rector process --dry-run
+
   unit-tests:
     name: Unit Tests (PHP ${{ matrix.php }})
-    needs: [check-actor, lint]
+    needs: [check-actor, lint, rector-check]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -88,7 +108,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
-    needs: [check-actor, lint]
+    needs: [check-actor, lint, rector-check]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     services:

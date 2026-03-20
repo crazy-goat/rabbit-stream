@@ -104,7 +104,7 @@ class ProducerTest extends TestCase
         $producer->send('test');
         try {
             $producer->waitForConfirms(timeout: 0.1);
-        } catch (\RuntimeException $e) {
+        } catch (\RuntimeException) {
             // Expected - timeout
         }
         $this->assertNotNull($capturedTimeout);
@@ -119,7 +119,7 @@ class ProducerTest extends TestCase
         $connection->expects($this->once())
             ->method('registerPublisher')
             ->with(1, $this->anything(), $this->anything())
-            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks) {
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
                 $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
             });
 
@@ -132,7 +132,7 @@ class ProducerTest extends TestCase
 
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks) {
+            ->willReturnCallback(function () use (&$registeredCallbacks): void {
                 ($registeredCallbacks['onConfirm'])([0]);
             });
 
@@ -152,7 +152,7 @@ class ProducerTest extends TestCase
         // Allow constructor calls (declare() sends DeclarePublisherRequestV1 and reads response)
         $connection->expects($this->exactly(2))
             ->method('sendMessage')
-            ->with($this->callback(function ($request) use (&$capturedRequest) {
+            ->with($this->callback(function ($request) use (&$capturedRequest): bool {
                 if ($request instanceof PublishRequestV1) {
                     $capturedRequest = $request;
                 }
@@ -222,7 +222,7 @@ class ProducerTest extends TestCase
         $registeredCallbacks = null;
         $connection->expects($this->once())
             ->method('registerPublisher')
-            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks) {
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
                 $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
             });
 
@@ -232,7 +232,7 @@ class ProducerTest extends TestCase
         $readLoopCalled = false;
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled) {
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled): void {
                 $readLoopCalled = true;
                 ($registeredCallbacks['onConfirm'])([0, 1, 2]);
             });
@@ -288,7 +288,7 @@ class ProducerTest extends TestCase
         $capturedRequest = null;
         $connection->expects($this->exactly(2))
             ->method('sendMessage')
-            ->with($this->callback(function ($request) use (&$capturedRequest) {
+            ->with($this->callback(function ($request) use (&$capturedRequest): bool {
                 if ($request instanceof QueryPublisherSequenceRequestV1) {
                     $capturedRequest = $request;
                 }

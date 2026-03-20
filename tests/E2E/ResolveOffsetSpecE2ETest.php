@@ -73,7 +73,7 @@ class ResolveOffsetSpecE2ETest extends TestCase
             }
 
             $connection->close();
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             // If we can't connect or check, assume not supported
             self::$commandSupported = false;
         }

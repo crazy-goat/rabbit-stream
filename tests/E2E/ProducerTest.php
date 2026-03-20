@@ -24,10 +24,10 @@ class ProducerTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->connection !== null) {
+        if ($this->connection instanceof \CrazyGoat\RabbitStream\Client\Connection) {
             try {
                 $this->connection->deleteStream($this->streamName);
-            } catch (\Exception $e) {
+            } catch (\Exception) {
                 // Ignore cleanup errors
             }
             $this->connection->close();
@@ -39,7 +39,7 @@ class ProducerTest extends TestCase
         $confirmed = [];
         $producer = $this->connection->createProducer(
             $this->streamName,
-            onConfirm: function ($status) use (&$confirmed) {
+            onConfirm: function ($status) use (&$confirmed): void {
                 $confirmed[] = $status;
             }
         );
@@ -58,7 +58,7 @@ class ProducerTest extends TestCase
         $confirmed = [];
         $producer = $this->connection->createProducer(
             $this->streamName,
-            onConfirm: function ($status) use (&$confirmed) {
+            onConfirm: function ($status) use (&$confirmed): void {
                 $confirmed[] = $status;
             }
         );

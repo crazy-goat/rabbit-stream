@@ -24,11 +24,8 @@ class SaslHandshakeResponseV1 implements
     use CommandTrait;
     use V1Trait;
 
-    private array $mechanisms;
-
-    public function __construct(array $mechanisms)
+    public function __construct(private array $mechanisms)
     {
-        $this->mechanisms = $mechanisms;
     }
 
     public static function fromArray(array $data): static

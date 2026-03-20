@@ -14,9 +14,9 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
-        private int $key,
-        private int $minVersion,
-        private int $maxVersion
+        private readonly int $key,
+        private readonly int $minVersion,
+        private readonly int $maxVersion
     ) {
     }
 

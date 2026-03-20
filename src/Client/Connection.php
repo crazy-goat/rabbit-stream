@@ -65,7 +65,7 @@ class Connection
         $streamConnection->sendMessage(new SaslHandshakeRequestV1());
         $handshakeResponse = $streamConnection->readMessage();
         if (!$handshakeResponse instanceof SaslHandshakeResponseV1) {
-            throw new \Exception("Expected SaslHandshakeResponseV1, got " . get_class($handshakeResponse));
+            throw new \Exception("Expected SaslHandshakeResponseV1, got " . $handshakeResponse::class);
         }
         // Verify PLAIN mechanism is available
         $mechanisms = $handshakeResponse->getMechanisms();
@@ -80,7 +80,7 @@ class Connection
         // 4. Tune (server sends TuneRequestV1)
         $tune = $streamConnection->readMessage();
         if (!$tune instanceof TuneRequestV1) {
-            throw new \Exception("Expected TuneRequestV1, got " . get_class($tune));
+            throw new \Exception("Expected TuneRequestV1, got " . $tune::class);
         }
 
         // 5. TuneResponse (echo back server's values)
@@ -98,7 +98,7 @@ class Connection
         $this->streamConnection->sendMessage(new CreateRequestV1($name, $arguments));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof CreateResponseV1) {
-            throw new \Exception("Expected CreateResponseV1, got " . get_class($response));
+            throw new \Exception("Expected CreateResponseV1, got " . $response::class);
         }
     }
 
@@ -107,7 +107,7 @@ class Connection
         $this->streamConnection->sendMessage(new DeleteStreamRequestV1($name));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof DeleteStreamResponseV1) {
-            throw new \Exception("Expected DeleteStreamResponseV1, got " . get_class($response));
+            throw new \Exception("Expected DeleteStreamResponseV1, got " . $response::class);
         }
     }
 
@@ -116,7 +116,7 @@ class Connection
         $this->streamConnection->sendMessage(new MetadataRequestV1([$name]));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof MetadataResponseV1) {
-            throw new \Exception("Expected MetadataResponseV1, got " . get_class($response));
+            throw new \Exception("Expected MetadataResponseV1, got " . $response::class);
         }
         foreach ($response->getStreamMetadata() as $meta) {
             if ($meta->getStreamName() === $name) {
@@ -131,7 +131,7 @@ class Connection
         $this->streamConnection->sendMessage(new StreamStatsRequestV1($name));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof StreamStatsResponseV1) {
-            throw new \Exception("Expected StreamStatsResponseV1, got " . get_class($response));
+            throw new \Exception("Expected StreamStatsResponseV1, got " . $response::class);
         }
         $result = [];
         foreach ($response->getStats() as $stat) {
@@ -145,7 +145,7 @@ class Connection
         $this->streamConnection->sendMessage(new MetadataRequestV1($streams));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof MetadataResponseV1) {
-            throw new \Exception("Expected MetadataResponseV1, got " . get_class($response));
+            throw new \Exception("Expected MetadataResponseV1, got " . $response::class);
         }
         return $response;
     }
@@ -155,7 +155,7 @@ class Connection
         $this->streamConnection->sendMessage(new QueryOffsetRequestV1($reference, $stream));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof QueryOffsetResponseV1) {
-            throw new \Exception("Expected QueryOffsetResponseV1, got " . get_class($response));
+            throw new \Exception("Expected QueryOffsetResponseV1, got " . $response::class);
         }
         return $response->getOffset();
     }
@@ -166,7 +166,7 @@ class Connection
             $this->streamConnection->sendMessage(new CloseRequestV1(0, 'OK'));
             $response = $this->streamConnection->readMessage();
             if (!$response instanceof CloseResponseV1) {
-                throw new \Exception("Expected CloseResponseV1, got " . get_class($response));
+                throw new \Exception("Expected CloseResponseV1, got " . $response::class);
             }
         } finally {
             $this->streamConnection->close();

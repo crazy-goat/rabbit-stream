@@ -40,7 +40,7 @@ class PeerPropertiesToStreamBufferV1 implements
 
     public function toArray(): array
     {
-        return ['properties' => array_map(fn(KeyValue $kv) => $kv->toArray(), $this->keyValues)];
+        return ['properties' => array_map(fn(KeyValue $kv): array => $kv->toArray(), $this->keyValues)];
     }
 
     public static function getKey(): int

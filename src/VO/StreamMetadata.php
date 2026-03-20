@@ -12,10 +12,10 @@ use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
-        private string $streamName,
-        private int $responseCode,
-        private int $leaderReference,
-        private array $replicasReferences
+        private readonly string $streamName,
+        private readonly int $responseCode,
+        private readonly int $leaderReference,
+        private readonly array $replicasReferences
     ) {
     }
 

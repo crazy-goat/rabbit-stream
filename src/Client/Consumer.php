@@ -63,14 +63,14 @@ class Consumer
      */
     public function read(float $timeout = 5.0): array
     {
-        if (empty($this->buffer)) {
+        if ($this->buffer === []) {
             $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
         }
 
         $messages = $this->buffer;
         $this->buffer = [];
 
-        if (!empty($messages)) {
+        if ($messages !== []) {
             $lastMsg = end($messages);
             $this->lastOffset = $lastMsg->getOffset();
             $this->messagesProcessed += count($messages);
@@ -82,11 +82,11 @@ class Consumer
 
     public function readOne(float $timeout = 5.0): ?Message
     {
-        if (empty($this->buffer)) {
+        if ($this->buffer === []) {
             $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
         }
 
-        if (empty($this->buffer)) {
+        if ($this->buffer === []) {
             return null;
         }
 
@@ -118,7 +118,7 @@ class Consumer
         );
         $response = $this->connection->readMessage();
         if (!$response instanceof QueryOffsetResponseV1) {
-            $type = is_object($response) ? get_class($response) : gettype($response);
+            $type = get_debug_type($response);
             throw new \Exception("Expected QueryOffsetResponseV1, got " . $type);
         }
         return $response->getOffset();

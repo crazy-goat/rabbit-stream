@@ -44,10 +44,10 @@ class StreamConnection
     ];
 
     public function __construct(
-        private string $host = '172.17.0.2',
-        private int $port = 5552,
-        private LoggerInterface $logger = new NullLogger(),
-        private BinarySerializerInterface $serializer = new PhpBinarySerializer(),
+        private readonly string $host = '172.17.0.2',
+        private readonly int $port = 5552,
+        private readonly LoggerInterface $logger = new NullLogger(),
+        private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
     ) {
     }
 
@@ -201,7 +201,7 @@ class StreamConnection
             }
 
             $frame = $this->readFrame($remainingTimeout);
-            if ($frame === null) {
+            if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
                 throw new \RuntimeException("Read timeout");
             }
 
@@ -263,7 +263,7 @@ class StreamConnection
             }
 
             $frame = $this->readFrame(timeout: 0.0);
-            if ($frame === null) {
+            if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
                 continue;
             }
 
@@ -295,7 +295,7 @@ class StreamConnection
             case KeyEnum::HEARTBEAT->value:
                 HeartbeatRequestV1::fromStreamBuffer($frame);
                 $this->sendMessage(new HeartbeatRequestV1());
-                if ($this->heartbeatCallback !== null) {
+                if ($this->heartbeatCallback instanceof \Closure) {
                     ($this->heartbeatCallback)();
                 }
                 break;
@@ -351,7 +351,7 @@ class StreamConnection
 
             case KeyEnum::METADATA_UPDATE->value:
                 $update = MetadataUpdateResponseV1::fromStreamBuffer($frame);
-                if ($this->metadataUpdateCallback !== null) {
+                if ($this->metadataUpdateCallback instanceof \Closure) {
                     ($this->metadataUpdateCallback)($update);
                 }
                 break;
@@ -360,7 +360,7 @@ class StreamConnection
                 $query = ConsumerUpdateQueryV1::fromStreamBuffer($frame);
                 $offsetType = 1;
                 $offset = 0;
-                if ($this->consumerUpdateCallback !== null) {
+                if ($this->consumerUpdateCallback instanceof \Closure) {
                     [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
                 }
                 $reply = new ConsumerUpdateReplyV1(

@@ -56,7 +56,11 @@ class ExchangeCommandVersionsResponseV1 implements
     public static function fromArray(array $data): static
     {
         $commands = array_map(
-            fn(array $c) => new CommandVersion($c['key'], $c['minVersion'], $c['maxVersion']),
+            fn(array $c): \CrazyGoat\RabbitStream\VO\CommandVersion => new CommandVersion(
+                $c['key'],
+                $c['minVersion'],
+                $c['maxVersion']
+            ),
             $data['commands']
         );
         $object = new self($commands);

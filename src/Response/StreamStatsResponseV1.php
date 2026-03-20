@@ -62,7 +62,10 @@ class StreamStatsResponseV1 implements
 
     public static function fromArray(array $data): static
     {
-        $stats = array_map(fn(array $s) => new Statistic($s['key'], $s['value']), $data['stats']);
+        $stats = array_map(
+            fn(array $s): \CrazyGoat\RabbitStream\VO\Statistic => new Statistic($s['key'], $s['value']),
+            $data['stats']
+        );
         $object = new self($stats);
         $object->withCorrelationId($data['correlationId']);
         return $object;

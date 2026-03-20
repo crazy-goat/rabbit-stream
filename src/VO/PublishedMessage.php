@@ -11,8 +11,8 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 class PublishedMessage implements ToStreamBufferInterface, ToArrayInterface
 {
     public function __construct(
-        private int $publishingId,
-        private string $message,
+        private readonly int $publishingId,
+        private readonly string $message,
     ) {
     }
 

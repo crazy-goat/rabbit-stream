@@ -79,7 +79,7 @@ class AmqpDecoder
      */
     public static function decodeMessage(string $data): array
     {
-        if (strlen($data) === 0) {
+        if ($data === '') {
             throw new \RuntimeException('Empty message data');
         }
 
@@ -137,12 +137,9 @@ class AmqpDecoder
                     }
                     break;
 
-                case 0x76: // AmqpSequence (body)
+                case 0x76:
+                case 0x77: // AmqpSequence (body)
                     // For now, treat as array
-                    $sections['body'] = $value;
-                    break;
-
-                case 0x77: // AmqpValue (body)
                     $sections['body'] = $value;
                     break;
 
@@ -235,7 +232,7 @@ class AmqpDecoder
         $value = unpack('N', substr($data, $position, 4))[1];
         // Handle unsigned 32-bit values > PHP_INT_MAX
         if ($value < 0) {
-            $value = $value + 4294967296;
+            $value += 4294967296;
         }
         return [$value, $position + 4];
     }
@@ -267,10 +264,10 @@ class AmqpDecoder
         $low = unpack('N', substr($data, $position + 4, 4))[1];
         // Handle as string for large values
         if ($high < 0) {
-            $high = $high + 4294967296;
+            $high += 4294967296;
         }
         if ($low < 0) {
-            $low = $low + 4294967296;
+            $low += 4294967296;
         }
         $value = ($high << 32) | $low;
         return [$value, $position + 8];
@@ -352,7 +349,7 @@ class AmqpDecoder
         }
         $length = unpack('N', substr($data, $position, 4))[1];
         if ($length < 0) {
-            $length = $length + 4294967296;
+            $length += 4294967296;
         }
         $position += 4;
         if ($position + $length > strlen($data)) {
@@ -381,7 +378,7 @@ class AmqpDecoder
         }
         $length = unpack('N', substr($data, $position, 4))[1];
         if ($length < 0) {
-            $length = $length + 4294967296;
+            $length += 4294967296;
         }
         $position += 4;
         if ($position + $length > strlen($data)) {
@@ -410,7 +407,7 @@ class AmqpDecoder
         }
         $length = unpack('N', substr($data, $position, 4))[1];
         if ($length < 0) {
-            $length = $length + 4294967296;
+            $length += 4294967296;
         }
         $position += 4;
         if ($position + $length > strlen($data)) {
@@ -450,11 +447,11 @@ class AmqpDecoder
         }
         $size = unpack('N', substr($data, $position, 4))[1];
         if ($size < 0) {
-            $size = $size + 4294967296;
+            $size += 4294967296;
         }
         $count = unpack('N', substr($data, $position + 4, 4))[1];
         if ($count < 0) {
-            $count = $count + 4294967296;
+            $count += 4294967296;
         }
         $position += 8;
         $endPosition = $position + $size - 4; // size includes the 4 count bytes
@@ -505,11 +502,11 @@ class AmqpDecoder
         }
         $size = unpack('N', substr($data, $position, 4))[1];
         if ($size < 0) {
-            $size = $size + 4294967296;
+            $size += 4294967296;
         }
         $count = unpack('N', substr($data, $position + 4, 4))[1];
         if ($count < 0) {
-            $count = $count + 4294967296;
+            $count += 4294967296;
         }
         $position += 8;
         $endPosition = $position + $size - 4; // size includes the 4 count bytes

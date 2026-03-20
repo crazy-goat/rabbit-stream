@@ -45,7 +45,7 @@ class PeerPropertiesResponseV1 implements
     public static function fromArray(array $data): static
     {
         $properties = array_map(
-            fn(array $p) => new KeyValue($p['key'], $p['value']),
+            fn(array $p): \CrazyGoat\RabbitStream\VO\KeyValue => new KeyValue($p['key'], $p['value']),
             $data['properties']
         );
         $object = new self(...$properties);
@@ -57,7 +57,7 @@ class PeerPropertiesResponseV1 implements
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
-        $correlationId = $buffer->getUint32();
+        $buffer->getUint32();
 
         self::isResponseCodeOk($buffer->getUint16());
 

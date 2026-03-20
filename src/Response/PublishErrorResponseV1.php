@@ -49,7 +49,13 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
 
     public static function fromArray(array $data): static
     {
-        $errors = array_map(fn(array $e) => new PublishingError($e['publishingId'], $e['code']), $data['errors']);
+        $errors = array_map(
+            fn(array $e): \CrazyGoat\RabbitStream\VO\PublishingError => new PublishingError(
+                $e['publishingId'],
+                $e['code']
+            ),
+            $data['errors']
+        );
         return new self($data['publisherId'], ...$errors);
     }
 

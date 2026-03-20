@@ -100,9 +100,9 @@ class QueryPublisherSequenceTest extends TestCase
 
         // Register publisher callback to handle PublishConfirm
         $confirmed = false;
-        $connection->registerPublisher(1, function () use (&$confirmed) {
+        $connection->registerPublisher(1, function () use (&$confirmed): void {
             $confirmed = true;
-        }, function () {
+        }, function (): void {
         });
 
         // Publish a message with publishingId = 5

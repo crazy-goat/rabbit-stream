@@ -42,10 +42,10 @@ class ConsumerTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->connection !== null) {
+        if ($this->connection instanceof \CrazyGoat\RabbitStream\Client\Connection) {
             try {
                 $this->connection->deleteStream($this->streamName);
-            } catch (\Exception $e) {
+            } catch (\Exception) {
             }
             $this->connection->close();
         }
@@ -99,7 +99,7 @@ class ConsumerTest extends TestCase
 
         $msg = null;
         $deadline = time() + 10;
-        while ($msg === null && time() < $deadline) {
+        while (!$msg instanceof \CrazyGoat\RabbitStream\Client\Message && time() < $deadline) {
             $msg = $consumer->readOne(timeout: 2);
         }
 
@@ -125,7 +125,7 @@ class ConsumerTest extends TestCase
 
         $messages = [];
         $deadline = time() + 10;
-        while (empty($messages) && time() < $deadline) {
+        while ($messages === [] && time() < $deadline) {
             $messages = $consumer->read(timeout: 2);
         }
 
