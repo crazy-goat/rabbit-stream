@@ -19,6 +19,7 @@ class Consumer
     private array $buffer = [];
     private int $messagesProcessed = 0;
     private int $lastOffset = 0;
+    private int $pendingCredits = 0;
 
     public function __construct(
         private readonly StreamConnection $connection,
@@ -28,7 +29,11 @@ class Consumer
         private readonly ?string $name = null,
         private readonly int $autoCommit = 0,
         private readonly int $initialCredit = 10,
+        private readonly int $maxBufferSize = 1000,
     ) {
+        if ($this->maxBufferSize <= 0) {
+            throw new \InvalidArgumentException('maxBufferSize must be greater than 0');
+        }
         $this->subscribe();
     }
 
@@ -41,9 +46,13 @@ class Consumer
                 $messages = AmqpMessageDecoder::decodeAll($entries);
                 $this->buffer = array_merge($this->buffer, $messages);
 
-                $this->connection->sendMessage(
-                    new CreditRequestV1($this->subscriptionId, 1)
-                );
+                if (count($this->buffer) < $this->maxBufferSize) {
+                    $this->connection->sendMessage(
+                        new CreditRequestV1($this->subscriptionId, 1)
+                    );
+                } elseif ($this->pendingCredits < 65535) {
+                    $this->pendingCredits++;
+                }
             },
         );
 
@@ -71,6 +80,7 @@ class Consumer
         $this->buffer = [];
 
         if ($messages !== []) {
+            $this->sendPendingCredits();
             $lastMsg = end($messages);
             $this->lastOffset = $lastMsg->getOffset();
             $this->messagesProcessed += count($messages);
@@ -94,6 +104,7 @@ class Consumer
         $this->lastOffset = $message->getOffset();
         $this->messagesProcessed++;
         $this->maybeAutoCommit();
+        $this->sendPendingCredits();
 
         return $message;
     }
@@ -147,5 +158,23 @@ class Consumer
             $this->storeOffset($this->lastOffset);
             $this->messagesProcessed = 0;
         }
+    }
+
+    private function sendPendingCredits(): void
+    {
+        if ($this->pendingCredits <= 0) {
+            return;
+        }
+
+        $availableSlots = $this->maxBufferSize - count($this->buffer);
+        if ($availableSlots <= 0) {
+            return;
+        }
+
+        $creditsToSend = min($this->pendingCredits, $availableSlots);
+        $this->connection->sendMessage(
+            new CreditRequestV1($this->subscriptionId, $creditsToSend)
+        );
+        $this->pendingCredits -= $creditsToSend;
     }
 }
