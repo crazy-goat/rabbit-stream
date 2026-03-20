@@ -271,8 +271,9 @@ class StreamConnection
                 if ($remaining <= 0) {
                     break;
                 }
-                $selectTimeoutSec = (int) min($remaining, 1);
-                $selectTimeoutUsec = (int) (($remaining - $selectTimeoutSec) * 1_000_000);
+                $capped = min($remaining, 1.0);
+                $selectTimeoutSec = (int) $capped;
+                $selectTimeoutUsec = (int) (($capped - $selectTimeoutSec) * 1_000_000);
             }
 
             $ready = socket_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);

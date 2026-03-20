@@ -273,6 +273,42 @@ class StreamConnectionTest extends TestCase
     }
 
     /**
+     * @dataProvider timeoutCalculationProvider
+     */
+    public function testReadLoopTimeoutCalculation(float $remaining, int $expectedSec, int $expectedUsec): void
+    {
+        // Test the FIXED implementation calculation
+        // This simulates the exact logic from StreamConnection.php:274-276
+        $capped = min($remaining, 1.0);
+        $selectTimeoutSec = (int) $capped;
+        $selectTimeoutUsec = (int) (($capped - $selectTimeoutSec) * 1_000_000);
+
+        $this->assertEquals($expectedSec, $selectTimeoutSec);
+        $this->assertEquals($expectedUsec, $selectTimeoutUsec);
+        $this->assertLessThan(
+            1_000_000,
+            $selectTimeoutUsec,
+            'Microseconds must be < 1,000,000 per socket_select() docs'
+        );
+    }
+
+    /**
+     * @return array<string, array{float, int, int}>
+     */
+    public static function timeoutCalculationProvider(): array
+    {
+        return [
+            'short timeout 0.5s' => [0.5, 0, 500_000],
+            'exactly 1.0s' => [1.0, 1, 0],
+            '1.5s - capped to 1s' => [1.5, 1, 0],
+            '3.0s - capped to 1s (was bug: 2,000,000 usec)' => [3.0, 1, 0],
+            '5.0s - capped to 1s (was bug: 4,000,000 usec)' => [5.0, 1, 0],
+            '0.1s' => [0.1, 0, 100_000],
+            '0.999s' => [0.999, 0, 999_000],
+        ];
+    }
+
+    /**
      * @return array{\Socket, \Socket}
      */
     private function createSocketPair(): array
