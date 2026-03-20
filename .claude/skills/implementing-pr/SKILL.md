@@ -62,9 +62,24 @@ Here are the top 5 issues ranked by priority:
    Reason: New command implementation, depends on #8 (open — ranks lower).
 ```
 
-After displaying the list, ask the user to reply with the issue number they want to work on. Also offer: "Reply `all` to see the full list."
+After displaying the list, use the `question` tool to ask the user which issue they want to work on. Offer: "Reply `all` to see the full list."
 
-If the user replies **`all`**: display the full ranked list (all issues, all tiers) as plain text with reasoning, then ask again for an issue number.
+**Example question tool usage:**
+```
+question:
+  questions:
+    - header: "Select an issue"
+      question: "Which issue would you like to work on?"
+      options:
+        - label: "Issue #42"
+          description: "[title] - Security label, highest priority"
+        - label: "Issue #17" 
+          description: "[title] - Performance improvement"
+        - label: "See all issues"
+          description: "Show the complete ranked list"
+```
+
+If the user selects "See all issues" or replies **`all`**: display the full ranked list (all issues, all tiers) as plain text with reasoning, then use the `question` tool again to ask for an issue number.
 
 Wait for the user to reply with a valid issue number before proceeding.
 
@@ -165,9 +180,13 @@ Never suppress PHPStan with `@phpstan-ignore`.
 
 ---
 
-## Step 6.5 — Internal Code Review (before pushing)
+## Step 6.5 — Internal Code Review (MANDATORY - always use sub-agent)
+
+**⚠️ CRITICAL: Code review MUST always be performed by a `build-heavy` subagent. Never do code review in the main thread.**
 
 Before pushing anything, dispatch a `build-heavy` subagent (Task tool, `subagent_type: build-heavy`) to review the implementation. This is mandatory — do not skip.
+
+**Why use sub-agent:** Code review requires deep analysis of multiple files, checking against protocol specs, and identifying subtle issues. Doing this in the main thread clutters the conversation and reduces quality. The `build-heavy` subagent is optimized for thorough code analysis.
 
 **Prompt for the subagent:**
 
@@ -191,9 +210,25 @@ Before pushing anything, dispatch a `build-heavy` subagent (Task tool, `subagent
 4. Dispatch `build-heavy` subagent again with the same prompt
 5. Stop only when subagent reports: no Critical, no Important
 
-If after **3 iterations** Critical or Important issues still remain: stop, present them to the user, ask for guidance.
+**If Critical or Important issues persist after reasonable effort:**
 
-**Never proceed to Step 7 while any Critical or Important issue remains.**
+Use the `question` tool to ask the user for guidance:
+
+```
+question:
+  questions:
+    - header: "Code review issues remaining"
+      question: "After multiple review cycles, Critical/Important issues remain. How should we proceed?"
+      options:
+        - label: "Continue fixing"
+          description: "Keep iterating until all issues are resolved"
+        - label: "Accept with issues"
+          description: "Proceed to PR despite remaining issues (document them)"
+        - label: "Abandon this approach"
+          description: "Try a different implementation strategy"
+```
+
+**Never proceed to Step 7 while any Critical or Important issue remains without explicit user approval.**
 
 ### Handling Minor issues
 
@@ -244,7 +279,7 @@ EOF
 
 ---
 
-## Step 8 — Wait for CI, Then Notify
+## Step 8 — Wait for CI, Then Ask for Approval
 
 ```bash
 timeout 600 gh pr checks --watch
@@ -252,14 +287,23 @@ timeout 600 gh pr checks --watch
 
 If checks haven't completed after 10 minutes (`timeout` exits with code 124), inform the user of the current status and stop — do not block indefinitely.
 
-**Only when all checks are green**, inform the user:
+**When all checks are green**, use the `question` tool to ask the user for approval:
 
 ```
-PR ready for code review: {PR_URL}
-All checks passed. Waiting for your review.
+question:
+  questions:
+    - header: "PR Ready for Review"
+      question: "All CI checks passed. Do you approve this PR for code review?"
+      options:
+        - label: "Yes, approve"
+          description: "PR is ready for code review"
+        - label: "No, needs changes"
+          description: "I want to make additional changes first"
 ```
 
-Never announce readiness before CI passes.
+Only proceed with merge/close when the user explicitly approves.
+
+**Never merge or close without explicit user approval.**
 
 ---
 
