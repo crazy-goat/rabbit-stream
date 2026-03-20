@@ -152,7 +152,7 @@ class ProducerTest extends TestCase
         // Allow constructor calls (declare() sends DeclarePublisherRequestV1 and reads response)
         $connection->expects($this->exactly(2))
             ->method('sendMessage')
-            ->with($this->callback(function ($request) use (&$capturedRequest): true {
+            ->with($this->callback(function ($request) use (&$capturedRequest): bool {
                 if ($request instanceof PublishRequestV1) {
                     $capturedRequest = $request;
                 }
@@ -288,7 +288,7 @@ class ProducerTest extends TestCase
         $capturedRequest = null;
         $connection->expects($this->exactly(2))
             ->method('sendMessage')
-            ->with($this->callback(function ($request) use (&$capturedRequest): true {
+            ->with($this->callback(function ($request) use (&$capturedRequest): bool {
                 if ($request instanceof QueryPublisherSequenceRequestV1) {
                     $capturedRequest = $request;
                 }

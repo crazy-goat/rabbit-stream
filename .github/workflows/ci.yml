@@ -85,7 +85,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests (PHP ${{ matrix.php }})
-    needs: [check-actor, lint]
+    needs: [check-actor, lint, rector-check]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -108,7 +108,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
-    needs: [check-actor, lint]
+    needs: [check-actor, lint, rector-check]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     services:
