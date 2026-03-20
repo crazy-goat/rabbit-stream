@@ -36,6 +36,7 @@ class Connection
 {
     private int $publisherIdCounter = 0;
     private int $subscriptionIdCounter = 0;
+    private bool $closed = false;
 
     private function __construct(
         private readonly StreamConnection $streamConnection,
@@ -165,6 +166,10 @@ class Connection
 
     public function close(): void
     {
+        if ($this->closed) {
+            return;
+        }
+        $this->closed = true;
         try {
             $this->streamConnection->sendMessage(new CloseRequestV1(0, 'OK'));
             $response = $this->streamConnection->readMessage();
@@ -173,6 +178,17 @@ class Connection
             }
         } finally {
             $this->streamConnection->close();
+        }
+    }
+
+    public function __destruct()
+    {
+        if (!$this->closed) {
+            try {
+                $this->close();
+            } catch (\Throwable) {
+                // Suppress - cannot throw from destructor
+            }
         }
     }
 

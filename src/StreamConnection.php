@@ -79,11 +79,20 @@ class StreamConnection
 
     public function close(): void
     {
-        if ($this->connected && $this->socket) {
-            socket_close($this->socket);
+        if ($this->connected && $this->socket instanceof \Socket) {
+            try {
+                socket_close($this->socket);
+            } catch (\Throwable) {
+                // Socket may already be closed, ignore
+            }
             $this->socket = null;
         }
         $this->connected = false;
+    }
+
+    public function __destruct()
+    {
+        $this->close();
     }
 
     public function isConnected(): bool
