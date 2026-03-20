@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **PHP_CodeSniffer with PSR-12 and Slevomat Coding Standard** — comprehensive code style enforcement:
+  - Added `phpcsstandards/php_codesniffer` ^3.9 and `slevomat/coding-standard` ^8.15 to dev dependencies
+  - Created `phpcs.xml.dist` with strict rules (PSR-12 + Slevomat)
+  - Added `composer lint` and `composer lint:fix` scripts
+  - CI runs linting as a gate before tests
+  - All 184 PHP files now comply with strict standards
+  - Enforces: `declare(strict_types=1)`, alphabetically sorted uses, no unused imports, short array syntax, trailing commas
+
 ### Removed
 - **`StreamClient`** — deprecated high-level client (use `Connection::create()` instead)
 - **`StreamClientConfig`** — deprecated config class (use `Connection::create()` parameters instead)
