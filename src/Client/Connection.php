@@ -21,7 +21,10 @@ use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
@@ -59,7 +62,10 @@ class Connection
 
         // 1. PeerProperties
         $streamConnection->sendMessage(new PeerPropertiesToStreamBufferV1());
-        $streamConnection->readMessage();
+        $peerResponse = $streamConnection->readMessage();
+        if (!$peerResponse instanceof PeerPropertiesResponseV1) {
+            throw new \Exception("Expected PeerPropertiesResponseV1, got " . $peerResponse::class);
+        }
 
         // 2. SaslHandshake
         $streamConnection->sendMessage(new SaslHandshakeRequestV1());
@@ -75,7 +81,10 @@ class Connection
 
         // 3. SaslAuthenticate
         $streamConnection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', $user, $password));
-        $streamConnection->readMessage();
+        $authResponse = $streamConnection->readMessage();
+        if (!$authResponse instanceof SaslAuthenticateResponseV1) {
+            throw new \Exception("Expected SaslAuthenticateResponseV1, got " . $authResponse::class);
+        }
 
         // 4. Tune (server sends TuneRequestV1)
         $tune = $streamConnection->readMessage();
@@ -88,7 +97,10 @@ class Connection
 
         // 6. Open
         $streamConnection->sendMessage(new OpenRequest($vhost));
-        $streamConnection->readMessage();
+        $openResponse = $streamConnection->readMessage();
+        if (!$openResponse instanceof OpenResponseV1) {
+            throw new \Exception("Expected OpenResponseV1, got " . $openResponse::class);
+        }
 
         return new self($streamConnection);
     }
