@@ -40,7 +40,9 @@ class ConsumerTest extends TestCase
 
         $this->assertCount(1, $params);
         $this->assertEquals('timeout', $params[0]->getName());
-        $this->assertEquals('float', $params[0]->getType()->getName());
+        $type = $params[0]->getType();
+        $this->assertInstanceOf(\ReflectionNamedType::class, $type);
+        $this->assertEquals('float', $type->getName());
         $this->assertEquals(5.0, $params[0]->getDefaultValue());
 
         // Test calling with float timeout works
@@ -64,7 +66,9 @@ class ConsumerTest extends TestCase
 
         $this->assertCount(1, $params);
         $this->assertEquals('timeout', $params[0]->getName());
-        $this->assertEquals('float', $params[0]->getType()->getName());
+        $type = $params[0]->getType();
+        $this->assertInstanceOf(\ReflectionNamedType::class, $type);
+        $this->assertEquals('float', $type->getName());
         $this->assertEquals(5.0, $params[0]->getDefaultValue());
 
         // Test calling with float timeout works
