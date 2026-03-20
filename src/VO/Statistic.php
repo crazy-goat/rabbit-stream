@@ -34,7 +34,7 @@ class Statistic implements FromStreamBufferInterface, ToStreamBufferInterface, T
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?object
     {
-        return new self($buffer->gatString(), $buffer->getInt64());
+        return new self($buffer->getString(), $buffer->getInt64());
     }
 
     public function toArray(): array

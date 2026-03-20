@@ -319,7 +319,7 @@ class StreamConnection
                 $frame->getUint16(); // version
                 $correlationId = $frame->getUint32();
                 $closingCode = $frame->getUint16();
-                $closingReason = $frame->gatString();
+                $closingReason = $frame->getString();
                 $this->logger->debug(sprintf(
                     'Server-initiated close: code=%d, reason=%s',
                     $closingCode,

@@ -31,7 +31,7 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $code = $buffer->getUint16();
-        $stream = $buffer->gatString();
+        $stream = $buffer->getString();
         return new self($code, $stream);
     }
 

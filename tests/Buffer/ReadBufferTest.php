@@ -22,13 +22,13 @@ class ReadBufferTest extends TestCase
     public function testGatString(): void
     {
         $buf = new ReadBuffer("\x00\x05hello");
-        $this->assertSame('hello', $buf->gatString());
+        $this->assertSame('hello', $buf->getString());
     }
 
     public function testGatStringNull(): void
     {
         $buf = new ReadBuffer("\xFF\xFF");
-        $this->assertNull($buf->gatString());
+        $this->assertNull($buf->getString());
     }
 
     public function testGetBytes(): void

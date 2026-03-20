@@ -34,7 +34,7 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
     {
         return new self(
             $buffer->getUint16(),
-            $buffer->gatString(),
+            $buffer->getString(),
             $buffer->getUint32()
         );
     }
