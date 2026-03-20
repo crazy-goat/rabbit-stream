@@ -18,7 +18,8 @@ $connection = Connection::create(
 );
 
 // Resume from last stored offset, auto-commit every 1000 messages
-$consumer = $connection->createConsumer('my-stream',
+$consumer = $connection->createConsumer(
+    'my-stream',
     offset: OffsetSpec::first(),
     name: 'my-consumer',
     autoCommit: 1000,

@@ -84,7 +84,7 @@ class ConnectionTest extends TestCase
         $connection->createStream($streamName);
 
         $metadata = $connection->getMetadata([$streamName]);
-        
+
         $this->assertNotEmpty($metadata->getStreamMetadata());
         $this->assertSame($streamName, $metadata->getStreamMetadata()[0]->getStreamName());
 
@@ -107,7 +107,7 @@ class ConnectionTest extends TestCase
         $connection->createStream($streamName);
 
         $stats = $connection->getStreamStats($streamName);
-        
+
         // Stats should be an array (may be empty for new stream)
         $this->assertIsArray($stats);
 
@@ -127,7 +127,7 @@ class ConnectionTest extends TestCase
         );
 
         $streamName = 'test-duplicate-stream-' . uniqid();
-        
+
         // Create stream first time
         $connection->createStream($streamName);
 

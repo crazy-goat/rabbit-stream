@@ -22,7 +22,8 @@ class DeclarePublisherRequestV1 implements ToStreamBufferInterface, ToArrayInter
         private int $publisherId,
         private ?string $publisherReference,
         private string $stream,
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

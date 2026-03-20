@@ -21,7 +21,8 @@ class QueryOffsetRequestV1 implements ToStreamBufferInterface, ToArrayInterface,
     public function __construct(
         private string $reference,
         private string $stream
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

@@ -11,7 +11,8 @@ class Message
         private readonly array $properties = [],
         private readonly array $applicationProperties = [],
         private readonly array $messageAnnotations = [],
-    ) {}
+    ) {
+    }
 
     public function getOffset(): int
     {

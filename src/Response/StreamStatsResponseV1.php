@@ -24,7 +24,8 @@ class StreamStatsResponseV1 implements KeyVersionInterface, CorrelationInterface
      */
     public function __construct(
         private array $stats
-    ) {}
+    ) {
+    }
 
     /**
      * @return Statistic[]

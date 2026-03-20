@@ -18,7 +18,8 @@ class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, KeyV
     public function __construct(
         private int $subscriptionId,
         private int $credit
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

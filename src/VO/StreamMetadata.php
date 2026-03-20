@@ -14,7 +14,8 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
         private int $responseCode,
         private int $leaderReference,
         private array $replicasReferences
-    ) {}
+    ) {
+    }
 
     public function getStreamName(): string
     {

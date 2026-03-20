@@ -25,7 +25,8 @@ class CreateRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corr
     public function __construct(
         private string $stream,
         private array $arguments = []
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

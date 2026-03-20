@@ -142,25 +142,25 @@ class StreamConnection
         // If timeout is specified, wait for socket to be ready for writing
         if ($timeout !== null && $timeout > 0) {
             $deadline = microtime(true) + $timeout;
-            
+
             $read = null;
             $write = [$this->socket];
             $except = null;
-            
+
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 throw new \RuntimeException("Write timeout: socket not ready for writing");
             }
-            
+
             $timeoutSec = (int) $remaining;
             $timeoutUsec = (int) (($remaining - $timeoutSec) * 1_000_000);
-            
+
             $ready = socket_select($read, $write, $except, $timeoutSec, $timeoutUsec);
-            
+
             if ($ready === false) {
                 throw new \RuntimeException("socket_select failed: " . socket_strerror(socket_last_error($this->socket)));
             }
-            
+
             if ($ready === 0) {
                 throw new \RuntimeException("Write timeout: socket not ready for writing");
             }
@@ -177,7 +177,7 @@ class StreamConnection
     public function readMessage(float $timeout = 30.0): object
     {
         $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
-        
+
         while (true) {
             if (!$this->connected) {
                 throw new \RuntimeException("Connection closed");
@@ -372,7 +372,7 @@ class StreamConnection
 
         $timeoutSec = (int) $timeout;
         $timeoutUsec = (int) (($timeout - $timeoutSec) * 1_000_000);
-        
+
         $ready = socket_select($read, $write, $except, $timeout > 0 ? $timeoutSec : 0, $timeout > 0 ? $timeoutUsec : 0);
 
         if ($ready === false) {

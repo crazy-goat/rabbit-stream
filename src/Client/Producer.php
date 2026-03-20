@@ -14,7 +14,7 @@ class Producer
 {
     private int $publishingId = 0;
     private int $pendingConfirms = 0;
-    
+
     /** @var ?callable */
     private readonly mixed $onConfirm;
 

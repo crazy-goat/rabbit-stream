@@ -12,7 +12,8 @@ class PublishedMessageV2 implements ToStreamBufferInterface, ToArrayInterface
         private int $publishingId,
         private string $filterValue,
         private string $message,
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

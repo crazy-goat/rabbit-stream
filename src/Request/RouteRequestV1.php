@@ -21,7 +21,8 @@ class RouteRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corre
     public function __construct(
         private string $routingKey,
         private string $superStream
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

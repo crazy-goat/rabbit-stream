@@ -21,7 +21,9 @@ class MetadataRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Co
     /**
      * @param string[] $streams
      */
-    public function __construct(private array $streams) {}
+    public function __construct(private array $streams)
+    {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

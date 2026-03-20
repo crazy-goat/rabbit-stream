@@ -8,7 +8,8 @@ class ChunkEntry
         private readonly int $offset,
         private readonly string $data,
         private readonly int $timestamp,
-    ) {}
+    ) {
+    }
 
     public function getOffset(): int
     {

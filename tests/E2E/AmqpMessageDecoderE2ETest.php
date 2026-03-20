@@ -32,7 +32,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * E2E tests for AMQP 1.0 Message Decoder
- * 
+ *
  * These tests verify that messages published to RabbitMQ Stream can be
  * correctly decoded using the AmqpMessageDecoder.
  */
@@ -207,7 +207,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmed): void {
                 $confirmed = true;
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertTrue($confirmed, 'Message should be confirmed');
@@ -281,7 +282,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmed): void {
                 $confirmed = true;
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertTrue($confirmed);
@@ -354,7 +356,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmed): void {
                 $confirmed = true;
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertTrue($confirmed);
@@ -431,7 +434,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
             function (array $ids) use (&$confirmedCount): void {
                 $confirmedCount += count($ids);
             },
-            function (): void {}
+            function (): void {
+            }
         );
         $connection->readLoop(maxFrames: 1);
         $this->assertSame(3, $confirmedCount);

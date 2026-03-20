@@ -2,7 +2,6 @@
 
 namespace CrazyGoat\RabbitStream\VO;
 
-
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;

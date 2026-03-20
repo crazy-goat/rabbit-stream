@@ -20,7 +20,8 @@ class ConsumerUpdateReplyV1 implements ToStreamBufferInterface, ToArrayInterface
         private int $responseCode,
         private int $offsetType,
         private int $offset,
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

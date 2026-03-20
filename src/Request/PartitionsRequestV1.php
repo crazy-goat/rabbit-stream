@@ -18,7 +18,9 @@ class PartitionsRequestV1 implements ToStreamBufferInterface, ToArrayInterface, 
     use V1Trait;
     use CommandTrait;
 
-    public function __construct(private string $superStream) {}
+    public function __construct(private string $superStream)
+    {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

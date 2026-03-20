@@ -21,113 +21,113 @@ class ConnectionTest extends TestCase
     public function testCreateStreamSendsCorrectRequest(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
-        
+
         $streamConnection->expects($this->once())
             ->method('sendMessage')
             ->with($this->callback(function ($request) {
-                return $request instanceof CreateRequestV1 
+                return $request instanceof CreateRequestV1
                     && $request->toArray()['stream'] === 'test-stream';
             }));
-        
+
         $streamConnection->expects($this->once())
             ->method('readMessage')
             ->willReturn(new CreateResponseV1());
-        
+
         // Create Connection using reflection to inject mock
         $connection = $this->createConnectionWithMock($streamConnection);
-        
+
         $connection->createStream('test-stream');
     }
 
     public function testCloseSendsCloseRequestBeforeClosingSocket(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
-        
+
         $streamConnection->expects($this->once())
             ->method('sendMessage')
             ->with($this->callback(function ($request) {
                 return $request instanceof CloseRequestV1;
             }));
-        
+
         $streamConnection->expects($this->once())
             ->method('readMessage')
             ->willReturn(new CloseResponseV1());
-        
+
         $streamConnection->expects($this->once())
             ->method('close');
-        
+
         $connection = $this->createConnectionWithMock($streamConnection);
-        
+
         $connection->close();
     }
 
     public function testStreamExistsReturnsTrueWhenStreamExists(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
-        
+
         $streamConnection->expects($this->once())
             ->method('sendMessage')
             ->with($this->callback(function ($request) {
-                return $request instanceof MetadataRequestV1 
+                return $request instanceof MetadataRequestV1
                     && $request->toArray()['streams'] === ['existing-stream'];
             }));
-        
+
         $metadata = new MetadataResponseV1(
             brokers: [new Broker(1, 'localhost', 5552)],
             streamMetadata: [new StreamMetadata('existing-stream', 0x01, 1, [])]
         );
-        
+
         $streamConnection->expects($this->once())
             ->method('readMessage')
             ->willReturn($metadata);
-        
+
         $connection = $this->createConnectionWithMock($streamConnection);
-        
+
         $this->assertTrue($connection->streamExists('existing-stream'));
     }
 
     public function testStreamExistsReturnsFalseWhenStreamDoesNotExist(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
-        
+
         $streamConnection->expects($this->once())
             ->method('sendMessage')
             ->with($this->callback(function ($request) {
-                return $request instanceof MetadataRequestV1 
+                return $request instanceof MetadataRequestV1
                     && $request->toArray()['streams'] === ['non-existing-stream'];
             }));
-        
+
         $metadata = new MetadataResponseV1(
             brokers: [],
             streamMetadata: [new StreamMetadata('non-existing-stream', 0x02, 0, [])] // 0x02 = STREAM_NOT_EXIST
         );
-        
+
         $streamConnection->expects($this->once())
             ->method('readMessage')
             ->willReturn($metadata);
-        
+
         $connection = $this->createConnectionWithMock($streamConnection);
-        
+
         $this->assertFalse($connection->streamExists('non-existing-stream'));
     }
 
     public function testDeleteStreamSendsCorrectRequest(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
-        
+
         $streamConnection->expects($this->once())
             ->method('sendMessage')
             ->with($this->callback(function ($request) {
-                return $request instanceof DeleteStreamRequestV1 
+                return $request instanceof DeleteStreamRequestV1
                     && $request->toArray()['stream'] === 'stream-to-delete';
             }));
-        
+
         $streamConnection->expects($this->once())
             ->method('readMessage')
             ->willReturn(new DeleteStreamResponseV1());
-        
+
         $connection = $this->createConnectionWithMock($streamConnection);
-        
+
         $connection->deleteStream('stream-to-delete');
     }
 
@@ -136,10 +136,10 @@ class ConnectionTest extends TestCase
         $reflection = new \ReflectionClass(Connection::class);
         $constructor = $reflection->getConstructor();
         $constructor->setAccessible(true);
-        
+
         $connection = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($connection, $mock);
-        
+
         return $connection;
     }
 }

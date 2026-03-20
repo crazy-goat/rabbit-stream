@@ -26,7 +26,7 @@ class QueryOffsetResponseV1 implements KeyVersionInterface, CorrelationInterface
         $correlationId = $buffer->getUint32();
         self::isResponseCodeOk($buffer->getUint16());
         $offset = $buffer->getUint64();
-        
+
         $object = new self();
         $object->withCorrelationId($correlationId);
         $object->offset = $offset;

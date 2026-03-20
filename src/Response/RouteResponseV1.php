@@ -23,7 +23,8 @@ class RouteResponseV1 implements KeyVersionInterface, CorrelationInterface, From
      */
     public function __construct(
         private array $streams
-    ) {}
+    ) {
+    }
 
     /**
      * @return string[]

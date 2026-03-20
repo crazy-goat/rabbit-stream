@@ -19,7 +19,8 @@ class StoreOffsetRequestV1 implements ToStreamBufferInterface, ToArrayInterface,
         private string $reference,
         private string $stream,
         private int $offset
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

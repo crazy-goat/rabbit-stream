@@ -68,7 +68,7 @@ class PublishTest extends TestCase
         $producer->send('message-one');
         $producer->send('message-two');
         $producer->send('message-three');
-        
+
         $connection->readLoop(maxFrames: 3);
 
         $this->assertCount(3, $confirmedIds);

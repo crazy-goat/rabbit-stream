@@ -11,7 +11,8 @@ class PublishedMessage implements ToStreamBufferInterface, ToArrayInterface
     public function __construct(
         private int $publishingId,
         private string $message,
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

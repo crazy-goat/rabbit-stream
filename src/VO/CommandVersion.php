@@ -15,7 +15,8 @@ class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterfa
         private int $key,
         private int $minVersion,
         private int $maxVersion
-    ) {}
+    ) {
+    }
 
     public function getKey(): int
     {

@@ -18,7 +18,9 @@ class DeletePublisherRequestV1 implements ToStreamBufferInterface, ToArrayInterf
     use V1Trait;
     use CommandTrait;
 
-    public function __construct(private int $publisherId) {}
+    public function __construct(private int $publisherId)
+    {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

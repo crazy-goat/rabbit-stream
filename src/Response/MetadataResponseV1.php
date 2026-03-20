@@ -27,7 +27,8 @@ class MetadataResponseV1 implements KeyVersionInterface, CorrelationInterface, F
     public function __construct(
         private array $brokers,
         private array $streamMetadata
-    ) {}
+    ) {
+    }
 
     /**
      * @return Broker[]

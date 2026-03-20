@@ -21,7 +21,8 @@ $connection->createStream('my-stream', [
     'max-length-bytes' => '1000000000',
 ]);
 
-$producer = $connection->createProducer('my-stream',
+$producer = $connection->createProducer(
+    'my-stream',
     name: 'my-producer',
     onConfirm: function (ConfirmationStatus $status) {
         if ($status->isConfirmed()) {

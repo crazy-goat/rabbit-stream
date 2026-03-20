@@ -15,7 +15,9 @@ class MetadataUpdateResponseV1 implements KeyVersionInterface, FromStreamBufferI
     use CommandTrait;
     use V1Trait;
 
-    public function __construct(private int $code, private string $stream) {}
+    public function __construct(private int $code, private string $stream)
+    {
+    }
 
     public function getCode(): int
     {

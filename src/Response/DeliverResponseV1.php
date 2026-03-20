@@ -15,7 +15,9 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
     use CommandTrait;
     use V1Trait;
 
-    public function __construct(private int $subscriptionId, private string $chunkBytes) {}
+    public function __construct(private int $subscriptionId, private string $chunkBytes)
+    {
+    }
 
     public function getSubscriptionId(): int
     {

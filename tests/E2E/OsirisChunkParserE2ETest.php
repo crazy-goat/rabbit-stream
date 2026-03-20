@@ -93,7 +93,8 @@ class OsirisChunkParserE2ETest extends TestCase
             function (array $ids) use (&$confirmedIds): void {
                 $confirmedIds = array_merge($confirmedIds, $ids);
             },
-            function (): void {}
+            function (): void {
+            }
         );
 
         $connection->readLoop(maxFrames: 1);
@@ -160,7 +161,8 @@ class OsirisChunkParserE2ETest extends TestCase
             function (array $ids) use (&$confirmedIds): void {
                 $confirmedIds = $ids;
             },
-            function (): void {}
+            function (): void {
+            }
         );
 
         $connection->readLoop(maxFrames: 1);

@@ -18,7 +18,9 @@ class StreamStatsRequestV1 implements ToStreamBufferInterface, ToArrayInterface,
     use V1Trait;
     use CommandTrait;
 
-    public function __construct(private string $stream) {}
+    public function __construct(private string $stream)
+    {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

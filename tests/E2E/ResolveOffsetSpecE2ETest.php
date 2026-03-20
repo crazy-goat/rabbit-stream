@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * E2E tests for ResolveOffsetSpec command.
- * 
+ *
  * These tests check if the server supports the ResolveOffsetSpec command (0x001f)
  * via ExchangeCommandVersions. If the command is not supported (RabbitMQ < 4.3),
  * all tests are skipped.
@@ -35,7 +35,7 @@ class ResolveOffsetSpecE2ETest extends TestCase
     {
         self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-        
+
         // Check if server supports ResolveOffsetSpec command
         try {
             $connection = new StreamConnection(self::$host, self::$port);

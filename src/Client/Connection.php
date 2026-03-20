@@ -37,7 +37,8 @@ class Connection
 
     private function __construct(
         private readonly StreamConnection $streamConnection,
-    ) {}
+    ) {
+    }
 
     public static function create(
         string $host = '127.0.0.1',

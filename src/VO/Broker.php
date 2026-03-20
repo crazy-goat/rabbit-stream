@@ -13,7 +13,8 @@ class Broker implements FromStreamBufferInterface, ToArrayInterface, FromArrayIn
         private int $reference,
         private string $host,
         private int $port
-    ) {}
+    ) {
+    }
 
     public function getReference(): int
     {

@@ -18,7 +18,9 @@ class DeleteSuperStreamRequestV1 implements ToStreamBufferInterface, ToArrayInte
     use V1Trait;
     use CommandTrait;
 
-    public function __construct(private string $name) {}
+    public function __construct(private string $name)
+    {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

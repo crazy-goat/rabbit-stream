@@ -21,7 +21,8 @@ class QueryPublisherSequenceRequestV1 implements ToStreamBufferInterface, ToArra
     public function __construct(
         private string $reference,
         private string $stream
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

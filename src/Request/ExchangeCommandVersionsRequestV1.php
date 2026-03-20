@@ -22,7 +22,9 @@ class ExchangeCommandVersionsRequestV1 implements ToStreamBufferInterface, ToArr
     /**
      * @param CommandVersion[] $commands
      */
-    public function __construct(private array $commands) {}
+    public function __construct(private array $commands)
+    {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

@@ -11,7 +11,8 @@ class PublishingError implements ToArrayInterface, FromArrayInterface
     public function __construct(
         private int $publishingId,
         private int $code,
-    ) {}
+    ) {
+    }
 
     public function getPublishingId(): int
     {

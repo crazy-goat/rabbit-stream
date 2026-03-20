@@ -22,7 +22,8 @@ class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, ToArrayInte
     public function __construct(
         private string $stream,
         private OffsetSpec $offsetSpec
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

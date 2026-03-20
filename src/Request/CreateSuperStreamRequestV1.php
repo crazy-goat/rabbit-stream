@@ -29,7 +29,8 @@ class CreateSuperStreamRequestV1 implements ToStreamBufferInterface, ToArrayInte
         private array $partitions = [],
         private array $bindingKeys = [],
         private array $arguments = []
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

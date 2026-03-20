@@ -18,7 +18,9 @@ class UnsubscribeRequestV1 implements ToStreamBufferInterface, ToArrayInterface,
     use V1Trait;
     use CommandTrait;
 
-    public function __construct(private int $subscriptionId) {}
+    public function __construct(private int $subscriptionId)
+    {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {

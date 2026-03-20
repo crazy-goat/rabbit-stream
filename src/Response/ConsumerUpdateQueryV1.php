@@ -18,7 +18,9 @@ class ConsumerUpdateQueryV1 implements KeyVersionInterface, CorrelationInterface
     use CorrelationTrait;
     use V1Trait;
 
-    public function __construct(private int $subscriptionId, private bool $active) {}
+    public function __construct(private int $subscriptionId, private bool $active)
+    {
+    }
 
     public function getSubscriptionId(): int
     {

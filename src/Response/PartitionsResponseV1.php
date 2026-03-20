@@ -23,7 +23,8 @@ class PartitionsResponseV1 implements KeyVersionInterface, CorrelationInterface,
      */
     public function __construct(
         private array $streams
-    ) {}
+    ) {
+    }
 
     /**
      * @return string[]

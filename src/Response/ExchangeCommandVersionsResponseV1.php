@@ -22,7 +22,9 @@ class ExchangeCommandVersionsResponseV1 implements KeyVersionInterface, Correlat
     /**
      * @param CommandVersion[] $commands
      */
-    public function __construct(private array $commands) {}
+    public function __construct(private array $commands)
+    {
+    }
 
     /**
      * @return CommandVersion[]

@@ -24,7 +24,8 @@ class SubscribeRequestV1 implements ToStreamBufferInterface, ToArrayInterface, C
         private string $stream,
         private OffsetSpec $offsetSpec,
         private int $credit
-    ) {}
+    ) {
+    }
 
     public function toStreamBuffer(): WriteBuffer
     {
