@@ -42,6 +42,8 @@ while ($running) {
 
 echo "Consumed {$count} messages.\n";
 
-$consumer->storeOffset($msg->getOffset());
+if (isset($msg)) {
+    $consumer->storeOffset($msg->getOffset());
+}
 $consumer->close();
 $connection->close();

@@ -20,6 +20,8 @@ composer require crazy-goat/rabbit-stream
 ### Publishing
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(host: 'localhost', port: 5552);
 
 $producer = $connection->createProducer('my-stream', name: 'my-producer');
@@ -33,6 +35,9 @@ $connection->close();
 ### Consuming
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
 $connection = Connection::create(host: 'localhost', port: 5552);
 
 $consumer = $connection->createConsumer('my-stream', offset: OffsetSpec::first());
