@@ -13,7 +13,11 @@ use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\Statistic;
 
-class StreamStatsResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
+class StreamStatsResponseV1 implements
+    KeyVersionInterface,
+    CorrelationInterface,
+    FromStreamBufferInterface,
+    FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;

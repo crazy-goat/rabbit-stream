@@ -13,7 +13,11 @@ use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 
-class CreateSuperStreamRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
+class CreateSuperStreamRequestV1 implements
+    ToStreamBufferInterface,
+    ToArrayInterface,
+    CorrelationInterface,
+    KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;

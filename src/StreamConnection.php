@@ -58,7 +58,10 @@ class StreamConnection
 
         $result = socket_connect($socket, $this->host, $this->port);
         if (!$result) {
-            throw new \RuntimeException("Cannot connect to {$this->host}:{$this->port}: " . socket_strerror(socket_last_error($this->socket)));
+            throw new \RuntimeException(
+                "Cannot connect to {$this->host}:{$this->port}: " .
+                socket_strerror(socket_last_error($this->socket))
+            );
         }
 
         $this->connected = true;
@@ -158,7 +161,9 @@ class StreamConnection
             $ready = socket_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
-                throw new \RuntimeException("socket_select failed: " . socket_strerror(socket_last_error($this->socket)));
+                throw new \RuntimeException(
+                    "socket_select failed: " . socket_strerror(socket_last_error($this->socket))
+                );
             }
 
             if ($ready === 0) {
@@ -168,7 +173,9 @@ class StreamConnection
 
         $written = socket_write($this->socket, $frame, strlen($frame));
         if ($written === false) {
-            throw new \RuntimeException("Failed to write to socket: " . socket_strerror(socket_last_error($this->socket)));
+            throw new \RuntimeException(
+                "Failed to write to socket: " . socket_strerror(socket_last_error($this->socket))
+            );
         }
 
         return $written;
@@ -244,7 +251,9 @@ class StreamConnection
             $ready = socket_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
-                throw new \RuntimeException('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
+                throw new \RuntimeException(
+                    'socket_select failed: ' . socket_strerror(socket_last_error($this->socket))
+                );
             }
 
             if ($ready === 0) {

@@ -13,7 +13,11 @@ use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-class ResolveOffsetSpecRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
+class ResolveOffsetSpecRequestV1 implements
+    ToStreamBufferInterface,
+    ToArrayInterface,
+    CorrelationInterface,
+    KeyVersionInterface
 {
     use CorrelationTrait;
     use V1Trait;

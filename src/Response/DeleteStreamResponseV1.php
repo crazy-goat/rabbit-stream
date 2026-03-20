@@ -12,7 +12,11 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class DeleteStreamResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
+class DeleteStreamResponseV1 implements
+    KeyVersionInterface,
+    CorrelationInterface,
+    FromStreamBufferInterface,
+    FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;

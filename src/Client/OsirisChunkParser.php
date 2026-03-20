@@ -17,7 +17,11 @@ class OsirisChunkParser
         $magic = ($magicVersion >> 4) & 0x0F;
         $version = $magicVersion & 0x0F;
         if ($magic !== 5) {
-            throw new \RuntimeException(sprintf('Invalid chunk magic: expected 5, got %d (raw byte: 0x%02x)', $magic, $magicVersion));
+            throw new \RuntimeException(sprintf(
+                'Invalid chunk magic: expected 5, got %d (raw byte: 0x%02x)',
+                $magic,
+                $magicVersion
+            ));
         }
         if ($version !== 0) {
             throw new \RuntimeException(sprintf('Unsupported chunk version: expected 0, got %d', $version));
@@ -57,7 +61,10 @@ class OsirisChunkParser
                 $uncompressedCount = $header & 0xFFFF;
 
                 if ($codec !== 0) {
-                    throw new \RuntimeException(sprintf('Compressed sub-batches not supported yet (codec: %d)', $codec));
+                    throw new \RuntimeException(sprintf(
+                        'Compressed sub-batches not supported yet (codec: %d)',
+                        $codec
+                    ));
                 }
 
                 $uncompressedSize = $buffer->getUint32();

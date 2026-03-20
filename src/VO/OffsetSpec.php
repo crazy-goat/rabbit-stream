@@ -19,7 +19,20 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         private int $type,
         private ?int $value = null
     ) {
-        if (!in_array($type, [self::TYPE_FIRST, self::TYPE_LAST, self::TYPE_NEXT, self::TYPE_OFFSET, self::TYPE_TIMESTAMP, self::TYPE_INTERVAL], true)) {
+        if (
+            !in_array(
+                $type,
+                [
+                    self::TYPE_FIRST,
+                    self::TYPE_LAST,
+                    self::TYPE_NEXT,
+                    self::TYPE_OFFSET,
+                    self::TYPE_TIMESTAMP,
+                    self::TYPE_INTERVAL,
+                ],
+                true
+            )
+        ) {
             throw new \InvalidArgumentException("Invalid offset spec type: $type");
         }
     }

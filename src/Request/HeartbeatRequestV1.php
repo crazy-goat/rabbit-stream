@@ -12,7 +12,11 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class HeartbeatRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
+class HeartbeatRequestV1 implements
+    FromStreamBufferInterface,
+    ToStreamBufferInterface,
+    ToArrayInterface,
+    KeyVersionInterface
 {
     use V1Trait;
     use CommandTrait;

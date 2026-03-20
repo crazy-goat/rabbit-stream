@@ -160,7 +160,9 @@ class FromArrayTest extends TestCase
         $response = MetadataResponseV1::fromArray([
             'correlationId' => 7,
             'brokers' => [['reference' => 1, 'host' => 'localhost', 'port' => 5672]],
-            'streamMetadata' => [['stream' => 'my-stream', 'responseCode' => 1, 'leaderReference' => 1, 'replicasReferences' => []]],
+            'streamMetadata' => [
+                ['stream' => 'my-stream', 'responseCode' => 1, 'leaderReference' => 1, 'replicasReferences' => []],
+            ],
         ]);
         $this->assertSame(7, $response->getCorrelationId());
         $this->assertCount(1, $response->getBrokers());

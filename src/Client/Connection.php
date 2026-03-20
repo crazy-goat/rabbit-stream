@@ -188,7 +188,15 @@ class Connection
         int $initialCredit = 10,
     ): Consumer {
         $subscriptionId = $this->subscriptionIdCounter++;
-        return new Consumer($this->streamConnection, $stream, $subscriptionId, $offset, $name, $autoCommit, $initialCredit);
+        return new Consumer(
+            $this->streamConnection,
+            $stream,
+            $subscriptionId,
+            $offset,
+            $name,
+            $autoCommit,
+            $initialCredit
+        );
     }
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void

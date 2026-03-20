@@ -64,7 +64,8 @@ class ResponseBuilder
             KeyEnum::DELIVER => DeliverResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::METADATA_UPDATE => MetadataUpdateResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::METADATA_RESPONSE => MetadataResponseV1::fromStreamBuffer($responseBuffer),
-            KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE => QueryPublisherSequenceResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::QUERY_PUBLISHER_SEQUENCE_RESPONSE =>
+                QueryPublisherSequenceResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::QUERY_OFFSET_RESPONSE => QueryOffsetResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::HEARTBEAT => HeartbeatRequestV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CONSUMER_UPDATE => ConsumerUpdateQueryV1::fromStreamBuffer($responseBuffer),
@@ -80,9 +81,12 @@ class ResponseBuilder
             KeyEnum::ROUTE_RESPONSE => RouteResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CREATE_SUPER_STREAM_RESPONSE => CreateSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::DELETE_SUPER_STREAM_RESPONSE => DeleteSuperStreamResponseV1::fromStreamBuffer($responseBuffer),
-            KeyEnum::EXCHANGE_COMMAND_VERSIONS_RESPONSE => ExchangeCommandVersionsResponseV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::EXCHANGE_COMMAND_VERSIONS_RESPONSE =>
+                ExchangeCommandVersionsResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE => ResolveOffsetSpecResponseV1::fromStreamBuffer($responseBuffer),
-            default => throw new \Exception('Unexpected match value: ' . $command->name . ' (0x' . dechex($command->value) . ')'),
+            default => throw new \Exception(
+                'Unexpected match value: ' . $command->name . ' (0x' . dechex($command->value) . ')'
+            ),
         };
     }
 

@@ -14,7 +14,11 @@ use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\Broker;
 use CrazyGoat\RabbitStream\VO\StreamMetadata;
 
-class MetadataResponseV1 implements KeyVersionInterface, CorrelationInterface, FromStreamBufferInterface, FromArrayInterface
+class MetadataResponseV1 implements
+    KeyVersionInterface,
+    CorrelationInterface,
+    FromStreamBufferInterface,
+    FromArrayInterface
 {
     use CorrelationTrait;
     use CommandTrait;
@@ -68,7 +72,12 @@ class MetadataResponseV1 implements KeyVersionInterface, CorrelationInterface, F
             $data['brokers']
         );
         $streamMetadata = array_map(
-            fn(array $s) => new StreamMetadata($s['stream'], $s['responseCode'], $s['leaderReference'], $s['replicasReferences']),
+            fn(array $s) => new StreamMetadata(
+                $s['stream'],
+                $s['responseCode'],
+                $s['leaderReference'],
+                $s['replicasReferences']
+            ),
             $data['streamMetadata']
         );
         $object = new self($brokers, $streamMetadata);
