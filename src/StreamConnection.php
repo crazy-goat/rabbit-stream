@@ -45,6 +45,10 @@ class StreamConnection
         0x001a, // ConsumerUpdate
     ];
 
+    public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
+
+    private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
+
     public function __construct(
         private readonly string $host = '172.17.0.2',
         private readonly int $port = 5552,
@@ -84,6 +88,21 @@ class StreamConnection
     public function isConnected(): bool
     {
         return $this->connected;
+    }
+
+    public function setMaxFrameSize(int $maxFrameSize): void
+    {
+        if ($maxFrameSize < 0) {
+            throw new \InvalidArgumentException(
+                "Max frame size must be >= 0 (0 = no limit), got {$maxFrameSize}"
+            );
+        }
+        $this->maxFrameSize = $maxFrameSize;
+    }
+
+    public function getMaxFrameSize(): int
+    {
+        return $this->maxFrameSize;
     }
 
     public function registerPublisher(int $publisherId, callable $onConfirm, callable $onError): void
@@ -422,6 +441,13 @@ class StreamConnection
             throw new \RuntimeException('Failed to unpack frame size');
         }
         $size = $sizeUnpacked[1];
+
+        if ($this->maxFrameSize > 0 && $size > $this->maxFrameSize) {
+            $this->close();
+            throw new \RuntimeException(
+                "Frame size {$size} exceeds maximum allowed {$this->maxFrameSize}"
+            );
+        }
 
         $frameData = $this->readBytes($size);
         if ($frameData === null) {

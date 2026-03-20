@@ -109,4 +109,120 @@ class StreamConnectionTest extends TestCase
         $this->assertTrue($params[1]->isOptional());
         $this->assertNull($params[1]->getDefaultValue());
     }
+
+    public function testDefaultMaxFrameSizeIs8MB(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertEquals(8 * 1024 * 1024, $connection->getMaxFrameSize());
+    }
+
+    public function testMaxFrameSizeCanBeChanged(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxFrameSize(1024 * 1024); // 1MB
+
+        $this->assertEquals(1024 * 1024, $connection->getMaxFrameSize());
+    }
+
+    public function testMaxFrameSizeCanBeSetToZero(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxFrameSize(0); // 0 = no limit
+
+        $this->assertEquals(0, $connection->getMaxFrameSize());
+    }
+
+    public function testSetMaxFrameSizeRejectsNegativeValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Max frame size must be >= 0');
+
+        $connection->setMaxFrameSize(-1);
+    }
+
+    public function testReadFrameThrowsWhenFrameSizeExceedsLimit(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setMaxFrameSize(1024);
+
+        $frameSize = 2048;
+        socket_write($serverSocket, pack('N', $frameSize));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed \d+/');
+
+        $connection->readFrame();
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testReadFrameClosesConnectionWhenFrameSizeExceedsLimit(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setMaxFrameSize(1024);
+
+        socket_write($serverSocket, pack('N', 2048));
+
+        try {
+            $connection->readFrame();
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertFalse($connection->isConnected());
+
+        socket_close($serverSocket);
+    }
+
+    public function testReadFrameWithZeroMaxFrameSizeAllowsAnyFrame(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setMaxFrameSize(0);
+
+        $payload = str_repeat('x', 100);
+        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+
+        $buffer = $connection->readFrame();
+
+        $this->assertNotNull($buffer);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    /**
+     * @return array{\Socket, \Socket}
+     */
+    private function createSocketPair(): array
+    {
+        $pair = [];
+        socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $pair);
+        return [$pair[0], $pair[1]];
+    }
+
+    private function injectSocket(StreamConnection $connection, \Socket $socket): void
+    {
+        $reflection = new \ReflectionProperty($connection, 'socket');
+        $reflection->setValue($connection, $socket);
+
+        $connectedProp = new \ReflectionProperty($connection, 'connected');
+        $connectedProp->setValue($connection, true);
+    }
 }
