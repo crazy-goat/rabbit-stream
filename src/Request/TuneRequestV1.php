@@ -31,7 +31,7 @@ class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterfac
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return self::getKeYVersion()
+        return self::getKeyVersion()
             ->addUInt32($this->frameMax)
             ->addUInt32($this->heartbeat);
     }
