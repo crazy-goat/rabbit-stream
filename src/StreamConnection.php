@@ -66,9 +66,10 @@ class StreamConnection
 
         $result = socket_connect($socket, $this->host, $this->port);
         if (!$result) {
+            $error = socket_strerror(socket_last_error($socket));
+            socket_close($socket);
             throw new \RuntimeException(
-                "Cannot connect to {$this->host}:{$this->port}: " .
-                socket_strerror(socket_last_error($this->socket))
+                "Cannot connect to {$this->host}:{$this->port}: " . $error
             );
         }
 
@@ -301,6 +302,11 @@ class StreamConnection
                 if (!$this->connected) {
                     break;
                 }
+            } else {
+                $this->logger->warning(
+                    'readLoop() received unexpected non-server-push frame, discarding',
+                    ['key' => sprintf('0x%04x', $key)]
+                );
             }
 
             if ($maxFrames !== null && $dispatched >= $maxFrames) {
