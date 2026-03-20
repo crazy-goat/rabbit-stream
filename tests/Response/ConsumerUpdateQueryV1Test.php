@@ -35,6 +35,7 @@ class ConsumerUpdateQueryV1Test extends TestCase
             . pack('C', 0);
 
         $response = ConsumerUpdateQueryV1::fromStreamBuffer(new ReadBuffer($raw));
+        $this->assertInstanceOf(ConsumerUpdateQueryV1::class, $response);
 
         $this->assertFalse($response->isActive());
     }

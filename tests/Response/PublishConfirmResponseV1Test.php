@@ -36,6 +36,7 @@ class PublishConfirmResponseV1Test extends TestCase
             . pack('J', 3);
 
         $response = PublishConfirmResponseV1::fromStreamBuffer(new ReadBuffer($raw));
+        $this->assertInstanceOf(PublishConfirmResponseV1::class, $response);
 
         $this->assertSame(1, $response->getPublisherId());
         $this->assertSame([1, 2, 3], $response->getPublishingIds());
@@ -49,6 +50,7 @@ class PublishConfirmResponseV1Test extends TestCase
             . pack('N', 0);
 
         $response = PublishConfirmResponseV1::fromStreamBuffer(new ReadBuffer($raw));
+        $this->assertInstanceOf(PublishConfirmResponseV1::class, $response);
 
         $this->assertSame(2, $response->getPublisherId());
         $this->assertSame([], $response->getPublishingIds());

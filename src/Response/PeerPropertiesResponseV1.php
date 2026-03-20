@@ -31,7 +31,7 @@ class PeerPropertiesResponseV1 implements
 
     public function __construct(KeyValue ...$peerProperty)
     {
-        $this->peerProperty = $peerProperty;
+        $this->peerProperty = array_values($peerProperty);
     }
 
     /** @return array<int, KeyValue> */
@@ -57,7 +57,7 @@ class PeerPropertiesResponseV1 implements
         return $object;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
@@ -65,6 +65,6 @@ class PeerPropertiesResponseV1 implements
 
         self::isResponseCodeOk($buffer->getUint16());
 
-        return new self(...$buffer->getObjectArray(KeyValue::class));
+        return new static(...$buffer->getObjectArray(KeyValue::class));
     }
 }

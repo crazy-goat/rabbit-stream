@@ -39,6 +39,7 @@ class PublishErrorResponseV1Test extends TestCase
             . pack('J', 20) . pack('n', 0x0002);
 
         $response = PublishErrorResponseV1::fromStreamBuffer(new ReadBuffer($raw));
+        $this->assertInstanceOf(PublishErrorResponseV1::class, $response);
 
         $this->assertSame(1, $response->getPublisherId());
         $errors = $response->getErrors();

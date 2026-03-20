@@ -249,6 +249,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(SaslHandshakeResponseV1::class, $deserialized);
+        $this->assertInstanceOf(SaslHandshakeResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -266,6 +267,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(PeerPropertiesResponseV1::class, $deserialized);
+        $this->assertInstanceOf(PeerPropertiesResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -281,6 +283,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(SaslAuthenticateResponseV1::class, $deserialized);
+        $this->assertInstanceOf(SaslAuthenticateResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -296,6 +299,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(OpenResponseV1::class, $deserialized);
+        $this->assertInstanceOf(OpenResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -310,6 +314,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(CreateResponseV1::class, $deserialized);
+        $this->assertInstanceOf(CreateResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -324,6 +329,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(DeleteStreamResponseV1::class, $deserialized);
+        $this->assertInstanceOf(DeleteStreamResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -347,6 +353,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(MetadataResponseV1::class, $deserialized);
+        $this->assertInstanceOf(MetadataResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -361,6 +368,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(DeclarePublisherResponseV1::class, $deserialized);
+        $this->assertInstanceOf(DeclarePublisherResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -375,6 +383,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(DeletePublisherResponseV1::class, $deserialized);
+        $this->assertInstanceOf(DeletePublisherResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -389,6 +398,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(SubscribeResponseV1::class, $deserialized);
+        $this->assertInstanceOf(SubscribeResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -403,6 +413,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(UnsubscribeResponseV1::class, $deserialized);
+        $this->assertInstanceOf(UnsubscribeResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 
@@ -417,6 +428,7 @@ class PhpBinarySerializerTest extends TestCase
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
 
         $this->assertInstanceOf(CloseResponseV1::class, $deserialized);
+        $this->assertInstanceOf(CloseResponseV1::class, $expected);
         $this->assertSame($expected->getCorrelationId(), $deserialized->getCorrelationId());
     }
 }

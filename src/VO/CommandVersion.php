@@ -36,9 +36,9 @@ class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterfa
         return $this->maxVersion;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
-        return new self(
+        return new static(
             $buffer->getUint16(),
             $buffer->getUint16(),
             $buffer->getUint16()

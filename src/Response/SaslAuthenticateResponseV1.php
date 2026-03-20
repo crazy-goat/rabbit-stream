@@ -25,7 +25,7 @@ class SaslAuthenticateResponseV1 implements
     use CommandTrait;
     use V1Trait;
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
@@ -33,7 +33,7 @@ class SaslAuthenticateResponseV1 implements
 
         self::isResponseCodeOk($buffer->getUint16());
 
-        $object = new self();
+        $object = new static();
         $object->withCorrelationId($correlationId);
 
         return $object;

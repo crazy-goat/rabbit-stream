@@ -29,7 +29,7 @@ class PublishingError implements ToArrayInterface, FromArrayInterface
 
     public static function fromStreamBuffer(ReadBuffer $buffer): self
     {
-        return new self($buffer->getUint64(), $buffer->getUint16());
+        return new static($buffer->getUint64(), $buffer->getUint16());
     }
 
     /** @return array<string, int> */

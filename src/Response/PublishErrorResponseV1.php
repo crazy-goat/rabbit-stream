@@ -24,7 +24,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
 
     public function __construct(private int $publisherId, PublishingError ...$errors)
     {
-        $this->errors = $errors;
+        $this->errors = array_values($errors);
     }
 
     public function getPublisherId(): int
@@ -38,7 +38,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         return $this->errors;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $publisherId = $buffer->getUint8();
@@ -47,7 +47,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         for ($i = 0; $i < $count; $i++) {
             $errors[] = PublishingError::fromStreamBuffer($buffer);
         }
-        return new self($publisherId, ...$errors);
+        return new static($publisherId, ...$errors);
     }
 
     /** @param array<string, mixed> $data */

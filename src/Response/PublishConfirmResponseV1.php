@@ -23,7 +23,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
 
     public function __construct(private int $publisherId, int ...$publishingIds)
     {
-        $this->publishingIds = $publishingIds;
+        $this->publishingIds = array_values($publishingIds);
     }
 
     public function getPublisherId(): int
@@ -37,7 +37,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return $this->publishingIds;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $publisherId = $buffer->getUint8();
@@ -46,7 +46,7 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
         for ($i = 0; $i < $count; $i++) {
             $publishingIds[] = $buffer->getUint64();
         }
-        return new self($publisherId, ...$publishingIds);
+        return new static($publisherId, ...$publishingIds);
     }
 
     /** @param array<string, mixed> $data */

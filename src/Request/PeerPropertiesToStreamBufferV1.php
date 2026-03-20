@@ -30,7 +30,7 @@ class PeerPropertiesToStreamBufferV1 implements
 
     public function __construct(KeyValue ...$keyValues)
     {
-        $this->keyValues = $keyValues;
+        $this->keyValues = array_values($keyValues);
     }
 
     public function toStreamBuffer(): WriteBuffer

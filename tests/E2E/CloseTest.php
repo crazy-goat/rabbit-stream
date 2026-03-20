@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Request\OpenRequest;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -46,6 +47,7 @@ class CloseTest extends TestCase
         $connection->readMessage();
 
         $tune = $connection->readMessage();
+        $this->assertInstanceOf(TuneRequestV1::class, $tune);
         $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
         $connection->sendMessage(new OpenRequest('/'));

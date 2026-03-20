@@ -21,10 +21,10 @@ class CreditResponseV1 implements KeyVersionInterface, FromStreamBufferInterface
     private int $responseCode;
     private int $subscriptionId;
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
-        $object = new self();
+        $object = new static();
         $object->responseCode = $buffer->getUint16();
         $object->subscriptionId = $buffer->getUInt8();
         return $object;
