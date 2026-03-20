@@ -7,14 +7,11 @@ use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\CorrelationInterface;
-use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
-class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, CorrelationInterface, KeyVersionInterface
+class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
 {
-    use CorrelationTrait;
     use V1Trait;
     use CommandTrait;
 
@@ -25,7 +22,7 @@ class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corr
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return self::getKeyVersion($this->getCorrelationId())
+        return self::getKeyVersion()
             ->addUInt8($this->subscriptionId)
             ->addUInt16($this->credit);
     }
