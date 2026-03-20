@@ -27,9 +27,10 @@ class SaslAuthenticateRequestV1 implements
     public function __construct(private string $mechanism, private string $username, private string $password)
     {
     }
+
     public function toStreamBuffer(): WriteBuffer
     {
-        return  self::getKeYVersion($this->getCorrelationId())
+        return self::getKeYVersion($this->getCorrelationId())
             ->addString($this->mechanism)
             ->addBytes("\0" . $this->username . "\0" . $this->password);
     }
@@ -40,8 +41,14 @@ class SaslAuthenticateRequestV1 implements
         return [
             'mechanism' => $this->mechanism,
             'username' => $this->username,
-            'password' => $this->password,
+            'password' => '***',
         ];
+    }
+
+    /** @return array<string, string> */
+    public function __debugInfo(): array
+    {
+        return $this->toArray();
     }
 
     public static function getKey(): int

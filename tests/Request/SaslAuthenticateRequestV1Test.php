@@ -26,4 +26,33 @@ class SaslAuthenticateRequestV1Test extends TestCase
 
         $this->assertSame($expected, $bytes);
     }
+
+    public function testPasswordIsMaskedInToArray(): void
+    {
+        $request = new SaslAuthenticateRequestV1('PLAIN', 'guest', 'secretpassword123');
+        $array = $request->toArray();
+
+        $this->assertSame('***', $array['password']);
+        $this->assertSame('guest', $array['username']);
+        $this->assertSame('PLAIN', $array['mechanism']);
+    }
+
+    public function testPasswordIsMaskedInDebugInfo(): void
+    {
+        $request = new SaslAuthenticateRequestV1('PLAIN', 'guest', 'secretpassword123');
+        $debugInfo = $request->__debugInfo();
+
+        $this->assertSame('***', $debugInfo['password']);
+        $this->assertSame('guest', $debugInfo['username']);
+        $this->assertSame('PLAIN', $debugInfo['mechanism']);
+    }
+
+    public function testPasswordIsNotMaskedInStreamBuffer(): void
+    {
+        $request = new SaslAuthenticateRequestV1('PLAIN', 'guest', 'secretpassword123');
+        $bytes = $request->toStreamBuffer()->getContents();
+
+        $this->assertStringContainsString('secretpassword123', $bytes);
+        $this->assertStringContainsString('guest', $bytes);
+    }
 }
