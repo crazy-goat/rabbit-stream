@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `StreamConnection` — configurable max frame size limit (default 8MB) to prevent memory exhaustion from malformed frames; `setMaxFrameSize(0)` disables the limit; connection is closed before throwing on violation
 
 ### Fixed
+- `DeliverResponseV1::fromStreamBuffer()` — Deliver v2 frames no longer throw "Unexpected version"; validates key only, allowing both v1 and v2 frames to be processed correctly (#99)
 - `StreamConnection::dispatchServerPush()` — heartbeat echo now uses `sendFrame()` directly instead of `sendMessage()`, preventing spurious `correlationId` increments that caused ID mismatches in long-running connections
 - `StreamConnection::sendMessage()` — `correlationId` is now only incremented for requests implementing `CorrelationInterface`, fixing drift caused by `PublishRequestV1`, `CreditRequestV1`, `StoreOffsetRequestV1`, and `TuneResponseV1`
 
