@@ -32,7 +32,9 @@
         "lint:fix": "phpcbf --standard=phpcs.xml.dist",
         "test": "phpunit",
         "test:unit": "phpunit --testsuite unit",
-        "test:e2e": "phpunit --testsuite e2e"
+        "test:e2e": "phpunit --testsuite e2e",
+        "rector": "rector process --dry-run",
+        "rector:fix": "rector process"
     },
     "config": {
         "allow-plugins": {
