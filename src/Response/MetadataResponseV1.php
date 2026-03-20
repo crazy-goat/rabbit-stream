@@ -70,11 +70,11 @@ class MetadataResponseV1 implements
     public static function fromArray(array $data): static
     {
         $brokers = array_map(
-            fn(array $b) => new Broker($b['reference'], $b['host'], $b['port']),
+            fn(array $b): \CrazyGoat\RabbitStream\VO\Broker => new Broker($b['reference'], $b['host'], $b['port']),
             $data['brokers']
         );
         $streamMetadata = array_map(
-            fn(array $s) => new StreamMetadata(
+            fn(array $s): \CrazyGoat\RabbitStream\VO\StreamMetadata => new StreamMetadata(
                 $s['stream'],
                 $s['responseCode'],
                 $s['leaderReference'],

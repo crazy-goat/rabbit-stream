@@ -36,7 +36,7 @@ class OpenResponseV1 implements
     public static function fromArray(array $data): static
     {
         $properties = array_map(
-            fn(array $p) => new KeyValue($p['key'], $p['value']),
+            fn(array $p): \CrazyGoat\RabbitStream\VO\KeyValue => new KeyValue($p['key'], $p['value']),
             $data['connectionProperties']
         );
         $object = new self(...$properties);

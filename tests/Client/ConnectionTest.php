@@ -26,7 +26,7 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(fn($request) => $request instanceof CreateRequestV1
+            ->with($this->callback(fn($request): bool => $request instanceof CreateRequestV1
                 && $request->toArray()['stream'] === 'test-stream'));
 
         $streamConnection->expects($this->once())
@@ -45,7 +45,7 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(fn($request) => $request instanceof CloseRequestV1));
+            ->with($this->callback(fn($request): bool => $request instanceof CloseRequestV1));
 
         $streamConnection->expects($this->once())
             ->method('readMessage')
@@ -65,7 +65,7 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(fn($request) => $request instanceof MetadataRequestV1
+            ->with($this->callback(fn($request): bool => $request instanceof MetadataRequestV1
                 && $request->toArray()['streams'] === ['existing-stream']));
 
         $metadata = new MetadataResponseV1(
@@ -88,7 +88,7 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(fn($request) => $request instanceof MetadataRequestV1
+            ->with($this->callback(fn($request): bool => $request instanceof MetadataRequestV1
                 && $request->toArray()['streams'] === ['non-existing-stream']));
 
         $metadata = new MetadataResponseV1(
@@ -111,7 +111,7 @@ class ConnectionTest extends TestCase
 
         $streamConnection->expects($this->once())
             ->method('sendMessage')
-            ->with($this->callback(fn($request) => $request instanceof DeleteStreamRequestV1
+            ->with($this->callback(fn($request): bool => $request instanceof DeleteStreamRequestV1
                 && $request->toArray()['stream'] === 'stream-to-delete'));
 
         $streamConnection->expects($this->once())
