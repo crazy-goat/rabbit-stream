@@ -319,7 +319,9 @@ class StreamConnection
         switch ($key) {
             case KeyEnum::HEARTBEAT->value:
                 HeartbeatRequestV1::fromStreamBuffer($frame);
-                $this->sendMessage(new HeartbeatRequestV1());
+                $heartbeat = new HeartbeatRequestV1();
+                $content = $this->serializer->serialize($heartbeat);
+                $this->sendFrame((new WriteBuffer())->addUInt32(strlen($content))->addRaw($content)->getContents());
                 if ($this->heartbeatCallback instanceof \Closure) {
                     ($this->heartbeatCallback)();
                 }
