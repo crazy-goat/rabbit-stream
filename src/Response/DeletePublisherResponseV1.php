@@ -30,7 +30,7 @@ class DeletePublisherResponseV1 implements
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
-        self::isResponseCodeOk($buffer->getUint16());
+        self::assertResponseCodeOk($buffer->getUint16());
         $object = new static();
         $object->withCorrelationId($correlationId);
         return $object;

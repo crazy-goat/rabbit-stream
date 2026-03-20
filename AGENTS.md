@@ -133,7 +133,7 @@ examples/         # Working usage examples
 ### Error Handling
 - Throw `\Exception` for protocol errors (no custom exception hierarchy yet)
 - Return `null` from `fromStreamBuffer()` when parsing fails gracefully
-- `isResponseCodeOk()` in `CommandTrait` throws on non-OK response codes
+- `assertResponseCodeOk()` in `CommandTrait` throws on non-OK response codes
 
 ---
 
@@ -204,7 +204,7 @@ class ExampleResponseV1 implements KeyVersionInterface, CorrelationInterface, Fr
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
-        self::isResponseCodeOk($buffer->getUint16());
+        self::assertResponseCodeOk($buffer->getUint16());
         $object = new self();
         $object->withCorrelationId($correlationId);
         return $object;

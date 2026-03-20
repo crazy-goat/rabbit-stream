@@ -32,7 +32,7 @@ class QueryOffsetResponseV1 implements
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
-        self::isResponseCodeOk($buffer->getUint16());
+        self::assertResponseCodeOk($buffer->getUint16());
         $offset = $buffer->getUint64();
 
         $object = new static();
