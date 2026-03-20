@@ -145,9 +145,8 @@ class StreamConnection
 
     public function sendMessage(object $request, ?float $timeout = null): void
     {
-        $this->correlationId++;
-
         if ($request instanceof CorrelationInterface) {
+            $this->correlationId++;
             $request->withCorrelationId($this->correlationId);
         }
 
