@@ -33,6 +33,7 @@ class CloseRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corre
             ->addString($this->closingReason);
     }
 
+    /** @return array<string, int|string> */
     public function toArray(): array
     {
         return [

@@ -34,6 +34,7 @@ class DeleteSuperStreamRequestV1 implements
             ->addString($this->name);
     }
 
+    /** @return array<string, string> */
     public function toArray(): array
     {
         return ['name' => $this->name];

@@ -33,6 +33,7 @@ class RouteRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Corre
             ->addString($this->superStream);
     }
 
+    /** @return array<string, string> */
     public function toArray(): array
     {
         return [

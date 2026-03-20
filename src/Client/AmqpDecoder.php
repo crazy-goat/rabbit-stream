@@ -76,6 +76,8 @@ class AmqpDecoder
      * Decode a full AMQP 1.0 message into sections.
      * Returns ['header' => [...], 'properties' => [...], 'applicationProperties' => [...],
      *          'messageAnnotations' => [...], 'body' => string|mixed]
+     *
+     * @return array<string, mixed>
      */
     public static function decodeMessage(string $data): array
     {
@@ -158,6 +160,9 @@ class AmqpDecoder
 
     /**
      * Parse Properties list (descriptor 0x73) into named fields.
+     *
+     * @param array<int, mixed> $list
+     * @return array<string, mixed>
      */
     private static function parsePropertiesList(array $list): array
     {
@@ -189,6 +194,7 @@ class AmqpDecoder
 
     // Fixed-width type readers
 
+    /** @return array{0: int, 1: int} */
     private static function readUint8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
@@ -197,6 +203,7 @@ class AmqpDecoder
         return [ord($data[$position]), $position + 1];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readInt8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
@@ -206,6 +213,7 @@ class AmqpDecoder
         return [$value, $position + 1];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readUint16(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
@@ -215,6 +223,7 @@ class AmqpDecoder
         return [$value, $position + 2];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readInt16(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
@@ -224,6 +233,7 @@ class AmqpDecoder
         return [$value, $position + 2];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readUint32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
@@ -237,6 +247,7 @@ class AmqpDecoder
         return [$value, $position + 4];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readInt32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
@@ -246,6 +257,7 @@ class AmqpDecoder
         return [$value, $position + 4];
     }
 
+    /** @return array{0: float, 1: int} */
     private static function readFloat(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
@@ -255,6 +267,7 @@ class AmqpDecoder
         return [$value, $position + 4];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readUint64(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
@@ -273,6 +286,7 @@ class AmqpDecoder
         return [$value, $position + 8];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readInt64(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
@@ -282,6 +296,7 @@ class AmqpDecoder
         return [$value, $position + 8];
     }
 
+    /** @return array{0: float, 1: int} */
     private static function readDouble(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
@@ -291,6 +306,7 @@ class AmqpDecoder
         return [$value, $position + 8];
     }
 
+    /** @return array{0: int, 1: int} */
     private static function readTimestamp(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
@@ -301,6 +317,7 @@ class AmqpDecoder
         return [$value, $position + 8];
     }
 
+    /** @return array{0: string, 1: int} */
     private static function readUuid(string $data, int $position): array
     {
         if ($position + 15 >= strlen($data)) {
@@ -319,6 +336,7 @@ class AmqpDecoder
         return [$value, $position + 16];
     }
 
+    /** @return array{0: bool, 1: int} */
     private static function readBoolean(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
@@ -329,6 +347,7 @@ class AmqpDecoder
 
     // Variable-width type readers
 
+    /** @return array{0: string, 1: int} */
     private static function readBinary8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
@@ -342,6 +361,7 @@ class AmqpDecoder
         return [substr($data, $position, $length), $position + $length];
     }
 
+    /** @return array{0: string, 1: int} */
     private static function readBinary32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
@@ -358,6 +378,7 @@ class AmqpDecoder
         return [substr($data, $position, $length), $position + $length];
     }
 
+    /** @return array{0: string, 1: int} */
     private static function readString8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
@@ -371,6 +392,7 @@ class AmqpDecoder
         return [substr($data, $position, $length), $position + $length];
     }
 
+    /** @return array{0: string, 1: int} */
     private static function readString32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
@@ -387,6 +409,7 @@ class AmqpDecoder
         return [substr($data, $position, $length), $position + $length];
     }
 
+    /** @return array{0: string, 1: int} */
     private static function readSymbol8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
@@ -400,6 +423,7 @@ class AmqpDecoder
         return [substr($data, $position, $length), $position + $length];
     }
 
+    /** @return array{0: string, 1: int} */
     private static function readSymbol32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
@@ -418,6 +442,7 @@ class AmqpDecoder
 
     // Compound type readers
 
+    /** @return array{0: array<int, mixed>, 1: int} */
     private static function readList8(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
@@ -440,6 +465,7 @@ class AmqpDecoder
         return [$list, $position];
     }
 
+    /** @return array{0: array<int, mixed>, 1: int} */
     private static function readList32(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
@@ -468,6 +494,7 @@ class AmqpDecoder
         return [$list, $position];
     }
 
+    /** @return array{0: array<mixed, mixed>, 1: int} */
     private static function readMap8(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
@@ -495,6 +522,7 @@ class AmqpDecoder
         return [$map, $position];
     }
 
+    /** @return array{0: array<mixed, mixed>, 1: int} */
     private static function readMap32(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
@@ -530,6 +558,7 @@ class AmqpDecoder
 
     // Described type reader
 
+    /** @return array{0: array{descriptor: mixed, value: mixed}, 1: int} */
     private static function readDescribedType(string $data, int $position): array
     {
         [$descriptor, $position] = self::decodeValue($data, $position);
@@ -539,6 +568,8 @@ class AmqpDecoder
 
     /**
      * Read a described type and return [descriptor, value, newPosition].
+     *
+     * @return array{0: mixed, 1: mixed, 2: int}
      */
     private static function readDescribedTypeWithPosition(string $data, int $position): array
     {

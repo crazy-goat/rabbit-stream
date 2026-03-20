@@ -19,6 +19,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
     use CommandTrait;
     use V1Trait;
 
+    /** @var array<int, PublishingError> */
     private array $errors;
 
     public function __construct(private int $publisherId, PublishingError ...$errors)
@@ -31,6 +32,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         return $this->publisherId;
     }
 
+    /** @return array<int, PublishingError> */
     public function getErrors(): array
     {
         return $this->errors;
@@ -48,6 +50,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         return new self($publisherId, ...$errors);
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $errors = array_map(

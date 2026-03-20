@@ -82,6 +82,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
 
     /**
      * Build an AMQP 1.0 message with Properties and Data sections
+     *
+     * @param array<string, string|int> $properties
      */
     private function buildAmqpMessageWithProperties(string $body, array $properties): string
     {
@@ -145,6 +147,8 @@ class AmqpMessageDecoderE2ETest extends TestCase
 
     /**
      * Build an AMQP 1.0 message with ApplicationProperties and Data sections
+     *
+     * @param array<string, string|int|bool> $appProperties
      */
     private function buildAmqpMessageWithAppProperties(string $body, array $appProperties): string
     {

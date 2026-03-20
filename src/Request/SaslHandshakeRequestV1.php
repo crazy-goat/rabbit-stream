@@ -29,6 +29,7 @@ class SaslHandshakeRequestV1 implements
         return self::getKeyVersion($this->getCorrelationId());
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [];

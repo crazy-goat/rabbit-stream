@@ -37,6 +37,7 @@ class QueryPublisherSequenceRequestV1 implements
             ->addString($this->stream);
     }
 
+    /** @return array<string, string> */
     public function toArray(): array
     {
         return [

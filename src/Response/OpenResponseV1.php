@@ -40,6 +40,7 @@ class OpenResponseV1 implements
         return $this->connectionProperties;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $properties = array_map(

@@ -38,6 +38,7 @@ class SubscribeRequestV1 implements ToStreamBufferInterface, ToArrayInterface, C
             ->addUInt16($this->credit);
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [

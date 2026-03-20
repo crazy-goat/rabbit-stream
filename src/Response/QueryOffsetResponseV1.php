@@ -45,6 +45,7 @@ class QueryOffsetResponseV1 implements
         return KeyEnum::QUERY_OFFSET_RESPONSE->value;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $object = new static();

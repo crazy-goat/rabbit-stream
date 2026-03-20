@@ -23,6 +23,8 @@ class AmqpMessageDecoderTest extends TestCase
 
     /**
      * Helper to build a Properties section.
+     *
+     * @param array<string, string|int> $properties
      */
     private function buildPropertiesSection(array $properties): string
     {
@@ -83,6 +85,8 @@ class AmqpMessageDecoderTest extends TestCase
 
     /**
      * Helper to build an ApplicationProperties section.
+     *
+     * @param array<string, string|int|bool> $properties
      */
     private function buildApplicationPropertiesSection(array $properties): string
     {

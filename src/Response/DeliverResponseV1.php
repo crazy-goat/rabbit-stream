@@ -48,6 +48,7 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
         return new self($subscriptionId, $chunkBytes);
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['subscriptionId'], $data['chunkBytes']);

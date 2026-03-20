@@ -53,6 +53,7 @@ class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterfa
             ->addUInt16($this->maxVersion);
     }
 
+    /** @return array<string, int> */
     public function toArray(): array
     {
         return [
@@ -62,6 +63,7 @@ class CommandVersion implements FromStreamBufferInterface, ToStreamBufferInterfa
         ];
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static($data['key'], $data['minVersion'], $data['maxVersion']);

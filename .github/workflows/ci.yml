@@ -84,7 +84,7 @@ jobs:
         run: ./vendor/bin/rector process --dry-run
 
   static-analysis:
-    name: PHPStan (level 5)
+    name: PHPStan (level 6)
     needs: [check-actor, rector-check]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest

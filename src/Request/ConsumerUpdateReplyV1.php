@@ -36,6 +36,7 @@ class ConsumerUpdateReplyV1 implements ToStreamBufferInterface, ToArrayInterface
             ->addUInt64($this->offset);
     }
 
+    /** @return array<string, int> */
     public function toArray(): array
     {
         return [

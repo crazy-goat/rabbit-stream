@@ -93,6 +93,7 @@ class Connection
         return new self($streamConnection);
     }
 
+    /** @param array<string, string> $arguments */
     public function createStream(string $name, array $arguments = []): void
     {
         $this->streamConnection->sendMessage(new CreateRequestV1($name, $arguments));
@@ -126,6 +127,7 @@ class Connection
         return false;
     }
 
+    /** @return array<string, int> */
     public function getStreamStats(string $name): array
     {
         $this->streamConnection->sendMessage(new StreamStatsRequestV1($name));
@@ -140,6 +142,7 @@ class Connection
         return $result;
     }
 
+    /** @param array<int, string> $streams */
     public function getMetadata(array $streams): MetadataResponseV1
     {
         $this->streamConnection->sendMessage(new MetadataRequestV1($streams));

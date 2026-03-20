@@ -46,6 +46,7 @@ class ResolveOffsetSpecResponseV1 implements
         return KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE->value;
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         $object = new static();

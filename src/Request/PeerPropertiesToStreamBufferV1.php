@@ -25,6 +25,7 @@ class PeerPropertiesToStreamBufferV1 implements
     use V1Trait;
     use CommandTrait;
 
+    /** @var array<int, KeyValue> */
     private array $keyValues;
 
     public function __construct(KeyValue ...$keyValues)
@@ -38,6 +39,7 @@ class PeerPropertiesToStreamBufferV1 implements
             ->addArray(...$this->keyValues);
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return ['properties' => array_map(fn(KeyValue $kv): array => $kv->toArray(), $this->keyValues)];

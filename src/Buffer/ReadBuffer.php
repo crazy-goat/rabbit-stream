@@ -87,6 +87,7 @@ class ReadBuffer
         return $data;
     }
 
+    /** @return array<int, object> */
     public function getObjectArray(string $class): array
     {
         $arrayLength = $this->getUint32();
@@ -99,6 +100,7 @@ class ReadBuffer
         return $data;
     }
 
+    /** @return array<int, string|null> */
     public function getStringArray(): array
     {
         $arrayLength = $this->getUint32();

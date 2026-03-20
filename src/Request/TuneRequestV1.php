@@ -52,6 +52,7 @@ class TuneRequestV1 implements FromStreamBufferInterface, ToStreamBufferInterfac
         return $this->heartbeat;
     }
 
+    /** @return array<string, int> */
     public function toArray(): array
     {
         return [

@@ -12,6 +12,7 @@ use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 /** @phpstan-consistent-constructor */
 class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
+    /** @param array<int, int> $replicasReferences */
     public function __construct(
         private readonly string $streamName,
         private readonly int $responseCode,
@@ -35,6 +36,7 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
         return $this->leaderReference;
     }
 
+    /** @return array<int, int> */
     public function getReplicasReferences(): array
     {
         return $this->replicasReferences;
@@ -55,6 +57,7 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
         return new self($streamName, $responseCode, $leaderReference, $replicasReferences);
     }
 
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [
@@ -65,6 +68,7 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
         ];
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {
         return new static(

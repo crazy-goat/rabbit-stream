@@ -34,6 +34,7 @@ class SaslAuthenticateRequestV1 implements
             ->addBytes("\0" . $this->username . "\0" . $this->password);
     }
 
+    /** @return array<string, string> */
     public function toArray(): array
     {
         return [

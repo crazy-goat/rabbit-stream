@@ -28,6 +28,7 @@ class PublishedMessage implements ToStreamBufferInterface, ToArrayInterface
         return $this->publishingId;
     }
 
+    /** @return array<string, int|string> */
     public function toArray(): array
     {
         return ['publishingId' => $this->publishingId, 'data' => $this->message];

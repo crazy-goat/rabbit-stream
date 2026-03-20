@@ -30,6 +30,7 @@ class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, KeyV
             ->addUInt16($this->credit);
     }
 
+    /** @return array<string, int> */
     public function toArray(): array
     {
         return [

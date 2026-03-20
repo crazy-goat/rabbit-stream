@@ -34,6 +34,7 @@ class DeletePublisherRequestV1 implements
             ->addUInt8($this->publisherId);
     }
 
+    /** @return array<string, int> */
     public function toArray(): array
     {
         return ['publisherId' => $this->publisherId];
