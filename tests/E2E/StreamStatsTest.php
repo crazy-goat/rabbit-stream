@@ -65,8 +65,7 @@ class StreamStatsTest extends TestCase
         $this->assertInstanceOf(StreamStatsResponseV1::class, $response);
 
         $stats = $response->getStats();
-        $this->assertIsArray($stats);
-        $this->assertGreaterThan(0, count($stats));
+        $this->assertNotEmpty($stats);
 
         $connection->close();
     }

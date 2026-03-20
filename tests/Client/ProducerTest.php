@@ -143,7 +143,7 @@ class ProducerTest extends TestCase
 
         $producer->waitForConfirms(timeout: 1);
 
-        $this->assertTrue(true);
+        $this->addToAssertionCount(1);
     }
 
     public function testSendBatchCreatesSingleRequestWithMultipleMessages(): void

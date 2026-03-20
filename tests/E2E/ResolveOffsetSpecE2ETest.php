@@ -133,7 +133,6 @@ class ResolveOffsetSpecE2ETest extends TestCase
 
         $this->assertInstanceOf(ResolveOffsetSpecResponseV1::class, $response);
         $this->assertSame(1, $response->getCorrelationId());
-        $this->assertIsInt($response->getOffset());
         $this->assertGreaterThanOrEqual(0, $response->getOffset());
 
         $connection->close();
@@ -158,7 +157,7 @@ class ResolveOffsetSpecE2ETest extends TestCase
         $response = $connection->readMessage();
 
         $this->assertInstanceOf(ResolveOffsetSpecResponseV1::class, $response);
-        $this->assertIsInt($response->getOffset());
+        $this->assertGreaterThanOrEqual(0, $response->getOffset());
 
         $connection->close();
     }
@@ -182,8 +181,7 @@ class ResolveOffsetSpecE2ETest extends TestCase
         $response = $connection->readMessage();
 
         $this->assertInstanceOf(ResolveOffsetSpecResponseV1::class, $response);
-        // Should return the same offset if it exists, or the closest valid offset
-        $this->assertIsInt($response->getOffset());
+        $this->assertGreaterThanOrEqual(0, $response->getOffset());
 
         $connection->close();
     }

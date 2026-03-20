@@ -169,16 +169,7 @@ class AmqpDecoderMessageTest extends TestCase
      */
     private function buildAmqpValueSection(string|int $value): string
     {
-        $valueData = '';
-
-        if (is_string($value)) {
-            $valueData = "\xa1" . chr(strlen($value)) . $value;
-        } elseif (is_int($value)) {
-            $valueData = "\x52" . chr($value);
-        } elseif (is_null($value)) {
-            $valueData = "\x40";
-        }
-
+        $valueData = is_string($value) ? "\xa1" . chr(strlen($value)) . $value : "\x52" . chr($value);
         return $this->buildSection(0x77, $valueData);
     }
 

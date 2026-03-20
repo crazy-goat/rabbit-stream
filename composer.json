@@ -29,7 +29,7 @@
         "phpstan/phpstan": "^2.1"
     },
     "scripts": {
-        "lint": "phpcs --standard=phpcs.xml.dist",
+        "lint": ["phpcs --standard=phpcs.xml.dist", "@rector", "@phpstan"],
         "lint:fix": ["@rector:fix", "phpcbf --standard=phpcs.xml.dist"],
         "phpstan": "phpstan analyse",
         "test": "phpunit",
