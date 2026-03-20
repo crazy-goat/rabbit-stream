@@ -45,7 +45,7 @@ class StreamConnection
         0x001a, // ConsumerUpdate
     ];
 
-    private const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
+    public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
 
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
 
@@ -92,6 +92,11 @@ class StreamConnection
 
     public function setMaxFrameSize(int $maxFrameSize): void
     {
+        if ($maxFrameSize < 0) {
+            throw new \InvalidArgumentException(
+                "Max frame size must be >= 0 (0 = no limit), got {$maxFrameSize}"
+            );
+        }
         $this->maxFrameSize = $maxFrameSize;
     }
 
@@ -437,7 +442,8 @@ class StreamConnection
         }
         $size = $sizeUnpacked[1];
 
-        if ($size > $this->maxFrameSize) {
+        if ($this->maxFrameSize > 0 && $size > $this->maxFrameSize) {
+            $this->close();
             throw new \RuntimeException(
                 "Frame size {$size} exceeds maximum allowed {$this->maxFrameSize}"
             );
