@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\PublishingError;
 
+/** @phpstan-consistent-constructor */
 class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CommandTrait;
@@ -56,7 +57,7 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
             ),
             $data['errors']
         );
-        return new self($data['publisherId'], ...$errors);
+        return new static($data['publisherId'], ...$errors);
     }
 
     public static function getKey(): int

@@ -15,6 +15,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 
+/** @phpstan-consistent-constructor */
 class PeerPropertiesResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -48,7 +49,7 @@ class PeerPropertiesResponseV1 implements
             fn(array $p): \CrazyGoat\RabbitStream\VO\KeyValue => new KeyValue($p['key'], $p['value']),
             $data['properties']
         );
-        $object = new self(...$properties);
+        $object = new static(...$properties);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }

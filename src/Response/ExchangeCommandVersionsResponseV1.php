@@ -15,6 +15,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 
+/** @phpstan-consistent-constructor */
 class ExchangeCommandVersionsResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -63,7 +64,7 @@ class ExchangeCommandVersionsResponseV1 implements
             ),
             $data['commands']
         );
-        $object = new self($commands);
+        $object = new static($commands);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }

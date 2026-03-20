@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 
+/** @phpstan-consistent-constructor */
 class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
@@ -66,6 +67,11 @@ class StreamMetadata implements FromStreamBufferInterface, ToArrayInterface, Fro
 
     public static function fromArray(array $data): static
     {
-        return new self($data['stream'], $data['responseCode'], $data['leaderReference'], $data['replicasReferences']);
+        return new static(
+            $data['stream'],
+            $data['responseCode'],
+            $data['leaderReference'],
+            $data['replicasReferences']
+        );
     }
 }

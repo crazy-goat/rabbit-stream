@@ -12,6 +12,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 
+/** @phpstan-consistent-constructor */
 class CreditResponseV1 implements KeyVersionInterface, FromStreamBufferInterface, FromArrayInterface
 {
     use CommandTrait;
@@ -41,7 +42,7 @@ class CreditResponseV1 implements KeyVersionInterface, FromStreamBufferInterface
 
     public static function fromArray(array $data): static
     {
-        $object = new self();
+        $object = new static();
         $object->responseCode = $data['responseCode'];
         $object->subscriptionId = $data['subscriptionId'];
         return $object;

@@ -15,6 +15,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\Statistic;
 
+/** @phpstan-consistent-constructor */
 class StreamStatsResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -66,7 +67,7 @@ class StreamStatsResponseV1 implements
             fn(array $s): \CrazyGoat\RabbitStream\VO\Statistic => new Statistic($s['key'], $s['value']),
             $data['stats']
         );
-        $object = new self($stats);
+        $object = new static($stats);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }

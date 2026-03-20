@@ -8,6 +8,7 @@ use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 
+/** @phpstan-consistent-constructor */
 class PublishingError implements ToArrayInterface, FromArrayInterface
 {
     public function __construct(
@@ -38,6 +39,6 @@ class PublishingError implements ToArrayInterface, FromArrayInterface
 
     public static function fromArray(array $data): static
     {
-        return new self($data['publishingId'], $data['code']);
+        return new static($data['publishingId'], $data['code']);
     }
 }

@@ -15,6 +15,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 
+/** @phpstan-consistent-constructor */
 class OpenResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -39,7 +40,7 @@ class OpenResponseV1 implements
             fn(array $p): \CrazyGoat\RabbitStream\VO\KeyValue => new KeyValue($p['key'], $p['value']),
             $data['connectionProperties']
         );
-        $object = new self(...$properties);
+        $object = new static(...$properties);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }

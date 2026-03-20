@@ -16,6 +16,7 @@ use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\Broker;
 use CrazyGoat\RabbitStream\VO\StreamMetadata;
 
+/** @phpstan-consistent-constructor */
 class MetadataResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
@@ -82,7 +83,7 @@ class MetadataResponseV1 implements
             ),
             $data['streamMetadata']
         );
-        $object = new self($brokers, $streamMetadata);
+        $object = new static($brokers, $streamMetadata);
         $object->withCorrelationId($data['correlationId']);
         return $object;
     }
