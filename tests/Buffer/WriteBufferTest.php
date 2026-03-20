@@ -57,6 +57,58 @@ class WriteBufferTest extends TestCase
         $this->assertSame("\x00\x02hi", $buf->getContents());
     }
 
+    public function testAddStringWithUtf8(): void
+    {
+        $buf = (new WriteBuffer())->addString('héllo');
+        $this->assertSame("\x00\x06héllo", $buf->getContents());
+    }
+
+    public function testAddStringWithMultiByteCharacters(): void
+    {
+        $buf = (new WriteBuffer())->addString('日本語');
+        $this->assertSame("\x00\x09日本語", $buf->getContents());
+    }
+
+    public function testAddStringWithEmoji(): void
+    {
+        $buf = (new WriteBuffer())->addString('Hello 👋 World 🌍');
+        $this->assertSame("\x00\x15Hello 👋 World 🌍", $buf->getContents());
+    }
+
+    public function testAddEmptyString(): void
+    {
+        $buf = (new WriteBuffer())->addString('');
+        $this->assertSame("\x00\x00", $buf->getContents());
+    }
+
+    public function testAddInvalidUtf8StringThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('String must be valid UTF-8');
+
+        $invalidUtf8 = "\x80\x81";
+        (new WriteBuffer())->addString($invalidUtf8);
+    }
+
+    public function testAddStringAtMaxLength(): void
+    {
+        $maxLengthString = str_repeat('a', 32767);
+        $buf = (new WriteBuffer())->addString($maxLengthString);
+        $contents = $buf->getContents();
+
+        $this->assertSame("\x7F\xFF", substr($contents, 0, 2));
+        $this->assertSame($maxLengthString, substr($contents, 2));
+    }
+
+    public function testAddStringExceedingMaxLengthThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for string length');
+
+        $tooLongString = str_repeat('a', 32768);
+        (new WriteBuffer())->addString($tooLongString);
+    }
+
     public function testAddNullString(): void
     {
         $buf = (new WriteBuffer())->addString(null);
