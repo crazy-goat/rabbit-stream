@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- `CommandTrait::assertResponseCodeOk()` — renamed from `isResponseCodeOk()` to better communicate its throwing behavior; error messages now include hex response code, enum name, and human-readable description for easier debugging (#109)
+
 ### Security
 - `SaslAuthenticateRequestV1::toArray()` — password is now masked as `'***'` to prevent credential leakage in logs/debug output; added `__debugInfo()` to protect `var_dump()`/`print_r()` output (#112)
 - `StreamConnection` — configurable max frame size limit (default 8MB) to prevent memory exhaustion from malformed frames; `setMaxFrameSize(0)` disables the limit; connection is closed before throwing on violation
