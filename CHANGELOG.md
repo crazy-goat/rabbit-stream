@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `StreamConnection` — configurable max frame size limit (default 8MB) to prevent memory exhaustion from malformed frames; `setMaxFrameSize(0)` disables the limit; connection is closed before throwing on violation
 
 ### Fixed
+- `Connection::create()` — added response type validation for PeerProperties, SaslAuthenticate, and Open handshake steps; previously these responses were silently discarded, masking server errors (#106)
 - `StreamConnection::connect()` — fixed use of unassigned `$this->socket` in error path that masked real connection failures; socket is now properly closed before throwing (#104)
 - `StreamConnection::readLoop()` — non-server-push frames are now logged as warnings via PSR logger instead of being silently discarded (#104)
 - `DeliverResponseV1::fromStreamBuffer()` — Deliver v2 frames no longer throw "Unexpected version"; validates key only, allowing both v1 and v2 frames to be processed correctly (#99)
