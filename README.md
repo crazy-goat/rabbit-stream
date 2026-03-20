@@ -15,6 +15,37 @@ It provides low-level TCP communication with a RabbitMQ broker over the native S
 composer require crazy-goat/rabbit-stream
 ```
 
+## Quick Start
+
+### Publishing
+
+```php
+$connection = Connection::create(host: 'localhost', port: 5552);
+
+$producer = $connection->createProducer('my-stream', name: 'my-producer');
+$producer->send('hello world');
+$producer->waitForConfirms(timeout: 5);
+$producer->close();
+
+$connection->close();
+```
+
+### Consuming
+
+```php
+$connection = Connection::create(host: 'localhost', port: 5552);
+
+$consumer = $connection->createConsumer('my-stream', offset: OffsetSpec::first());
+while ($messages = $consumer->read(timeout: 5)) {
+    foreach ($messages as $msg) {
+        echo $msg->getBody() . "\n";
+    }
+}
+$consumer->close();
+
+$connection->close();
+```
+
 ## Usage
 
 ### High-level API (Recommended)

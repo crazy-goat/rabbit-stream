@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `Consumer` class with pull-based `read()`/`readOne()`, auto-commit, offset management
+- `OsirisChunkParser` — parses delivery chunks into individual messages
+- `AmqpDecoder` / `AmqpMessageDecoder` — decodes AMQP 1.0 messages
+- `Message` value object with body, properties, application-properties
+- `BinarySerializerInterface` — swappable serialization backend
+- `toArray()` on all Request classes, `fromArray()` on all Response classes
+- New examples: `examples/producer.php`, `examples/consumer.php`, `examples/consumer_auto_commit.php`, `examples/stream_management.php`
+- Quick Start section in README.md
+
+### Deprecated
+- `StreamClient` — use `Connection::create()` instead
+- `StreamClientConfig` — use `Connection::create()` parameters instead
+- `ProducerConfig` — use `Connection::createProducer()` parameters instead
+
+### Added
 - `Connection` — new high-level entry point class replacing `StreamClient` with full handshake, stream management, and producer/consumer factory methods
 - `Connection::create()` — factory method with automatic handshake (PeerProperties → SASL → Tune → Open)
 - `Connection::createStream()`, `Connection::deleteStream()`, `Connection::streamExists()` — stream management methods
