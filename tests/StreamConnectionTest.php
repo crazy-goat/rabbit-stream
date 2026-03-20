@@ -109,4 +109,29 @@ class StreamConnectionTest extends TestCase
         $this->assertTrue($params[1]->isOptional());
         $this->assertNull($params[1]->getDefaultValue());
     }
+
+    public function testDefaultMaxFrameSizeIs8MB(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertEquals(8 * 1024 * 1024, $connection->getMaxFrameSize());
+    }
+
+    public function testMaxFrameSizeCanBeChanged(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxFrameSize(1024 * 1024); // 1MB
+
+        $this->assertEquals(1024 * 1024, $connection->getMaxFrameSize());
+    }
+
+    public function testMaxFrameSizeCanBeSetToZero(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxFrameSize(0); // No limit
+
+        $this->assertEquals(0, $connection->getMaxFrameSize());
+    }
 }
