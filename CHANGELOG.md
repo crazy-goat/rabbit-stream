@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Connection::create()** — added optional `requestedFrameMax` and `requestedHeartbeat` parameters for client-side Tune negotiation; implements proper negotiation logic per RabbitMQ Stream Protocol (min of client/server values, with 0 = no limit); includes input validation and comprehensive unit tests (#217)
 - **Custom Exception Hierarchy** — replaced all generic `\Exception`, `\RuntimeException`, and `\InvalidArgumentException` with domain-specific exceptions (#242):
   - `RabbitStreamException` — base exception (extends `\RuntimeException`)
   - `ConnectionException` — socket/connection errors
