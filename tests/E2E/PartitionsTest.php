@@ -12,6 +12,7 @@ use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use PHPUnit\Framework\TestCase;
 
@@ -42,7 +43,7 @@ class PartitionsTest extends TestCase
 
         $tune = $connection->readMessage();
         $this->assertInstanceOf(TuneRequestV1::class, $tune);
-        $connection->sendMessage(new TuneRequestV1($tune->getFrameMax(), $tune->getHeartbeat()));
+        $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
         $connection->sendMessage(new OpenRequestV1('/'));
         $connection->readMessage();
