@@ -26,14 +26,27 @@ Two entry points:
 - **User gives issue number** → run `gh issue view {NUMBER}` first; if the issue is closed or doesn't exist, inform the user and ask them to provide a different issue number or say "pick" to see the ranked list
 - **User asks "what can we do?" / "fix something"** → start at Step 1 (pick issue)
 
-## Quick Reference
+## Workflow Summary
 
-| Command | Purpose |
-|---------|---------|
-| `gh issue list --state open` | List open issues |
-| `gh issue view {N}` | Read issue details |
-| `composer test:unit` | Unit tests |
-| `composer lint` | Check code style |
-| `composer lint:fix` | Auto-fix style |
-| `composer phpstan` | Static analysis |
-| `gh pr checks --watch` | Wait for CI |
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Step 7: Code Review Loop (with Git Notes Checklist)       │
+│                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐   │
+│  │   Review     │───→│    Build     │───→│   Review     │   │
+│  │  (checks)    │    │   (fixes)    │    │ (verifies)   │   │
+│  └──────────────┘    └──────────────┘    └──────────────┘   │
+│         ↑                                    │              │
+│         └────────────────────────────────────┘              │
+│                                                             │
+│  Git Notes (markdown checklist):                            │
+│  - [ ] Critical issues to fix                               │
+│  - [ ] Important issues to fix                              │
+│  - [x] Completed items                                      │
+│  - Loop counter                                             │
+│                                                             │
+│  Every 10 loops → ask user: "Continue or proceed to PR?"   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key principle:** Review agent maintains the checklist, build agent fixes unchecked items, main thread orchestrates and asks user every 10 loops.

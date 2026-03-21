@@ -1,110 +1,130 @@
 # Step 7 — Internal Code Review (MANDATORY)
 
-**CRITICAL: Code review MUST always be performed by a `code-heavy` subagent. Never do code review in the main thread.**
+**CRITICAL: Code review MUST always be performed by a `code-heavy` subagent.**
 
-Before pushing anything, dispatch a `code-heavy` subagent (Task tool, `subagent_type: code-heavy`) to review the implementation. This is mandatory — do not skip.
+Dispatch a `code-heavy` subagent to review the implementation and update the review checklist in git notes.
 
-**Why use sub-agent:** Code review requires deep analysis of multiple files, checking against protocol specs, and identifying subtle issues. Doing this in the main thread clutters the conversation and reduces quality. The `code-heavy` subagent is optimized for thorough code analysis.
+## Git Notes Format (Markdown Checklist)
 
-## Prompt for the Subagent
+The subagent maintains a markdown checklist in git notes:
 
-**DO NOT run lint, fixer, rector, or phpstan in code review** - these are already done in Step 6 (Quality Gates). Focus on code analysis only.
+```markdown
+# Code Review Checklist - Loop {N}
 
-> You are a code reviewer for the `crazy-goat/streamy-carrot` PHP library (RabbitMQ Streams Protocol client).
+## Summary
+- **Status**: IN_PROGRESS | PASSED | FAILED
+- **Loop**: {counter}
+- **Critical**: {count}
+- **Important**: {count}
+- **Minor**: {count}
+
+## Checklist
+
+### Critical (MUST FIX)
+- [ ] src/File.php:42 | Missing type declaration
+- [ ] src/Other.php:55 | Protocol violation
+
+### Important (SHOULD FIX)
+- [ ] src/File.php:60 | Wrong return type
+
+### Minor (NICE TO HAVE)
+- [ ] src/File.php:70 | Trailing whitespace
+- [ ] tests/Test.php:30 | Missing edge case
+
+## Previous Loops
+- Loop 1: 3 critical, 2 important found
+- Loop 2: 1 critical, 0 important found
+```
+
+## Prompt for the Review Subagent
+
+> Review the current branch against `main`. 
 >
-> Run `git diff main...HEAD` to find all changed files, then read them in full. Check:
-> - Correctness against the RabbitMQ Streams Protocol spec
-> - PHP 8.1+ type safety (all param/return types declared, no `mixed` unless unavoidable)
-> - PSR-12 code style
-> - Test coverage (request serialization, response deserialization, edge cases)
-> - Adherence to project conventions from `AGENTS.md`
-> - No `@phpstan-ignore` suppressions
+> **First, read existing git notes:**
+> ```bash
+> BRANCH=$(git branch --show-current)
+> git notes --ref=refs/notes/review show $BRANCH 2>/dev/null || echo "NO_NOTES"
+> ```
 >
-> Return findings categorized as Critical / Important / Minor with file:line references. Be specific.
-> 
-> **ALSO - Check previous review and save new findings:**
-> 
-> First, check if there are previous review notes:
+> **Check what was already fixed:**
+> - Compare previous checklist with current code
+> - Mark completed items as checked [x]
+> - Add new issues found as unchecked [ ]
+>
+> **Check:**
+> - Protocol correctness
+> - PHP 8.1+ type safety
+> - PSR-12 compliance
+> - Test coverage
+> - AGENTS.md conventions
+>
+> **Update git notes with new checklist:**
 > ```bash
-> git notes --ref=refs/notes/review show $(git branch --show-current) 2>/dev/null || echo "No previous notes"
+> BRANCH=$(git branch --show-current)
+> # Remove old notes
+> git notes --ref=refs/notes/review remove $BRANCH 2>/dev/null || true
+> # Add new checklist (use heredoc or echo with newlines)
+> git notes --ref=refs/notes/review add -m "# Code Review Checklist - Loop {N}..." $BRANCH
 > ```
-> If notes exist, compare with current code to verify previous issues were fixed.
-> 
-> Then remove old notes and save new findings:
+>
+> **Return exactly one sentence:**
+> - If all Critical/Important checked: "Code review passed - ready to proceed to PR"
+> - If any Critical/Important unchecked: "Code review found issues - continue fixing"
+
+## Prompt for the Build Subagent (Fixing Issues)
+
+> Read the current checklist from git notes:
 > ```bash
-> git notes --ref=refs/notes/review remove $(git branch --show-current) 2>/dev/null || true
-> git notes --ref=refs/notes/review add -m "REPORT|critical=2|important=1|minor=3" $(git branch --show-current)
-> git notes --ref=refs/notes/review append -m "CRITICAL|src/File.php:42|Missing type declaration" $(git branch --show-current)
-> git notes --ref=refs/notes/review append -m "IMPORTANT|src/File.php:55|Wrong return type" $(git branch --show-current)
-> git notes --ref=refs/notes/review append -m "MINOR|src/File.php:60|Trailing whitespace" $(git branch --show-current)
+> BRANCH=$(git branch --show-current)
+> git notes --ref=refs/notes/review show $BRANCH 2>/dev/null || echo "NO_NOTES"
 > ```
-> Format: `CATEGORY|file:line|description` or `REPORT|critical=N|important=N|minor=N`
+>
+> Fix ALL unchecked Critical and Important items:
+> - Read the files mentioned
+> - Apply fixes
+> - Do NOT update git notes (review agent does that)
+>
+> After fixing, run quality gates from Step 6:
+> - `composer test:unit`
+> - `composer lint`  
+> - `composer phpstan`
+>
+> Return: "Fixed {N} critical and {M} important issues"
 
-## Communication via Git Notes (REQUIRED)
-
-Git notes act as shared memory between review and build agents:
-
-1. **Review agent (code-heavy)** → **WRITES** findings to notes
-2. **Build agent (code/code-heavy)** → **READS** notes and fixes issues (does NOT remove notes - review agent needs them for verification)
-3. **Next review agent** → **READS** previous notes to verify fixes, then **REMOVES** old notes and writes new findings
-
-**For Build agent - read notes only (DO NOT REMOVE):**
-```bash
-BRANCH=$(git branch --show-current)
-git notes --ref=refs/notes/review show $BRANCH 2>/dev/null || echo "No notes found"
-# DO NOT remove notes here - review agent needs them for verification
-```
-
-**For Review agent - check previous fixes, then remove and write new:**
-```bash
-BRANCH=$(git branch --show-current)
-# First, check previous notes to verify fixes
-git notes --ref=refs/notes/review show $BRANCH 2>/dev/null || echo "No previous notes"
-
-# Then remove old notes and write new findings
-git notes --ref=refs/notes/review remove $BRANCH 2>/dev/null || true
-git notes --ref=refs/notes/review add -m "REPORT|critical=0|important=0|minor=0" $BRANCH
-```
-
-## Iteration Loop
-
-Repeat until zero Critical and zero Important:
-
-1. **Review** (code-heavy) analyzes code, WRITES findings to git notes
-2. **Build** (code/code-heavy) READS notes, fixes every Critical/Important issue (does NOT remove notes)
-3. **Build agent re-runs quality gates** (already defined in Step 6): `composer test:unit`, `composer lint`, `composer phpstan`
-4. **Review** (code-heavy) READS previous notes to verify fixes, REMOVES old notes, WRITES new findings
-5. Stop only when review reports: no Critical, no Important (and notes show REPORT|critical=0|important=0)
-
-**Note:** The code review subagent should NOT run lint, fixer, rector, or phpstan - these are already handled in Step 6 (Quality Gates) by the build agent. The reviewer's job is code analysis only.
-
-**If Critical or Important issues persist after reasonable effort:**
-
-Use the `question` tool to ask the user for guidance:
+## Main Thread Loop Logic
 
 ```
-question:
-  questions:
-    - header: "Code review issues remaining"
-      question: "After multiple review cycles, Critical/Important issues remain. How should we proceed?"
-      options:
-        - label: "Continue fixing"
-          description: "Keep iterating until all issues are resolved"
-        - label: "Accept with issues"
-          description: "Proceed to PR despite remaining issues (document them)"
-        - label: "Abandon this approach"
-          description: "Try a different implementation strategy"
+LOOP_COUNTER = 0
+MAX_LOOPS = 10
+
+while true:
+    LOOP_COUNTER += 1
+    
+    # Every 10 loops, ask user
+    if LOOP_COUNTER % 10 == 0:
+        ask_user: "Continue fixing or proceed to PR?"
+        if user says proceed:
+            break
+    
+    # Run review subagent
+    result = dispatch_review_subagent()
+    
+    if result == "Code review passed - ready to proceed to PR":
+        break
+    
+    if result == "Code review found issues - continue fixing":
+        # Run build subagent to fix issues
+        dispatch_build_subagent()
+        # Loop continues - review will check what was fixed
 ```
 
-**Never proceed to Step 8 while any Critical or Important issue remains without explicit user approval.**
+## Decision Rules
 
-## Handling Minor Issues
+**Review subagent decides:**
+- PASSED = all Critical and Important items are checked [x]
+- FAILED = any Critical or Important item is unchecked [ ]
 
-Fix Minor issues if the fix is trivial (< 5 minutes). For non-trivial Minor issues:
-
-1. List all remaining Minor issues to the user
-2. Ask the user: "Should I create a follow-up GitHub issue for these, or fix them now?"
-3. If user says create a ticket: create one issue collecting all remaining Minor items, then proceed to Step 8
-4. If user says fix: fix them, re-run quality gates, then proceed to Step 8
-
-**Do not declare the review "clean" or "passed" while any issues remain** — always show the user what was found and what was deferred.
+**Main thread stops when:**
+1. Review returns "passed" → proceed to Step 8
+2. User says "proceed anyway" after 10+ loops
+3. Review returns "failed" but no new issues in 3 consecutive loops (stuck detection)
