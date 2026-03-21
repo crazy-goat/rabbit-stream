@@ -11,7 +11,7 @@ use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -100,7 +100,7 @@ class Connection
         $streamConnection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
         // 6. Open
-        $streamConnection->sendMessage(new OpenRequest($vhost));
+        $streamConnection->sendMessage(new OpenRequestV1($vhost));
         $openResponse = $streamConnection->readMessage();
         if (!$openResponse instanceof OpenResponseV1) {
             throw UnexpectedResponseException::create(OpenResponseV1::class, $openResponse);

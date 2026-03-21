@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use PHPUnit\Framework\TestCase;
 
-class OpenRequestTest extends TestCase
+class OpenRequestV1Test extends TestCase
 {
     public function testSerializesWithDefaultVhost(): void
     {
-        $request = new OpenRequest();
+        $request = new OpenRequestV1();
         $request->withCorrelationId(3);
 
         $bytes = $request->toStreamBuffer()->getContents();
@@ -26,7 +26,7 @@ class OpenRequestTest extends TestCase
 
     public function testSerializesWithCustomVhost(): void
     {
-        $request = new OpenRequest('/myapp');
+        $request = new OpenRequestV1('/myapp');
         $request->withCorrelationId(1);
 
         $bytes = $request->toStreamBuffer()->getContents();

@@ -6,7 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\RouteRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -47,7 +47,7 @@ class RouteTest extends TestCase
         $this->assertInstanceOf(TuneRequestV1::class, $tune);
         $connection->sendMessage(new TuneRequestV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
-        $connection->sendMessage(new OpenRequest('/'));
+        $connection->sendMessage(new OpenRequestV1('/'));
         $connection->readMessage();
 
         return $connection;

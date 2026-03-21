@@ -12,7 +12,7 @@ use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -97,7 +97,7 @@ class PhpBinarySerializerTest extends TestCase
 
     public function testSerializeWithOpenRequest(): void
     {
-        $request = new OpenRequest('/');
+        $request = new OpenRequestV1('/');
         $request->withCorrelationId(3);
 
         $serialized = $this->serializer->serialize($request);
