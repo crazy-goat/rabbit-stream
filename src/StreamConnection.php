@@ -426,11 +426,11 @@ class StreamConnection
                     [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
                 }
                 $reply = new ConsumerUpdateReplyV1(
-                    correlationId: $query->getCorrelationId(),
                     responseCode: 0x0001,
                     offsetType: $offsetType,
                     offset: $offset,
                 );
+                $reply->withCorrelationId($query->getCorrelationId());
                 $content = $this->serializer->serialize($reply);
                 $this->sendFrame((new WriteBuffer())->addUInt32(strlen($content))->addRaw($content)->getContents());
                 break;
