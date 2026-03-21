@@ -94,6 +94,7 @@ class Producer
 
     public function close(): void
     {
+        $this->connection->unregisterPublisher($this->publisherId);
         $this->connection->sendMessage(new DeletePublisherRequestV1($this->publisherId));
         $this->connection->readMessage();
     }

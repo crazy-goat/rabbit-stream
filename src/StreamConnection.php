@@ -137,6 +137,11 @@ class StreamConnection
         unset($this->subscriberCallbacks[$subscriptionId]);
     }
 
+    public function unregisterPublisher(int $publisherId): void
+    {
+        unset($this->publisherCallbacks[$publisherId]);
+    }
+
     public function onMetadataUpdate(callable $callback): void
     {
         $this->metadataUpdateCallback = \Closure::fromCallable($callback);
