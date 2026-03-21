@@ -45,10 +45,52 @@ class WriteBufferTest extends TestCase
         $this->assertSame("\xFF\xFF", $buf->getContents());
     }
 
+    public function testAddInt16WithMinValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt16(-32768);
+        $this->assertSame("\x80\x00", $buf->getContents());
+    }
+
+    public function testAddInt16WithMaxValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt16(32767);
+        $this->assertSame("\x7F\xFF", $buf->getContents());
+    }
+
+    public function testAddInt16WithNegativeBoundary(): void
+    {
+        $buf = (new WriteBuffer())->addInt16(-256);
+        $this->assertSame("\xFF\x00", $buf->getContents());
+    }
+
     public function testAddInt32(): void
     {
         $buf = (new WriteBuffer())->addInt32(-1);
         $this->assertSame("\xFF\xFF\xFF\xFF", $buf->getContents());
+    }
+
+    public function testAddInt32WithMinValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt32(-2147483648);
+        $this->assertSame("\x80\x00\x00\x00", $buf->getContents());
+    }
+
+    public function testAddInt32WithMaxValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt32(2147483647);
+        $this->assertSame("\x7F\xFF\xFF\xFF", $buf->getContents());
+    }
+
+    public function testAddInt64(): void
+    {
+        $buf = (new WriteBuffer())->addInt64(-1);
+        $this->assertSame("\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF", $buf->getContents());
+    }
+
+    public function testAddInt64WithLargeNegative(): void
+    {
+        $buf = (new WriteBuffer())->addInt64(PHP_INT_MIN);
+        $this->assertSame("\x80\x00\x00\x00\x00\x00\x00\x00", $buf->getContents());
     }
 
     public function testAddString(): void
