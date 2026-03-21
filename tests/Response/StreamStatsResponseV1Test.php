@@ -63,7 +63,7 @@ class StreamStatsResponseV1Test extends TestCase
             . pack('n', 0x0002);            // response code (Stream does not exist)
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('StreamStats request failed with response code: 2');
+        $this->expectExceptionMessage('Unexpected response code: 0x0002 (STREAM_NOT_EXIST: Stream does not exist)');
 
         StreamStatsResponseV1::fromStreamBuffer(new ReadBuffer($raw));
     }

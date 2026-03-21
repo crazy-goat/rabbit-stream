@@ -10,8 +10,6 @@ use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
-use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
@@ -50,15 +48,7 @@ class StreamStatsResponseV1 implements
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
 
         $correlationId = $buffer->getUint32();
-        $responseCode = $buffer->getUint16();
-
-        if ($responseCode !== 0x01) {
-            $code = ResponseCodeEnum::tryFrom($responseCode);
-            throw new ProtocolException(
-                'StreamStats request failed with response code: ' . $responseCode,
-                responseCode: $code
-            );
-        }
+        self::assertResponseCodeOk($buffer->getUint16());
 
         $stats = $buffer->getObjectArray(Statistic::class);
 
