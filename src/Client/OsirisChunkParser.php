@@ -32,7 +32,9 @@ class OsirisChunkParser
 
         $chunkType = $buffer->getUint8();
         if ($chunkType !== 0) {
-            throw new DeserializationException(sprintf('Unsupported chunk type: expected 0 (user data), got %d', $chunkType));
+            throw new DeserializationException(
+                sprintf('Unsupported chunk type: expected 0 (user data), got %d', $chunkType)
+            );
         }
 
         $numEntries = $buffer->getUint16();

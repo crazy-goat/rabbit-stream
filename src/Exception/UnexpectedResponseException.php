@@ -9,6 +9,11 @@ class UnexpectedResponseException extends ProtocolException
     private string $expectedClass;
     private string $actualClass;
 
+    private function __construct(string $message)
+    {
+        parent::__construct($message);
+    }
+
     public static function create(string $expected, object $actual): self
     {
         $exception = new self(
