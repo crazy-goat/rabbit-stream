@@ -113,14 +113,13 @@ class WriteBuffer
         if ($value === null) {
             $this->buffer .= pack('n', 0xFFFF); // -1 as unsigned int16
         } else {
-            $utf8Value = mb_convert_encoding($value, 'UTF-8', 'auto');
-            if ($utf8Value === false) {
-                throw new \RuntimeException('Failed to convert string to UTF-8');
+            if (!mb_check_encoding($value, 'UTF-8')) {
+                throw new \InvalidArgumentException('String must be valid UTF-8');
             }
-            $length = strlen($utf8Value);
+            $length = strlen($value);
             $this->validateInt($length, 0, self::INT16_MAX, 'string length');
             $this->buffer .= pack('n', $length);
-            $this->buffer .= $utf8Value;
+            $this->buffer .= $value;
         }
         return $this;
     }
