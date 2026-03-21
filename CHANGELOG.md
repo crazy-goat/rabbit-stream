@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `WriteBuffer::addInt16()`, `addInt32()`, `addInt64()` — added comprehensive PHPDoc comments explaining why unsigned pack formats ('n', 'N', 'J') are used intentionally for signed integers; documents PHP's two's complement behavior and references ReadBuffer reverse conversion methods (#213)
 
 ### Fixed
+- `OpenRequest` → renamed to `OpenRequestV1` to follow naming convention; fixed interface declaration order to match other request classes (#195)
 - `StreamConnection::unregisterPublisher()` — added missing method to clean up publisher callbacks when `Producer::close()` is called; fixes resource leak where publisher callbacks accumulated in memory (#202)
 - `AmqpDecoder::readUint64()` — replaced bit-shifting implementation with `unpack('J')` to fix integer overflow on 32-bit PHP and negative value issues on 64-bit PHP when reading large uint64 values (#220)
 
