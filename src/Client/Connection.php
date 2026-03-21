@@ -43,6 +43,12 @@ class Connection
     private int $subscriptionIdCounter = 0;
     private bool $closed = false;
 
+    /** @var array<int, Producer> */
+    private array $producers = [];
+
+    /** @var array<int, Consumer> */
+    private array $consumers = [];
+
     private function __construct(
         private readonly StreamConnection $streamConnection,
         private readonly LoggerInterface $logger,
@@ -214,6 +220,31 @@ class Connection
             return;
         }
         $this->closed = true;
+
+        foreach ($this->consumers as $subscriptionId => $consumer) {
+            try {
+                $consumer->close();
+            } catch (\Throwable $e) {
+                $this->logger->warning('Failed to close consumer during connection close', [
+                    'subscriptionId' => $subscriptionId,
+                    'exception' => $e,
+                ]);
+            }
+        }
+        $this->consumers = [];
+
+        foreach ($this->producers as $publisherId => $producer) {
+            try {
+                $producer->close();
+            } catch (\Throwable $e) {
+                $this->logger->warning('Failed to close producer during connection close', [
+                    'publisherId' => $publisherId,
+                    'exception' => $e,
+                ]);
+            }
+        }
+        $this->producers = [];
+
         try {
             $this->streamConnection->sendMessage(new CloseRequestV1(0, 'OK'));
             $response = $this->streamConnection->readMessage();
@@ -244,7 +275,9 @@ class Connection
         ?callable $onConfirm = null,
     ): Producer {
         $publisherId = $this->publisherIdCounter++;
-        return new Producer($this->streamConnection, $stream, $publisherId, $name, $onConfirm);
+        $producer = new Producer($this->streamConnection, $stream, $publisherId, $name, $onConfirm);
+        $this->producers[$publisherId] = $producer;
+        return $producer;
     }
 
     public function createConsumer(
@@ -255,7 +288,7 @@ class Connection
         int $initialCredit = 10,
     ): Consumer {
         $subscriptionId = $this->subscriptionIdCounter++;
-        return new Consumer(
+        $consumer = new Consumer(
             $this->streamConnection,
             $stream,
             $subscriptionId,
@@ -264,6 +297,8 @@ class Connection
             $autoCommit,
             $initialCredit
         );
+        $this->consumers[$subscriptionId] = $consumer;
+        return $consumer;
     }
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void

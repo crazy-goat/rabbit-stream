@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Client\Consumer;
+use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
@@ -345,6 +347,203 @@ class ConnectionTest extends TestCase
     public function testNegotiatedMaxValueBothZeroReturnsZero(): void
     {
         $this->assertSame(0, $this->invokeNegotiatedMaxValue(0, 0));
+    }
+
+    public function testCloseClosesAllTrackedProducers(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $producer1 = $this->createMock(Producer::class);
+        $producer1->expects($this->once())->method('close');
+
+        $producer2 = $this->createMock(Producer::class);
+        $producer2->expects($this->once())->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+        $this->injectProducers($connection, [0 => $producer1, 1 => $producer2]);
+
+        $connection->close();
+    }
+
+    public function testCloseClosesAllTrackedConsumers(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $consumer1 = $this->createMock(Consumer::class);
+        $consumer1->expects($this->once())->method('close');
+
+        $consumer2 = $this->createMock(Consumer::class);
+        $consumer2->expects($this->once())->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+        $this->injectConsumers($connection, [0 => $consumer1, 1 => $consumer2]);
+
+        $connection->close();
+    }
+
+    public function testCloseClosesConsumersBeforeProducers(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $order = [];
+
+        $consumer = $this->createMock(Consumer::class);
+        $consumer->expects($this->once())->method('close')
+            ->willReturnCallback(function () use (&$order): void {
+                $order[] = 'consumer';
+            });
+
+        $producer = $this->createMock(Producer::class);
+        $producer->expects($this->once())->method('close')
+            ->willReturnCallback(function () use (&$order): void {
+                $order[] = 'producer';
+            });
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+        $this->injectConsumers($connection, [0 => $consumer]);
+        $this->injectProducers($connection, [0 => $producer]);
+
+        $connection->close();
+
+        $this->assertSame(['consumer', 'producer'], $order);
+    }
+
+    public function testCloseContinuesWhenProducerCloseThrows(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $producer1 = $this->createMock(Producer::class);
+        $producer1->method('close')
+            ->willThrowException(new \RuntimeException('Producer close failed'));
+
+        $producer2 = $this->createMock(Producer::class);
+        $producer2->expects($this->once())->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+        $this->injectProducers($connection, [0 => $producer1, 1 => $producer2]);
+
+        $connection->close();
+    }
+
+    public function testCloseContinuesWhenConsumerCloseThrows(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $consumer1 = $this->createMock(Consumer::class);
+        $consumer1->method('close')
+            ->willThrowException(new \RuntimeException('Consumer close failed'));
+
+        $consumer2 = $this->createMock(Consumer::class);
+        $consumer2->expects($this->once())->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+        $this->injectConsumers($connection, [0 => $consumer1, 1 => $consumer2]);
+
+        $connection->close();
+    }
+
+    public function testCloseLogsWarningWhenProducerCloseThrows(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('warning')
+            ->with(
+                $this->equalTo('Failed to close producer during connection close'),
+                $this->callback(fn(array $context): bool => isset($context['publisherId'], $context['exception'])
+                    && $context['publisherId'] === 0
+                    && $context['exception'] instanceof \Throwable)
+            );
+
+        $producer = $this->createMock(Producer::class);
+        $producer->method('close')
+            ->willThrowException(new \RuntimeException('Producer close failed'));
+
+        $connection = $this->createConnectionWithMock($streamConnection, $logger);
+        $this->injectProducers($connection, [0 => $producer]);
+
+        $connection->close();
+    }
+
+    public function testCloseLogsWarningWhenConsumerCloseThrows(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('warning')
+            ->with(
+                $this->equalTo('Failed to close consumer during connection close'),
+                $this->callback(fn(array $context): bool => isset($context['subscriptionId'], $context['exception'])
+                    && $context['subscriptionId'] === 0
+                    && $context['exception'] instanceof \Throwable)
+            );
+
+        $consumer = $this->createMock(Consumer::class);
+        $consumer->method('close')
+            ->willThrowException(new \RuntimeException('Consumer close failed'));
+
+        $connection = $this->createConnectionWithMock($streamConnection, $logger);
+        $this->injectConsumers($connection, [0 => $consumer]);
+
+        $connection->close();
+    }
+
+    public function testMultipleCloseCallsAreIdempotent(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('close');
+
+        $producer = $this->createMock(Producer::class);
+        $producer->expects($this->once())->method('close');
+
+        $consumer = $this->createMock(Consumer::class);
+        $consumer->expects($this->once())->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+        $this->injectProducers($connection, [0 => $producer]);
+        $this->injectConsumers($connection, [0 => $consumer]);
+
+        $connection->close();
+        $connection->close();
+    }
+
+    /** @param array<int, Producer> $producers */
+    private function injectProducers(Connection $connection, array $producers): void
+    {
+        $reflection = new \ReflectionProperty(Connection::class, 'producers');
+        $reflection->setValue($connection, $producers);
+    }
+
+    /** @param array<int, Consumer> $consumers */
+    private function injectConsumers(Connection $connection, array $consumers): void
+    {
+        $reflection = new \ReflectionProperty(Connection::class, 'consumers');
+        $reflection->setValue($connection, $consumers);
     }
 
     private function invokeNegotiatedMaxValue(int $clientValue, int $serverValue): int
