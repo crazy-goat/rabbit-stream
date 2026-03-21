@@ -298,17 +298,11 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new \RuntimeException('Unexpected end of data reading uint64');
         }
-        $high = self::unpackInt('N', substr($data, $position, 4), 'uint64 high');
-        $low = self::unpackInt('N', substr($data, $position + 4, 4), 'uint64 low');
-        // Handle as string for large values
-        if ($high < 0) {
-            $high += 4294967296;
+        $unpacked = unpack('J', substr($data, $position, 8));
+        if ($unpacked === false) {
+            throw new \RuntimeException('Failed to unpack uint64 at position ' . $position);
         }
-        if ($low < 0) {
-            $low += 4294967296;
-        }
-        $value = ($high << 32) | $low;
-        return [$value, $position + 8];
+        return [$unpacked[1], $position + 8];
     }
 
     /** @return array{0: int, 1: int} */
