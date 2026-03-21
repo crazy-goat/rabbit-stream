@@ -57,7 +57,16 @@ class Connection
         string $vhost = '/',
         ?BinarySerializerInterface $serializer = null,
         ?LoggerInterface $logger = null,
+        ?int $requestedFrameMax = null,
+        ?int $requestedHeartbeat = null,
     ): self {
+        if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
+            throw new \InvalidArgumentException('requestedFrameMax must not be negative');
+        }
+        if ($requestedHeartbeat !== null && $requestedHeartbeat < 0) {
+            throw new \InvalidArgumentException('requestedHeartbeat must not be negative');
+        }
+
         $logger ??= new NullLogger();
         $serializer ??= new PhpBinarySerializer();
 
@@ -96,8 +105,20 @@ class Connection
             throw UnexpectedResponseException::create(TuneRequestV1::class, $tune);
         }
 
-        // 5. TuneResponse (echo back server's values)
-        $streamConnection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
+        // 5. TuneResponse (negotiate values with server)
+        $negotiatedFrameMax = self::negotiatedMaxValue(
+            $requestedFrameMax ?? $tune->getFrameMax(),
+            $tune->getFrameMax()
+        );
+        $negotiatedHeartbeat = self::negotiatedMaxValue(
+            $requestedHeartbeat ?? $tune->getHeartbeat(),
+            $tune->getHeartbeat()
+        );
+        $streamConnection->sendMessage(new TuneResponseV1($negotiatedFrameMax, $negotiatedHeartbeat));
+
+        if ($negotiatedFrameMax > 0) {
+            $streamConnection->setMaxFrameSize($negotiatedFrameMax);
+        }
 
         // 6. Open
         $streamConnection->sendMessage(new OpenRequestV1($vhost));
@@ -107,6 +128,14 @@ class Connection
         }
 
         return new self($streamConnection, $logger);
+    }
+
+    private static function negotiatedMaxValue(int $clientValue, int $serverValue): int
+    {
+        return match (true) {
+            $clientValue === 0 || $serverValue === 0 => max($clientValue, $serverValue),
+            default => min($clientValue, $serverValue),
+        };
     }
 
     /** @param array<string, string> $arguments */
