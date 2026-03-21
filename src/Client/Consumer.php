@@ -149,6 +149,7 @@ class Consumer
             new UnsubscribeRequestV1($this->subscriptionId)
         );
         $this->connection->readMessage();
+        $this->buffer = [];
     }
 
     private function maybeAutoCommit(): void
