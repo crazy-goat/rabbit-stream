@@ -265,7 +265,8 @@ class ToArrayTest extends TestCase
 
     public function testConsumerUpdateReplyReturnsAllFields(): void
     {
-        $request = new ConsumerUpdateReplyV1(10, 1, 4, 500);
+        $request = new ConsumerUpdateReplyV1(1, 4, 500);
+        $request->withCorrelationId(10);
         $this->assertSame([
             'correlationId' => 10,
             'responseCode' => 1,
