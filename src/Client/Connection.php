@@ -43,6 +43,7 @@ class Connection
 
     private function __construct(
         private readonly StreamConnection $streamConnection,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -103,7 +104,7 @@ class Connection
             throw new \Exception("Expected OpenResponseV1, got " . $openResponse::class);
         }
 
-        return new self($streamConnection);
+        return new self($streamConnection, $logger);
     }
 
     /** @param array<string, string> $arguments */
@@ -198,8 +199,10 @@ class Connection
         if (!$this->closed) {
             try {
                 $this->close();
-            } catch (\Throwable) {
-                // Suppress - cannot throw from destructor
+            } catch (\Throwable $e) {
+                $this->logger->error('Failed to close connection in destructor', [
+                    'exception' => $e,
+                ]);
             }
         }
     }
