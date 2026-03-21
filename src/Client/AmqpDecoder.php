@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
+
 class AmqpDecoder
 {
     /**
@@ -15,7 +17,7 @@ class AmqpDecoder
     public static function decodeValue(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data');
+            throw new DeserializationException('Unexpected end of data');
         }
 
         $formatCode = ord($data[$position]);
@@ -68,7 +70,7 @@ class AmqpDecoder
             // Described type
             0x00 => self::readDescribedType($data, $position),
 
-            default => throw new \RuntimeException(sprintf('Unsupported AMQP type: 0x%02x', $formatCode)),
+            default => throw new DeserializationException(sprintf('Unsupported AMQP type: 0x%02x', $formatCode)),
         };
     }
 
@@ -82,7 +84,7 @@ class AmqpDecoder
     public static function decodeMessage(string $data): array
     {
         if ($data === '') {
-            throw new \RuntimeException('Empty message data');
+            throw new DeserializationException('Empty message data');
         }
 
         $sections = [
@@ -101,7 +103,7 @@ class AmqpDecoder
         while ($position < $dataLength) {
             // Check for described type marker
             if (ord($data[$position]) !== 0x00) {
-                throw new \RuntimeException(sprintf(
+                throw new DeserializationException(sprintf(
                     'Expected described type marker (0x00) at position %d, got 0x%02x',
                     $position,
                     ord($data[$position])
@@ -199,7 +201,7 @@ class AmqpDecoder
     private static function readUint8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading uint8');
+            throw new DeserializationException('Unexpected end of data reading uint8');
         }
         return [ord($data[$position]), $position + 1];
     }
@@ -211,7 +213,7 @@ class AmqpDecoder
     {
         $result = unpack($format, $data);
         if ($result === false) {
-            throw new \RuntimeException('Failed to unpack ' . $context);
+            throw new DeserializationException('Failed to unpack ' . $context);
         }
         return $result;
     }
@@ -232,7 +234,7 @@ class AmqpDecoder
     private static function readInt8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading int8');
+            throw new DeserializationException('Unexpected end of data reading int8');
         }
         $value = self::unpackInt('c', $data[$position], 'int8');
         return [$value, $position + 1];
@@ -242,7 +244,7 @@ class AmqpDecoder
     private static function readUint16(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading uint16');
+            throw new DeserializationException('Unexpected end of data reading uint16');
         }
         $value = self::unpackInt('n', substr($data, $position, 2), 'uint16');
         return [$value, $position + 2];
@@ -252,7 +254,7 @@ class AmqpDecoder
     private static function readInt16(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading int16');
+            throw new DeserializationException('Unexpected end of data reading int16');
         }
         $value = self::unpackInt('s', strrev(substr($data, $position, 2)), 'int16');
         return [$value, $position + 2];
@@ -262,7 +264,7 @@ class AmqpDecoder
     private static function readUint32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading uint32');
+            throw new DeserializationException('Unexpected end of data reading uint32');
         }
         $value = self::unpackInt('N', substr($data, $position, 4), 'uint32');
         // Handle unsigned 32-bit values > PHP_INT_MAX
@@ -276,7 +278,7 @@ class AmqpDecoder
     private static function readInt32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading int32');
+            throw new DeserializationException('Unexpected end of data reading int32');
         }
         $value = self::unpackInt('l', strrev(substr($data, $position, 4)), 'int32');
         return [$value, $position + 4];
@@ -286,7 +288,7 @@ class AmqpDecoder
     private static function readFloat(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading float');
+            throw new DeserializationException('Unexpected end of data reading float');
         }
         $value = self::unpackFloat('f', strrev(substr($data, $position, 4)), 'float');
         return [$value, $position + 4];
@@ -296,11 +298,11 @@ class AmqpDecoder
     private static function readUint64(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading uint64');
+            throw new DeserializationException('Unexpected end of data reading uint64');
         }
         $unpacked = unpack('J', substr($data, $position, 8));
         if ($unpacked === false) {
-            throw new \RuntimeException('Failed to unpack uint64 at position ' . $position);
+            throw new DeserializationException('Failed to unpack uint64 at position ' . $position);
         }
         return [$unpacked[1], $position + 8];
     }
@@ -309,7 +311,7 @@ class AmqpDecoder
     private static function readInt64(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading int64');
+            throw new DeserializationException('Unexpected end of data reading int64');
         }
         $value = self::unpackInt('q', strrev(substr($data, $position, 8)), 'int64');
         return [$value, $position + 8];
@@ -319,7 +321,7 @@ class AmqpDecoder
     private static function readDouble(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading double');
+            throw new DeserializationException('Unexpected end of data reading double');
         }
         $value = self::unpackFloat('d', strrev(substr($data, $position, 8)), 'double');
         return [$value, $position + 8];
@@ -329,7 +331,7 @@ class AmqpDecoder
     private static function readTimestamp(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading timestamp');
+            throw new DeserializationException('Unexpected end of data reading timestamp');
         }
         // Timestamp is milliseconds since Unix epoch (int64)
         $value = self::unpackInt('q', strrev(substr($data, $position, 8)), 'timestamp');
@@ -340,7 +342,7 @@ class AmqpDecoder
     private static function readUuid(string $data, int $position): array
     {
         if ($position + 15 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading uuid');
+            throw new DeserializationException('Unexpected end of data reading uuid');
         }
         $bytes = substr($data, $position, 16);
         // Format as UUID string: 8-4-4-4-12 hex digits
@@ -365,7 +367,7 @@ class AmqpDecoder
     private static function readBoolean(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading boolean');
+            throw new DeserializationException('Unexpected end of data reading boolean');
         }
         return [ord($data[$position]) !== 0, $position + 1];
     }
@@ -376,12 +378,12 @@ class AmqpDecoder
     private static function readBinary8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading binary8 length');
+            throw new DeserializationException('Unexpected end of data reading binary8 length');
         }
         $length = ord($data[$position]);
         $position++;
         if ($position + $length > strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading binary8 content');
+            throw new DeserializationException('Unexpected end of data reading binary8 content');
         }
         return [substr($data, $position, $length), $position + $length];
     }
@@ -390,7 +392,7 @@ class AmqpDecoder
     private static function readBinary32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading binary32 length');
+            throw new DeserializationException('Unexpected end of data reading binary32 length');
         }
         $length = self::unpackInt('N', substr($data, $position, 4), 'binary32 length');
         if ($length < 0) {
@@ -398,7 +400,7 @@ class AmqpDecoder
         }
         $position += 4;
         if ($position + $length > strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading binary32 content');
+            throw new DeserializationException('Unexpected end of data reading binary32 content');
         }
         return [substr($data, $position, $length), $position + $length];
     }
@@ -407,12 +409,12 @@ class AmqpDecoder
     private static function readString8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading string8 length');
+            throw new DeserializationException('Unexpected end of data reading string8 length');
         }
         $length = ord($data[$position]);
         $position++;
         if ($position + $length > strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading string8 content');
+            throw new DeserializationException('Unexpected end of data reading string8 content');
         }
         return [substr($data, $position, $length), $position + $length];
     }
@@ -421,7 +423,7 @@ class AmqpDecoder
     private static function readString32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading string32 length');
+            throw new DeserializationException('Unexpected end of data reading string32 length');
         }
         $length = self::unpackInt('N', substr($data, $position, 4), 'string32 length');
         if ($length < 0) {
@@ -429,7 +431,7 @@ class AmqpDecoder
         }
         $position += 4;
         if ($position + $length > strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading string32 content');
+            throw new DeserializationException('Unexpected end of data reading string32 content');
         }
         return [substr($data, $position, $length), $position + $length];
     }
@@ -438,12 +440,12 @@ class AmqpDecoder
     private static function readSymbol8(string $data, int $position): array
     {
         if ($position >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading symbol8 length');
+            throw new DeserializationException('Unexpected end of data reading symbol8 length');
         }
         $length = ord($data[$position]);
         $position++;
         if ($position + $length > strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading symbol8 content');
+            throw new DeserializationException('Unexpected end of data reading symbol8 content');
         }
         return [substr($data, $position, $length), $position + $length];
     }
@@ -452,7 +454,7 @@ class AmqpDecoder
     private static function readSymbol32(string $data, int $position): array
     {
         if ($position + 3 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading symbol32 length');
+            throw new DeserializationException('Unexpected end of data reading symbol32 length');
         }
         $length = self::unpackInt('N', substr($data, $position, 4), 'symbol32 length');
         if ($length < 0) {
@@ -460,7 +462,7 @@ class AmqpDecoder
         }
         $position += 4;
         if ($position + $length > strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading symbol32 content');
+            throw new DeserializationException('Unexpected end of data reading symbol32 content');
         }
         return [substr($data, $position, $length), $position + $length];
     }
@@ -471,7 +473,7 @@ class AmqpDecoder
     private static function readList8(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading list8 header');
+            throw new DeserializationException('Unexpected end of data reading list8 header');
         }
         $size = ord($data[$position]);
         $count = ord($data[$position + 1]);
@@ -481,7 +483,7 @@ class AmqpDecoder
         $list = [];
         for ($i = 0; $i < $count; $i++) {
             if ($position > $endPosition) {
-                throw new \RuntimeException('List8 count exceeds available data');
+                throw new DeserializationException('List8 count exceeds available data');
             }
             [$value, $position] = self::decodeValue($data, $position);
             $list[] = $value;
@@ -494,7 +496,7 @@ class AmqpDecoder
     private static function readList32(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading list32 header');
+            throw new DeserializationException('Unexpected end of data reading list32 header');
         }
         $size = self::unpackInt('N', substr($data, $position, 4), 'list32 size');
         if ($size < 0) {
@@ -510,7 +512,7 @@ class AmqpDecoder
         $list = [];
         for ($i = 0; $i < $count; $i++) {
             if ($position > $endPosition) {
-                throw new \RuntimeException('List32 count exceeds available data');
+                throw new DeserializationException('List32 count exceeds available data');
             }
             [$value, $position] = self::decodeValue($data, $position);
             $list[] = $value;
@@ -523,7 +525,7 @@ class AmqpDecoder
     private static function readMap8(string $data, int $position): array
     {
         if ($position + 1 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading map8 header');
+            throw new DeserializationException('Unexpected end of data reading map8 header');
         }
         $size = ord($data[$position]);
         $count = ord($data[$position + 1]); // count is number of key-value pairs * 2
@@ -534,11 +536,11 @@ class AmqpDecoder
         $numPairs = (int)($count / 2);
         for ($i = 0; $i < $numPairs; $i++) {
             if ($position > $endPosition) {
-                throw new \RuntimeException('Map8 count exceeds available data');
+                throw new DeserializationException('Map8 count exceeds available data');
             }
             [$key, $position] = self::decodeValue($data, $position);
             if ($position > $endPosition) {
-                throw new \RuntimeException('Map8 missing value for key');
+                throw new DeserializationException('Map8 missing value for key');
             }
             [$value, $position] = self::decodeValue($data, $position);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
@@ -552,7 +554,7 @@ class AmqpDecoder
     private static function readMap32(string $data, int $position): array
     {
         if ($position + 7 >= strlen($data)) {
-            throw new \RuntimeException('Unexpected end of data reading map32 header');
+            throw new DeserializationException('Unexpected end of data reading map32 header');
         }
         $size = self::unpackInt('N', substr($data, $position, 4), 'map32 size');
         if ($size < 0) {
@@ -569,11 +571,11 @@ class AmqpDecoder
         $numPairs = (int)($count / 2);
         for ($i = 0; $i < $numPairs; $i++) {
             if ($position > $endPosition) {
-                throw new \RuntimeException('Map32 count exceeds available data');
+                throw new DeserializationException('Map32 count exceeds available data');
             }
             [$key, $position] = self::decodeValue($data, $position);
             if ($position > $endPosition) {
-                throw new \RuntimeException('Map32 missing value for key');
+                throw new DeserializationException('Map32 missing value for key');
             }
             [$value, $position] = self::decodeValue($data, $position);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');

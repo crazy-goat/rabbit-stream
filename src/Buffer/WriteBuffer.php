@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Buffer;
 
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+
 class WriteBuffer
 {
     // Signed integers limits
@@ -122,7 +124,7 @@ class WriteBuffer
     private function validateInt(int $value, int $min, int $max, string $type): void
     {
         if ($value < $min || $value > $max) {
-            throw new \InvalidArgumentException("Value $value is out of range for $type ($min to $max)");
+            throw new InvalidArgumentException("Value $value is out of range for $type ($min to $max)");
         }
     }
 
@@ -147,7 +149,7 @@ class WriteBuffer
             $this->buffer .= pack('n', 0xFFFF); // -1 as unsigned int16
         } else {
             if (!mb_check_encoding($value, 'UTF-8')) {
-                throw new \InvalidArgumentException('String must be valid UTF-8');
+                throw new InvalidArgumentException('String must be valid UTF-8');
             }
             $length = strlen($value);
             $this->validateInt($length, 0, self::INT16_MAX, 'string length');

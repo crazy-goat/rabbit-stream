@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Trait;
 
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
 trait CommandTrait
 {
@@ -28,11 +29,11 @@ trait CommandTrait
     private static function validateKeyVersion(int $key, int $version): void
     {
         if (self::getKey() !== $key) {
-            throw new \Exception('Unexpected command code');
+            throw new ProtocolException('Unexpected command code');
         }
 
         if (self::getVersion() !== $version) {
-            throw new \Exception('Unexpected version');
+            throw new ProtocolException('Unexpected version');
         }
     }
 
@@ -44,7 +45,7 @@ trait CommandTrait
             $msg = $code instanceof ResponseCodeEnum
                 ? "{$hex} ({$code->name}: {$code->getMessage()})"
                 : "{$hex} (unknown)";
-            throw new \Exception("Unexpected response code: {$msg}");
+            throw new ProtocolException("Unexpected response code: {$msg}", responseCode: $code);
         }
     }
 }

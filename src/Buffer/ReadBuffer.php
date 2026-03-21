@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Buffer;
 
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
+
 class ReadBuffer
 {
     private int $position = 0;
@@ -16,7 +18,7 @@ class ReadBuffer
     {
         $available = strlen($this->buffer) - $this->position;
         if ($bytes > $available) {
-            throw new \RuntimeException(
+            throw new DeserializationException(
                 sprintf(
                     'Buffer underflow: need %d bytes at position %d, but only %d available',
                     $bytes,
@@ -32,7 +34,7 @@ class ReadBuffer
         $this->ensureAvailable(1);
         $data = unpack('C', substr($this->buffer, $this->position, 1));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack uint8 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack uint8 at position ' . $this->position);
         }
         $this->position += 1;
         return $data[1];
@@ -43,7 +45,7 @@ class ReadBuffer
         $this->ensureAvailable(2);
         $data = unpack('n', substr($this->buffer, $this->position, 2));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack uint16 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack uint16 at position ' . $this->position);
         }
         $this->position += 2;
         return $data[1];
@@ -59,7 +61,7 @@ class ReadBuffer
         $this->ensureAvailable(4);
         $data = unpack('N', substr($this->buffer, $this->position, 4));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack uint32 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack uint32 at position ' . $this->position);
         }
         $this->position += 4;
         return $data[1];
@@ -70,7 +72,7 @@ class ReadBuffer
         $this->ensureAvailable(8);
         $data = unpack('J', substr($this->buffer, $this->position, 8));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack uint64 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack uint64 at position ' . $this->position);
         }
         $this->position += 8;
         return $data[1];
@@ -81,7 +83,7 @@ class ReadBuffer
         $this->ensureAvailable(8);
         $data = unpack('J', substr($this->buffer, $this->position, 8));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack int64 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack int64 at position ' . $this->position);
         }
         $this->position += 8;
         if ($data[1] >= 0x8000000000000000) {
@@ -108,7 +110,7 @@ class ReadBuffer
         $this->ensureAvailable(2);
         $data = unpack('n', substr($this->buffer, $this->position, 2));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack int16 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack int16 at position ' . $this->position);
         }
         $this->position += 2;
         if ($data[1] >= 0x8000) {
@@ -122,7 +124,7 @@ class ReadBuffer
         $this->ensureAvailable(4);
         $data = unpack('N', substr($this->buffer, $this->position, 4));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack int32 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack int32 at position ' . $this->position);
         }
         $this->position += 4;
         if ($data[1] >= 0x80000000) {
@@ -144,7 +146,7 @@ class ReadBuffer
         for ($i = 0; $i < $arrayLength; $i++) {
             $item = $class::fromStreamBuffer($this);
             if ($item === null) {
-                throw new \RuntimeException('Failed to deserialize object of class ' . $class);
+                throw new DeserializationException('Failed to deserialize object of class ' . $class);
             }
             $data[] = $item;
         }
@@ -181,7 +183,7 @@ class ReadBuffer
     public function getRemainingBytes(): string
     {
         if ($this->position > strlen($this->buffer)) {
-            throw new \RuntimeException(
+            throw new DeserializationException(
                 sprintf(
                     'Buffer underflow: position %d is past buffer end %d',
                     $this->position,
@@ -218,7 +220,7 @@ class ReadBuffer
         $this->ensureAvailable(2);
         $data = unpack('n', substr($this->buffer, $this->position, 2));
         if ($data === false) {
-            throw new \RuntimeException('Failed to unpack uint16 at position ' . $this->position);
+            throw new DeserializationException('Failed to unpack uint16 at position ' . $this->position);
         }
         return $data[1];
     }

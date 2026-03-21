@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Producer;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -294,7 +295,7 @@ class ProducerTest extends TestCase
 
         $producer = new Producer($connection, 'test-stream', 1); // No name provided
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot query sequence for unnamed producer');
 
         $producer->querySequence();

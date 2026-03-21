@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 
 class OsirisChunkParser
 {
@@ -19,19 +20,21 @@ class OsirisChunkParser
         $magic = ($magicVersion >> 4) & 0x0F;
         $version = $magicVersion & 0x0F;
         if ($magic !== 5) {
-            throw new \RuntimeException(sprintf(
+            throw new DeserializationException(sprintf(
                 'Invalid chunk magic: expected 5, got %d (raw byte: 0x%02x)',
                 $magic,
                 $magicVersion
             ));
         }
         if ($version !== 0) {
-            throw new \RuntimeException(sprintf('Unsupported chunk version: expected 0, got %d', $version));
+            throw new DeserializationException(sprintf('Unsupported chunk version: expected 0, got %d', $version));
         }
 
         $chunkType = $buffer->getUint8();
         if ($chunkType !== 0) {
-            throw new \RuntimeException(sprintf('Unsupported chunk type: expected 0 (user data), got %d', $chunkType));
+            throw new DeserializationException(
+                sprintf('Unsupported chunk type: expected 0 (user data), got %d', $chunkType)
+            );
         }
 
         $numEntries = $buffer->getUint16();
@@ -63,7 +66,7 @@ class OsirisChunkParser
                 $uncompressedCount = $header & 0xFFFF;
 
                 if ($codec !== 0) {
-                    throw new \RuntimeException(sprintf(
+                    throw new DeserializationException(sprintf(
                         'Compressed sub-batches not supported yet (codec: %d)',
                         $codec
                     ));

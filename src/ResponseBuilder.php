@@ -6,6 +6,8 @@ namespace CrazyGoat\RabbitStream;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
@@ -48,11 +50,11 @@ class ResponseBuilder
         $result = match ($version) {
             1 => self::getV1($command, $responseBuffer),
             2 => self::getV2($command, $responseBuffer),
-            default => throw new \Exception('Unexpected match value'),
+            default => throw new ProtocolException('Unexpected protocol version: ' . $version),
         };
 
         if ($result === null) {
-            throw new \Exception('Failed to deserialize response for command: ' . $command->name);
+            throw new DeserializationException('Failed to deserialize response for command: ' . $command->name);
         }
 
         return $result;
@@ -92,8 +94,8 @@ class ResponseBuilder
             KeyEnum::EXCHANGE_COMMAND_VERSIONS_RESPONSE =>
                 ExchangeCommandVersionsResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::RESOLVE_OFFSET_SPEC_RESPONSE => ResolveOffsetSpecResponseV1::fromStreamBuffer($responseBuffer),
-            default => throw new \Exception(
-                'Unexpected match value: ' . $command->name . ' (0x' . dechex($command->value) . ')'
+            default => throw new ProtocolException(
+                'Unexpected command: ' . $command->name . ' (0x' . dechex($command->value) . ')'
             ),
         };
     }
@@ -102,7 +104,7 @@ class ResponseBuilder
     {
         return match ($command) {
             KeyEnum::DELIVER => DeliverResponseV1::fromStreamBuffer($responseBuffer),
-            default => throw new \Exception('Unexpected match value'),
+            default => throw new ProtocolException('Unexpected command in V2: ' . $command->name),
         };
     }
 }
