@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- `AmqpDecoder::readUint64()` — replaced bit-shifting implementation with `unpack('J')` to fix integer overflow on 32-bit PHP and negative value issues on 64-bit PHP when reading large uint64 values (#220)
+
 ## [1.1.0] - 2026-03-21
 
 ### Added
