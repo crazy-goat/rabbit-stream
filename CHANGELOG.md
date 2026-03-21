@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **E2E test: Producer-consumer lifecycle with offset tracking and resume** — comprehensive E2E test covering the complete producer-consumer workflow; tests publish → confirm → consume → store offset → query offset → resume with named consumer; verifies message ordering and data integrity across consumer sessions (#172)
 - **Connection::create() unit tests** — comprehensive test coverage for handshake validation and error paths; tests wrong response types at each step, missing PLAIN mechanism, tune negotiation, serializer/logger injection, and vhost parameter passing (#193)
 - **Connection::create()** — added optional `requestedFrameMax` and `requestedHeartbeat` parameters for client-side Tune negotiation; implements proper negotiation logic per RabbitMQ Stream Protocol (min of client/server values, with 0 = no limit); includes input validation and comprehensive unit tests (#217)
 - **Custom Exception Hierarchy** — replaced all generic `\Exception`, `\RuntimeException`, and `\InvalidArgumentException` with domain-specific exceptions (#242):
