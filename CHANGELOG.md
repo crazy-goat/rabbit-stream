@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Unit tests for `ConfirmationStatus` and `ChunkEntry` VO classes — comprehensive test coverage for all getters and edge cases (#192)
+
 ### Changed
 - `ConsumerTest` — reduced excessive timeouts in E2E deadline loops: read timeout 2s→0.5s, deadline 10s→5s; saves ~2-3 seconds per test run (#138)
 - `ProducerTest` — refactored to use `setUpBeforeClass()` pattern with static properties for consistency with other E2E tests; changed `$_ENV` to `getenv()` for environment variable access (#138)
