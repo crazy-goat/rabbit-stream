@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-21
+
 ### Added
 - Unit tests for `ConfirmationStatus` and `ChunkEntry` VO classes — comprehensive test coverage for all getters and edge cases (#192)
 
