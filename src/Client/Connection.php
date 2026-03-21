@@ -65,6 +65,7 @@ class Connection
         ?LoggerInterface $logger = null,
         ?int $requestedFrameMax = null,
         ?int $requestedHeartbeat = null,
+        ?StreamConnection $streamConnection = null,
     ): self {
         if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
             throw new \InvalidArgumentException('requestedFrameMax must not be negative');
@@ -76,8 +77,10 @@ class Connection
         $logger ??= new NullLogger();
         $serializer ??= new PhpBinarySerializer();
 
-        $streamConnection = new StreamConnection($host, $port, $logger, $serializer);
-        $streamConnection->connect();
+        if (!$streamConnection instanceof \CrazyGoat\RabbitStream\StreamConnection) {
+            $streamConnection = new StreamConnection($host, $port, $logger, $serializer);
+            $streamConnection->connect();
+        }
 
         // 1. PeerProperties
         $streamConnection->sendMessage(new PeerPropertiesToStreamBufferV1());
