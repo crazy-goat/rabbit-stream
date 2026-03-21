@@ -16,7 +16,7 @@ use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
@@ -55,7 +55,7 @@ class ToArrayTest extends TestCase
 
     public function testOpenRequestReturnsVhost(): void
     {
-        $request = new OpenRequest('/my-vhost');
+        $request = new OpenRequestV1('/my-vhost');
         $this->assertSame(['vhost' => '/my-vhost'], $request->toArray());
     }
 

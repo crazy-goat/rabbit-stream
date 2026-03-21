@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
@@ -115,7 +115,7 @@ class ConnectionHandshakeTest extends TestCase
 
         $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
-        $connection->sendMessage(new OpenRequest('/'));
+        $connection->sendMessage(new OpenRequestV1('/'));
         $open = $connection->readMessage();
         $this->assertInstanceOf(OpenResponseV1::class, $open);
 

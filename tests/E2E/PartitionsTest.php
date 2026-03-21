@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
-use CrazyGoat\RabbitStream\Request\OpenRequest;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -44,7 +44,7 @@ class PartitionsTest extends TestCase
         $this->assertInstanceOf(TuneRequestV1::class, $tune);
         $connection->sendMessage(new TuneRequestV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
-        $connection->sendMessage(new OpenRequest('/'));
+        $connection->sendMessage(new OpenRequestV1('/'));
         $connection->readMessage();
 
         return $connection;
