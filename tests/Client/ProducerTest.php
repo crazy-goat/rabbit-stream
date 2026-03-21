@@ -310,9 +310,10 @@ class ProducerTest extends TestCase
         $mockResponse->method('getSequence')->willReturn(42);
 
         // Constructor calls sendMessage with DeclarePublisherRequestV1
+        // initializePublishingId calls sendMessage with QueryPublisherSequenceRequestV1
         // querySequence calls sendMessage with QueryPublisherSequenceRequestV1
         $capturedRequest = null;
-        $connection->expects($this->exactly(2))
+        $connection->expects($this->exactly(3))
             ->method('sendMessage')
             ->with($this->callback(function ($request) use (&$capturedRequest): bool {
                 if ($request instanceof QueryPublisherSequenceRequestV1) {
@@ -321,11 +322,12 @@ class ProducerTest extends TestCase
                 return true;
             }));
 
-        $connection->expects($this->exactly(2))
+        $connection->expects($this->exactly(3))
             ->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 new \stdClass(), // For DeclarePublisher response
-                $mockResponse     // For QueryPublisherSequence response
+                $mockResponse,   // For initializePublishingId QueryPublisherSequence response
+                $mockResponse    // For querySequence QueryPublisherSequence response
             );
 
         $producer = new Producer($connection, 'test-stream', 1, 'my-producer');

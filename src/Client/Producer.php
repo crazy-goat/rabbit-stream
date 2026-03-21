@@ -31,6 +31,15 @@ class Producer
     ) {
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->declare();
+        $this->initializePublishingId();
+    }
+
+    private function initializePublishingId(): void
+    {
+        if ($this->name !== null && $this->name !== '') {
+            $sequence = $this->querySequence();
+            $this->publishingId = $sequence + 1;
+        }
     }
 
     private function declare(): void
@@ -138,10 +147,5 @@ class Producer
             throw UnexpectedResponseException::create(QueryPublisherSequenceResponseV1::class, $response);
         }
         return $response->getSequence();
-    }
-
-    public function resumeFromSequence(int $sequence): void
-    {
-        $this->publishingId = $sequence + 1;
     }
 }

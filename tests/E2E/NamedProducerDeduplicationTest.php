@@ -80,9 +80,10 @@ class NamedProducerDeduplicationTest extends TestCase
             }
         );
 
-        // Publish first batch of messages (IDs 0-9)
+        // Publish first batch of messages (IDs 1-10)
+        // Producer automatically starts from sequence+1 (1) when created with name
         $messages = [];
-        for ($i = 0; $i < 10; $i++) {
+        for ($i = 1; $i <= 10; $i++) {
             $messages[] = $this->amqp("message-{$i}");
         }
         $this->producer->sendBatch($messages);
@@ -93,9 +94,9 @@ class NamedProducerDeduplicationTest extends TestCase
             $this->assertTrue($status->isConfirmed(), 'All messages should be confirmed');
         }
 
-        // Step 2: Query sequence - should return 9 (last published ID)
+        // Step 2: Query sequence - should return 10 (last published ID)
         $sequence = $this->producer->querySequence();
-        $this->assertSame(9, $sequence, 'Sequence should be 9 after publishing IDs 0-9');
+        $this->assertSame(10, $sequence, 'Sequence should be 10 after publishing IDs 1-10');
 
         // Step 3: Close the producer and connection completely
         $this->producer->close();
@@ -122,20 +123,18 @@ class NamedProducerDeduplicationTest extends TestCase
             }
         );
 
-        // Step 6: Query sequence again - should still return 9
+        // Step 6: Query sequence again - should still return 10
         $sequenceAfterReconnect = $this->producer->querySequence();
         $this->assertSame(
-            9,
+            10,
             $sequenceAfterReconnect,
-            'Sequence should still be 9 after reconnect with same producer reference'
+            'Sequence should still be 10 after reconnect with same producer reference'
         );
 
-        // Step 7: Resume from the last sequence so publishing starts at ID 10
-        $this->producer->resumeFromSequence($sequenceAfterReconnect);
-
-        // Step 8: Publish messages with IDs 10-14 (5 new messages)
+        // Step 7: Publish messages with IDs 11-15 (5 new messages)
+        // Producer automatically resumed from sequence+1 (11) when created with name
         $messages = [];
-        for ($i = 10; $i < 15; $i++) {
+        for ($i = 11; $i <= 15; $i++) {
             $messages[] = $this->amqp("message-{$i}");
         }
         $this->producer->sendBatch($messages);
@@ -163,11 +162,11 @@ class NamedProducerDeduplicationTest extends TestCase
 
         $consumer->close();
 
-        // Step 9: Verify exactly 15 messages exist (IDs 0-14), no duplicates
+        // Step 9: Verify exactly 15 messages exist (IDs 1-15), no duplicates
         // Server-side deduplication should ensure only 15 unique messages in stream
         $this->assertCount(15, $receivedMessages, 'Should have exactly 15 messages (server deduplicated)');
 
-        // Extract message IDs and verify they are 0-14
+        // Extract message IDs and verify they are 1-15
         $receivedIds = [];
         foreach ($receivedMessages as $msg) {
             $body = $msg->getBody();
@@ -177,11 +176,11 @@ class NamedProducerDeduplicationTest extends TestCase
         }
 
         sort($receivedIds);
-        $expectedIds = range(0, 14);
+        $expectedIds = range(1, 15);
         $this->assertSame(
             $expectedIds,
             $receivedIds,
-            'Message IDs should be exactly 0-14 with no duplicates'
+            'Message IDs should be exactly 1-15 with no duplicates'
         );
     }
 }

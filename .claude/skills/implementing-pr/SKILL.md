@@ -18,7 +18,7 @@ Workflow for picking and implementing a GitHub issue as a PR for `crazy-goat/str
 - `06-quality-gates.md` — run all QA checks
 - `07-code-review.md` — internal code review with sub-agent (mandatory)
 - `08-push-pr.md` — push and open PR
-- `09-ci-approval.md` — wait for CI, ask for approval
+- `09-ci-approval.md` — wait for CI, ask for approval, merge PR, switch to main
 
 ## Entry Points
 
