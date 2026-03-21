@@ -60,6 +60,9 @@ class MetadataResponseV1 implements
 
         $correlationId = $buffer->getUint32();
 
+        // Note: Metadata response has no top-level response code.
+        // Response codes are per-stream inside each StreamMetadata entry.
+
         $brokers = $buffer->getObjectArray(Broker::class);
         $streamMetadata = $buffer->getObjectArray(StreamMetadata::class);
 
