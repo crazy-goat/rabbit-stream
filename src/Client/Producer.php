@@ -139,4 +139,9 @@ class Producer
         }
         return $response->getSequence();
     }
+
+    public function resumeFromSequence(int $sequence): void
+    {
+        $this->publishingId = $sequence + 1;
+    }
 }
