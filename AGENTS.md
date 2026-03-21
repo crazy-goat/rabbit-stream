@@ -316,7 +316,7 @@ $connection->readLoop(maxFrames: 1); // blocks until 1 server-push frame dispatc
 
 These exist in the current codebase — do not replicate them in new code:
 
-- **No custom exceptions** — use `\Exception` until an exception hierarchy is introduced.
+- ~~**No custom exceptions** — use `\Exception` until an exception hierarchy is introduced.~~ ✅ Fixed in #242
 
 ---
 

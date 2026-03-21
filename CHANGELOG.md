@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Custom Exception Hierarchy** — replaced all generic `\Exception`, `\RuntimeException`, and `\InvalidArgumentException` with domain-specific exceptions (#242):
+  - `RabbitStreamException` — base exception (extends `\RuntimeException`)
+  - `ConnectionException` — socket/connection errors
+  - `TimeoutException` — read/write timeouts (extends ConnectionException)
+  - `ProtocolException` — protocol errors with optional `ResponseCodeEnum`
+  - `AuthenticationException` — SASL authentication failures
+  - `UnexpectedResponseException` — unexpected response types with `create()` factory
+  - `DeserializationException` — buffer/parsing errors
+  - `InvalidArgumentException` — input validation (extends native `\InvalidArgumentException`)
+
 ### Documentation
 - `WriteBuffer::addInt16()`, `addInt32()`, `addInt64()` — added comprehensive PHPDoc comments explaining why unsigned pack formats ('n', 'N', 'J') are used intentionally for signed integers; documents PHP's two's complement behavior and references ReadBuffer reverse conversion methods (#213)
 
