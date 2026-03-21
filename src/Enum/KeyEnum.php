@@ -67,6 +67,21 @@ enum KeyEnum: int
 
     public static function fromStreamCode(int $code): KeyEnum
     {
-        return self::tryFrom($code) ?? self::from($code - 0x8000);
+        $result = self::tryFrom($code);
+        if ($result !== null) {
+            return $result;
+        }
+
+        if ($code >= 0x8000) {
+            $result = self::tryFrom($code - 0x8000);
+            if ($result !== null) {
+                return $result;
+            }
+        }
+
+        throw new \ValueError(sprintf(
+            'Unknown stream protocol command code: 0x%04x',
+            $code
+        ));
     }
 }
