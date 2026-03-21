@@ -17,6 +17,8 @@ use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\Broker;
 use CrazyGoat\RabbitStream\VO\StreamMetadata;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 class ConnectionTest extends TestCase
 {
@@ -275,6 +277,38 @@ class ConnectionTest extends TestCase
         $this->assertEquals(1, $sendMessageCallCount, 'Destructor should not send CloseRequestV1 again');
     }
 
+    public function testDestructorLogsErrorWhenCloseFails(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        // Mock logger that expects error() to be called
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('error')
+            ->with(
+                $this->equalTo('Failed to close connection in destructor'),
+                $this->callback(fn(array $context): bool => isset($context['exception'])
+                    && $context['exception'] instanceof \Throwable)
+            );
+
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (): void {
+                throw new \RuntimeException('Socket is broken');
+            });
+
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function (): void {
+                throw new \RuntimeException('Socket is broken');
+            });
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection, $logger);
+
+        // Trigger destructor - should catch exception and log error
+        unset($connection);
+    }
+
     public function testStreamConnectionDestructorCallsClose(): void
     {
         // Create a real StreamConnection to test actual destructor behavior
@@ -291,14 +325,14 @@ class ConnectionTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    private function createConnectionWithMock(StreamConnection $mock): Connection
+    private function createConnectionWithMock(StreamConnection $mock, ?LoggerInterface $logger = null): Connection
     {
         $reflection = new \ReflectionClass(Connection::class);
         $constructor = $reflection->getConstructor();
         $this->assertNotNull($constructor, 'Connection class must have a constructor');
 
         $connection = $reflection->newInstanceWithoutConstructor();
-        $constructor->invoke($connection, $mock);
+        $constructor->invoke($connection, $mock, $logger ?? new NullLogger());
 
         return $connection;
     }
