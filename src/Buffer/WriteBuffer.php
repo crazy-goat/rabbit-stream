@@ -37,6 +37,17 @@ class WriteBuffer
         return $this;
     }
 
+    /**
+     * Add a signed 16-bit integer to the buffer.
+     *
+     * Note: Uses unsigned pack format 'n' intentionally. PHP's pack() with unsigned
+     * formats produces the correct two's complement binary representation for negative
+     * values. For example, pack('n', -1) produces 0xFFFF. This matches the RabbitMQ
+     * Stream protocol which uses big-endian encoding. PHP has no native big-endian
+     * signed 16-bit pack format ('s' is machine-dependent).
+     *
+     * @see ReadBuffer::getInt16() for the reverse conversion
+     */
     public function addInt16(int $value): self
     {
         $this->validateInt($value, self::INT16_MIN, self::INT16_MAX, 'int16');
@@ -44,6 +55,17 @@ class WriteBuffer
         return $this;
     }
 
+    /**
+     * Add a signed 32-bit integer to the buffer.
+     *
+     * Note: Uses unsigned pack format 'N' intentionally. PHP's pack() with unsigned
+     * formats produces the correct two's complement binary representation for negative
+     * values. For example, pack('N', -1) produces 0xFFFFFFFF. This matches the RabbitMQ
+     * Stream protocol which uses big-endian encoding. PHP has no native big-endian
+     * signed 32-bit pack format ('l' is machine-dependent).
+     *
+     * @see ReadBuffer::getInt32() for the reverse conversion
+     */
     public function addInt32(int $value): self
     {
         $this->validateInt($value, self::INT32_MIN, self::INT32_MAX, 'int32');
@@ -51,6 +73,17 @@ class WriteBuffer
         return $this;
     }
 
+    /**
+     * Add a signed 64-bit integer to the buffer.
+     *
+     * Note: Uses unsigned pack format 'J' intentionally. PHP's pack() with unsigned
+     * formats produces the correct two's complement binary representation for negative
+     * values. For example, pack('J', -1) produces 0xFFFFFFFFFFFFFFFF. This matches the
+     * RabbitMQ Stream protocol which uses big-endian encoding. PHP has no native
+     * big-endian signed 64-bit pack format ('q' is machine-dependent).
+     *
+     * @see ReadBuffer::getInt64() for the reverse conversion
+     */
     public function addInt64(int $value): self
     {
         $this->validateInt($value, self::INT64_MIN, self::INT64_MAX, 'int64');
