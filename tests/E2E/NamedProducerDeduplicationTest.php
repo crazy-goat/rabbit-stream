@@ -141,7 +141,7 @@ class NamedProducerDeduplicationTest extends TestCase
         $this->producer->waitForConfirms(timeout: 5);
 
         // All 5 messages should get confirms
-        $this->assertCount(5, $confirmed, 'Should have 5 confirms for second batch (IDs 10-14)');
+        $this->assertCount(5, $confirmed, 'Should have 5 confirms for second batch (IDs 11-15)');
 
         // Step 8: Create consumer and read all messages
         $consumer = $this->connection->createConsumer($this->streamName, OffsetSpec::first());
