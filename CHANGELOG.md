@@ -26,6 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `ConsumerUpdateReplyV1` — refactored to use `CorrelationTrait` and `CommandTrait::getKeyVersion()` patterns, consistent with all other request classes; implements `CorrelationInterface` and sets correlation ID via `withCorrelationId()` instead of constructor parameter (#196)
 
 ### Fixed
+- E2E test handshake — `StreamStatsTest`, `ExchangeCommandVersionsTest`, and `PartitionsTest` now correctly use `TuneResponseV1` instead of `TuneRequestV1` when responding to the server's tune handshake; per protocol spec, client should respond with key 0x8014 (response bit set) not 0x0014 (#178)
+- `StreamStatsResponseV1` — now uses `assertResponseCodeOk()` from `CommandTrait` instead of manual magic number check; provides consistent error messages with enum names and descriptions like all other response classes (#199)
 - `Connection::close()` — now properly closes all outstanding producers and consumers before closing the connection; prevents server-side resource leaks and ensures consumer offsets are stored when autoCommit is enabled (#206)
 - `PublishingError` — now implements `FromStreamBufferInterface` and changed return type from `self` to `?static` to match interface contract; enables polymorphic use with other VO classes (#201)
 - `OpenRequest` → renamed to `OpenRequestV1` to follow naming convention; fixed interface declaration order to match other request classes (#195)
