@@ -20,6 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Documentation
 - `WriteBuffer::addInt16()`, `addInt32()`, `addInt64()` — added comprehensive PHPDoc comments explaining why unsigned pack formats ('n', 'N', 'J') are used intentionally for signed integers; documents PHP's two's complement behavior and references ReadBuffer reverse conversion methods (#213)
 
+### Changed
+- `ConsumerUpdateReplyV1` — refactored to use `CorrelationTrait` and `CommandTrait::getKeyVersion()` patterns, consistent with all other request classes; implements `CorrelationInterface` and sets correlation ID via `withCorrelationId()` instead of constructor parameter (#196)
+
 ### Fixed
 - `PublishingError` — now implements `FromStreamBufferInterface` and changed return type from `self` to `?static` to match interface contract; enables polymorphic use with other VO classes (#201)
 - `OpenRequest` → renamed to `OpenRequestV1` to follow naming convention; fixed interface declaration order to match other request classes (#195)
