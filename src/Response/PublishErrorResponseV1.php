@@ -46,7 +46,11 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         $count = $buffer->getUint32();
         $errors = [];
         for ($i = 0; $i < $count; $i++) {
-            $errors[] = PublishingError::fromStreamBuffer($buffer);
+            $error = PublishingError::fromStreamBuffer($buffer);
+            if (!$error instanceof \CrazyGoat\RabbitStream\VO\PublishingError) {
+                throw new \Exception('Failed to parse PublishingError from buffer');
+            }
+            $errors[] = $error;
         }
         return new static($publisherId, ...$errors);
     }

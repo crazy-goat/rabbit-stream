@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\VO;
 
 use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
+use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Util\TypeCast;
 
 /** @phpstan-consistent-constructor */
-class PublishingError implements ToArrayInterface, FromArrayInterface
+class PublishingError implements FromStreamBufferInterface, ToArrayInterface, FromArrayInterface
 {
     public function __construct(
         private readonly int $publishingId,
@@ -28,7 +29,7 @@ class PublishingError implements ToArrayInterface, FromArrayInterface
         return $this->code;
     }
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): self
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         return new static($buffer->getUint64(), $buffer->getUint16());
     }
