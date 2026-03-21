@@ -29,6 +29,8 @@ Closes #{NUMBER}
 
 - [x] Go client: rabbitmq/rabbitmq-stream-go-client
 - [x] Java client: rabbitmq/rabbitmq-stream-java-client
+- [x] Rust client: rabbitmq/rabbitmq-stream-rust-client
+- [x] Python client: qweeze/rstream
 - [x] Protocol spec: PROTOCOL.adoc
 - [x or N/A] AMQP 1.0 spec — mark `[x]` if issue touched message encoding/properties/annotations (checked via Go/Java source), otherwise replace with `[N/A]`
 
