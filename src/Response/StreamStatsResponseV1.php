@@ -10,6 +10,8 @@ use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
@@ -51,7 +53,11 @@ class StreamStatsResponseV1 implements
         $responseCode = $buffer->getUint16();
 
         if ($responseCode !== 0x01) {
-            throw new \Exception('StreamStats request failed with response code: ' . $responseCode);
+            $code = ResponseCodeEnum::tryFrom($responseCode);
+            throw new ProtocolException(
+                'StreamStats request failed with response code: ' . $responseCode,
+                responseCode: $code
+            );
         }
 
         $stats = $buffer->getObjectArray(Statistic::class);

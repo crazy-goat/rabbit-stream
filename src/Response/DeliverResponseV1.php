@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\Util\TypeCast;
@@ -39,7 +40,7 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
         $version = $buffer->getUint16();
 
         if (self::getKey() !== $key) {
-            throw new \Exception('Unexpected command code');
+            throw new ProtocolException('Unexpected command code');
         }
 
         $subscriptionId = $buffer->getUint8();

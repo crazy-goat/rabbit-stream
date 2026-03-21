@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
+use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
@@ -110,7 +113,7 @@ class Producer
             $this->connection->readLoop(timeout: $remaining);
         }
         if ($this->pendingConfirms > 0) {
-            throw new \RuntimeException(
+            throw new TimeoutException(
                 "Timed out waiting for {$this->pendingConfirms} publish confirms"
             );
         }
@@ -124,15 +127,14 @@ class Producer
     public function querySequence(): int
     {
         if ($this->name === null) {
-            throw new \RuntimeException('Cannot query sequence for unnamed producer');
+            throw new InvalidArgumentException('Cannot query sequence for unnamed producer');
         }
         $this->connection->sendMessage(
             new QueryPublisherSequenceRequestV1($this->name, $this->stream)
         );
         $response = $this->connection->readMessage();
         if (!$response instanceof QueryPublisherSequenceResponseV1) {
-            $type = get_debug_type($response);
-            throw new \Exception("Expected QueryPublisherSequenceResponseV1, got " . $type);
+            throw UnexpectedResponseException::create(QueryPublisherSequenceResponseV1::class, $response);
         }
         return $response->getSequence();
     }

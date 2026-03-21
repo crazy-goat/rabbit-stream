@@ -8,6 +8,10 @@ use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
@@ -61,14 +65,14 @@ class StreamConnection
     {
         $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
         if ($socket === false) {
-            throw new \RuntimeException("Cannot create socket: " . socket_strerror(socket_last_error()));
+            throw new ConnectionException("Cannot create socket: " . socket_strerror(socket_last_error()));
         }
 
         $result = socket_connect($socket, $this->host, $this->port);
         if (!$result) {
             $error = socket_strerror(socket_last_error($socket));
             socket_close($socket);
-            throw new \RuntimeException(
+            throw new ConnectionException(
                 "Cannot connect to {$this->host}:{$this->port}: " . $error
             );
         }
@@ -103,7 +107,7 @@ class StreamConnection
     public function setMaxFrameSize(int $maxFrameSize): void
     {
         if ($maxFrameSize < 0) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "Max frame size must be >= 0 (0 = no limit), got {$maxFrameSize}"
             );
         }
@@ -184,7 +188,7 @@ class StreamConnection
 
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
-                throw new \RuntimeException("Write timeout: socket not ready for writing");
+                throw new TimeoutException("Write timeout: socket not ready for writing");
             }
 
             $timeoutSec = (int) $remaining;
@@ -193,23 +197,23 @@ class StreamConnection
             $ready = socket_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
-                throw new \RuntimeException(
+                throw new ConnectionException(
                     "socket_select failed: " . socket_strerror(socket_last_error($this->socket))
                 );
             }
 
             if ($ready === 0) {
-                throw new \RuntimeException("Write timeout: socket not ready for writing");
+                throw new TimeoutException("Write timeout: socket not ready for writing");
             }
         }
 
         if (!$this->socket instanceof \Socket) {
-            throw new \RuntimeException("Cannot write: socket is not connected");
+            throw new ConnectionException("Cannot write: socket is not connected");
         }
 
         $written = socket_write($this->socket, $frame, strlen($frame));
         if ($written === false) {
-            throw new \RuntimeException(
+            throw new ConnectionException(
                 "Failed to write to socket: " . socket_strerror(socket_last_error($this->socket))
             );
         }
@@ -223,20 +227,20 @@ class StreamConnection
 
         while (true) {
             if (!$this->connected) {
-                throw new \RuntimeException("Connection closed");
+                throw new ConnectionException("Connection closed");
             }
 
             $remainingTimeout = $timeout;
             if ($deadline !== null) {
                 $remainingTimeout = $deadline - microtime(true);
                 if ($remainingTimeout <= 0) {
-                    throw new \RuntimeException("Read timeout");
+                    throw new TimeoutException("Read timeout");
                 }
             }
 
             $frame = $this->readFrame($remainingTimeout);
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
-                throw new \RuntimeException("Read timeout");
+                throw new TimeoutException("Read timeout");
             }
 
             $key = $frame->peekUint16();
@@ -246,7 +250,7 @@ class StreamConnection
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
-                    throw new \RuntimeException("Connection closed by server");
+                    throw new ConnectionException("Connection closed by server");
                 }
 
                 continue;
@@ -287,7 +291,7 @@ class StreamConnection
             $ready = socket_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
-                throw new \RuntimeException(
+                throw new ConnectionException(
                     'socket_select failed: ' . socket_strerror(socket_last_error($this->socket))
                 );
             }
@@ -344,7 +348,7 @@ class StreamConnection
             case KeyEnum::PUBLISH_CONFIRM->value:
                 $confirm = PublishConfirmResponseV1::fromStreamBuffer($frame);
                 if (!$confirm instanceof PublishConfirmResponseV1) {
-                    throw new \RuntimeException('Failed to deserialize PublishConfirm frame');
+                    throw new DeserializationException('Failed to deserialize PublishConfirm frame');
                 }
                 $publisherId = $confirm->getPublisherId();
                 if (isset($this->publisherCallbacks[$publisherId])) {
@@ -355,7 +359,7 @@ class StreamConnection
             case KeyEnum::PUBLISH_ERROR->value:
                 $error = PublishErrorResponseV1::fromStreamBuffer($frame);
                 if (!$error instanceof PublishErrorResponseV1) {
-                    throw new \RuntimeException('Failed to deserialize PublishError frame');
+                    throw new DeserializationException('Failed to deserialize PublishError frame');
                 }
                 $publisherId = $error->getPublisherId();
                 if (isset($this->publisherCallbacks[$publisherId])) {
@@ -366,7 +370,7 @@ class StreamConnection
             case KeyEnum::DELIVER->value:
                 $deliver = DeliverResponseV1::fromStreamBuffer($frame);
                 if (!$deliver instanceof DeliverResponseV1) {
-                    throw new \RuntimeException('Failed to deserialize Deliver frame');
+                    throw new DeserializationException('Failed to deserialize Deliver frame');
                 }
                 $subscriptionId = $deliver->getSubscriptionId();
                 if (isset($this->subscriberCallbacks[$subscriptionId])) {
@@ -409,7 +413,7 @@ class StreamConnection
             case KeyEnum::CONSUMER_UPDATE->value:
                 $query = ConsumerUpdateQueryV1::fromStreamBuffer($frame);
                 if (!$query instanceof ConsumerUpdateQueryV1) {
-                    throw new \RuntimeException('Failed to deserialize ConsumerUpdate frame');
+                    throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
                 }
                 $offsetType = 1;
                 $offset = 0;
@@ -440,7 +444,7 @@ class StreamConnection
         $ready = socket_select($read, $write, $except, $timeout > 0 ? $timeoutSec : 0, $timeout > 0 ? $timeoutUsec : 0);
 
         if ($ready === false) {
-            throw new \RuntimeException('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
+            throw new ConnectionException('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
         }
 
         if ($ready === 0) {
@@ -454,20 +458,20 @@ class StreamConnection
 
         $sizeUnpacked = unpack('N', $sizeData);
         if ($sizeUnpacked === false) {
-            throw new \RuntimeException('Failed to unpack frame size');
+            throw new DeserializationException('Failed to unpack frame size');
         }
         $size = $sizeUnpacked[1];
 
         if ($this->maxFrameSize > 0 && $size > $this->maxFrameSize) {
             $this->close();
-            throw new \RuntimeException(
+            throw new ConnectionException(
                 "Frame size {$size} exceeds maximum allowed {$this->maxFrameSize}"
             );
         }
 
         $frameData = $this->readBytes($size);
         if ($frameData === null) {
-            throw new \RuntimeException("Failed to read frame data");
+            throw new ConnectionException("Failed to read frame data");
         }
 
         $this->logger->debug("Socket <-" . bin2hex($frameData));
@@ -478,7 +482,7 @@ class StreamConnection
     private function readBytes(int $length): ?string
     {
         if (!$this->socket instanceof \Socket) {
-            throw new \RuntimeException("Cannot read: socket is not connected");
+            throw new ConnectionException("Cannot read: socket is not connected");
         }
 
         $data = '';
@@ -491,7 +495,7 @@ class StreamConnection
                 if ($error === SOCKET_ETIMEDOUT) {
                     return null;
                 }
-                throw new \RuntimeException("Failed to read from socket: " . socket_strerror($error));
+                throw new ConnectionException("Failed to read from socket: " . socket_strerror($error));
             }
 
             $data .= $chunk;

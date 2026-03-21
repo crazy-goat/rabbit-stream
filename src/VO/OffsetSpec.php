@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\VO;
 use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 
 class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
 {
@@ -35,7 +36,7 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
                 true
             )
         ) {
-            throw new \InvalidArgumentException("Invalid offset spec type: $type");
+            throw new InvalidArgumentException("Invalid offset spec type: $type");
         }
     }
 

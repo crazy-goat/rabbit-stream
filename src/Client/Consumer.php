@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
@@ -34,7 +37,7 @@ class Consumer
         private readonly int $maxBufferSize = 1000,
     ) {
         if ($this->maxBufferSize <= 0) {
-            throw new \InvalidArgumentException('maxBufferSize must be greater than 0');
+            throw new InvalidArgumentException('maxBufferSize must be greater than 0');
         }
         $this->subscribe();
     }
@@ -114,7 +117,7 @@ class Consumer
     public function storeOffset(int $offset): void
     {
         if ($this->name === null) {
-            throw new \RuntimeException('Cannot store offset for unnamed consumer');
+            throw new ProtocolException('Cannot store offset for unnamed consumer');
         }
         $this->connection->sendMessage(
             new StoreOffsetRequestV1($this->name, $this->stream, $offset)
@@ -124,15 +127,14 @@ class Consumer
     public function queryOffset(): int
     {
         if ($this->name === null) {
-            throw new \RuntimeException('Cannot query offset for unnamed consumer');
+            throw new ProtocolException('Cannot query offset for unnamed consumer');
         }
         $this->connection->sendMessage(
             new QueryOffsetRequestV1($this->name, $this->stream)
         );
         $response = $this->connection->readMessage();
         if (!$response instanceof QueryOffsetResponseV1) {
-            $type = get_debug_type($response);
-            throw new \Exception("Expected QueryOffsetResponseV1, got " . $type);
+            throw UnexpectedResponseException::create(QueryOffsetResponseV1::class, $response);
         }
         return $response->getOffset();
     }
