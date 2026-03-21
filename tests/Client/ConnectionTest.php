@@ -325,6 +325,38 @@ class ConnectionTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    public function testNegotiatedMaxValueBothNonZeroReturnsMin(): void
+    {
+        $this->assertSame(100, $this->invokeNegotiatedMaxValue(100, 200));
+        $this->assertSame(100, $this->invokeNegotiatedMaxValue(200, 100));
+        $this->assertSame(50, $this->invokeNegotiatedMaxValue(50, 50));
+    }
+
+    public function testNegotiatedMaxValueClientZeroReturnsServer(): void
+    {
+        $this->assertSame(200, $this->invokeNegotiatedMaxValue(0, 200));
+    }
+
+    public function testNegotiatedMaxValueServerZeroReturnsClient(): void
+    {
+        $this->assertSame(100, $this->invokeNegotiatedMaxValue(100, 0));
+    }
+
+    public function testNegotiatedMaxValueBothZeroReturnsZero(): void
+    {
+        $this->assertSame(0, $this->invokeNegotiatedMaxValue(0, 0));
+    }
+
+    private function invokeNegotiatedMaxValue(int $clientValue, int $serverValue): int
+    {
+        $method = new \ReflectionMethod(Connection::class, 'negotiatedMaxValue');
+        $result = $method->invoke(null, $clientValue, $serverValue);
+        if (!is_int($result)) {
+            throw new \RuntimeException('Expected int from negotiatedMaxValue');
+        }
+        return $result;
+    }
+
     private function createConnectionWithMock(StreamConnection $mock, ?LoggerInterface $logger = null): Connection
     {
         $reflection = new \ReflectionClass(Connection::class);
