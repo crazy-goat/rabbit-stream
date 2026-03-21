@@ -30,8 +30,9 @@ Before pushing anything, dispatch a `code-heavy` subagent (Task tool, `subagent_
 > ```
 > If notes exist, compare with current code to verify previous issues were fixed.
 > 
-> Then save new findings to git notes:
+> Then remove old notes and save new findings:
 > ```bash
+> git notes --ref=refs/notes/review remove $(git branch --show-current) 2>/dev/null || true
 > git notes --ref=refs/notes/review add -m "REPORT|critical=2|important=1|minor=3" $(git branch --show-current)
 > git notes --ref=refs/notes/review append -m "CRITICAL|src/File.php:42|Missing type declaration" $(git branch --show-current)
 > git notes --ref=refs/notes/review append -m "IMPORTANT|src/File.php:55|Wrong return type" $(git branch --show-current)
@@ -44,19 +45,25 @@ Before pushing anything, dispatch a `code-heavy` subagent (Task tool, `subagent_
 Git notes act as shared memory between review and build agents:
 
 1. **Review agent (code-heavy)** → **WRITES** findings to notes
-2. **Build agent (code/code-heavy)** → **READS** notes and fixes issues
-3. **Next review agent** → **READS** previous notes to verify fixes
+2. **Build agent (code/code-heavy)** → **READS** notes and fixes issues (does NOT remove notes - review agent needs them for verification)
+3. **Next review agent** → **READS** previous notes to verify fixes, then **REMOVES** old notes and writes new findings
 
-**For Build agent - read and clear notes:**
+**For Build agent - read notes only (DO NOT REMOVE):**
 ```bash
 BRANCH=$(git branch --show-current)
 git notes --ref=refs/notes/review show $BRANCH 2>/dev/null || echo "No notes found"
-git notes --ref=refs/notes/review remove $BRANCH 2>/dev/null || true
+# DO NOT remove notes here - review agent needs them for verification
 ```
 
-**For Review agent - check previous fixes:**
+**For Review agent - check previous fixes, then remove and write new:**
 ```bash
-git notes --ref=refs/notes/review show $(git branch --show-current) 2>/dev/null || echo "No previous notes"
+BRANCH=$(git branch --show-current)
+# First, check previous notes to verify fixes
+git notes --ref=refs/notes/review show $BRANCH 2>/dev/null || echo "No previous notes"
+
+# Then remove old notes and write new findings
+git notes --ref=refs/notes/review remove $BRANCH 2>/dev/null || true
+git notes --ref=refs/notes/review add -m "REPORT|critical=0|important=0|minor=0" $BRANCH
 ```
 
 ## Iteration Loop
@@ -64,9 +71,9 @@ git notes --ref=refs/notes/review show $(git branch --show-current) 2>/dev/null 
 Repeat until zero Critical and zero Important:
 
 1. **Review** (code-heavy) analyzes code, WRITES findings to git notes
-2. **Build** (code/code-heavy) READS notes, fixes every Critical/Important issue, CLEARS notes
+2. **Build** (code/code-heavy) READS notes, fixes every Critical/Important issue (does NOT remove notes)
 3. **Build agent re-runs quality gates** (already defined in Step 6): `composer test:unit`, `composer lint`, `composer phpstan`
-4. **Review** (code-heavy) READS previous notes, verifies fixes, WRITES new findings
+4. **Review** (code-heavy) READS previous notes to verify fixes, REMOVES old notes, WRITES new findings
 5. Stop only when review reports: no Critical, no Important (and notes show REPORT|critical=0|important=0)
 
 **Note:** The code review subagent should NOT run lint, fixer, rector, or phpstan - these are already handled in Step 6 (Quality Gates) by the build agent. The reviewer's job is code analysis only.
