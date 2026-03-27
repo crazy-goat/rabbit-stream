@@ -230,6 +230,121 @@ Properties: Map<string, string>
 | `platform` | Server platform |
 | `capabilities` | Comma-separated feature list |
 
+### ExchangeCommandVersions (0x001b)
+
+Negotiates supported protocol versions for commands between client and server.
+
+**Request Frame Structure:**
+```
+Key:        0x001b (uint16)
+Version:    1 (uint16)
+CorrelationId: (uint32)
+commands[]:    Array<CommandVersion>
+```
+
+**CommandVersion Structure:**
+```
+key:        uint16 (command key)
+minVersion: uint16 (minimum supported version)
+maxVersion: uint16 (maximum supported version)
+```
+
+**Request Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `commands` | CommandVersion[] | List of commands with version ranges |
+
+**Response Frame Structure:**
+```
+Key:        0x801b (uint16)
+Version:    1 (uint16)
+CorrelationId: (uint32) - matches request
+ResponseCode:  uint16 (0x0001 = OK)
+commands[]:    Array<CommandVersion>
+```
+
+**Response Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `commands` | CommandVersion[] | Server's supported versions |
+
+**PHP Implementation:**
+```php
+use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
+use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
+
+// Send supported versions
+$stream->sendMessage(new ExchangeCommandVersionsRequestV1(
+    commands: [
+        new CommandVersion(key: 0x0002, minVersion: 1, maxVersion: 2),  // Publish v1-v2
+        new CommandVersion(key: 0x0008, minVersion: 1, maxVersion: 2),  // Deliver v1-v2
+    ]
+));
+
+$response = $stream->readMessage();
+assert($response instanceof ExchangeCommandVersionsResponseV1);
+
+// Check negotiated versions
+foreach ($response->getCommands() as $cmd) {
+    echo "Command 0x{$cmd->getKey()}: versions {$cmd->getMinVersion()}-{$cmd->getMaxVersion()}\n";
+}
+```
+
+### ResolveOffsetSpec (0x001f)
+
+Resolves an offset specification to a concrete offset value.
+
+**Request Frame Structure:**
+```
+Key:        0x001f (uint16)
+Version:    1 (uint16)
+CorrelationId: (uint32)
+stream:        string
+reference:     string (offset reference name)
+offsetSpec:    OffsetSpec (variable encoding)
+```
+
+**Request Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `stream` | string | Stream name |
+| `reference` | string | Offset reference (consumer group) |
+| `offsetSpec` | OffsetSpec | Offset specification to resolve |
+
+**Response Frame Structure:**
+```
+Key:        0x801f (uint16)
+Version:    1 (uint16)
+CorrelationId: (uint32) - matches request
+ResponseCode:  uint16 (0x0001 = OK)
+offset:        uint64 (resolved offset value)
+```
+
+**Response Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `offset` | uint64 | Concrete offset value |
+
+**PHP Implementation:**
+```php
+use CrazyGoat\RabbitStream\Request\ResolveOffsetSpecRequestV1;
+use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
+// Resolve "last" offset to concrete value
+$stream->sendMessage(new ResolveOffsetSpecRequestV1(
+    stream: 'my-stream',
+    reference: 'my-consumer-group',
+    offsetSpec: OffsetSpec::last()
+));
+
+$response = $stream->readMessage();
+assert($response instanceof ResolveOffsetSpecResponseV1);
+$concreteOffset = $response->getOffset();
+echo "Resolved offset: $concreteOffset\n";
+```
+
 ## Server-Push Frames
 
 These frames are sent by the server without a corresponding client request:
