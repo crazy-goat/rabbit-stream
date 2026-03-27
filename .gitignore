@@ -6,3 +6,5 @@
 .worktrees/
 /phpcs-report.json
 .ref-clients/
+.oda
+.opencode
