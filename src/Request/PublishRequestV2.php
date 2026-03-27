@@ -10,12 +10,10 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
-use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 
 class PublishRequestV2 implements ToStreamBufferInterface, ToArrayInterface, KeyVersionInterface
 {
-    use V1Trait;
     use CommandTrait;
 
     /** @var array<int, PublishedMessageV2> */
