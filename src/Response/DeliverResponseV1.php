@@ -43,6 +43,12 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
             throw new ProtocolException('Unexpected command code');
         }
 
+        // Validate version: Deliver supports v1 and v2 only
+        // Cannot use validateKeyVersion() because this class handles both v1 and v2 frames
+        if ($version !== 1 && $version !== 2) {
+            throw new ProtocolException("Unexpected version: {$version}");
+        }
+
         $subscriptionId = $buffer->getUint8();
 
         // Deliver v2 has CommittedChunkId (uint64) before OsirisChunk

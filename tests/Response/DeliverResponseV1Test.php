@@ -54,4 +54,30 @@ class DeliverResponseV1Test extends TestCase
 
         DeliverResponseV1::fromStreamBuffer(new ReadBuffer($raw));
     }
+
+    public function testThrowsOnUnsupportedVersion3(): void
+    {
+        $raw = pack('n', 0x0008)
+            . pack('n', 3)
+            . pack('C', 1)
+            . 'data';
+
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\ProtocolException::class);
+        $this->expectExceptionMessage('Unexpected version: 3');
+
+        DeliverResponseV1::fromStreamBuffer(new ReadBuffer($raw));
+    }
+
+    public function testThrowsOnUnsupportedVersion99(): void
+    {
+        $raw = pack('n', 0x0008)
+            . pack('n', 99)
+            . pack('C', 1)
+            . 'data';
+
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\ProtocolException::class);
+        $this->expectExceptionMessage('Unexpected version: 99');
+
+        DeliverResponseV1::fromStreamBuffer(new ReadBuffer($raw));
+    }
 }
