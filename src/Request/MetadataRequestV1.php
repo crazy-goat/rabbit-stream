@@ -29,14 +29,8 @@ class MetadataRequestV1 implements ToStreamBufferInterface, ToArrayInterface, Co
 
     public function toStreamBuffer(): WriteBuffer
     {
-        $buffer = self::getKeyVersion($this->getCorrelationId())
-            ->addInt32(count($this->streams));
-
-        foreach ($this->streams as $stream) {
-            $buffer->addString($stream);
-        }
-
-        return $buffer;
+        return self::getKeyVersion($this->getCorrelationId())
+            ->addStringArray(...$this->streams);
     }
 
     /** @return array<string, mixed> */
