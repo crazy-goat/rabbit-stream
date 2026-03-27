@@ -1,27 +1,58 @@
-# Architecture Overview Diagram
+<!--
+  Architecture Overview Diagram
+  Shows the high-level structure of RabbitStream library
+  Width: 80 characters max
+-->
 
-> TODO: Create diagram
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        RabbitStream Architecture                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-This diagram should illustrate the high-level architecture of RabbitStream.
+┌─────────────────────┐         ┌─────────────────────┐         ┌─────────────┐
+│   Client            │         │   RabbitStream      │         │   RabbitMQ  │
+│   Application       │◄───────►│   Library           │◄───────►│   Server    │
+│                     │         │                     │  TCP:5552 │             │
+└─────────────────────┘         └─────────────────────┘         └─────────────┘
+         │                                │
+         │                                │
+         ▼                                ▼
+┌─────────────────────┐         ┌─────────────────────┐
+│ High-Level API      │         │ Protocol Layer      │
+│ • Producer          │         │ • Request/Response  │
+│ • Consumer          │         │ • Frame Encoding    │
+│ • StreamManager     │         │ • KeyEnum           │
+└─────────────────────┘         └─────────────────────┘
+                                         │
+                                         ▼
+                                ┌─────────────────────┐
+                                │ Connection Layer    │
+                                │ • StreamConnection  │
+                                │ • ReadBuffer        │
+                                │ • WriteBuffer       │
+                                └─────────────────────┘
+```
 
-## Description
+## Namespace Organization
 
-The diagram should show:
-- Client application layer
-- RabbitStream library components
-- TCP connection to RabbitMQ
-- Request/response flow
-- Server-push frame handling
-- Buffer management
+```
+CrazyGoat\RabbitStream\
+│
+├── Buffer\          # ReadBuffer, WriteBuffer
+├── Contract\        # Interfaces
+├── Enum\            # KeyEnum, ResponseCodeEnum
+├── Request\         # *RequestV1 classes
+├── Response\        # *ResponseV1 classes
+├── Trait\           # Shared traits
+└── VO\              # Value Objects
+```
 
-## Format
+## Key Classes
 
-Consider creating this as:
-- Mermaid diagram (embedded in markdown)
-- SVG diagram
-- PNG diagram
-- ASCII art
-
-## References
-
-- See `docs/en/guide/architecture-overview.md` for context
+| Class | Purpose |
+|-------|---------|
+| `StreamConnection` | TCP socket management, read loop |
+| `ResponseBuilder` | Deserializes responses |
+| `WriteBuffer` | Binary serialization |
+| `ReadBuffer` | Binary deserialization |
+| `KeyEnum` | Protocol command codes |

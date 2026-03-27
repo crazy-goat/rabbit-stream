@@ -1,27 +1,99 @@
-# Connection Handshake Diagram
+<!--
+  Connection Handshake Sequence Diagram
+  Shows the 5-step connection establishment process
+  Width: 80 characters max
+-->
 
-> TODO: Create diagram
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Connection Handshake Sequence                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-This diagram should illustrate the connection and authentication flow.
+    Client                                              Server
+      │                                                   │
+      │  1. PeerProperties (0x0011)                       │
+      │ ───────────────────────────────────────────────►  │
+      │     [client properties]                               │
+      │                                                   │
+      │     PeerPropertiesResponse (0x8011)               │
+      │     [server properties]                             │
+      │ ◄───────────────────────────────────────────────  │
+      │                                                   │
+      │  2. SaslHandshake (0x0012)                        │
+      │ ───────────────────────────────────────────────►  │
+      │                                                   │
+      │     SaslHandshakeResponse (0x8012)                │
+      │     [mechanisms: PLAIN, AMQPLAIN, EXTERNAL]       │
+      │ ◄───────────────────────────────────────────────  │
+      │                                                   │
+      │  3. SaslAuthenticate (0x0013)                       │
+      │     [username, password, mechanism]                 │
+      │ ───────────────────────────────────────────────►  │
+      │                                                   │
+      │     SaslAuthenticateResponse (0x8013)             │
+      │ ◄───────────────────────────────────────────────  │
+      │                                                   │
+      │  4. Tune (0x0014)                                   │
+      │ ───────────────────────────────────────────────►  │
+      │     [frameMax, heartbeat]                           │
+      │                                                   │
+      │     TuneResponse (0x8014)                         │
+      │     [frameMax, heartbeat]                         │
+      │ ◄───────────────────────────────────────────────  │
+      │                                                   │
+      │  5. Open (0x0015)                                   │
+      │     [virtualHost]                                   │
+      │ ───────────────────────────────────────────────►  │
+      │                                                   │
+      │     OpenResponse (0x8015)                         │
+      │ ◄───────────────────────────────────────────────  │
+      │                                                   │
+      ▼                                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Connection Established - Ready for Use                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-## Description
+## Handshake Details
 
-The diagram should show:
-- TCP connection establishment
-- Protocol version negotiation
-- SaslHandshake exchange
-- SaslAuthenticate exchange
-- Tune command
-- Open command
-- Final connection state
+| Step | Request | Response | Purpose |
+|------|---------|----------|---------|
+| 1 | PeerProperties (0x0011) | PeerPropertiesResponse (0x8011) | Exchange capabilities |
+| 2 | SaslHandshake (0x0012) | SaslHandshakeResponse (0x8012) | Get auth mechanisms |
+| 3 | SaslAuthenticate (0x0013) | SaslAuthenticateResponse (0x8013) | Authenticate user |
+| 4 | Tune (0x0014) | TuneResponse (0x8014) | Negotiate settings |
+| 5 | Open (0x0015) | OpenResponse (0x8015) | Open virtual host |
 
-## Format
+## State Transitions
 
-Consider creating this as:
-- Sequence diagram (Mermaid)
-- Flowchart
-- Step-by-step illustration
-
-## References
-
-- See `docs/en/protocol/connection-auth.md` for context
+```
+┌─────────────┐    PeerProperties    ┌─────────────┐
+│   START     │ ───────────────────► │  PROPERTIES │
+└─────────────┘                      └─────────────┘
+                                           │
+                                           │ SaslHandshake
+                                           ▼
+                                    ┌─────────────┐
+                                    │   SASL      │
+                                    │ HANDSHAKE   │
+                                    └─────────────┘
+                                           │
+                                           │ SaslAuthenticate
+                                           ▼
+                                    ┌─────────────┐
+                                    │ AUTHENTICATED│
+                                    └─────────────┘
+                                           │
+                                           │ Tune
+                                           ▼
+                                    ┌─────────────┐
+                                    │   TUNED     │
+                                    └─────────────┘
+                                           │
+                                           │ Open
+                                           ▼
+                                    ┌─────────────┐
+                                    │   OPEN      │
+                                    │  (Ready)    │
+                                    └─────────────┘
+```
