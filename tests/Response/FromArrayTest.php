@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Response;
 
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\CreditResponseV1;
@@ -254,7 +254,7 @@ class FromArrayTest extends TestCase
 
     public function testConsumerUpdateQueryFromArray(): void
     {
-        $response = ConsumerUpdateQueryV1::fromArray([
+        $response = ConsumerUpdateResponseV1::fromArray([
             'correlationId' => 12,
             'subscriptionId' => 3,
             'active' => true,

@@ -14,7 +14,7 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
@@ -416,8 +416,8 @@ class StreamConnection
                 break;
 
             case KeyEnum::CONSUMER_UPDATE->value:
-                $query = ConsumerUpdateQueryV1::fromStreamBuffer($frame);
-                if (!$query instanceof ConsumerUpdateQueryV1) {
+                $query = ConsumerUpdateResponseV1::fromStreamBuffer($frame);
+                if (!$query instanceof ConsumerUpdateResponseV1) {
                     throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
                 }
                 $offsetType = 1;

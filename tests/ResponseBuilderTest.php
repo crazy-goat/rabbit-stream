@@ -10,7 +10,7 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\CreditResponseV1;
@@ -217,7 +217,7 @@ class ResponseBuilderTest extends TestCase
             ],
             'CONSUMER_UPDATE' => [
                 0x001a,
-                ConsumerUpdateQueryV1::class,
+                ConsumerUpdateResponseV1::class,
                 // correlationId + subscriptionId (uint8) + active (uint8)
                 pack('N', 1) . pack('C', 1) . pack('C', 1),
             ],
