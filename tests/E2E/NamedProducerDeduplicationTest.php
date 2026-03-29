@@ -6,7 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\Client\Producer;
+use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
 
@@ -16,7 +16,7 @@ class NamedProducerDeduplicationTest extends TestCase
     private static int $port = 5552;
 
     private ?Connection $connection = null;
-    private ?Producer $producer = null;
+    private ?ProducerInterface $producer = null;
     private string $streamName;
     private string $producerRef;
 
@@ -47,7 +47,7 @@ class NamedProducerDeduplicationTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->producer instanceof Producer) {
+        if ($this->producer instanceof ProducerInterface) {
             try {
                 $this->producer->close();
             } catch (\Exception) {

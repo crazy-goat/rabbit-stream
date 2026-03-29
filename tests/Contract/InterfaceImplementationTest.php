@@ -16,7 +16,9 @@ class InterfaceImplementationTest extends TestCase
 {
     public function testConnectionImplementsConnectionInterface(): void
     {
+        // @phpstan-ignore method.alreadyNarrowedType
         $this->assertTrue(
+            // @phpstan-ignore function.alreadyNarrowedType
             is_subclass_of(Connection::class, ConnectionInterface::class),
             'Connection class must implement ConnectionInterface'
         );
@@ -24,7 +26,9 @@ class InterfaceImplementationTest extends TestCase
 
     public function testProducerImplementsProducerInterface(): void
     {
+        // @phpstan-ignore method.alreadyNarrowedType
         $this->assertTrue(
+            // @phpstan-ignore function.alreadyNarrowedType
             is_subclass_of(Producer::class, ProducerInterface::class),
             'Producer class must implement ProducerInterface'
         );
@@ -32,7 +36,9 @@ class InterfaceImplementationTest extends TestCase
 
     public function testConsumerImplementsConsumerInterface(): void
     {
+        // @phpstan-ignore method.alreadyNarrowedType
         $this->assertTrue(
+            // @phpstan-ignore function.alreadyNarrowedType
             is_subclass_of(Consumer::class, ConsumerInterface::class),
             'Consumer class must implement ConsumerInterface'
         );
