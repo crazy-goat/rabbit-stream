@@ -143,7 +143,7 @@ These all follow the same pattern: `fromArray(['correlationId' => int])`.
 | `DeliverResponseV1` | `['subscriptionId' => int, 'chunkBytes' => string]` |
 | `MetadataUpdateResponseV1` | `['code' => int, 'stream' => string]` |
 | `CreditResponseV1` | `['responseCode' => int, 'subscriptionId' => int]` |
-| `ConsumerUpdateQueryV1` | `['correlationId' => int, 'subscriptionId' => int, 'active' => bool]` |
+| `ConsumerUpdateResponseV1` | `['correlationId' => int, 'subscriptionId' => int, 'active' => bool]` |
 
 ### Task 1.8: Special Responses
 

@@ -94,7 +94,7 @@ The following commands are supported in protocol version 1:
 | QueryPublisherSequence | `QUERY_PUBLISHER_SEQUENCE_RESPONSE` | `QueryPublisherSequenceResponseV1` |
 | QueryOffset | `QUERY_OFFSET_RESPONSE` | `QueryOffsetResponseV1` |
 | Heartbeat | `HEARTBEAT` | `HeartbeatRequestV1` |
-| ConsumerUpdate | `CONSUMER_UPDATE` | `ConsumerUpdateQueryV1` |
+| ConsumerUpdate | `CONSUMER_UPDATE` | `ConsumerUpdateResponseV1` |
 | Credit | `CREDIT_RESPONSE` | `CreditResponseV1` |
 | Tune | `TUNE` | `TuneRequestV1` |
 | SaslHandshake | `SASL_HANDSHAKE_RESPONSE` | `SaslHandshakeResponseV1` |

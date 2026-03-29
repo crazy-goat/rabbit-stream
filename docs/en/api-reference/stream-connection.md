@@ -255,7 +255,7 @@ public function onConsumerUpdate(callable $callback): void
 ```
 
 **Parameters:**
-- `$callback` - Receives `ConsumerUpdateQueryV1`, must return `[int $offsetType, int $offset]`
+- `$callback` - Receives `ConsumerUpdateResponseV1`, must return `[int $offsetType, int $offset]`
 
 ## Event Loop Methods
 

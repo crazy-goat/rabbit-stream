@@ -519,9 +519,9 @@ For custom offset selection, register a callback:
 ```php
 <?php
 
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 
-$connection->onConsumerUpdate(function (ConsumerUpdateQueryV1 $query): array {
+$connection->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     echo "Becoming active consumer!\n";
     echo "Subscription ID: {$query->getSubscriptionId()}\n";
     echo "Stream: {$query->getStreamName()}\n";

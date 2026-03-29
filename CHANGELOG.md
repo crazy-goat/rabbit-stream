@@ -220,7 +220,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - `HeartbeatRequestV1` — bidirectional heartbeat frame (key `0x0017`); auto-echoed by `readMessage()` and `readLoop()`
 - `MetadataUpdateResponseV1` — server-push stream topology change notification (key `0x0010`)
-- `ConsumerUpdateQueryV1` — server-push single-active-consumer query from server (key `0x001a`)
+- `ConsumerUpdateResponseV1` — server-push single-active-consumer query from server (key `0x001a`)
 - `ConsumerUpdateReplyV1` — client reply to ConsumerUpdate with offset specification (key `0x801a`)
 - `DeliverResponseV1` — server-push message delivery frame (key `0x0008`); raw OsirisChunk bytes
 - `ReadBuffer::getRemainingBytes()` and `ReadBuffer::peekUint16()`

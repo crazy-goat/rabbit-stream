@@ -368,13 +368,13 @@ offsetSpec:    OffsetSpec (where to resume)
 
 **PHP Implementation:**
 ```php
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 // Handle server query
 $response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof ConsumerUpdateQueryV1) {
+if ($response instanceof ConsumerUpdateResponseV1) {
     $subscriptionId = $response->getSubscriptionId();
     $isActive = $response->isActive();
     
