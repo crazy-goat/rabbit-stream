@@ -4,7 +4,7 @@ This guide covers managing message offsets in RabbitMQ Streams, including storag
 
 ## Overview
 
-Offset tracking is the mechanism that allows consumers to persist their position in a stream and resume consumption from that point after a restart or failure. RabbitMQ Streams provides server-side offset storage, eliminating the need for external databases or file-based tracking.
+Offset tracking is the mechanism that allows consumers to persist their position in a stream and resume consumption from that point after a restart or failure. RabbitMQ Streams provides **server-side** offset storage (persisted on the broker), eliminating the need for external databases or file-based **client-side** tracking.
 
 ## Key Concepts
 
@@ -156,6 +156,36 @@ $consumer = $connection->createConsumer(
 - Recent data processing
 - Time-based filtering
 - Relative time queries
+
+### 7. Server-Side Resolution (RabbitMQ 4.3+)
+
+Resolve an OffsetSpec to a concrete offset value before subscribing:
+
+```php
+use CrazyGoat\RabbitStream\Request\ResolveOffsetSpecRequestV1;
+use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
+
+// Resolve "last" to concrete offset
+$connection->sendMessage(new ResolveOffsetSpecRequestV1(
+    stream: 'events',
+    reference: 'my-consumer',
+    offsetSpec: OffsetSpec::last()
+));
+
+$response = $connection->readMessage();
+if ($response instanceof ResolveOffsetSpecResponseV1) {
+    $concreteOffset = $response->getOffset();
+    echo "Last offset is: {$concreteOffset}\n";
+}
+```
+
+**Use Cases:**
+- Pre-flight offset validation
+- Converting relative specs to concrete values
+- Determining exact resume positions
+- Offset lag monitoring
+
+**Note:** Requires RabbitMQ 4.3 or later. Falls back to client-side resolution on older versions.
 
 ## Offset Storage
 
