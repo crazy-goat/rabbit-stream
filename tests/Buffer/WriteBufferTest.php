@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Buffer;
 
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use PHPUnit\Framework\TestCase;
 
 class WriteBufferTest extends TestCase
@@ -185,5 +186,181 @@ class WriteBufferTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         (new WriteBuffer())->addUInt8(256);
+    }
+
+    // addInt64 boundary tests
+    public function testAddInt64WithZero(): void
+    {
+        $buf = (new WriteBuffer())->addInt64(0);
+        $this->assertSame("\x00\x00\x00\x00\x00\x00\x00\x00", $buf->getContents());
+    }
+
+    public function testAddInt64WithPositiveValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt64(1);
+        $this->assertSame("\x00\x00\x00\x00\x00\x00\x00\x01", $buf->getContents());
+    }
+
+    public function testAddInt64WithMaxValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt64(PHP_INT_MAX);
+        $this->assertSame(pack('J', PHP_INT_MAX), $buf->getContents());
+    }
+
+    // addArray tests
+    public function testAddArrayWithZeroItems(): void
+    {
+        $buf = (new WriteBuffer())->addArray();
+        $this->assertSame("\x00\x00\x00\x00", $buf->getContents());
+    }
+
+    public function testAddArrayWithSingleItem(): void
+    {
+        $item = new PublishedMessage(1, 'test');
+        $buf = (new WriteBuffer())->addArray($item);
+        $expected = "\x00\x00\x00\x01"                      // count: 1
+            . "\x00\x00\x00\x00\x00\x00\x00\x01"            // publishingId: 1 (uint64)
+            . "\x00\x00\x00\x04test";                       // message length + content
+        $this->assertSame($expected, $buf->getContents());
+    }
+
+    public function testAddArrayWithMultipleItems(): void
+    {
+        $item1 = new PublishedMessage(1, 'foo');
+        $item2 = new PublishedMessage(2, 'bar');
+        $buf = (new WriteBuffer())->addArray($item1, $item2);
+        $expected = "\x00\x00\x00\x02"                      // count: 2
+            . "\x00\x00\x00\x00\x00\x00\x00\x01"            // publishingId: 1
+            . "\x00\x00\x00\x03foo"                         // message: foo
+            . "\x00\x00\x00\x00\x00\x00\x00\x02"            // publishingId: 2
+            . "\x00\x00\x00\x03bar";                        // message: bar
+        $this->assertSame($expected, $buf->getContents());
+    }
+
+    // addStringArray tests
+    public function testAddStringArrayWithZeroStrings(): void
+    {
+        $buf = (new WriteBuffer())->addStringArray();
+        $this->assertSame("\x00\x00\x00\x00", $buf->getContents());
+    }
+
+    public function testAddStringArrayWithSingleString(): void
+    {
+        $buf = (new WriteBuffer())->addStringArray('foo');
+        $expected = "\x00\x00\x00\x01"                      // count: 1
+            . "\x00\x03foo";                                 // string length + content
+        $this->assertSame($expected, $buf->getContents());
+    }
+
+    public function testAddStringArrayWithMultipleStrings(): void
+    {
+        $buf = (new WriteBuffer())->addStringArray('foo', 'bar');
+        $expected = "\x00\x00\x00\x02"                      // count: 2
+            . "\x00\x03foo"                                  // string 1
+            . "\x00\x03bar";                                 // string 2
+        $this->assertSame($expected, $buf->getContents());
+    }
+
+    // Fluent chaining test
+    public function testFluentChainingProducesCorrectOutput(): void
+    {
+        $buf = (new WriteBuffer())
+            ->addUInt16(0x0001)
+            ->addUInt32(1)
+            ->addString('test')
+            ->addInt8(-1);
+
+        $expected = "\x00\x01"                                // uint16: 1
+            . "\x00\x00\x00\x01"                              // uint32: 1
+            . "\x00\x04test"                                  // string: test
+            . "\xFF";                                         // int8: -1
+        $this->assertSame($expected, $buf->getContents());
+    }
+
+    // Boundary value tests
+    public function testAddUInt32WithZero(): void
+    {
+        $buf = (new WriteBuffer())->addUInt32(0);
+        $this->assertSame("\x00\x00\x00\x00", $buf->getContents());
+    }
+
+    public function testAddUInt32WithMaxValue(): void
+    {
+        $buf = (new WriteBuffer())->addUInt32(0xFFFFFFFF);
+        $this->assertSame("\xFF\xFF\xFF\xFF", $buf->getContents());
+    }
+
+    public function testAddUInt64WithZero(): void
+    {
+        $buf = (new WriteBuffer())->addUInt64(0);
+        $this->assertSame("\x00\x00\x00\x00\x00\x00\x00\x00", $buf->getContents());
+    }
+
+    public function testAddUInt64WithMaxValue(): void
+    {
+        $buf = (new WriteBuffer())->addUInt64(PHP_INT_MAX);
+        $this->assertSame(pack('J', PHP_INT_MAX), $buf->getContents());
+    }
+
+    public function testAddInt8WithMinValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt8(-128);
+        $this->assertSame("\x80", $buf->getContents());
+    }
+
+    public function testAddInt8WithMaxValue(): void
+    {
+        $buf = (new WriteBuffer())->addInt8(127);
+        $this->assertSame("\x7F", $buf->getContents());
+    }
+
+    // Out-of-range validation tests
+    public function testAddInt8OutOfRangeNegativeThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for int8');
+        (new WriteBuffer())->addInt8(-129);
+    }
+
+    public function testAddInt8OutOfRangePositiveThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for int8');
+        (new WriteBuffer())->addInt8(128);
+    }
+
+    public function testAddInt16OutOfRangeNegativeThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for int16');
+        (new WriteBuffer())->addInt16(-32769);
+    }
+
+    public function testAddInt16OutOfRangePositiveThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for int16');
+        (new WriteBuffer())->addInt16(32768);
+    }
+
+    public function testAddInt32OutOfRangeNegativeThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for int32');
+        (new WriteBuffer())->addInt32(-2147483649);
+    }
+
+    public function testAddInt32OutOfRangePositiveThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for int32');
+        (new WriteBuffer())->addInt32(2147483648);
+    }
+
+    public function testAddUInt32OutOfRangeThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('out of range for uint32');
+        (new WriteBuffer())->addUInt32(4294967296);
     }
 }
