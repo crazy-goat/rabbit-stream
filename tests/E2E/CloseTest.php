@@ -6,7 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
@@ -37,7 +37,7 @@ class CloseTest extends TestCase
 
     private function performHandshake(StreamConnection $connection): void
     {
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $connection->sendMessage(new PeerPropertiesRequestV1());
         $connection->readMessage();
 
         $connection->sendMessage(new SaslHandshakeRequestV1());

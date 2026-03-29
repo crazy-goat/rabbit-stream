@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
@@ -59,7 +59,7 @@ class ConnectionHandshakeTest extends TestCase
     {
         $this->connection = $this->createConnection();
 
-        $this->connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $this->connection->sendMessage(new PeerPropertiesRequestV1());
         $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(PeerPropertiesResponseV1::class, $response);
@@ -97,7 +97,7 @@ class ConnectionHandshakeTest extends TestCase
     {
         $connection = $this->createConnection();
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $connection->sendMessage(new PeerPropertiesRequestV1());
         $peerResponse = $connection->readMessage();
         $this->assertInstanceOf(PeerPropertiesResponseV1::class, $peerResponse);
 
@@ -127,7 +127,7 @@ class ConnectionHandshakeTest extends TestCase
     {
         $this->connection = $this->createConnection();
 
-        $this->connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $this->connection->sendMessage(new PeerPropertiesRequestV1());
         $this->connection->readMessage();
 
         $this->connection->sendMessage(new SaslHandshakeRequestV1());

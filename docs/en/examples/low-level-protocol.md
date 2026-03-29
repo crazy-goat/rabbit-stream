@@ -21,7 +21,7 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneResponseV1;
@@ -104,7 +104,7 @@ class LowLevelConnectionExample
         echo "Step 2: PeerProperties (0x0011)\n";
         
         // Send PeerProperties request
-        $request = new PeerPropertiesToStreamBufferV1();
+        $request = new PeerPropertiesRequestV1();
         $this->stream->sendMessage($request);
         echo "  → Sent PeerProperties request\n";
         

@@ -15,7 +15,7 @@ use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
@@ -86,7 +86,7 @@ class Connection implements ConnectionInterface
         }
 
         // 1. PeerProperties
-        $streamConnection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $streamConnection->sendMessage(new PeerPropertiesRequestV1());
         $peerResponse = $streamConnection->readMessage();
         if (!$peerResponse instanceof PeerPropertiesResponseV1) {
             throw UnexpectedResponseException::create(PeerPropertiesResponseV1::class, $peerResponse);

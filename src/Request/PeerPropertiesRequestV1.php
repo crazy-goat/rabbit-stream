@@ -15,7 +15,7 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 
-class PeerPropertiesToStreamBufferV1 implements
+class PeerPropertiesRequestV1 implements
     ToStreamBufferInterface,
     ToArrayInterface,
     CorrelationInterface,

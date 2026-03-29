@@ -50,11 +50,11 @@ Properties: Map<string, string>
 
 **PHP Implementation:**
 ```php
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 
 // Send
-$stream->sendMessage(new PeerPropertiesToStreamBufferV1());
+$stream->sendMessage(new PeerPropertiesRequestV1());
 
 // Receive
 $response = $stream->readMessage();
@@ -289,7 +289,7 @@ if ($response->getResponseCode() === ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILU
 
 ```php
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneResponseV1;
@@ -306,7 +306,7 @@ $stream = new StreamConnection('127.0.0.1', 5552);
 $stream->connect();
 
 // 2. PeerProperties
-$stream->sendMessage(new PeerPropertiesToStreamBufferV1());
+$stream->sendMessage(new PeerPropertiesRequestV1());
 $peerResponse = $stream->readMessage();
 assert($peerResponse instanceof PeerPropertiesResponseV1);
 

@@ -7,7 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -37,7 +37,7 @@ class QueryPublisherSequenceTest extends TestCase
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $connection->sendMessage(new PeerPropertiesRequestV1());
         $connection->readMessage();
 
         $connection->sendMessage(new SaslHandshakeRequestV1());

@@ -13,7 +13,7 @@ use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
@@ -61,7 +61,7 @@ class PhpBinarySerializerTest extends TestCase
 
     public function testSerializeWithPeerPropertiesRequest(): void
     {
-        $request = new PeerPropertiesToStreamBufferV1(
+        $request = new PeerPropertiesRequestV1(
             new KeyValue('product', 'test'),
             new KeyValue('version', '1.0')
         );

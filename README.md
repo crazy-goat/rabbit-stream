@@ -113,7 +113,7 @@ foreach ($messages as $message) {
 
 ```php
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 ...
 ```
 

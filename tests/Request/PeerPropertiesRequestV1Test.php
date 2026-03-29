@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Request;
 
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 use PHPUnit\Framework\TestCase;
 
-class PeerPropertiesToStreamBufferV1Test extends TestCase
+class PeerPropertiesRequestV1Test extends TestCase
 {
     public function testSerializesWithNoProperties(): void
     {
-        $request = new PeerPropertiesToStreamBufferV1();
+        $request = new PeerPropertiesRequestV1();
         $request->withCorrelationId(1);
 
         $bytes = $request->toStreamBuffer()->getContents();
@@ -27,7 +27,7 @@ class PeerPropertiesToStreamBufferV1Test extends TestCase
 
     public function testSerializesWithProperties(): void
     {
-        $request = new PeerPropertiesToStreamBufferV1(
+        $request = new PeerPropertiesRequestV1(
             new KeyValue('product', 'test-client'),
             new KeyValue('version', '1.0'),
         );

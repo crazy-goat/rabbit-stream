@@ -8,7 +8,7 @@ use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
@@ -308,7 +308,7 @@ class ConnectionHandshakeTest extends TestCase
 
         $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(5, $capturedRequests);
-        $this->assertInstanceOf(PeerPropertiesToStreamBufferV1::class, $capturedRequests[0]);
+        $this->assertInstanceOf(PeerPropertiesRequestV1::class, $capturedRequests[0]);
         $this->assertInstanceOf(SaslHandshakeRequestV1::class, $capturedRequests[1]);
         $this->assertInstanceOf(SaslAuthenticateRequestV1::class, $capturedRequests[2]);
         $this->assertInstanceOf(TuneResponseV1::class, $capturedRequests[3]);

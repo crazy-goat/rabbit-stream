@@ -18,7 +18,7 @@ use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV2;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
@@ -184,7 +184,7 @@ class ToArrayTest extends TestCase
 
     public function testPeerPropertiesRequestReturnsProperties(): void
     {
-        $request = new PeerPropertiesToStreamBufferV1(
+        $request = new PeerPropertiesRequestV1(
             new KeyValue('product', 'test'),
             new KeyValue('version', '1.0')
         );
