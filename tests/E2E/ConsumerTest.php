@@ -144,4 +144,113 @@ class ConsumerTest extends TestCase
 
         $consumer->close();
     }
+
+    public function testAutoCommitOnCloseStoresLastOffset(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        // Publish 5 messages
+        $producer = $this->connection->createProducer($this->streamName);
+        $messages = [];
+        for ($i = 0; $i < 5; $i++) {
+            $messages[] = $this->amqp("message-{$i}");
+        }
+        $producer->sendBatch($messages);
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        $consumerName = 'auto-commit-test-' . uniqid();
+        $consumer = $this->connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::first(),
+            name: $consumerName,
+            autoCommit: 3
+        );
+
+        // Read all messages
+        $received = [];
+        $deadline = time() + 5;
+        while (count($received) < 5 && time() < $deadline) {
+            $msgs = $consumer->read(timeout: 0.5);
+            foreach ($msgs as $msg) {
+                $received[] = $msg;
+            }
+        }
+
+        $this->assertCount(5, $received, 'Should receive all 5 messages');
+        $lastOffset = $received[4]->getOffset();
+
+        // Close should store the last offset
+        $consumer->close();
+
+        // Query offset - should be the last message's offset
+        $storedOffset = $this->connection->queryOffset($consumerName, $this->streamName);
+        $this->assertSame($lastOffset, $storedOffset, 'Stored offset should match last consumed message');
+    }
+
+    public function testNoAutoCommitOnCloseDoesNotStoreOffset(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        // Publish 3 messages
+        $producer = $this->connection->createProducer($this->streamName);
+        $producer->sendBatch([
+            $this->amqp('msg1'),
+            $this->amqp('msg2'),
+            $this->amqp('msg3'),
+        ]);
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        $consumerName = 'no-auto-commit-test-' . uniqid();
+        $consumer = $this->connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::first(),
+            name: $consumerName,
+            autoCommit: 0
+        );
+
+        // Read all messages
+        $received = [];
+        $deadline = time() + 5;
+        while (count($received) < 3 && time() < $deadline) {
+            $msgs = $consumer->read(timeout: 0.5);
+            foreach ($msgs as $msg) {
+                $received[] = $msg;
+            }
+        }
+
+        $this->assertCount(3, $received);
+
+        // Close should NOT store offset (autoCommit is 0)
+        $consumer->close();
+
+        // Query offset should throw exception (no offset stored)
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\ProtocolException::class);
+        $this->expectExceptionMessage('0x0013');
+        $this->connection->queryOffset($consumerName, $this->streamName);
+    }
+
+    public function testAutoCommitOnCloseWithNoMessagesDoesNotStoreOffset(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        // Don't publish any messages
+
+        $consumerName = 'no-messages-test-' . uniqid();
+        $consumer = $this->connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::first(),
+            name: $consumerName,
+            autoCommit: 3
+        );
+
+        // Don't read any messages - just close immediately
+        $consumer->close();
+
+        // Query offset should throw exception (no offset stored because no messages processed)
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\ProtocolException::class);
+        $this->expectExceptionMessage('0x0013');
+        $this->connection->queryOffset($consumerName, $this->streamName);
+    }
 }
