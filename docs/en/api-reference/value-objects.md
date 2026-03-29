@@ -273,7 +273,7 @@ Returns the value (may be null).
 Used in:
 - `OpenResponseV1` - Connection properties - `src/Response/OpenResponseV1.php`
 - `PeerPropertiesResponseV1` - Peer properties - `src/Response/PeerPropertiesResponseV1.php`
-- `PeerPropertiesToStreamBufferV1` - Client properties - `src/Request/PeerPropertiesToStreamBufferV1.php`
+- `PeerPropertiesRequestV1` - Client properties - `src/Request/PeerPropertiesRequestV1.php`
 - `CreateRequestV1` - Stream arguments - `src/Request/CreateRequestV1.php`
 - `CreateSuperStreamRequestV1` - Super stream arguments - `src/Request/CreateSuperStreamRequestV1.php`
 

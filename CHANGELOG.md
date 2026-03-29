@@ -262,7 +262,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `ReadBuffer::getInt16()` and `getInt32()` — were returning unsigned values instead of signed (broke null string/bytes parsing)
 - `WriteBuffer::addArray()` — was referencing non-existent `StreamBufferInterface` instead of `ToStreamBufferInterface`
 - `WriteBuffer::UINT64_MAX` — exceeded PHP `int` range (was `float`)
-- `PeerPropertiesToStreamBufferV1` — fixed `getKeYVersion()` typo → `getKeyVersion()`
+- `PeerPropertiesRequestV1` — fixed `getKeYVersion()` typo → `getKeyVersion()`
 - `DeclarePublisherRequestV1` — null `publisherReference` serializes as empty string `""` (server rejects null string `0xFFFF`)
 
 ### Changed

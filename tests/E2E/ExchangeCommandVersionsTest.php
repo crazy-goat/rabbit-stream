@@ -7,7 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
@@ -33,7 +33,7 @@ class ExchangeCommandVersionsTest extends TestCase
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $connection->sendMessage(new PeerPropertiesRequestV1());
         $connection->readMessage();
 
         $connection->sendMessage(new SaslHandshakeRequestV1());

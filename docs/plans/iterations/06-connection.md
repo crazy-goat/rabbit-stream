@@ -73,7 +73,7 @@ class Connection
 
 1. Create `StreamConnection($host, $port, $logger, $serializer)`
 2. `$connection->connect()`
-3. Send `PeerPropertiesToStreamBufferV1` with client properties
+3. Send `PeerPropertiesRequestV1` with client properties
 4. Read `PeerPropertiesResponseV1`
 5. Send `SaslHandshakeRequestV1`
 6. Read `SaslHandshakeResponseV1` — verify PLAIN mechanism is available

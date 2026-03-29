@@ -154,7 +154,7 @@ For advanced use cases or protocol debugging, use the low-level `StreamConnectio
 
 ```php
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneResponseV1;
@@ -170,7 +170,7 @@ $stream = new StreamConnection('127.0.0.1', 5552);
 $stream->connect();
 
 // 2. PeerProperties
-$stream->sendMessage(new PeerPropertiesToStreamBufferV1());
+$stream->sendMessage(new PeerPropertiesRequestV1());
 $peerResponse = $stream->readMessage();
 assert($peerResponse instanceof PeerPropertiesResponseV1);
 

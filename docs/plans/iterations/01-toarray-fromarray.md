@@ -71,7 +71,7 @@ Each `toArray()` returns an associative array with the same fields that `toStrea
 
 | Class | `toArray()` returns |
 |-------|-------------------|
-| `PeerPropertiesToStreamBufferV1` | `['properties' => [['key' => string, 'value' => ?string], ...]]` |
+| `PeerPropertiesRequestV1` | `['properties' => [['key' => string, 'value' => ?string], ...]]` |
 | `CreateRequestV1` | `['stream' => string, 'arguments' => ['key' => 'value', ...]]` |
 | `MetadataRequestV1` | `['streams' => string[]]` |
 | `PublishRequestV1` | `['publisherId' => int, 'messages' => [['publishingId' => int, 'data' => string], ...]]` |

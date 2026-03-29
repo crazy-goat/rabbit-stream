@@ -11,7 +11,7 @@ use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesToStreamBufferV1;
+use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
@@ -43,7 +43,7 @@ class OsirisChunkParserE2ETest extends TestCase
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
 
-        $connection->sendMessage(new PeerPropertiesToStreamBufferV1());
+        $connection->sendMessage(new PeerPropertiesRequestV1());
         $connection->readMessage();
 
         $connection->sendMessage(new SaslHandshakeRequestV1());
