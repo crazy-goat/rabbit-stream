@@ -37,16 +37,16 @@ class OsirisChunkParser
             );
         }
 
-        $numEntries = $buffer->getUint16();
-        $buffer->getUint32();
-        $timestamp = $buffer->getInt64();
-        $buffer->getUint64();
-        $chunkFirstOffset = $buffer->getUint64();
-        $buffer->getInt32();
-        $buffer->getUint32();
-        $buffer->getUint32();
-        $buffer->getUint8();
-        $buffer->readBytes(3);
+        $numEntries = $buffer->getUint16();      // Number of entries in chunk
+        $buffer->getUint32();                     // numRecords (total records)
+        $timestamp = $buffer->getInt64();        // Chunk timestamp
+        $buffer->getUint64();                     // epoch
+        $chunkFirstOffset = $buffer->getUint64();  // First offset in chunk
+        $buffer->getInt32();                      // chunkCrc
+        $buffer->getUint32();                     // dataLength
+        $buffer->getUint32();                     // trailerLength
+        $buffer->getUint8();                      // reserved
+        $buffer->readBytes(3);                    // padding (alignment)
 
         $entries = [];
         $currentOffset = $chunkFirstOffset;
@@ -72,7 +72,7 @@ class OsirisChunkParser
                     ));
                 }
 
-                $uncompressedSize = $buffer->getUint32();
+                $buffer->getUint32(); // uncompressedSize — read but not needed
                 $compressedSize = $buffer->getUint32();
                 $subBatchData = substr($chunkBytes, $buffer->getPosition(), $compressedSize);
                 $buffer->skip($compressedSize);
