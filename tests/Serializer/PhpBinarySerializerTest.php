@@ -243,7 +243,7 @@ class PhpBinarySerializerTest extends TestCase
             . pack('n', 0x0001)             // responseCode OK
             . pack('N', 2)                  // array length
             . pack('n', 5) . 'PLAIN'        // mechanism 1
-            . pack('n', 9) . 'AMQPLAIN';   // mechanism 2
+            . pack('n', 8) . 'AMQPLAIN';    // mechanism 2
 
         $deserialized = $this->serializer->deserialize($raw);
         $expected = ResponseBuilder::fromResponseBuffer(new ReadBuffer($raw));
