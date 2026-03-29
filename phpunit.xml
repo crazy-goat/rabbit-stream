@@ -10,6 +10,7 @@
             <directory>tests/Request</directory>
             <directory>tests/Response</directory>
             <directory>tests/Util</directory>
+            <directory>tests/VO</directory>
             <file>tests/StreamConnectionTest.php</file>
         </testsuite>
         <testsuite name="e2e">
