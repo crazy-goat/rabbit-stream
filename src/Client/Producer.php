@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
@@ -15,7 +16,7 @@ use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 
-class Producer
+class Producer implements ProducerInterface
 {
     private int $publishingId = 0;
     private int $pendingConfirms = 0;

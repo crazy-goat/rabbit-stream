@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use CrazyGoat\RabbitStream\Contract\ConnectionInterface;
+use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
+use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
@@ -37,7 +40,7 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
-class Connection
+class Connection implements ConnectionInterface
 {
     private int $publisherIdCounter = 0;
     private int $subscriptionIdCounter = 0;
@@ -276,7 +279,7 @@ class Connection
         string $stream,
         ?string $name = null,
         ?callable $onConfirm = null,
-    ): Producer {
+    ): ProducerInterface {
         $publisherId = $this->publisherIdCounter++;
         $producer = new Producer($this->streamConnection, $stream, $publisherId, $name, $onConfirm);
         $this->producers[$publisherId] = $producer;
@@ -289,7 +292,7 @@ class Connection
         ?string $name = null,
         int $autoCommit = 0,
         int $initialCredit = 10,
-    ): Consumer {
+    ): ConsumerInterface {
         $subscriptionId = $this->subscriptionIdCounter++;
         $consumer = new Consumer(
             $this->streamConnection,
