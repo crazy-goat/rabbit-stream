@@ -277,13 +277,13 @@ offsetSpec:    OffsetSpec
 
 **PHP Implementation:**
 ```php
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 // Handle consumer update query
 $response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof ConsumerUpdateQueryV1) {
+if ($response instanceof ConsumerUpdateResponseV1) {
     $subscriptionId = $response->getSubscriptionId();
     $isActive = $response->isActive();
     
@@ -392,7 +392,7 @@ private function isServerPushFrame(int $key): bool
 | 0x0008 | Deliver | subscriptionId | `DeliverResponseV1` |
 | 0x0010 | MetadataUpdate | stream name | `MetadataUpdateResponseV1` |
 | 0x0017 | Heartbeat | connection | `HeartbeatRequestV1` |
-| 0x001a | ConsumerUpdate | subscriptionId | `ConsumerUpdateQueryV1` |
+| 0x001a | ConsumerUpdate | subscriptionId | `ConsumerUpdateResponseV1` |
 | 0x0016 | Close | connection | (handled internally) |
 
 ## Using readLoop() for Pure Async

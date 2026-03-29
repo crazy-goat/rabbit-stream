@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Response;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use PHPUnit\Framework\TestCase;
 
-class ConsumerUpdateQueryV1Test extends TestCase
+class ConsumerUpdateResponseV1Test extends TestCase
 {
     public function testDeserializesActive(): void
     {
@@ -18,9 +18,9 @@ class ConsumerUpdateQueryV1Test extends TestCase
             . pack('C', 3)
             . pack('C', 1);
 
-        $response = ConsumerUpdateQueryV1::fromStreamBuffer(new ReadBuffer($raw));
+        $response = ConsumerUpdateResponseV1::fromStreamBuffer(new ReadBuffer($raw));
 
-        $this->assertInstanceOf(ConsumerUpdateQueryV1::class, $response);
+        $this->assertInstanceOf(ConsumerUpdateResponseV1::class, $response);
         $this->assertSame(42, $response->getCorrelationId());
         $this->assertSame(3, $response->getSubscriptionId());
         $this->assertTrue($response->isActive());
@@ -34,8 +34,8 @@ class ConsumerUpdateQueryV1Test extends TestCase
             . pack('C', 1)
             . pack('C', 0);
 
-        $response = ConsumerUpdateQueryV1::fromStreamBuffer(new ReadBuffer($raw));
-        $this->assertInstanceOf(ConsumerUpdateQueryV1::class, $response);
+        $response = ConsumerUpdateResponseV1::fromStreamBuffer(new ReadBuffer($raw));
+        $this->assertInstanceOf(ConsumerUpdateResponseV1::class, $response);
 
         $this->assertFalse($response->isActive());
     }

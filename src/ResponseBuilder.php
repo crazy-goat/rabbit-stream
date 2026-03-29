@@ -11,7 +11,7 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateQueryV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\CreditResponseV1;
@@ -78,7 +78,7 @@ class ResponseBuilder
                 QueryPublisherSequenceResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::QUERY_OFFSET_RESPONSE => QueryOffsetResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::HEARTBEAT => HeartbeatRequestV1::fromStreamBuffer($responseBuffer),
-            KeyEnum::CONSUMER_UPDATE => ConsumerUpdateQueryV1::fromStreamBuffer($responseBuffer),
+            KeyEnum::CONSUMER_UPDATE => ConsumerUpdateResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::CREDIT_RESPONSE => CreditResponseV1::fromStreamBuffer($responseBuffer),
             KeyEnum::TUNE => TuneRequestV1::fromStreamBuffer($responseBuffer),
             KeyEnum::SASL_HANDSHAKE_RESPONSE => SaslHandshakeResponseV1::fromStreamBuffer($responseBuffer),

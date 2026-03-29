@@ -15,8 +15,16 @@ use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\Util\TypeCast;
 
-/** @phpstan-consistent-constructor */
-class ConsumerUpdateQueryV1 implements
+/**
+ * Server-initiated query frame asking the client for the current offset.
+ *
+ * This is a server-push frame (not a response to a client request) that is sent
+ * when the server needs to know the consumer's current offset position.
+ * The client must reply with a ConsumerUpdateReplyV1.
+ *
+ * @phpstan-consistent-constructor
+ */
+class ConsumerUpdateResponseV1 implements
     KeyVersionInterface,
     CorrelationInterface,
     FromStreamBufferInterface,
