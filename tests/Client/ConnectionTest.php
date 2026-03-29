@@ -785,6 +785,7 @@ class ConnectionTest extends TestCase
         $producer = $connection->createProducer('test-stream');
 
         $reflection = new \ReflectionProperty(Connection::class, 'producers');
+        /** @var array<int, Producer> $producers */
         $producers = $reflection->getValue($connection);
 
         $this->assertArrayHasKey(0, $producers);
@@ -839,6 +840,7 @@ class ConnectionTest extends TestCase
         $consumer = $connection->createConsumer('test-stream', OffsetSpec::first());
 
         $reflection = new \ReflectionProperty(Connection::class, 'consumers');
+        /** @var array<int, Consumer> $consumers */
         $consumers = $reflection->getValue($connection);
 
         $this->assertArrayHasKey(0, $consumers);
