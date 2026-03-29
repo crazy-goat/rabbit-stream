@@ -7,16 +7,24 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Producer;
+use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
+use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
+use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\Broker;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\VO\Statistic;
 use CrazyGoat\RabbitStream\VO\StreamMetadata;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -530,6 +538,351 @@ class ConnectionTest extends TestCase
 
         $connection->close();
         $connection->close();
+    }
+
+    public function testGetStreamStatsReturnsKeyValueArray(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $capturedRequests = [];
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequests): void {
+                $capturedRequests[] = $request;
+            });
+
+        $statsResponse = new StreamStatsResponseV1([
+            new Statistic('publishers', 5),
+            new Statistic('consumers', 3),
+            new Statistic('messages', 1000),
+        ]);
+
+        $callCount = 0;
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function () use (&$callCount, $statsResponse): StreamStatsResponseV1|CloseResponseV1 {
+                $callCount++;
+                if ($callCount === 1) {
+                    return $statsResponse;
+                }
+                return new CloseResponseV1();
+            });
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $result = $connection->getStreamStats('test-stream');
+
+        $this->assertEquals(['publishers' => 5, 'consumers' => 3, 'messages' => 1000], $result);
+        $this->assertGreaterThanOrEqual(1, count($capturedRequests));
+        $this->assertInstanceOf(StreamStatsRequestV1::class, $capturedRequests[0]);
+        $this->assertEquals('test-stream', $capturedRequests[0]->toArray()['stream']);
+    }
+
+    public function testGetStreamStatsThrowsOnWrongResponseType(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CreateResponseV1 => new CreateResponseV1());
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $this->expectException(UnexpectedResponseException::class);
+        $this->expectExceptionMessage('Expected CrazyGoat\RabbitStream\Response\StreamStatsResponseV1');
+
+        $connection->getStreamStats('test-stream');
+    }
+
+    public function testGetMetadataReturnsMetadataResponse(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $capturedRequests = [];
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequests): void {
+                $capturedRequests[] = $request;
+            });
+
+        $metadata = new MetadataResponseV1(
+            brokers: [new Broker(1, 'localhost', 5552)],
+            streamMetadata: [new StreamMetadata('stream1', 0x01, 1, [])]
+        );
+
+        $callCount = 0;
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function () use (&$callCount, $metadata): MetadataResponseV1|CloseResponseV1 {
+                $callCount++;
+                if ($callCount === 1) {
+                    return $metadata;
+                }
+                return new CloseResponseV1();
+            });
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $result = $connection->getMetadata(['stream1', 'stream2']);
+
+        $this->assertInstanceOf(MetadataResponseV1::class, $result);
+        $this->assertEquals(['stream1', 'stream2'], $capturedRequests[0]->toArray()['streams']);
+    }
+
+    public function testGetMetadataThrowsOnWrongResponseType(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CreateResponseV1 => new CreateResponseV1());
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $this->expectException(UnexpectedResponseException::class);
+        $this->expectExceptionMessage('Expected CrazyGoat\RabbitStream\Response\MetadataResponseV1');
+
+        $connection->getMetadata(['stream1']);
+    }
+
+    public function testQueryOffsetReturnsOffsetInteger(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $capturedRequests = [];
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequests): void {
+                $capturedRequests[] = $request;
+            });
+
+        $offsetResponse = QueryOffsetResponseV1::fromArray([
+            'correlationId' => 1,
+            'offset' => 12345,
+        ]);
+
+        $callCount = 0;
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function () use (&$callCount, $offsetResponse): QueryOffsetResponseV1|CloseResponseV1 {
+                $callCount++;
+                if ($callCount === 1) {
+                    return $offsetResponse;
+                }
+                return new CloseResponseV1();
+            });
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $result = $connection->queryOffset('my-reference', 'test-stream');
+
+        $this->assertEquals(12345, $result);
+        $this->assertGreaterThanOrEqual(1, count($capturedRequests));
+        $this->assertInstanceOf(QueryOffsetRequestV1::class, $capturedRequests[0]);
+        $this->assertEquals('my-reference', $capturedRequests[0]->toArray()['reference']);
+        $this->assertEquals('test-stream', $capturedRequests[0]->toArray()['stream']);
+    }
+
+    public function testQueryOffsetThrowsOnWrongResponseType(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CreateResponseV1 => new CreateResponseV1());
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $this->expectException(UnexpectedResponseException::class);
+        $this->expectExceptionMessage('Expected CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1');
+
+        $connection->queryOffset('ref', 'stream');
+    }
+
+    public function testStoreOffsetSendsCorrectRequest(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $capturedRequests = [];
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequests): void {
+                $capturedRequests[] = $request;
+            });
+
+        $readMessageCallCount = 0;
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function () use (&$readMessageCallCount): CloseResponseV1 {
+                $readMessageCallCount++;
+                return new CloseResponseV1();
+            });
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $connection->storeOffset('my-reference', 'test-stream', 999);
+
+        $this->assertGreaterThanOrEqual(1, count($capturedRequests));
+        $this->assertInstanceOf(StoreOffsetRequestV1::class, $capturedRequests[0]);
+        $this->assertEquals('my-reference', $capturedRequests[0]->toArray()['reference']);
+        $this->assertEquals('test-stream', $capturedRequests[0]->toArray()['stream']);
+        $this->assertEquals(999, $capturedRequests[0]->toArray()['offset']);
+    }
+
+    public function testCreateProducerIncrementsPublisherId(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerPublisher');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $producer1 = $connection->createProducer('stream1');
+        $producer2 = $connection->createProducer('stream2');
+        $producer3 = $connection->createProducer('stream3');
+
+        $this->assertInstanceOf(Producer::class, $producer1);
+        $this->assertInstanceOf(Producer::class, $producer2);
+        $this->assertInstanceOf(Producer::class, $producer3);
+    }
+
+    public function testCreateProducerPassesCorrectParameters(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerPublisher');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        // Test without name to avoid sequence query
+        $onConfirm = function (): void {
+        };
+        $producer = $connection->createProducer('my-stream', null, $onConfirm);
+
+        $this->assertInstanceOf(Producer::class, $producer);
+    }
+
+    public function testCreateProducerStoresProducerInArray(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerPublisher');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $producer = $connection->createProducer('test-stream');
+
+        $reflection = new \ReflectionProperty(Connection::class, 'producers');
+        /** @var array<int, Producer> $producers */
+        $producers = $reflection->getValue($connection);
+
+        $this->assertArrayHasKey(0, $producers);
+        $this->assertSame($producer, $producers[0]);
+    }
+
+    public function testCreateConsumerIncrementsSubscriptionId(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerSubscriber');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $consumer1 = $connection->createConsumer('stream1', OffsetSpec::first());
+        $consumer2 = $connection->createConsumer('stream2', OffsetSpec::last());
+        $consumer3 = $connection->createConsumer('stream3', OffsetSpec::next());
+
+        $this->assertInstanceOf(Consumer::class, $consumer1);
+        $this->assertInstanceOf(Consumer::class, $consumer2);
+        $this->assertInstanceOf(Consumer::class, $consumer3);
+    }
+
+    public function testCreateConsumerPassesCorrectParameters(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerSubscriber');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $offset = OffsetSpec::offset(100);
+        $consumer = $connection->createConsumer('my-stream', $offset, 'consumer-name', 100, 20);
+
+        $this->assertInstanceOf(Consumer::class, $consumer);
+    }
+
+    public function testCreateConsumerStoresConsumerInArray(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerSubscriber');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $consumer = $connection->createConsumer('test-stream', OffsetSpec::first());
+
+        $reflection = new \ReflectionProperty(Connection::class, 'consumers');
+        /** @var array<int, Consumer> $consumers */
+        $consumers = $reflection->getValue($connection);
+
+        $this->assertArrayHasKey(0, $consumers);
+        $this->assertSame($consumer, $consumers[0]);
+    }
+
+    public function testReadLoopDelegatesToStreamConnection(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $capturedArgs = [];
+        $streamConnection->method('readLoop')
+            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): void {
+                $capturedArgs = ['maxFrames' => $maxFrames, 'timeout' => $timeout];
+            });
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $connection->readLoop(10, 5.0);
+
+        $this->assertEquals(['maxFrames' => 10, 'timeout' => 5.0], $capturedArgs);
+    }
+
+    public function testReadLoopWithNullParameters(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $capturedArgs = [];
+        $streamConnection->method('readLoop')
+            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): void {
+                $capturedArgs = ['maxFrames' => $maxFrames, 'timeout' => $timeout];
+            });
+
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $connection->readLoop();
+
+        $this->assertEquals(['maxFrames' => null, 'timeout' => null], $capturedArgs);
     }
 
     /** @param array<int, Producer> $producers */
