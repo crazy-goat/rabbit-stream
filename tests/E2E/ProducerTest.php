@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use PHPUnit\Framework\TestCase;
 
 class ProducerTest extends TestCase
@@ -114,6 +115,41 @@ class ProducerTest extends TestCase
         // Query sequence
         $sequence = $producer->querySequence();
         $this->assertGreaterThanOrEqual(2, $sequence); // Should be at least 2 (0-indexed)
+
+        $producer->close();
+    }
+
+    public function testWaitForConfirmsTimeoutThrows(): void
+    {
+        $this->assertNotNull($this->connection);
+        $producer = $this->connection->createProducer($this->streamName);
+
+        // Publish a message - this increments pendingConfirms
+        $producer->send('test message');
+
+        // Wait with zero timeout to force immediate timeout
+        // This should timeout before RabbitMQ can send the confirm
+        $this->expectException(TimeoutException::class);
+        $this->expectExceptionMessage('Timed out waiting for');
+        $producer->waitForConfirms(timeout: 0);
+    }
+
+    public function testProducerRemainsUsableAfterTimeout(): void
+    {
+        $this->assertNotNull($this->connection);
+        $producer = $this->connection->createProducer($this->streamName);
+
+        // First send that will timeout
+        $producer->send('msg1');
+        try {
+            $producer->waitForConfirms(timeout: 0.001);
+        } catch (TimeoutException) {
+            // Expected
+        }
+
+        // Second send with longer timeout should succeed
+        $producer->send('msg2');
+        $producer->waitForConfirms(timeout: 5.0); // Should not throw
 
         $producer->close();
     }
