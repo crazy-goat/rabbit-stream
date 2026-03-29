@@ -41,6 +41,9 @@ class CommandTraitTest extends TestCase
         TestCommand::callAssertResponseCodeOk($code);
     }
 
+    /**
+     * @return array<string, array{int, string, string}>
+     */
     public static function knownErrorCodesProvider(): array
     {
         return [
@@ -125,7 +128,7 @@ class CommandTraitTest extends TestCase
 
     public function testGetKeyVersionWithoutCorrelationId(): void
     {
-        $buffer = TestCommand::callGetKeyVersion(null);
+        $buffer = TestCommand::callGetKeyVersion();
         $contents = $buffer->getContents();
 
         $this->assertSame(4, strlen($contents));
@@ -168,7 +171,7 @@ class CommandTraitTest extends TestCase
     {
         TestCommand::setVersion(2);
 
-        $buffer = TestCommand::callGetKeyVersion(null);
+        $buffer = TestCommand::callGetKeyVersion();
         $contents = $buffer->getContents();
 
         $expected = pack('n', 0x0001)   // key
