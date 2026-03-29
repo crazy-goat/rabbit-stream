@@ -296,7 +296,9 @@ class StreamConnectionTest extends TestCase
 
         $response = $this->readResponse($serverSocket);
         $this->assertNotNull($response);
-        $this->assertEquals(0x0017, unpack('n', substr($response, 0, 2))[1]);
+        $unpacked = unpack('n', substr($response, 0, 2));
+        $this->assertIsArray($unpacked);
+        $this->assertEquals(0x0017, $unpacked[1]);
 
         socket_close($serverSocket);
         socket_close($clientSocket);
@@ -328,13 +330,13 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552);
         $this->injectSocket($connection, $clientSocket);
 
-        $receivedIds = null;
+        $receivedIds = [];
         $connection->registerPublisher(
             5,
             function (array $ids) use (&$receivedIds): void {
                 $receivedIds = $ids;
             },
-            function (array $errors) use (&$receivedIds): void {
+            function (): void {
             }
         );
 
@@ -347,7 +349,6 @@ class StreamConnectionTest extends TestCase
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
-        $this->assertNotNull($receivedIds);
         $this->assertEquals([100, 200], $receivedIds);
 
         socket_close($serverSocket);
@@ -361,13 +362,13 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552);
         $this->injectSocket($connection, $clientSocket);
 
-        $callbackInvoked = false;
+        $invokedCount = 0;
         $connection->registerPublisher(
             1,
-            function () use (&$callbackInvoked): void {
-                $callbackInvoked = true;
+            function () use (&$invokedCount): void {
+                ++$invokedCount;
             },
-            function () use (&$callbackInvoked): void {
+            function (): void {
             }
         );
 
@@ -379,7 +380,7 @@ class StreamConnectionTest extends TestCase
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
-        $this->assertFalse($callbackInvoked);
+        $this->assertEquals(0, $invokedCount);
 
         socket_close($serverSocket);
         socket_close($clientSocket);
@@ -395,7 +396,7 @@ class StreamConnectionTest extends TestCase
         $receivedErrors = null;
         $connection->registerPublisher(
             3,
-            function () use (&$receivedErrors): void {
+            function (): void {
             },
             function (array $errors) use (&$receivedErrors): void {
                 $receivedErrors = $errors;
@@ -430,7 +431,7 @@ class StreamConnectionTest extends TestCase
         $callbackInvoked = false;
         $connection->registerPublisher(
             1,
-            function () use (&$callbackInvoked): void {
+            function (): void {
             },
             function () use (&$callbackInvoked): void {
                 $callbackInvoked = true;
@@ -527,7 +528,9 @@ class StreamConnectionTest extends TestCase
 
         $response = $this->readResponse($serverSocket);
         $this->assertNotNull($response);
-        $this->assertEquals(0x8016, unpack('n', substr($response, 0, 2))[1]);
+        $unpacked = unpack('n', substr($response, 0, 2));
+        $this->assertIsArray($unpacked);
+        $this->assertEquals(0x8016, $unpacked[1]);
 
         socket_close($serverSocket);
     }
@@ -573,9 +576,8 @@ class StreamConnectionTest extends TestCase
         $frame = $this->buildFrame(0x0010, 1, $content);
         socket_write($serverSocket, $frame);
 
+        // Should not throw or crash
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
-
-        $this->assertTrue(true);
 
         socket_close($serverSocket);
         socket_close($clientSocket);
@@ -612,8 +614,12 @@ class StreamConnectionTest extends TestCase
 
         $response = $this->readResponse($serverSocket);
         $this->assertNotNull($response);
-        $this->assertEquals(0x801a, unpack('n', substr($response, 0, 2))[1]);
-        $this->assertEquals($correlationId, unpack('N', substr($response, 4, 4))[1]);
+        $unpackedKey = unpack('n', substr($response, 0, 2));
+        $this->assertIsArray($unpackedKey);
+        $this->assertEquals(0x801a, $unpackedKey[1]);
+        $unpackedCorr = unpack('N', substr($response, 4, 4));
+        $this->assertIsArray($unpackedCorr);
+        $this->assertEquals($correlationId, $unpackedCorr[1]);
 
         socket_close($serverSocket);
         socket_close($clientSocket);
@@ -639,7 +645,9 @@ class StreamConnectionTest extends TestCase
 
         $response = $this->readResponse($serverSocket);
         $this->assertNotNull($response);
-        $this->assertEquals(0x801a, unpack('n', substr($response, 0, 2))[1]);
+        $unpacked = unpack('n', substr($response, 0, 2));
+        $this->assertIsArray($unpacked);
+        $this->assertEquals(0x801a, $unpacked[1]);
 
         socket_close($serverSocket);
         socket_close($clientSocket);
@@ -676,7 +684,11 @@ class StreamConnectionTest extends TestCase
         if ($sizeData === null) {
             return null;
         }
-        $size = unpack('N', $sizeData)[1];
+        $unpacked = unpack('N', $sizeData);
+        if ($unpacked === false) {
+            return null;
+        }
+        $size = $unpacked[1];
         return $this->readBytesFromSocket($socket, $size);
     }
 
