@@ -22,8 +22,8 @@ class ConsumerUpdateQueryV1 implements
     FromStreamBufferInterface,
     FromArrayInterface
 {
-    use CommandTrait;
     use CorrelationTrait;
+    use CommandTrait;
     use V1Trait;
 
     public function __construct(private int $subscriptionId, private bool $active)
