@@ -31,7 +31,6 @@ class ResponseCodeEnumTest extends TestCase
     {
         $message = $code->getMessage();
         $this->assertNotEmpty($message);
-        $this->assertIsString($message);
         $this->assertGreaterThan(0, strlen($message));
     }
 
@@ -62,6 +61,9 @@ class ResponseCodeEnumTest extends TestCase
         $this->assertSame($expectedMessage, $code->getMessage());
     }
 
+    /**
+     * @return array<string, array{ResponseCodeEnum}>
+     */
     public static function errorCodesProvider(): array
     {
         return [
@@ -86,6 +88,9 @@ class ResponseCodeEnumTest extends TestCase
         ];
     }
 
+    /**
+     * @return array<string, array{ResponseCodeEnum}>
+     */
     public static function allCodesProvider(): array
     {
         return array_merge(
@@ -94,6 +99,9 @@ class ResponseCodeEnumTest extends TestCase
         );
     }
 
+    /**
+     * @return array<string, array{int, ResponseCodeEnum}>
+     */
     public static function validCodesProvider(): array
     {
         return [
@@ -122,6 +130,9 @@ class ResponseCodeEnumTest extends TestCase
         ];
     }
 
+    /**
+     * @return array<string, array{ResponseCodeEnum, string}>
+     */
     public static function codeMessageProvider(): array
     {
         return [
