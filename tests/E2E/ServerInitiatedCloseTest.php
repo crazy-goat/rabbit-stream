@@ -152,7 +152,7 @@ class ServerInitiatedCloseTest extends TestCase
         try {
             $connection->createStream('stream-1-' . uniqid());
             $this->fail('Expected ConnectionException was not thrown');
-        } catch (ConnectionException $e) {
+        } catch (ConnectionException) {
             // Expected
         }
 
@@ -186,24 +186,45 @@ class ServerInitiatedCloseTest extends TestCase
         // Find our connection by peer_address
         $ourConnection = null;
         foreach ($connections as $conn) {
-            if (isset($conn['peer_address']) && $conn['peer_address'] === $localIp) {
-                // Also verify it's a stream connection on the right port
-                if (isset($conn['peer_port']) && $conn['peer_port'] > 0) {
-                    $ourConnection = $conn;
-                    break;
-                }
+            if (!is_array($conn)) {
+                continue;
             }
+            if (!isset($conn['peer_address'])) {
+                continue;
+            }
+            if ($conn['peer_address'] !== $localIp) {
+                continue;
+            }
+            if (!isset($conn['peer_port'])) {
+                continue;
+            }
+            if ($conn['peer_port'] <= 0) {
+                continue;
+            }
+            $ourConnection = $conn;
+            break;
         }
 
         if ($ourConnection === null) {
             // Try alternative: close all stream connections from our host
             foreach ($connections as $conn) {
-                if (isset($conn['peer_address']) && $conn['peer_address'] === $localIp) {
-                    if (isset($conn['protocol']) && $conn['protocol'] === 'stream') {
-                        $ourConnection = $conn;
-                        break;
-                    }
+                if (!is_array($conn)) {
+                    continue;
                 }
+                if (!isset($conn['peer_address'])) {
+                    continue;
+                }
+                if ($conn['peer_address'] !== $localIp) {
+                    continue;
+                }
+                if (!isset($conn['protocol'])) {
+                    continue;
+                }
+                if ($conn['protocol'] !== 'stream') {
+                    continue;
+                }
+                $ourConnection = $conn;
+                break;
             }
         }
 
@@ -215,6 +236,9 @@ class ServerInitiatedCloseTest extends TestCase
         }
 
         // Close the connection via management API
+        if (!isset($ourConnection['name']) || !is_string($ourConnection['name'])) {
+            $this->markTestSkipped('Connection name not available or invalid');
+        }
         $this->closeConnectionViaManagementApi($ourConnection['name']);
     }
 
@@ -245,7 +269,7 @@ class ServerInitiatedCloseTest extends TestCase
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        if ($response === false || $httpCode !== 200) {
+        if ($response === false || $httpCode !== 200 || !is_string($response)) {
             return null;
         }
 
