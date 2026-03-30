@@ -18,6 +18,14 @@ done
 echo ""
 echo "RabbitMQ is ready."
 
+echo "Creating restricted test user..."
+curl -sf -u guest:guest -X PUT http://127.0.0.1:15672/api/users/restricted \
+  -H "Content-Type: application/json" \
+  -d '{"password":"restricted","tags":""}' || true
+curl -sf -u guest:guest -X PUT http://127.0.0.1:15672/api/permissions/%2F/restricted \
+  -H "Content-Type: application/json" \
+  -d '{"configure":"","write":".*","read":".*"}' || true
+
 echo "Creating test stream..."
 curl -sf -u guest:guest -X PUT http://127.0.0.1:15672/api/queues/%2F/test-stream \
   -H "Content-Type: application/json" \
