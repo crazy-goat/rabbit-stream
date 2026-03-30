@@ -29,12 +29,16 @@ echo "Management API is ready."
 echo "Creating restricted test user..."
 # Create user with no configure permissions (can't create/delete streams)
 # Retry up to 5 times with delay in case management API isn't fully ready
+USER_CREATED=false
 for i in {1..5}; do
     echo "Attempt $i: Creating user 'restricted'..."
-    if curl -s -u guest:guest -X PUT http://127.0.0.1:15672/api/users/restricted \
+    HTTP_CODE=$(curl -s -u guest:guest -X PUT http://127.0.0.1:15672/api/users/restricted \
       -H "Content-Type: application/json" \
-      -d '{"password":"restricted","tags":""}' -w "\nHTTP Code: %{http_code}\n" | grep -q "HTTP Code: 20"; then
+      -d '{"password":"restricted","tags":""}' -w "%{http_code}" -o /dev/null)
+    echo "HTTP Code: $HTTP_CODE"
+    if [[ "$HTTP_CODE" =~ ^2 ]]; then
         echo "User created successfully"
+        USER_CREATED=true
         break
     fi
     if [ $i -eq 5 ]; then
@@ -44,20 +48,24 @@ for i in {1..5}; do
     sleep 2
 done
 
-echo "Setting permissions for restricted user (no configure permission)..."
-for i in {1..5}; do
-    echo "Attempt $i: Setting permissions..."
-    if curl -s -u guest:guest -X PUT "http://127.0.0.1:15672/api/permissions/%2F/restricted" \
-      -H "Content-Type: application/json" \
-      -d '{"configure":"","write":".*","read":".*"}' -w "\nHTTP Code: %{http_code}\n" | grep -q "HTTP Code: 20"; then
-        echo "Permissions set successfully"
-        break
-    fi
-    if [ $i -eq 5 ]; then
-        echo "WARNING: Failed to set permissions after 5 attempts"
-    fi
-    sleep 2
-done
+if [ "$USER_CREATED" = true ]; then
+    echo "Setting permissions for restricted user (no configure permission)..."
+    for i in {1..5}; do
+        echo "Attempt $i: Setting permissions..."
+        HTTP_CODE=$(curl -s -u guest:guest -X PUT "http://127.0.0.1:15672/api/permissions/%2F/restricted" \
+          -H "Content-Type: application/json" \
+          -d '{"configure":"","write":".*","read":".*"}' -w "%{http_code}" -o /dev/null)
+        echo "HTTP Code: $HTTP_CODE"
+        if [[ "$HTTP_CODE" =~ ^2 ]]; then
+            echo "Permissions set successfully"
+            break
+        fi
+        if [ $i -eq 5 ]; then
+            echo "WARNING: Failed to set permissions after 5 attempts"
+        fi
+        sleep 2
+    done
+fi
 echo "Restricted user setup complete."
 
 echo "Creating test stream..."
