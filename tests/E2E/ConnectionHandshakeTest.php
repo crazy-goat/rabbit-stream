@@ -137,4 +137,36 @@ class ConnectionHandshakeTest extends TestCase
         $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'wrong', 'credentials'));
         $this->connection->readMessage(timeout: 2.0);
     }
+
+    public function testUnsupportedSaslMechanismThrows(): void
+    {
+        $this->connection = $this->createConnection();
+
+        $this->connection->sendMessage(new PeerPropertiesRequestV1());
+        $this->connection->readMessage();
+
+        $this->connection->sendMessage(new SaslHandshakeRequestV1());
+        $this->connection->readMessage();
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('SASL_MECHANISM_NOT_SUPPORTED');
+        $this->connection->sendMessage(new SaslAuthenticateRequestV1('SCRAM-SHA-256', 'guest', 'guest'));
+        $this->connection->readMessage(timeout: 2.0);
+    }
+
+    public function testEmptySaslMechanismThrows(): void
+    {
+        $this->connection = $this->createConnection();
+
+        $this->connection->sendMessage(new PeerPropertiesRequestV1());
+        $this->connection->readMessage();
+
+        $this->connection->sendMessage(new SaslHandshakeRequestV1());
+        $this->connection->readMessage();
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('SASL_MECHANISM_NOT_SUPPORTED');
+        $this->connection->sendMessage(new SaslAuthenticateRequestV1('', 'guest', 'guest'));
+        $this->connection->readMessage(timeout: 2.0);
+    }
 }
