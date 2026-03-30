@@ -262,6 +262,11 @@ class Connection implements ConnectionInterface
         }
     }
 
+    public function isConnected(): bool
+    {
+        return $this->streamConnection->isConnected();
+    }
+
     public function __destruct()
     {
         if (!$this->closed) {
