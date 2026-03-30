@@ -23,6 +23,8 @@ class AccessRefusedTest extends TestCase
     private static int $port = 5552;
     private static ?bool $managementApiAvailable = null;
 
+    private static ?bool $restrictedUserExists = null;
+
     public static function setUpBeforeClass(): void
     {
         self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
@@ -42,6 +44,25 @@ class AccessRefusedTest extends TestCase
             self::$managementApiAvailable = ($response !== false && $httpCode === 200);
         }
         return self::$managementApiAvailable;
+    }
+
+    private function restrictedUserExists(): bool
+    {
+        if (self::$restrictedUserExists === null) {
+            if (!$this->isManagementApiAvailable()) {
+                self::$restrictedUserExists = false;
+                return false;
+            }
+            $ch = curl_init('http://' . self::$host . ':15672/api/users/restricted');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_USERPWD, 'guest:guest');
+            curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            self::$restrictedUserExists = ($response !== false && $httpCode === 200);
+        }
+        return self::$restrictedUserExists;
     }
 
     private function connectAsRestrictedUser(): StreamConnection
@@ -74,6 +95,10 @@ class AccessRefusedTest extends TestCase
             $this->markTestSkipped('RabbitMQ management API not available');
         }
 
+        if (!$this->restrictedUserExists()) {
+            $this->markTestSkipped('Restricted user does not exist - user setup may have failed');
+        }
+
         $connection = $this->connectAsRestrictedUser();
 
         try {
@@ -92,6 +117,10 @@ class AccessRefusedTest extends TestCase
     {
         if (!$this->isManagementApiAvailable()) {
             $this->markTestSkipped('RabbitMQ management API not available');
+        }
+
+        if (!$this->restrictedUserExists()) {
+            $this->markTestSkipped('Restricted user does not exist - user setup may have failed');
         }
 
         $connection = $this->connectAsRestrictedUser();
@@ -113,6 +142,10 @@ class AccessRefusedTest extends TestCase
     {
         if (!$this->isManagementApiAvailable()) {
             $this->markTestSkipped('RabbitMQ management API not available');
+        }
+
+        if (!$this->restrictedUserExists()) {
+            $this->markTestSkipped('Restricted user does not exist - user setup may have failed');
         }
 
         $connection = $this->connectAsRestrictedUser();

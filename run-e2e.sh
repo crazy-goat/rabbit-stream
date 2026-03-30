@@ -32,10 +32,13 @@ echo "Creating restricted test user..."
 USER_CREATED=false
 for i in {1..5}; do
     echo "Attempt $i: Creating user 'restricted'..."
-    HTTP_CODE=$(curl -s -u guest:guest -X PUT http://127.0.0.1:15672/api/users/restricted \
+    HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/curl_user_output.txt -u guest:guest -X PUT http://127.0.0.1:15672/api/users/restricted \
       -H "Content-Type: application/json" \
-      -d '{"password":"restricted","tags":""}' -w "%{http_code}" -o /dev/null)
+      -d '{"password":"restricted","tags":""}')
     echo "HTTP Code: $HTTP_CODE"
+    if [ -f /tmp/curl_user_output.txt ]; then
+        cat /tmp/curl_user_output.txt
+    fi
     if [[ "$HTTP_CODE" =~ ^2 ]]; then
         echo "User created successfully"
         USER_CREATED=true
@@ -52,10 +55,13 @@ if [ "$USER_CREATED" = true ]; then
     echo "Setting permissions for restricted user (no configure permission)..."
     for i in {1..5}; do
         echo "Attempt $i: Setting permissions..."
-        HTTP_CODE=$(curl -s -u guest:guest -X PUT "http://127.0.0.1:15672/api/permissions/%2F/restricted" \
+        HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/curl_perm_output.txt -u guest:guest -X PUT "http://127.0.0.1:15672/api/permissions/%2F/restricted" \
           -H "Content-Type: application/json" \
-          -d '{"configure":"","write":".*","read":".*"}' -w "%{http_code}" -o /dev/null)
+          -d '{"configure":"","write":".*","read":".*"}')
         echo "HTTP Code: $HTTP_CODE"
+        if [ -f /tmp/curl_perm_output.txt ]; then
+            cat /tmp/curl_perm_output.txt
+        fi
         if [[ "$HTTP_CODE" =~ ^2 ]]; then
             echo "Permissions set successfully"
             break
@@ -65,6 +71,11 @@ if [ "$USER_CREATED" = true ]; then
         fi
         sleep 2
     done
+    
+    # Verify the user was created properly
+    echo "Verifying restricted user exists..."
+    curl -s -u guest:guest http://127.0.0.1:15672/api/users/restricted | head -c 500
+    echo ""
 fi
 echo "Restricted user setup complete."
 
