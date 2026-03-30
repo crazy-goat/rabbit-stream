@@ -101,7 +101,30 @@ class StreamConnection
 
     public function isConnected(): bool
     {
-        return $this->connected;
+        if (!$this->connected) {
+            return false;
+        }
+
+        if (!$this->socket instanceof \Socket) {
+            return false;
+        }
+
+        // Check if socket is still valid by attempting to get its error status
+        // A closed socket will fail this operation
+        try {
+            $error = @socket_last_error($this->socket);
+            if ($error !== 0) {
+                // Socket has an error, mark as disconnected
+                $this->connected = false;
+                return false;
+            }
+        } catch (\Error) {
+            // Socket is invalid/closed
+            $this->connected = false;
+            return false;
+        }
+
+        return true;
     }
 
     public function setMaxFrameSize(int $maxFrameSize): void
@@ -216,7 +239,13 @@ class StreamConnection
             throw new ConnectionException("Cannot write: socket is not connected");
         }
 
-        $written = socket_write($this->socket, $frame, strlen($frame));
+        try {
+            $written = socket_write($this->socket, $frame, strlen($frame));
+        } catch (\Error $e) {
+            $this->connected = false;
+            throw new ConnectionException("Failed to write to socket: " . $e->getMessage(), $e->getCode(), $e);
+        }
+
         if ($written === false) {
             throw new ConnectionException(
                 "Failed to write to socket: " . socket_strerror(socket_last_error($this->socket))
