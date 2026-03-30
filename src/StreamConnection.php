@@ -118,7 +118,7 @@ class StreamConnection
                 $this->connected = false;
                 return false;
             }
-        } catch (\Error $e) {
+        } catch (\Error) {
             // Socket is invalid/closed
             $this->connected = false;
             return false;
@@ -243,7 +243,7 @@ class StreamConnection
             $written = socket_write($this->socket, $frame, strlen($frame));
         } catch (\Error $e) {
             $this->connected = false;
-            throw new ConnectionException("Failed to write to socket: " . $e->getMessage());
+            throw new ConnectionException("Failed to write to socket: " . $e->getMessage(), $e->getCode(), $e);
         }
 
         if ($written === false) {

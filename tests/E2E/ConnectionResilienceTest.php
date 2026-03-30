@@ -99,7 +99,7 @@ class ConnectionResilienceTest extends TestCase
         $socketReflection = new \ReflectionProperty(StreamConnection::class, 'socket');
         $socket = $socketReflection->getValue($streamConnection);
 
-        if ($socket !== null) {
+        if ($socket instanceof \Socket) {
             // Force close the socket
             @socket_close($socket);
         }
