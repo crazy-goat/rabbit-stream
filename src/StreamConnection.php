@@ -187,6 +187,10 @@ class StreamConnection
 
     public function sendMessage(object $request, ?float $timeout = null): void
     {
+        if (!$this->connected) {
+            throw new ConnectionException("Cannot send message: connection is closed");
+        }
+
         if ($request instanceof CorrelationInterface) {
             $this->correlationId++;
             $request->withCorrelationId($this->correlationId);
@@ -204,6 +208,10 @@ class StreamConnection
 
     public function sendFrame(string $frame, ?float $timeout = null): int
     {
+        if (!$this->connected) {
+            throw new ConnectionException("Cannot send frame: connection is closed");
+        }
+
         $this->logger->debug("Socket -> " . bin2hex($frame));
 
         // If timeout is specified, wait for socket to be ready for writing

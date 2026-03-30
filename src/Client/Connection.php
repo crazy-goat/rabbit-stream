@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -150,9 +151,17 @@ class Connection implements ConnectionInterface
         };
     }
 
+    private function assertNotClosed(): void
+    {
+        if ($this->closed) {
+            throw new ConnectionException("Cannot perform operation: connection is closed");
+        }
+    }
+
     /** @param array<string, string> $arguments */
     public function createStream(string $name, array $arguments = []): void
     {
+        $this->assertNotClosed();
         $this->streamConnection->sendMessage(new CreateRequestV1($name, $arguments));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof CreateResponseV1) {
@@ -162,6 +171,7 @@ class Connection implements ConnectionInterface
 
     public function deleteStream(string $name): void
     {
+        $this->assertNotClosed();
         $this->streamConnection->sendMessage(new DeleteStreamRequestV1($name));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof DeleteStreamResponseV1) {
@@ -171,6 +181,7 @@ class Connection implements ConnectionInterface
 
     public function streamExists(string $name): bool
     {
+        $this->assertNotClosed();
         $this->streamConnection->sendMessage(new MetadataRequestV1([$name]));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof MetadataResponseV1) {
@@ -187,6 +198,7 @@ class Connection implements ConnectionInterface
     /** @return array<string, int> */
     public function getStreamStats(string $name): array
     {
+        $this->assertNotClosed();
         $this->streamConnection->sendMessage(new StreamStatsRequestV1($name));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof StreamStatsResponseV1) {
@@ -202,6 +214,7 @@ class Connection implements ConnectionInterface
     /** @param array<int, string> $streams */
     public function getMetadata(array $streams): MetadataResponseV1
     {
+        $this->assertNotClosed();
         $this->streamConnection->sendMessage(new MetadataRequestV1($streams));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof MetadataResponseV1) {
@@ -212,6 +225,7 @@ class Connection implements ConnectionInterface
 
     public function queryOffset(string $reference, string $stream): int
     {
+        $this->assertNotClosed();
         $this->streamConnection->sendMessage(new QueryOffsetRequestV1($reference, $stream));
         $response = $this->streamConnection->readMessage();
         if (!$response instanceof QueryOffsetResponseV1) {
@@ -285,6 +299,7 @@ class Connection implements ConnectionInterface
         ?string $name = null,
         ?callable $onConfirm = null,
     ): ProducerInterface {
+        $this->assertNotClosed();
         $publisherId = $this->publisherIdCounter++;
         $producer = new Producer($this->streamConnection, $stream, $publisherId, $name, $onConfirm);
         $this->producers[$publisherId] = $producer;
@@ -298,6 +313,7 @@ class Connection implements ConnectionInterface
         int $autoCommit = 0,
         int $initialCredit = 10,
     ): ConsumerInterface {
+        $this->assertNotClosed();
         $subscriptionId = $this->subscriptionIdCounter++;
         $consumer = new Consumer(
             $this->streamConnection,
@@ -314,11 +330,13 @@ class Connection implements ConnectionInterface
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
     {
+        $this->assertNotClosed();
         $this->streamConnection->readLoop($maxFrames, $timeout);
     }
 
     public function storeOffset(string $reference, string $stream, int $offset): void
     {
+        $this->assertNotClosed();
         $this->streamConnection->sendMessage(new StoreOffsetRequestV1($reference, $stream, $offset));
     }
 }
