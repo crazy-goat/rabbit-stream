@@ -28,16 +28,37 @@ echo "Management API is ready."
 
 echo "Creating restricted test user..."
 # Create user with no configure permissions (can't create/delete streams)
-curl -sf -u guest:guest -X PUT http://127.0.0.1:15672/api/users/restricted \
-  -H "Content-Type: application/json" \
-  -d '{"password":"restricted","tags":""}'
-echo ""
+# Retry up to 5 times with delay in case management API isn't fully ready
+for i in {1..5}; do
+    echo "Attempt $i: Creating user 'restricted'..."
+    if curl -s -u guest:guest -X PUT http://127.0.0.1:15672/api/users/restricted \
+      -H "Content-Type: application/json" \
+      -d '{"password":"restricted","tags":""}' -w "\nHTTP Code: %{http_code}\n" | grep -q "HTTP Code: 20"; then
+        echo "User created successfully"
+        break
+    fi
+    if [ $i -eq 5 ]; then
+        echo "WARNING: Failed to create restricted user after 5 attempts"
+        echo "Tests requiring restricted user will be skipped"
+    fi
+    sleep 2
+done
+
 echo "Setting permissions for restricted user (no configure permission)..."
-curl -sf -u guest:guest -X PUT "http://127.0.0.1:15672/api/permissions/%2F/restricted" \
-  -H "Content-Type: application/json" \
-  -d '{"configure":"","write":".*","read":".*"}'
-echo ""
-echo "Restricted user created successfully."
+for i in {1..5}; do
+    echo "Attempt $i: Setting permissions..."
+    if curl -s -u guest:guest -X PUT "http://127.0.0.1:15672/api/permissions/%2F/restricted" \
+      -H "Content-Type: application/json" \
+      -d '{"configure":"","write":".*","read":".*"}' -w "\nHTTP Code: %{http_code}\n" | grep -q "HTTP Code: 20"; then
+        echo "Permissions set successfully"
+        break
+    fi
+    if [ $i -eq 5 ]; then
+        echo "WARNING: Failed to set permissions after 5 attempts"
+    fi
+    sleep 2
+done
+echo "Restricted user setup complete."
 
 echo "Creating test stream..."
 curl -sf -u guest:guest -X PUT http://127.0.0.1:15672/api/queues/%2F/test-stream \
