@@ -123,18 +123,28 @@ class ConnectionHandshakeTest extends TestCase
         $this->assertFalse($connection->isConnected());
     }
 
-    public function testInvalidCredentialsThrows(): void
+    public function testInvalidVhostThrows(): void
     {
         $this->connection = $this->createConnection();
 
+        // Complete handshake up to Tune
         $this->connection->sendMessage(new PeerPropertiesRequestV1());
         $this->connection->readMessage();
 
         $this->connection->sendMessage(new SaslHandshakeRequestV1());
         $this->connection->readMessage();
 
+        $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
+        $this->connection->readMessage();
+
+        $tune = $this->connection->readMessage();
+        $this->assertInstanceOf(TuneRequestV1::class, $tune);
+
+        $this->connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
+
+        // Now attempt to open a non-existent vhost
         $this->expectException(\Exception::class);
-        $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'wrong', 'credentials'));
+        $this->connection->sendMessage(new OpenRequestV1('/nonexistent-vhost'));
         $this->connection->readMessage(timeout: 2.0);
     }
 }
