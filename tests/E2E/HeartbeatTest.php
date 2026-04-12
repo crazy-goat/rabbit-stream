@@ -4,11 +4,18 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Request\CreateRequestV1;
+use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
+use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
@@ -20,6 +27,7 @@ class HeartbeatTest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
+    private ?StreamConnection $connection = null;
 
     public static function setUpBeforeClass(): void
     {
@@ -27,6 +35,14 @@ class HeartbeatTest extends TestCase
         $port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
         self::$host = $host;
         self::$port = $port;
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->connection instanceof StreamConnection && $this->connection->isConnected()) {
+            $this->connection->close();
+        }
+        $this->connection = null;
     }
 
     private function createConnectionWithShortHeartbeat(int $heartbeatInterval = 2): StreamConnection
@@ -60,8 +76,7 @@ class HeartbeatTest extends TestCase
 
         $connection->sendMessage(new OpenRequestV1('/'));
         $open = $connection->readMessage();
-        // OpenResponse throws on non-OK response code via assertResponseCodeOk()
-        $this->assertInstanceOf(\CrazyGoat\RabbitStream\Response\OpenResponseV1::class, $open);
+        $this->assertInstanceOf(OpenResponseV1::class, $open);
 
         return $connection;
     }
@@ -70,6 +85,7 @@ class HeartbeatTest extends TestCase
     {
         $heartbeatInterval = 2;
         $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $this->connection = $connection;
 
         $heartbeatReceived = false;
         $connection->onHeartbeat(function () use (&$heartbeatReceived): void {
@@ -92,14 +108,13 @@ class HeartbeatTest extends TestCase
             $connection->isConnected(),
             'Connection should remain alive after heartbeat exchange'
         );
-
-        $connection->close();
     }
 
     public function testHeartbeatCallbackIsCalledMultipleTimes(): void
     {
         $heartbeatInterval = 2;
         $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $this->connection = $connection;
 
         $heartbeatCount = 0;
         $connection->onHeartbeat(function () use (&$heartbeatCount): void {
@@ -121,14 +136,13 @@ class HeartbeatTest extends TestCase
             $connection->isConnected(),
             'Connection should remain alive after multiple heartbeat exchanges'
         );
-
-        $connection->close();
     }
 
     public function testNoCorrelationIdDesyncAfterHeartbeat(): void
     {
         $heartbeatInterval = 2;
         $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $this->connection = $connection;
 
         $connection->onHeartbeat(function (): void {
         });
@@ -138,26 +152,75 @@ class HeartbeatTest extends TestCase
 
         $this->assertTrue(
             $connection->isConnected(),
-            'Connection should still be connected after heartbeat (no correlationId desync)'
+            'Connection should still be connected after heartbeat'
         );
 
-        $connection->close();
+        $streamName = 'test-heartbeat-correlation-' . uniqid();
+        $connection->sendMessage(new CreateRequestV1($streamName));
+        $response = $connection->readMessage();
+        $this->assertInstanceOf(
+            CreateResponseV1::class,
+            $response,
+            'Request after heartbeat should receive correct response (correlationId not desynced)'
+        );
+
+        $connection->sendMessage(new MetadataRequestV1([$streamName]));
+        $metadataResponse = $connection->readMessage();
+        $this->assertInstanceOf(MetadataResponseV1::class, $metadataResponse);
+
+        $connection->sendMessage(new DeleteStreamRequestV1($streamName));
+        $deleteResponse = $connection->readMessage();
+        $this->assertInstanceOf(DeleteStreamResponseV1::class, $deleteResponse);
     }
 
-    public function testHeartbeatWithHighIntervalStillWorks(): void
+    public function testHeartbeatCallbackCanBeCleared(): void
     {
-        $connection = $this->createConnectionWithShortHeartbeat(heartbeatInterval: 60);
+        $heartbeatInterval = 2;
+        $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $this->connection = $connection;
 
         $heartbeatReceived = false;
         $connection->onHeartbeat(function () use (&$heartbeatReceived): void {
             $heartbeatReceived = true;
         });
 
-        $connection->close();
+        $connection->onHeartbeat(null);
+
+        $margin = 3;
+        $connection->readLoop(maxFrames: 1, timeout: (float) ($heartbeatInterval + $margin));
 
         $this->assertFalse(
             $heartbeatReceived,
-            'No heartbeat should have been received within test duration for 60s interval'
+            'No heartbeat callback should fire after callback is cleared'
+        );
+    }
+
+    public function testHeartbeatCallbackCanBeReplaced(): void
+    {
+        $heartbeatInterval = 2;
+        $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $this->connection = $connection;
+
+        $firstCallbackCalled = false;
+        $connection->onHeartbeat(function () use (&$firstCallbackCalled): void {
+            $firstCallbackCalled = true;
+        });
+
+        $secondCallbackCalled = false;
+        $connection->onHeartbeat(function () use (&$secondCallbackCalled): void {
+            $secondCallbackCalled = true;
+        });
+
+        $margin = 3;
+        $connection->readLoop(maxFrames: 1, timeout: (float) ($heartbeatInterval + $margin));
+
+        $this->assertFalse(
+            $firstCallbackCalled,
+            'Old callback should not fire after being replaced'
+        );
+        $this->assertTrue(
+            $secondCallbackCalled,
+            'New callback should fire'
         );
     }
 }
