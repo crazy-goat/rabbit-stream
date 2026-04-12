@@ -127,9 +127,9 @@ class HeartbeatTest extends TestCase
         $connection->readLoop(maxFrames: $maxFrames, timeout: (float) $totalWait);
 
         $this->assertGreaterThanOrEqual(
-            1,
+            2,
             $heartbeatCount,
-            "Should receive at least 1 heartbeat within {$totalWait}s"
+            "Should receive at least 2 heartbeats within {$totalWait}s (testing multiple callbacks)"
         );
 
         $this->assertTrue(
