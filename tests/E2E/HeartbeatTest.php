@@ -184,7 +184,7 @@ class HeartbeatTest extends TestCase
             $heartbeatReceived = true;
         });
 
-        $connection->onHeartbeat(null);
+        $connection->onHeartbeat();
 
         $margin = 3;
         $connection->readLoop(maxFrames: 1, timeout: (float) ($heartbeatInterval + $margin));
