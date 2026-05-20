@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **E2E tests: Subscribe with OffsetSpec::offset(N)** — three new E2E tests covering subscription offset scenarios:
+  - `testSubscribeFromSpecificOffset` — store offset, resume with `first()`, filter in PHP (workaround for RabbitMQ 4.3.0 TYPE_OFFSET bug)
+  - `testSubscribeFromOffsetZero` — `OffsetSpec::offset(0)` behaves like `first()`
+  - `testSubscribeFromOffsetBeyondEnd` — subscribe with `next()` at stream end, read initial empty, publish then receive new messages (#153)
 - **E2E test: Heartbeat handling** — comprehensive E2E test suite covering heartbeat echo/response, multiple heartbeat callbacks via `readLoop()`, correlation ID desync regression test (ensures protocol state not corrupted after heartbeat, regression for #101), clearing heartbeat callback via null, and replacing heartbeat callback (#161)
 - **E2E test: Empty messages and messages with special characters** — comprehensive E2E test suite covering edge cases: empty message body (0 bytes), null bytes, UTF-8 multibyte characters (emoji/Unicode), binary data, and mixed batch publishing/consuming with content integrity verification (#167)
 - **E2E test: Named producer deduplication across reconnect** — comprehensive E2E test verifying that named producers with reference strings correctly deduplicate messages across connection reconnects; tests publish → close → reconnect → resume publishing → verify no duplicates (#173)
