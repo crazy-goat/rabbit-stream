@@ -80,6 +80,8 @@ class StreamMetadataTest extends TestCase
         $meta = StreamMetadata::fromStreamBuffer($buffer);
         $this->assertNotNull($meta);
         $this->assertSame($streamName, $meta->getStreamName());
+        $this->assertSame(0x0001, $meta->getResponseCode());
+        $this->assertSame(3, $meta->getLeaderReference());
         $this->assertSame([7, 9], $meta->getReplicasReferences());
     }
 

@@ -78,7 +78,7 @@ class BrokerTest extends TestCase
     {
         $buffer = new ReadBuffer(
             pack('n', 1)            // reference (uint16)
-            . pack('n', 0xFFFF)     // host: null (-1 as uint16)
+            . pack('n', 0xFFFF)     // host: null length indicator (0xFFFF = -1 as uint16)
             . pack('N', 5552)        // port (uint32)
         );
         $broker = Broker::fromStreamBuffer($buffer);
