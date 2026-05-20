@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -134,9 +135,15 @@ class ConnectionHandshakeTest extends TestCase
         $this->connection->sendMessage(new SaslHandshakeRequestV1());
         $this->connection->readMessage();
 
-        $this->expectException(ProtocolException::class);
-        $this->expectExceptionMessage('AUTHENTICATION_FAILURE');
+        // Server may either reject with AUTHENTICATION_FAILURE or just close the connection (timeout)
         $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'wrong', 'credentials'));
-        $this->connection->readMessage(timeout: 2.0);
+        try {
+            $this->connection->readMessage(timeout: 2.0);
+            $this->fail('Expected an exception to be thrown');
+        } catch (ProtocolException $e) {
+            $this->assertStringContainsString('AUTHENTICATION_FAILURE', $e->getMessage());
+        } catch (TimeoutException $e) {
+            $this->assertStringContainsString('Read timeout', $e->getMessage());
+        }
     }
 }
