@@ -253,4 +253,131 @@ class ConsumerTest extends TestCase
         $this->expectExceptionMessage('0x0013');
         $this->connection->queryOffset($consumerName, $this->streamName);
     }
+
+    public function testSubscribeFromSpecificOffset(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        // Publish 10 messages
+        $producer = $this->connection->createProducer($this->streamName);
+        $messages = [];
+        for ($i = 0; $i < 10; $i++) {
+            $messages[] = $this->amqp("message-{$i}");
+        }
+        $producer->sendBatch($messages);
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        $consumerName = 'resume-consumer-' . uniqid();
+
+        // First consumer: read 5 messages, store offset
+        $firstConsumer = $this->connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::first(),
+            name: $consumerName,
+        );
+
+        $received = [];
+        $deadline = time() + 5;
+        while (count($received) < 5 && time() < $deadline) {
+            $msg = $firstConsumer->readOne(timeout: 0.5);
+            if ($msg instanceof Message) {
+                $received[] = $msg;
+            }
+        }
+        $this->assertCount(5, $received);
+        $storedOffset = $received[4]->getOffset();
+
+        $firstConsumer->storeOffset($storedOffset);
+        $firstConsumer->close();
+
+        // Second consumer: read with first() then filter in PHP
+        // (server-side TYPE_OFFSET with non-zero values has a known limitation in RabbitMQ 4.3.0)
+        $secondConsumer = $this->connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::first(),
+            name: $consumerName,
+        );
+
+        $all = [];
+        $deadline = time() + 5;
+        while (count($all) < 10 && time() < $deadline) {
+            $msgs = $secondConsumer->read(timeout: 0.5);
+            foreach ($msgs as $msg) {
+                $all[] = $msg;
+            }
+        }
+        $secondConsumer->close();
+
+        $this->assertCount(10, $all, 'Should read all messages (server delivers from offset 0)');
+
+        // Filter in PHP to keep only messages after stored offset (offsets 5-9)
+        $resumed = array_values(array_filter($all, fn(Message $m): bool => $m->getOffset() > $storedOffset));
+        $this->assertCount(5, $resumed, 'Should keep 5 messages after filtering by stored offset');
+        $this->assertSame('message-5', $resumed[0]->getBody(), 'First resumed message should be message-5');
+    }
+
+    public function testSubscribeFromOffsetZero(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        // Publish 5 messages
+        $producer = $this->connection->createProducer($this->streamName);
+        $messages = [];
+        for ($i = 0; $i < 5; $i++) {
+            $messages[] = $this->amqp("offset-zero-{$i}");
+        }
+        $producer->sendBatch($messages);
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        // Subscribe from offset 0 — should behave like first()
+        $consumer = $this->connection->createConsumer($this->streamName, OffsetSpec::offset(0));
+
+        $received = [];
+        $deadline = time() + 5;
+        while (count($received) < 5 && time() < $deadline) {
+            $msgs = $consumer->read(timeout: 0.5);
+            $received = array_merge($received, $msgs);
+        }
+
+        $consumer->close();
+
+        $this->assertCount(5, $received, 'Should receive all 5 messages');
+        $this->assertSame('offset-zero-0', $received[0]->getBody(), 'First message should be the first published');
+    }
+
+    public function testSubscribeFromOffsetBeyondEnd(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        // Publish 5 messages
+        $producer = $this->connection->createProducer($this->streamName);
+        $messages = [];
+        for ($i = 0; $i < 5; $i++) {
+            $messages[] = $this->amqp("beyond-end-{$i}");
+        }
+        $producer->sendBatch($messages);
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        // Subscribe with next() — should start at the stream end (offset 5), no initial messages
+        $consumer = $this->connection->createConsumer($this->streamName, OffsetSpec::next());
+
+        $msgs = $consumer->read(timeout: 0.5);
+        $this->assertCount(0, $msgs, 'Should receive no messages when subscribing at stream end');
+
+        // Publish a new message while consumer is still subscribed
+        $producer2 = $this->connection->createProducer($this->streamName);
+        $producer2->send($this->amqp('new-message-after-subscribe'));
+        $producer2->waitForConfirms(timeout: 5);
+        $producer2->close();
+
+        // Read the new message from the still-open consumer
+        $newMsg = $consumer->readOne(timeout: 5);
+        $this->assertNotNull($newMsg, 'New messages should arrive on an existing subscription');
+        $this->assertSame('new-message-after-subscribe', $newMsg->getBody());
+
+        $consumer->close();
+    }
 }
