@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -133,7 +134,8 @@ class ConnectionHandshakeTest extends TestCase
         $this->connection->sendMessage(new SaslHandshakeRequestV1());
         $this->connection->readMessage();
 
-        $this->expectException(\Exception::class);
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('AUTHENTICATION_FAILURE');
         $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'wrong', 'credentials'));
         $this->connection->readMessage(timeout: 2.0);
     }

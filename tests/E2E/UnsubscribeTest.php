@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
@@ -88,8 +89,9 @@ class UnsubscribeTest extends TestCase
         $connection->sendMessage(new CreateRequestV1($streamName));
         $connection->readMessage();
 
-        // Try to unsubscribe without subscribing first
-        $this->expectException(\Exception::class);
+        // Try to unsubscribe without subscribing first — should get SUBSCRIPTION_ID_NOT_EXIST (0x04)
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('SUBSCRIPTION_ID_NOT_EXIST');
         $connection->sendMessage(new UnsubscribeRequestV1(99));
         $connection->readMessage();
 
@@ -115,8 +117,9 @@ class UnsubscribeTest extends TestCase
         $response = $connection->readMessage();
         $this->assertInstanceOf(UnsubscribeResponseV1::class, $response);
 
-        // Second unsubscribe with same ID should fail
-        $this->expectException(\Exception::class);
+        // Second unsubscribe with same ID should fail with SUBSCRIPTION_ID_NOT_EXIST (0x04)
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('SUBSCRIPTION_ID_NOT_EXIST');
         $connection->sendMessage(new UnsubscribeRequestV1(1));
         $connection->readMessage();
 

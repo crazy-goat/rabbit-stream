@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
@@ -78,7 +79,8 @@ class DeclarePublisherTest extends TestCase
     {
         $connection = $this->connectAndOpen();
 
-        $this->expectException(\Exception::class);
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('STREAM_NOT_EXIST');
         $connection->sendMessage(new DeclarePublisherRequestV1(1, null, 'non-existent-stream'));
         $connection->readMessage();
 

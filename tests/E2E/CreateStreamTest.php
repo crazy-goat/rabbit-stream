@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
@@ -87,8 +88,9 @@ class CreateStreamTest extends TestCase
         $connection->sendMessage(new CreateRequestV1($streamName));
         $connection->readMessage();
 
-        // Second create should fail
-        $this->expectException(\Exception::class);
+        // Second create should fail with STREAM_ALREADY_EXISTS (0x05)
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('STREAM_ALREADY_EXISTS');
         $connection->sendMessage(new CreateRequestV1($streamName));
         $connection->readMessage();
 
