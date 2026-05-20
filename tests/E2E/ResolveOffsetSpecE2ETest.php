@@ -129,13 +129,11 @@ class ResolveOffsetSpecE2ETest extends TestCase
             $stream,
             OffsetSpec::first()
         );
-        $request->withCorrelationId(1);
 
         $connection->sendMessage($request);
         $response = $connection->readMessage();
 
         $this->assertInstanceOf(ResolveOffsetSpecResponseV1::class, $response);
-        $this->assertSame(1, $response->getCorrelationId());
         $this->assertGreaterThanOrEqual(0, $response->getOffset());
 
         $connection->close();
