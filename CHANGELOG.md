@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **E2E test: Empty messages and messages with special characters** — comprehensive E2E test suite covering edge cases: empty message body (0 bytes), null bytes, UTF-8 multibyte characters (emoji/Unicode), binary data, and mixed batch publishing/consuming with content integrity verification (#167)
 - **E2E test: Named producer deduplication across reconnect** — comprehensive E2E test verifying that named producers with reference strings correctly deduplicate messages across connection reconnects; tests publish → close → reconnect → resume publishing → verify no duplicates (#173)
 - **Producer automatic sequence resume** — when creating a named producer, it automatically queries the last sequence from the server and resumes from `sequence + 1`; enables seamless deduplication without manual intervention (matches Java client behavior)
 - **E2E test: Producer-consumer lifecycle with offset tracking and resume** — comprehensive E2E test covering the complete producer-consumer workflow; tests publish → confirm → consume → store offset → query offset → resume with named consumer; verifies message ordering and data integrity across consumer sessions (#172)
