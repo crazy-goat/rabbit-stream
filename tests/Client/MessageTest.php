@@ -52,52 +52,24 @@ class MessageTest extends TestCase
         $this->assertNull($msg->getGroupId());
     }
 
-    public function testGettersReturnNullForEmptyProperties(): void
+    /** @dataProvider bodyTypesProvider */
+    public function testBodyCanBeOfType(mixed $body): void
     {
-        $msg = new Message(offset: 0, timestamp: 0, body: null, properties: []);
-
-        $this->assertNull($msg->getMessageId());
-        $this->assertNull($msg->getCorrelationId());
-        $this->assertNull($msg->getContentType());
-        $this->assertNull($msg->getSubject());
-        $this->assertNull($msg->getCreationTime());
-        $this->assertNull($msg->getGroupId());
+        $msg = new Message(offset: 0, timestamp: 0, body: $body);
+        $this->assertSame($body, $msg->getBody());
     }
 
-    public function testBodyCanBeArray(): void
+    /** @return array<string, array{mixed}> */
+    public static function bodyTypesProvider(): array
     {
-        $msg = new Message(offset: 0, timestamp: 0, body: [1, 2, 3]);
-        $this->assertSame([1, 2, 3], $msg->getBody());
-    }
-
-    public function testBodyCanBeInteger(): void
-    {
-        $msg = new Message(offset: 0, timestamp: 0, body: 12345);
-        $this->assertSame(12345, $msg->getBody());
-    }
-
-    public function testBodyCanBeFloat(): void
-    {
-        $msg = new Message(offset: 0, timestamp: 0, body: 3.14);
-        $this->assertSame(3.14, $msg->getBody());
-    }
-
-    public function testBodyCanBeBoolean(): void
-    {
-        $msg = new Message(offset: 0, timestamp: 0, body: true);
-        $this->assertTrue($msg->getBody());
-    }
-
-    public function testBodyCanBeNull(): void
-    {
-        $msg = new Message(offset: 0, timestamp: 0, body: null);
-        $this->assertNull($msg->getBody());
-    }
-
-    public function testBodyCanBeString(): void
-    {
-        $msg = new Message(offset: 0, timestamp: 0, body: 'test string');
-        $this->assertSame('test string', $msg->getBody());
+        return [
+            'array'   => [[1, 2, 3]],
+            'integer' => [12345],
+            'float'   => [3.14],
+            'boolean' => [true],
+            'null'    => [null],
+            'string'  => ['test string'],
+        ];
     }
 
     public function testContentTypeReturnsNullForNonScalarValue(): void
@@ -111,7 +83,7 @@ class MessageTest extends TestCase
         $this->assertNull($msg->getContentType());
     }
 
-    public function testContentTypeReturnsNullForIntegerValue(): void
+    public function testContentTypeCastsIntToString(): void
     {
         $msg = new Message(
             offset: 0,
@@ -144,13 +116,24 @@ class MessageTest extends TestCase
         $this->assertNull($msg->getCreationTime());
     }
 
-    public function testCreationTimeCastsToInt(): void
+    public function testCreationTimeCastsStringToInt(): void
     {
         $msg = new Message(
             offset: 0,
             timestamp: 0,
             body: '',
             properties: ['creation-time' => '1700000000']
+        );
+        $this->assertSame(1700000000, $msg->getCreationTime());
+    }
+
+    public function testCreationTimeTruncatesFloat(): void
+    {
+        $msg = new Message(
+            offset: 0,
+            timestamp: 0,
+            body: '',
+            properties: ['creation-time' => 1700000000.99]
         );
         $this->assertSame(1700000000, $msg->getCreationTime());
     }
@@ -166,15 +149,44 @@ class MessageTest extends TestCase
         $this->assertNull($msg->getGroupId());
     }
 
-    public function testPropertiesIsImmutable(): void
+    public function testMessageIdReturnsRawValueForNonScalar(): void
     {
         $msg = new Message(
             offset: 0,
             timestamp: 0,
-            body: 'test',
-            properties: ['message-id' => 'original']
+            body: '',
+            properties: ['message-id' => ['not', 'scalar']]
         );
+        $this->assertSame(['not', 'scalar'], $msg->getMessageId());
+    }
+
+    public function testCorrelationIdReturnsRawValueForNonScalar(): void
+    {
+        $msg = new Message(
+            offset: 0,
+            timestamp: 0,
+            body: '',
+            properties: ['correlation-id' => 42]
+        );
+        $this->assertSame(42, $msg->getCorrelationId());
+    }
+
+    public function testPropertiesArrayIsNotSharedWithExternalReference(): void
+    {
+        $props = ['message-id' => 'original'];
+        $msg = new Message(offset: 0, timestamp: 0, body: 'test', properties: $props);
+
+        $props['message-id'] = 'hacked';
         $this->assertSame('original', $msg->getMessageId());
+    }
+
+    public function testApplicationPropertiesArrayIsNotSharedWithExternalReference(): void
+    {
+        $appProps = ['key' => 'original'];
+        $msg = new Message(offset: 0, timestamp: 0, body: 'test', applicationProperties: $appProps);
+
+        $appProps['key'] = 'hacked';
+        $this->assertSame(['key' => 'original'], $msg->getApplicationProperties());
     }
 
     public function testDefaultConstructorValues(): void
@@ -195,5 +207,16 @@ class MessageTest extends TestCase
         $msg = new Message(offset: 0, timestamp: 0, body: null, properties: $props);
 
         $this->assertSame($props, $msg->getProperties());
+    }
+
+    public function testExplicitNullPropertyValueReturnsNull(): void
+    {
+        $msg = new Message(
+            offset: 0,
+            timestamp: 0,
+            body: null,
+            properties: ['message-id' => null]
+        );
+        $this->assertNull($msg->getMessageId());
     }
 }
