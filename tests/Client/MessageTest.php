@@ -52,24 +52,40 @@ class MessageTest extends TestCase
         $this->assertNull($msg->getGroupId());
     }
 
-    /** @dataProvider bodyTypesProvider */
-    public function testBodyCanBeOfType(mixed $body): void
+    public function testBodyCanBeArray(): void
     {
-        $msg = new Message(offset: 0, timestamp: 0, body: $body);
-        $this->assertSame($body, $msg->getBody());
+        $msg = new Message(offset: 0, timestamp: 0, body: [1, 2, 3]);
+        $this->assertSame([1, 2, 3], $msg->getBody());
     }
 
-    /** @return array<string, array{mixed}> */
-    public static function bodyTypesProvider(): array
+    public function testBodyCanBeInteger(): void
     {
-        return [
-            'array'   => [[1, 2, 3]],
-            'integer' => [12345],
-            'float'   => [3.14],
-            'boolean' => [true],
-            'null'    => [null],
-            'string'  => ['test string'],
-        ];
+        $msg = new Message(offset: 0, timestamp: 0, body: 12345);
+        $this->assertSame(12345, $msg->getBody());
+    }
+
+    public function testBodyCanBeFloat(): void
+    {
+        $msg = new Message(offset: 0, timestamp: 0, body: 3.14);
+        $this->assertSame(3.14, $msg->getBody());
+    }
+
+    public function testBodyCanBeBoolean(): void
+    {
+        $msg = new Message(offset: 0, timestamp: 0, body: true);
+        $this->assertTrue($msg->getBody());
+    }
+
+    public function testBodyCanBeNull(): void
+    {
+        $msg = new Message(offset: 0, timestamp: 0, body: null);
+        $this->assertNull($msg->getBody());
+    }
+
+    public function testBodyCanBeString(): void
+    {
+        $msg = new Message(offset: 0, timestamp: 0, body: 'test string');
+        $this->assertSame('test string', $msg->getBody());
     }
 
     public function testContentTypeReturnsNullForNonScalarValue(): void
