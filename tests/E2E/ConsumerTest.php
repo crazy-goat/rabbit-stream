@@ -281,7 +281,7 @@ class ConsumerTest extends TestCase
         $deadline = time() + 5;
         while (count($received) < 5 && time() < $deadline) {
             $msg = $firstConsumer->readOne(timeout: 0.5);
-            if ($msg !== null) {
+            if ($msg instanceof Message) {
                 $received[] = $msg;
             }
         }
@@ -312,7 +312,7 @@ class ConsumerTest extends TestCase
         $this->assertCount(10, $all, 'Should read all messages (server delivers from offset 0)');
 
         // Filter in PHP to keep only messages after stored offset (offsets 5-9)
-        $resumed = array_values(array_filter($all, fn($m) => $m->getOffset() > $storedOffset));
+        $resumed = array_values(array_filter($all, fn(Message $m): bool => $m->getOffset() > $storedOffset));
         $this->assertCount(5, $resumed, 'Should keep 5 messages after filtering by stored offset');
         $this->assertSame('message-5', $resumed[0]->getBody(), 'First resumed message should be message-5');
     }
