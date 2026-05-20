@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
 
@@ -53,9 +54,9 @@ class MessageContentTest extends TestCase
     }
 
     /**
-     * Publish a single message and consume it, returning the message body.
+     * Publish a single message and consume it, returning the messages.
      *
-     * @return array<int, mixed>
+     * @return Message[]
      */
     private function publishAndConsume(string $amqpBody): array
     {
@@ -96,7 +97,6 @@ class MessageContentTest extends TestCase
         $this->assertNotEmpty($messages);
         $body = $messages[0]->getBody();
         $this->assertSame($originalBody, $body, 'Null bytes should be preserved in round-trip');
-        $this->assertStringContainsString("\x00", $body, 'Body should contain null bytes');
     }
 
     public function testMessageWithUtf8Multibyte(): void
@@ -106,11 +106,7 @@ class MessageContentTest extends TestCase
 
         $this->assertNotEmpty($messages);
         $body = $messages[0]->getBody();
-
         $this->assertSame($originalBody, $body, 'UTF-8 multibyte characters should be preserved');
-        $this->assertStringContainsString('Héllo', $body);
-        $this->assertStringContainsString('🐰', $body);
-        $this->assertStringContainsString('日本語', $body);
     }
 
     public function testMessageWithBinaryData(): void
@@ -120,9 +116,7 @@ class MessageContentTest extends TestCase
 
         $this->assertNotEmpty($messages);
         $body = $messages[0]->getBody();
-
         $this->assertSame($originalBody, $body, 'Binary data should round-trip byte-for-byte');
-        $this->assertSame(256, strlen($body), 'Binary data length should be preserved');
     }
 
     public function testMultipleSpecialMessagesInBatch(): void
