@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
@@ -108,7 +109,8 @@ class SubscribeTest extends TestCase
     {
         $connection = $this->connectAndOpen();
 
-        $this->expectException(\Exception::class);
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('STREAM_NOT_EXIST');
         $connection->sendMessage(new SubscribeRequestV1(1, 'non-existent-stream-' . uniqid(), OffsetSpec::first(), 10));
         $connection->readMessage();
 
@@ -128,8 +130,9 @@ class SubscribeTest extends TestCase
         $response = $connection->readMessage();
         $this->assertInstanceOf(SubscribeResponseV1::class, $response);
 
-        // Second subscription with same ID should fail
-        $this->expectException(\Exception::class);
+        // Second subscription with same ID should fail with SUBSCRIPTION_ID_ALREADY_EXISTS (0x03)
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('SUBSCRIPTION_ID_ALREADY_EXISTS');
         $connection->sendMessage(new SubscribeRequestV1(1, $streamName, OffsetSpec::first(), 10));
         $connection->readMessage();
 

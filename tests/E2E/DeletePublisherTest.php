@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
@@ -70,7 +71,8 @@ class DeletePublisherTest extends TestCase
     {
         $connection = $this->connectAndOpen();
 
-        $this->expectException(\Exception::class);
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('PUBLISHER_NOT_EXIST');
         $connection->sendMessage(new DeletePublisherRequestV1(99));
         $connection->readMessage();
 
