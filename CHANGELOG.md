@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **E2E test: Server-initiated close handling** — comprehensive E2E test that force-closes a connection via RabbitMQ management API and verifies that subsequent operations throw `ConnectionException` and `isConnected()` correctly returns `false` (#151)
 - **E2E test: Multiple publishers on a single connection** — comprehensive E2E test suite verifying that multiple producers on the same connection receive independent confirmations; tests independent publishing IDs across different streams, on the same stream, with batch sends, isolation after closing one producer, and sequential send/wait per producer (#156)
 - **E2E tests: Subscribe with OffsetSpec::offset(N)** — three new E2E tests covering subscription offset scenarios:
   - `testSubscribeFromSpecificOffset` — store offset, resume with `first()`, filter in PHP (workaround for RabbitMQ 4.3.0 TYPE_OFFSET bug)
@@ -37,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `ConsumerUpdateReplyV1` — refactored to use `CorrelationTrait` and `CommandTrait::getKeyVersion()` patterns, consistent with all other request classes; implements `CorrelationInterface` and sets correlation ID via `withCorrelationId()` instead of constructor parameter (#196)
 
 ### Fixed
+- `StreamConnection::readBytes()` — now sets `$this->connected = false` when a socket read error or EOF is detected (matching the pattern already used in `sendFrame()`); enables `isConnected()` to correctly report false after a server-initiated close or network failure (#151)
 - E2E test handshake — `StreamStatsTest`, `ExchangeCommandVersionsTest`, and `PartitionsTest` now correctly use `TuneResponseV1` instead of `TuneRequestV1` when responding to the server's tune handshake; per protocol spec, client should respond with key 0x8014 (response bit set) not 0x0014 (#178)
 - `StreamStatsResponseV1` — now uses `assertResponseCodeOk()` from `CommandTrait` instead of manual magic number check; provides consistent error messages with enum names and descriptions like all other response classes (#199)
 - `Connection::close()` — now properly closes all outstanding producers and consumers before closing the connection; prevents server-side resource leaks and ensures consumer offsets are stored when autoCommit is enabled (#206)
