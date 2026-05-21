@@ -153,4 +153,66 @@ class ProducerTest extends TestCase
 
         $producer->close();
     }
+
+    public function testLargeBatchPublish(): void
+    {
+        $this->assertNotNull($this->connection);
+        $this->publishBatchAndVerifyConfirms(
+            500,
+            fn(int $i): string => "message-{$i}",
+            30.0
+        );
+    }
+
+    public function testBatchPublishWith1KbMessages(): void
+    {
+        $this->assertNotNull($this->connection);
+        $this->publishBatchAndVerifyConfirms(
+            100,
+            fn(): string => str_repeat('X', 1024),
+            30.0
+        );
+    }
+
+    /**
+     * @param callable(int): string $messageFactory
+     */
+    private function publishBatchAndVerifyConfirms(int $count, callable $messageFactory, float $timeout = 5.0): void
+    {
+        $confirmed = [];
+        $producer = $this->connection->createProducer(
+            $this->streamName,
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmed): void {
+                $confirmed[] = $status;
+            }
+        );
+
+        $messages = [];
+        for ($i = 0; $i < $count; $i++) {
+            $messages[] = $messageFactory($i);
+        }
+
+        $producer->sendBatch($messages);
+        $producer->waitForConfirms(timeout: $timeout);
+
+        $this->assertCount($count, $confirmed);
+
+        $publishingIds = [];
+        foreach ($confirmed as $status) {
+            $this->assertTrue($status->isConfirmed());
+            $id = $status->getPublishingId();
+            if ($id !== null) {
+                $publishingIds[] = $id;
+            }
+        }
+
+        // Verify no gaps in publishing IDs
+        $this->assertCount($count, $publishingIds, 'All confirms should have a publishing ID');
+        sort($publishingIds);
+        $this->assertSame(0, $publishingIds[0], 'First publishing ID should be 0');
+        $this->assertSame($count - 1, $publishingIds[$count - 1], 'Last publishing ID should be ' . ($count - 1));
+        $this->assertCount($count, array_unique($publishingIds), 'All publishing IDs should be unique');
+
+        $producer->close();
+    }
 }
