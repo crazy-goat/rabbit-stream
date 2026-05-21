@@ -12,11 +12,14 @@ use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
+use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
+use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\RouteRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
@@ -24,11 +27,14 @@ use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\Response\RouteResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
@@ -167,6 +173,49 @@ class Connection implements ConnectionInterface
         if (!$response instanceof DeleteStreamResponseV1) {
             throw UnexpectedResponseException::create(DeleteStreamResponseV1::class, $response);
         }
+    }
+
+    /**
+     * @param string[] $partitions
+     * @param string[] $bindingKeys
+     * @param array<string, string> $arguments
+     */
+    public function createSuperStream(
+        string $name,
+        array $partitions = [],
+        array $bindingKeys = [],
+        array $arguments = []
+    ): void {
+        $this->streamConnection->sendMessage(new CreateSuperStreamRequestV1(
+            $name,
+            $partitions,
+            $bindingKeys,
+            $arguments
+        ));
+        $response = $this->streamConnection->readMessage();
+        if (!$response instanceof CreateSuperStreamResponseV1) {
+            throw UnexpectedResponseException::create(CreateSuperStreamResponseV1::class, $response);
+        }
+    }
+
+    public function deleteSuperStream(string $name): void
+    {
+        $this->streamConnection->sendMessage(new DeleteSuperStreamRequestV1($name));
+        $response = $this->streamConnection->readMessage();
+        if (!$response instanceof DeleteSuperStreamResponseV1) {
+            throw UnexpectedResponseException::create(DeleteSuperStreamResponseV1::class, $response);
+        }
+    }
+
+    /** @return string[] */
+    public function route(string $routingKey, string $superStream): array
+    {
+        $this->streamConnection->sendMessage(new RouteRequestV1($routingKey, $superStream));
+        $response = $this->streamConnection->readMessage();
+        if (!$response instanceof RouteResponseV1) {
+            throw UnexpectedResponseException::create(RouteResponseV1::class, $response);
+        }
+        return $response->getStreams();
     }
 
     public function streamExists(string $name): bool
