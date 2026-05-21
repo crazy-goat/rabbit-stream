@@ -83,7 +83,10 @@ class ServerInitiatedCloseTest extends TestCase
             }
         }
 
-        $this->assertNotNull($lastException, 'Expected ConnectionException was not thrown after server-initiated close');
+        $this->assertNotNull(
+            $lastException,
+            'Expected ConnectionException was not thrown after server-initiated close'
+        );
 
         // After the operation fails, connection should be marked as disconnected
         $this->assertFalse($connection->isConnected());
