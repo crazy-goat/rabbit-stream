@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **E2E test: Multiple publishers on a single connection** — comprehensive E2E test suite verifying that multiple producers on the same connection receive independent confirmations; tests independent publishing IDs across different streams, on the same stream, with batch sends, isolation after closing one producer, and sequential send/wait per producer (#156)
 - **E2E tests: Subscribe with OffsetSpec::offset(N)** — three new E2E tests covering subscription offset scenarios:
   - `testSubscribeFromSpecificOffset` — store offset, resume with `first()`, filter in PHP (workaround for RabbitMQ 4.3.0 TYPE_OFFSET bug)
   - `testSubscribeFromOffsetZero` — `OffsetSpec::offset(0)` behaves like `first()`
