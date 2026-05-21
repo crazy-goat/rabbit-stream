@@ -524,12 +524,17 @@ class StreamConnection
 
         while ($remaining > 0) {
             $chunk = socket_read($this->socket, $remaining);
-            if ($chunk === false || $chunk === '') {
+            if ($chunk === false) {
                 $error = socket_last_error($this->socket);
                 if ($error === SOCKET_ETIMEDOUT) {
                     return null;
                 }
+                $this->connected = false;
                 throw new ConnectionException("Failed to read from socket: " . socket_strerror($error));
+            }
+            if ($chunk === '') {
+                $this->connected = false;
+                throw new ConnectionException("Failed to read from socket: connection closed by peer");
             }
 
             $data .= $chunk;
