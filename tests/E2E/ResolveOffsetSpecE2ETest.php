@@ -16,8 +16,8 @@ use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
-use PHPUnit\Framework\TestCase;
 
 /**
  * E2E tests for ResolveOffsetSpec command.
@@ -26,16 +26,13 @@ use PHPUnit\Framework\TestCase;
  * via ExchangeCommandVersions. If the command is not supported (RabbitMQ < 4.3),
  * all tests are skipped.
  */
-class ResolveOffsetSpecE2ETest extends TestCase
+class ResolveOffsetSpecE2ETest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
     private static bool $commandSupported = false;
 
     public static function setUpBeforeClass(): void
     {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
+        parent::setUpBeforeClass();
 
         // Check if server supports ResolveOffsetSpec command
         try {
@@ -90,30 +87,6 @@ class ResolveOffsetSpecE2ETest extends TestCase
                 'This command requires RabbitMQ 4.3+. Current version does not support this command.'
             );
         }
-    }
-
-    private function connectAndOpen(): StreamConnection
-    {
-        $connection = new StreamConnection(self::$host, self::$port);
-        $connection->connect();
-
-        $connection->sendMessage(new PeerPropertiesRequestV1());
-        $connection->readMessage();
-
-        $connection->sendMessage(new SaslHandshakeRequestV1());
-        $connection->readMessage();
-
-        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
-        $connection->readMessage();
-
-        $tune = $connection->readMessage();
-        $this->assertInstanceOf(TuneRequestV1::class, $tune);
-        $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
-
-        $connection->sendMessage(new OpenRequestV1('/'));
-        $connection->readMessage();
-
-        return $connection;
     }
 
     public function testResolveFirstOffset(): void

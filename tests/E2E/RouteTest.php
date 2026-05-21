@@ -6,53 +6,14 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
-use CrazyGoat\RabbitStream\Request\OpenRequestV1;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\RouteRequestV1;
-use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
-use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\RouteResponseV1;
-use CrazyGoat\RabbitStream\StreamConnection;
-use PHPUnit\Framework\TestCase;
+use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 
-class RouteTest extends TestCase
+class RouteTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
-    public static function setUpBeforeClass(): void
-    {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-    }
-
-    private function connectAndOpen(): StreamConnection
-    {
-        $connection = new StreamConnection(self::$host, self::$port);
-        $connection->connect();
-
-        $connection->sendMessage(new PeerPropertiesRequestV1());
-        $connection->readMessage();
-
-        $connection->sendMessage(new SaslHandshakeRequestV1());
-        $connection->readMessage();
-
-        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
-        $connection->readMessage();
-
-        $tune = $connection->readMessage();
-        $this->assertInstanceOf(TuneRequestV1::class, $tune);
-        $connection->sendMessage(new TuneRequestV1($tune->getFrameMax(), $tune->getHeartbeat()));
-
-        $connection->sendMessage(new OpenRequestV1('/'));
-        $connection->readMessage();
-
-        return $connection;
-    }
-
     public function testRouteForNonExistentSuperStreamThrows(): void
     {
         $connection = $this->connectAndOpen();
