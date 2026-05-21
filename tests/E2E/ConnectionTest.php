@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use PHPUnit\Framework\TestCase;
 
 class ConnectionTest extends TestCase
@@ -92,6 +93,51 @@ class ConnectionTest extends TestCase
 
         // Cleanup
         $connection->deleteStream($streamName);
+        $connection->close();
+    }
+
+    public function testMetadataForMultipleStreams(): void
+    {
+        $connection = Connection::create(
+            host: self::$host,
+            port: self::$port,
+            user: 'guest',
+            password: 'guest',
+            vhost: '/'
+        );
+
+        $existing1 = 'test-meta-multi-1-' . uniqid();
+        $existing2 = 'test-meta-multi-2-' . uniqid();
+        $nonExistent = 'test-meta-nonexistent-' . uniqid();
+
+        $connection->createStream($existing1);
+        $connection->createStream($existing2);
+
+        $metadata = $connection->getMetadata([$existing1, $nonExistent, $existing2]);
+
+        $streamMetadata = $metadata->getStreamMetadata();
+        $this->assertCount(3, $streamMetadata);
+
+        // Build a map of stream name → response code for easier assertions
+        $codeByStream = [];
+        foreach ($streamMetadata as $meta) {
+            $codeByStream[$meta->getStreamName()] = $meta->getResponseCode();
+        }
+
+        // Existing streams → OK
+        $this->assertArrayHasKey($existing1, $codeByStream);
+        $this->assertSame(ResponseCodeEnum::OK->value, $codeByStream[$existing1]);
+
+        $this->assertArrayHasKey($existing2, $codeByStream);
+        $this->assertSame(ResponseCodeEnum::OK->value, $codeByStream[$existing2]);
+
+        // Non-existent stream → STREAM_NOT_EXIST
+        $this->assertArrayHasKey($nonExistent, $codeByStream);
+        $this->assertSame(ResponseCodeEnum::STREAM_NOT_EXIST->value, $codeByStream[$nonExistent]);
+
+        // Cleanup
+        $connection->deleteStream($existing1);
+        $connection->deleteStream($existing2);
         $connection->close();
     }
 
