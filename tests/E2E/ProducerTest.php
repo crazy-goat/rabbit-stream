@@ -179,6 +179,7 @@ class ProducerTest extends TestCase
      */
     private function publishBatchAndVerifyConfirms(int $count, callable $messageFactory, float $timeout = 5.0): void
     {
+        $this->assertNotNull($this->connection);
         $confirmed = [];
         $producer = $this->connection->createProducer(
             $this->streamName,
