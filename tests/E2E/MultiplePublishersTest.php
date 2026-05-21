@@ -233,4 +233,51 @@ class MultiplePublishersTest extends TestCase
         $producer1->close();
         $producer2->close();
     }
+
+    public function testSequentialSendAndWaitPerProducerMaintainsIsolation(): void
+    {
+        $this->assertNotNull($this->connection);
+        $stream1 = $this->createStream();
+        $stream2 = $this->createStream();
+
+        $confirmed1 = [];
+        $confirmed2 = [];
+
+        $producer1 = $this->connection->createProducer(
+            $stream1,
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmed1): void {
+                $confirmed1[] = $status;
+            }
+        );
+
+        $producer2 = $this->connection->createProducer(
+            $stream2,
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmed2): void {
+                $confirmed2[] = $status;
+            }
+        );
+
+        // Send and wait on producer 1 first (isolated)
+        $producer1->send('seq-msg-1');
+        $producer1->waitForConfirms(timeout: 5.0);
+
+        $this->assertCount(1, $confirmed1);
+        $this->assertCount(0, $confirmed2, 'Producer 2 should not receive confirmations for producer 1');
+        $this->assertTrue($confirmed1[0]->isConfirmed());
+
+        // Then send and wait on producer 2 (isolated)
+        $producer2->send('seq-msg-2');
+        $producer2->waitForConfirms(timeout: 5.0);
+
+        $this->assertCount(1, $confirmed1, 'Producer 1 confirms should not change');
+        $this->assertCount(1, $confirmed2);
+        $this->assertTrue($confirmed2[0]->isConfirmed());
+
+        // Both started from publishing ID 0
+        $this->assertSame(0, $confirmed1[0]->getPublishingId());
+        $this->assertSame(0, $confirmed2[0]->getPublishingId());
+
+        $producer1->close();
+        $producer2->close();
+    }
 }
