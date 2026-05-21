@@ -14,6 +14,23 @@ interface ConnectionInterface
 
     public function deleteStream(string $name): void;
 
+    /**
+     * @param string[] $partitions
+     * @param string[] $bindingKeys
+     * @param array<string, string> $arguments
+     */
+    public function createSuperStream(
+        string $name,
+        array $partitions = [],
+        array $bindingKeys = [],
+        array $arguments = []
+    ): void;
+
+    public function deleteSuperStream(string $name): void;
+
+    /** @return string[] */
+    public function route(string $routingKey, string $superStream): array;
+
     public function streamExists(string $name): bool;
 
     /** @return array<string, int> */
