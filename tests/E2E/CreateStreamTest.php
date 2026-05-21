@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
+use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -20,11 +21,30 @@ class CreateStreamTest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
+    private ?StreamConnection $connection = null;
+    private string $streamName = '';
 
     public static function setUpBeforeClass(): void
     {
         self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
+    }
+
+    protected function tearDown(): void
+    {
+        if (!$this->connection instanceof StreamConnection) {
+            return;
+        }
+        try {
+            if ($this->connection->isConnected() && $this->streamName !== '') {
+                $this->connection->sendMessage(new DeleteStreamRequestV1($this->streamName));
+                $this->connection->readMessage();
+            }
+        } catch (\Exception) {
+            // Ignore cleanup errors — stream may already be deleted
+        } finally {
+            $this->connection->close();
+        }
     }
 
     private function connectAndOpen(): StreamConnection
@@ -53,47 +73,38 @@ class CreateStreamTest extends TestCase
 
     public function testCreateStream(): void
     {
-        $connection = $this->connectAndOpen();
-
-        $streamName = 'test-create-stream-' . uniqid();
-        $connection->sendMessage(new CreateRequestV1($streamName));
-        $response = $connection->readMessage();
+        $this->connection = $this->connectAndOpen();
+        $this->streamName = 'test-create-stream-' . uniqid();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName));
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(CreateResponseV1::class, $response);
-
-        $connection->close();
     }
 
     public function testCreateStreamWithArguments(): void
     {
-        $connection = $this->connectAndOpen();
-
-        $streamName = 'test-create-stream-args-' . uniqid();
-        $connection->sendMessage(new CreateRequestV1($streamName, [
+        $this->connection = $this->connectAndOpen();
+        $this->streamName = 'test-create-stream-args-' . uniqid();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName, [
             'max-length-bytes' => '1000000',
             'max-age' => '1h',
         ]));
-        $response = $connection->readMessage();
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(CreateResponseV1::class, $response);
-
-        $connection->close();
     }
 
     public function testCreateDuplicateStreamThrows(): void
     {
-        $connection = $this->connectAndOpen();
-
-        $streamName = 'test-create-duplicate-' . uniqid();
-        $connection->sendMessage(new CreateRequestV1($streamName));
-        $connection->readMessage();
+        $this->connection = $this->connectAndOpen();
+        $this->streamName = 'test-create-duplicate-' . uniqid();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName));
+        $this->connection->readMessage();
 
         // Second create should fail with STREAM_ALREADY_EXISTS (0x05)
         $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('STREAM_ALREADY_EXISTS');
-        $connection->sendMessage(new CreateRequestV1($streamName));
-        $connection->readMessage();
-
-        $connection->close();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName));
+        $this->connection->readMessage();
     }
 }

@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
+use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -23,11 +24,30 @@ class SubscribeTest extends TestCase
 {
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
+    private ?StreamConnection $connection = null;
+    private string $streamName = '';
 
     public static function setUpBeforeClass(): void
     {
         self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
+    }
+
+    protected function tearDown(): void
+    {
+        if (!$this->connection instanceof StreamConnection) {
+            return;
+        }
+        try {
+            if ($this->connection->isConnected() && $this->streamName !== '') {
+                $this->connection->sendMessage(new DeleteStreamRequestV1($this->streamName));
+                $this->connection->readMessage();
+            }
+        } catch (\Exception) {
+            // Ignore cleanup errors — stream may already be deleted
+        } finally {
+            $this->connection->close();
+        }
     }
 
     private function connectAndOpen(): StreamConnection
@@ -56,86 +76,78 @@ class SubscribeTest extends TestCase
 
     public function testSubscribeToStream(): void
     {
-        $connection = $this->connectAndOpen();
+        $this->connection = $this->connectAndOpen();
+        $this->streamName = 'test-subscribe-stream-' . uniqid();
 
         // Create a test stream
-        $streamName = 'test-subscribe-stream-' . uniqid();
-        $connection->sendMessage(new CreateRequestV1($streamName));
-        $createResponse = $connection->readMessage();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName));
+        $createResponse = $this->connection->readMessage();
         $this->assertInstanceOf(CreateResponseV1::class, $createResponse);
 
         // Subscribe to the stream
-        $connection->sendMessage(new SubscribeRequestV1(1, $streamName, OffsetSpec::first(), 10));
-        $response = $connection->readMessage();
+        $this->connection->sendMessage(new SubscribeRequestV1(1, $this->streamName, OffsetSpec::first(), 10));
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(SubscribeResponseV1::class, $response);
-
-        $connection->close();
     }
 
     public function testSubscribeWithOffsetLast(): void
     {
-        $connection = $this->connectAndOpen();
+        $this->connection = $this->connectAndOpen();
+        $this->streamName = 'test-subscribe-last-' . uniqid();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName));
+        $this->connection->readMessage();
 
-        $streamName = 'test-subscribe-last-' . uniqid();
-        $connection->sendMessage(new CreateRequestV1($streamName));
-        $connection->readMessage();
-
-        $connection->sendMessage(new SubscribeRequestV1(1, $streamName, OffsetSpec::last(), 5));
-        $response = $connection->readMessage();
+        $this->connection->sendMessage(new SubscribeRequestV1(1, $this->streamName, OffsetSpec::last(), 5));
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(SubscribeResponseV1::class, $response);
-
-        $connection->close();
     }
 
     public function testSubscribeWithOffsetNext(): void
     {
-        $connection = $this->connectAndOpen();
+        $this->connection = $this->connectAndOpen();
+        $this->streamName = 'test-subscribe-next-' . uniqid();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName));
+        $this->connection->readMessage();
 
-        $streamName = 'test-subscribe-next-' . uniqid();
-        $connection->sendMessage(new CreateRequestV1($streamName));
-        $connection->readMessage();
-
-        $connection->sendMessage(new SubscribeRequestV1(1, $streamName, OffsetSpec::next(), 20));
-        $response = $connection->readMessage();
+        $this->connection->sendMessage(new SubscribeRequestV1(1, $this->streamName, OffsetSpec::next(), 20));
+        $response = $this->connection->readMessage();
 
         $this->assertInstanceOf(SubscribeResponseV1::class, $response);
-
-        $connection->close();
     }
 
     public function testSubscribeToNonExistentStreamThrows(): void
     {
-        $connection = $this->connectAndOpen();
+        $this->connection = $this->connectAndOpen();
 
         $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('STREAM_NOT_EXIST');
-        $connection->sendMessage(new SubscribeRequestV1(1, 'non-existent-stream-' . uniqid(), OffsetSpec::first(), 10));
-        $connection->readMessage();
-
-        $connection->close();
+        $this->connection->sendMessage(new SubscribeRequestV1(
+            1,
+            'non-existent-stream-' . uniqid(),
+            OffsetSpec::first(),
+            10
+        ));
+        $this->connection->readMessage();
     }
 
     public function testDuplicateSubscriptionIdThrows(): void
     {
-        $connection = $this->connectAndOpen();
-
-        $streamName = 'test-subscribe-duplicate-' . uniqid();
-        $connection->sendMessage(new CreateRequestV1($streamName));
-        $connection->readMessage();
+        $this->connection = $this->connectAndOpen();
+        $this->streamName = 'test-subscribe-duplicate-' . uniqid();
+        $this->connection->sendMessage(new CreateRequestV1($this->streamName));
+        $this->connection->readMessage();
 
         // First subscription should succeed
-        $connection->sendMessage(new SubscribeRequestV1(1, $streamName, OffsetSpec::first(), 10));
-        $response = $connection->readMessage();
+        $this->connection->sendMessage(new SubscribeRequestV1(1, $this->streamName, OffsetSpec::first(), 10));
+        $response = $this->connection->readMessage();
         $this->assertInstanceOf(SubscribeResponseV1::class, $response);
 
         // Second subscription with same ID should fail with SUBSCRIPTION_ID_ALREADY_EXISTS (0x03)
         $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('SUBSCRIPTION_ID_ALREADY_EXISTS');
-        $connection->sendMessage(new SubscribeRequestV1(1, $streamName, OffsetSpec::first(), 10));
-        $connection->readMessage();
-
-        $connection->close();
+        $this->connection->sendMessage(new SubscribeRequestV1(1, $this->streamName, OffsetSpec::first(), 10));
+        $this->connection->readMessage();
     }
 }
