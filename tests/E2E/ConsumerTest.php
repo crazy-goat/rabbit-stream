@@ -380,4 +380,68 @@ class ConsumerTest extends TestCase
 
         $consumer->close();
     }
+
+    public function testSubscribeFromTimestamp(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        $producer = $this->connection->createProducer($this->streamName);
+        for ($i = 0; $i < 5; $i++) {
+            $producer->send($this->amqp("before-{$i}"));
+        }
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        $timestamp = time() * 1000;
+        sleep(1);
+
+        $producer2 = $this->connection->createProducer($this->streamName);
+        for ($i = 0; $i < 5; $i++) {
+            $producer2->send($this->amqp("after-{$i}"));
+        }
+        $producer2->waitForConfirms(timeout: 5);
+        $producer2->close();
+
+        $consumer = $this->connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::timestamp($timestamp)
+        );
+
+        $received = [];
+        $deadline = time() + 5;
+        while (count($received) < 5 && time() < $deadline) {
+            $msgs = $consumer->read(timeout: 0.5);
+            foreach ($msgs as $msg) {
+                $received[] = $msg->getBody();
+            }
+        }
+
+        $consumer->close();
+
+        $this->assertCount(5, $received, 'Should receive only messages published after the timestamp');
+        $this->assertSame('after-0', $received[0], 'First message should be after-0');
+    }
+
+    public function testSubscribeFromFutureTimestampReturnsNoMessages(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        $producer = $this->connection->createProducer($this->streamName);
+        for ($i = 0; $i < 3; $i++) {
+            $producer->send($this->amqp("msg-{$i}"));
+        }
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        $futureTimestamp = (time() + 86400) * 1000;
+        $consumer = $this->connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::timestamp($futureTimestamp)
+        );
+
+        $msgs = $consumer->read(timeout: 1);
+        $this->assertCount(0, $msgs, 'Should receive no messages when subscribing with a future timestamp');
+
+        $consumer->close();
+    }
 }
