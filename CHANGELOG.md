@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **E2E test: MetadataUpdate callback on stream deletion** — E2E test verifying that when a stream is deleted from one connection while another connection is subscribed, the subscribed connection receives a `MetadataUpdate` frame via the `onMetadataUpdate` callback with the correct stream name and response code (#160)
 - **E2E test: Multiple concurrent subscriptions on different streams** — two new E2E tests verifying that multiple subscriptions on a single connection, targeting different streams, correctly isolate message routing: each consumer receives only its own stream's messages; closing one consumer does not affect the other (#154)
 - **E2E test: SASL mechanism validation** — two new E2E tests verifying that unsupported SASL mechanisms (`SCRAM-SHA-256` and empty string) are rejected with `ProtocolException` containing `SASL_MECHANISM_NOT_SUPPORTED` (#148)
 - **E2E test: Server-initiated close handling** — comprehensive E2E test that force-closes a connection via RabbitMQ management API and verifies that subsequent operations throw `ConnectionException` and `isConnected()` correctly returns `false` (#151)
