@@ -45,6 +45,16 @@ class KeyEnumTest extends TestCase
         KeyEnum::fromStreamCode(0x8099);
     }
 
+    public function testFromStreamCodeThrowsForUnmappedResponseCodeThatWouldCollide(): void
+    {
+        // 0x8002 has no _RESPONSE case but 0x0002 is PUBLISH.
+        // Without the fallback fix, this would silently return PUBLISH instead of throwing.
+        $this->expectException(\ValueError::class);
+        $this->expectExceptionMessage('Unknown stream protocol command code: 0x8002');
+
+        KeyEnum::fromStreamCode(0x8002);
+    }
+
     public function testFromStreamCodeThrowsForNegativeResult(): void
     {
         // Code less than 0x8000 but not a valid enum value
