@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `DeserializationException` — buffer/parsing errors
   - `InvalidArgumentException` — input validation (extends native `\InvalidArgumentException`)
 
+### Changed
+- **E2E test infrastructure** — 19 E2E test classes now extend `E2ETestCase` instead of duplicating `$host`, `$port`, and `setUpBeforeClass()` boilerplate; added `createConnection()` helper and parametrized `connectAndOpen()` to `E2ETestCase` (79 insertions, 348 deletions) (#346)
+
 ### Documentation
 - `WriteBuffer::addInt16()`, `addInt32()`, `addInt64()` — added comprehensive PHPDoc comments explaining why unsigned pack formats ('n', 'N', 'J') are used intentionally for signed integers; documents PHP's two's complement behavior and references ReadBuffer reverse conversion methods (#213)
 
