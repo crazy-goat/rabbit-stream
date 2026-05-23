@@ -62,11 +62,11 @@ class ReadLoopTimeoutTest extends E2ETestCase
         $this->connection = $connection;
 
         $start = microtime(true);
-        $connection->readLoop(timeout: 1.0);
+        $connection->readLoop(timeout: 0.3);
         $elapsed = microtime(true) - $start;
 
-        $this->assertGreaterThan(0.8, $elapsed, 'readLoop should block for approximately the timeout duration');
-        $this->assertLessThan(2.0, $elapsed, 'readLoop should not block significantly longer than the timeout');
+        $this->assertGreaterThan(0.2, $elapsed, 'readLoop should block for approximately the timeout duration');
+        $this->assertLessThan(1.0, $elapsed, 'readLoop should not block significantly longer than the timeout');
     }
 
     public function testReadLoopWithZeroTimeout(): void
