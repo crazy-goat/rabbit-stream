@@ -126,4 +126,144 @@ class MultipleConsumersTest extends TestCase
         }
         return $received;
     }
+
+    public function testTwoSubscriptionsOnDifferentStreamsReceiveCorrectMessages(): void
+    {
+        $streamA = 'test-multi-stream-A-' . uniqid();
+        $streamB = 'test-multi-stream-B-' . uniqid();
+
+        $conn = Connection::create(self::$host, self::$port);
+
+        try {
+            $conn->createStream($streamA);
+            $conn->createStream($streamB);
+
+            $producerA = $conn->createProducer($streamA);
+            $producerA->sendBatch([
+                $this->amqp('from-A-1'),
+                $this->amqp('from-A-2'),
+            ]);
+            $producerA->waitForConfirms(timeout: 5);
+            $producerA->close();
+
+            $producerB = $conn->createProducer($streamB);
+            $producerB->sendBatch([
+                $this->amqp('from-B-1'),
+                $this->amqp('from-B-2'),
+                $this->amqp('from-B-3'),
+            ]);
+            $producerB->waitForConfirms(timeout: 5);
+            $producerB->close();
+
+            $consumerA = $conn->createConsumer($streamA, OffsetSpec::first(), name: 'multi-stream-A');
+            $consumerB = $conn->createConsumer($streamB, OffsetSpec::first(), name: 'multi-stream-B');
+
+            $msgsA = $this->readAll($consumerA, 2);
+            $msgsB = $this->readAll($consumerB, 3);
+
+            $this->assertCount(2, $msgsA);
+            $this->assertCount(3, $msgsB);
+
+            $bodiesA = array_map(fn(Message $m): string|int|float|bool|array|null => $m->getBody(), $msgsA);
+            $bodiesB = array_map(fn(Message $m): string|int|float|bool|array|null => $m->getBody(), $msgsB);
+
+            $this->assertContains('from-A-1', $bodiesA);
+            $this->assertContains('from-A-2', $bodiesA);
+            $this->assertNotContains('from-B-1', $bodiesA);
+
+            $this->assertContains('from-B-1', $bodiesB);
+            $this->assertContains('from-B-2', $bodiesB);
+            $this->assertContains('from-B-3', $bodiesB);
+            $this->assertNotContains('from-A-1', $bodiesB);
+
+            $consumerA->close();
+            $consumerB->close();
+        } finally {
+            try {
+                $conn->deleteStream($streamA);
+            } catch (\Exception) {
+            }
+            try {
+                $conn->deleteStream($streamB);
+            } catch (\Exception) {
+            }
+            $conn->close();
+        }
+    }
+
+    public function testUnsubscribingOneConsumerDoesNotAffectOther(): void
+    {
+        $streamA = 'test-unsub-A-' . uniqid();
+        $streamB = 'test-unsub-B-' . uniqid();
+
+        $conn = Connection::create(self::$host, self::$port);
+
+        try {
+            $conn->createStream($streamA);
+            $conn->createStream($streamB);
+
+            $producer = $conn->createProducer($streamA);
+            $producer->sendBatch([
+                $this->amqp('initial-a-1'),
+                $this->amqp('initial-a-2'),
+            ]);
+            $producer->waitForConfirms(timeout: 5);
+            $producer->close();
+
+            $consumerA = $conn->createConsumer($streamA, OffsetSpec::first(), name: 'unsub-A');
+            $consumerB = $conn->createConsumer($streamB, OffsetSpec::next(), name: 'unsub-B');
+
+            $msgsA = $this->readAll($consumerA, 2);
+            $this->assertCount(2, $msgsA);
+
+            // Publish a message to streamB while consumerB is subscribed
+            $producerB = $conn->createProducer($streamB);
+            $producerB->send($this->amqp('to-B-before-close'));
+            $producerB->waitForConfirms(timeout: 5);
+            $producerB->close();
+
+            $msgB = $this->readOneWithTimeout($consumerB, 5);
+            $this->assertNotNull($msgB);
+            $this->assertSame('to-B-before-close', $msgB->getBody());
+
+            // Close consumerA — this unsubscribes from streamA
+            $consumerA->close();
+
+            // Publish more messages to streamB after consumerA is closed
+            $producerB2 = $conn->createProducer($streamB);
+            $producerB2->send($this->amqp('to-B-after-close'));
+            $producerB2->waitForConfirms(timeout: 5);
+            $producerB2->close();
+
+            // ConsumerB should still receive messages
+            $msgB2 = $this->readOneWithTimeout($consumerB, 5);
+            $this->assertNotNull($msgB2);
+            $this->assertSame('to-B-after-close', $msgB2->getBody());
+
+            // Verify consumerA is truly stopped — no more messages via its old subscription
+            $consumerB->close();
+        } finally {
+            try {
+                $conn->deleteStream($streamA);
+            } catch (\Exception) {
+            }
+            try {
+                $conn->deleteStream($streamB);
+            } catch (\Exception) {
+            }
+            $conn->close();
+        }
+    }
+
+    private function readOneWithTimeout(ConsumerInterface $consumer, float $timeout): ?Message
+    {
+        $deadline = time() + (int)$timeout;
+        while (time() < $deadline) {
+            $msg = $consumer->readOne(timeout: 0.5);
+            if ($msg instanceof Message) {
+                return $msg;
+            }
+        }
+        return null;
+    }
 }
