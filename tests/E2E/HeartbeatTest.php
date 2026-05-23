@@ -25,6 +25,9 @@ use PHPUnit\Framework\TestCase;
 
 class HeartbeatTest extends TestCase
 {
+    private const HEARTBEAT_INTERVAL = 1;
+    private const MARGIN = 2;
+
     private static string $host = '127.0.0.1';
     private static int $port = 5552;
     private ?StreamConnection $connection = null;
@@ -45,7 +48,7 @@ class HeartbeatTest extends TestCase
         $this->connection = null;
     }
 
-    private function createConnectionWithShortHeartbeat(int $heartbeatInterval = 2): StreamConnection
+    private function createConnectionWithShortHeartbeat(int $heartbeatInterval): StreamConnection
     {
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
@@ -83,8 +86,7 @@ class HeartbeatTest extends TestCase
 
     public function testHeartbeatIsEchoedBack(): void
     {
-        $heartbeatInterval = 2;
-        $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $connection = $this->createConnectionWithShortHeartbeat(self::HEARTBEAT_INTERVAL);
         $this->connection = $connection;
 
         $heartbeatReceived = false;
@@ -92,8 +94,7 @@ class HeartbeatTest extends TestCase
             $heartbeatReceived = true;
         });
 
-        $margin = 3;
-        $totalWait = $heartbeatInterval + $margin;
+        $totalWait = self::HEARTBEAT_INTERVAL + self::MARGIN;
 
         $start = microtime(true);
         $connection->readLoop(maxFrames: 1, timeout: (float) $totalWait);
@@ -112,8 +113,7 @@ class HeartbeatTest extends TestCase
 
     public function testHeartbeatCallbackIsCalledMultipleTimes(): void
     {
-        $heartbeatInterval = 2;
-        $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $connection = $this->createConnectionWithShortHeartbeat(self::HEARTBEAT_INTERVAL);
         $this->connection = $connection;
 
         $heartbeatCount = 0;
@@ -122,7 +122,7 @@ class HeartbeatTest extends TestCase
         });
 
         $maxFrames = 3;
-        $totalWait = ($heartbeatInterval * $maxFrames) + 5;
+        $totalWait = (self::HEARTBEAT_INTERVAL * $maxFrames) + self::MARGIN;
 
         $connection->readLoop(maxFrames: $maxFrames, timeout: (float) $totalWait);
 
@@ -140,15 +140,13 @@ class HeartbeatTest extends TestCase
 
     public function testNoCorrelationIdDesyncAfterHeartbeat(): void
     {
-        $heartbeatInterval = 2;
-        $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $connection = $this->createConnectionWithShortHeartbeat(self::HEARTBEAT_INTERVAL);
         $this->connection = $connection;
 
         $connection->onHeartbeat(function (): void {
         });
 
-        $margin = 3;
-        $connection->readLoop(maxFrames: 1, timeout: (float) ($heartbeatInterval + $margin));
+        $connection->readLoop(maxFrames: 1, timeout: (float) (self::HEARTBEAT_INTERVAL + self::MARGIN));
 
         $this->assertTrue(
             $connection->isConnected(),
@@ -175,8 +173,7 @@ class HeartbeatTest extends TestCase
 
     public function testHeartbeatCallbackCanBeCleared(): void
     {
-        $heartbeatInterval = 2;
-        $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $connection = $this->createConnectionWithShortHeartbeat(self::HEARTBEAT_INTERVAL);
         $this->connection = $connection;
 
         $heartbeatReceived = false;
@@ -186,8 +183,7 @@ class HeartbeatTest extends TestCase
 
         $connection->onHeartbeat();
 
-        $margin = 3;
-        $connection->readLoop(maxFrames: 1, timeout: (float) ($heartbeatInterval + $margin));
+        $connection->readLoop(maxFrames: 1, timeout: (float) (self::HEARTBEAT_INTERVAL + self::MARGIN));
 
         $this->assertFalse(
             $heartbeatReceived,
@@ -197,8 +193,7 @@ class HeartbeatTest extends TestCase
 
     public function testHeartbeatCallbackCanBeReplaced(): void
     {
-        $heartbeatInterval = 2;
-        $connection = $this->createConnectionWithShortHeartbeat($heartbeatInterval);
+        $connection = $this->createConnectionWithShortHeartbeat(self::HEARTBEAT_INTERVAL);
         $this->connection = $connection;
 
         $firstCallbackCalled = false;
@@ -211,8 +206,7 @@ class HeartbeatTest extends TestCase
             $secondCallbackCalled = true;
         });
 
-        $margin = 3;
-        $connection->readLoop(maxFrames: 1, timeout: (float) ($heartbeatInterval + $margin));
+        $connection->readLoop(maxFrames: 1, timeout: (float) (self::HEARTBEAT_INTERVAL + self::MARGIN));
 
         $this->assertFalse(
             $firstCallbackCalled,
