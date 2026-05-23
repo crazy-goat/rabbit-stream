@@ -146,4 +146,28 @@ class ConnectionHandshakeTest extends TestCase
             $this->assertStringContainsString('Read timeout', $e->getMessage());
         }
     }
+
+    public function testInvalidVhostThrows(): void
+    {
+        $this->connection = $this->createConnection();
+
+        $this->connection->sendMessage(new PeerPropertiesRequestV1());
+        $this->connection->readMessage();
+
+        $this->connection->sendMessage(new SaslHandshakeRequestV1());
+        $this->connection->readMessage();
+
+        $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
+        $this->connection->readMessage();
+
+        $tune = $this->connection->readMessage();
+        $this->assertInstanceOf(TuneRequestV1::class, $tune);
+        $this->connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
+
+        $this->connection->sendMessage(new OpenRequestV1('/nonexistent-vhost'));
+
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('VIRTUAL_HOST_ACCESS_FAILURE');
+        $this->connection->readMessage();
+    }
 }
