@@ -72,13 +72,6 @@ enum KeyEnum: int
             return $result;
         }
 
-        if ($code >= 0x8000) {
-            $result = self::tryFrom($code - 0x8000);
-            if ($result !== null) {
-                return $result;
-            }
-        }
-
         throw new \ValueError(sprintf(
             'Unknown stream protocol command code: 0x%04x',
             $code
