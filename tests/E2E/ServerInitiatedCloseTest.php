@@ -6,15 +6,12 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
-use PHPUnit\Framework\TestCase;
 
 /**
  * @group destructive
  */
-class ServerInitiatedCloseTest extends TestCase
+class ServerInitiatedCloseTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
     private static int $managementPort = 15672;
 
     private ?Connection $connection = null;
@@ -22,14 +19,13 @@ class ServerInitiatedCloseTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
+        parent::setUpBeforeClass();
         self::$managementPort = (int)(getenv('RABBITMQ_MANAGEMENT_PORT') ?: self::$managementPort);
     }
 
     protected function setUp(): void
     {
-        $this->connection = Connection::create(self::$host, self::$port);
+        $this->connection = $this->createConnection();
         $this->streamName = 'test-srv-close-' . uniqid();
         $this->connection->createStream($this->streamName);
     }
@@ -38,7 +34,7 @@ class ServerInitiatedCloseTest extends TestCase
     {
         // Try to clean up the stream via a new connection if our connection was closed
         try {
-            $cleanupConn = Connection::create(self::$host, self::$port);
+            $cleanupConn = $this->createConnection();
             $cleanupConn->deleteStream($this->streamName);
             $cleanupConn->close();
         } catch (\Exception) {

@@ -7,13 +7,9 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
-use PHPUnit\Framework\TestCase;
 
-class ConsumerTest extends TestCase
+class ConsumerTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
     private ?Connection $connection = null;
     private string $streamName;
 
@@ -22,21 +18,9 @@ class ConsumerTest extends TestCase
         return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
     }
 
-    public static function setUpBeforeClass(): void
-    {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-    }
-
     protected function setUp(): void
     {
-        $this->connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $this->connection = $this->createConnection();
         $this->streamName = 'test-consumer-' . uniqid();
         $this->connection->createStream($this->streamName);
     }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 
@@ -34,7 +33,7 @@ class OperationsAfterCloseTest extends E2ETestCase
 
     public function testHighLevelMethodsAfterCloseThrow(): void
     {
-        $connection = Connection::create(self::$host, self::$port);
+        $connection = $this->createConnection();
         $connection->close();
 
         $this->expectException(ConnectionException::class);
@@ -43,7 +42,7 @@ class OperationsAfterCloseTest extends E2ETestCase
 
     public function testDoubleCloseIsIdempotent(): void
     {
-        $connection = Connection::create(self::$host, self::$port);
+        $connection = $this->createConnection();
 
         $connection->close();
         $this->assertFalse($connection->isConnected());

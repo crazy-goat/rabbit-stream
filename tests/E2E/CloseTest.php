@@ -13,22 +13,10 @@ use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use PHPUnit\Framework\TestCase;
 
-class CloseTest extends TestCase
+class CloseTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
-    public static function setUpBeforeClass(): void
-    {
-        $host = getenv('RABBITMQ_HOST') ?: self::$host;
-        $port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-        self::$host = $host;
-        self::$port = $port;
-    }
-
-    private function createConnection(): StreamConnection
+    private function createRawConnection(): StreamConnection
     {
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
@@ -56,7 +44,7 @@ class CloseTest extends TestCase
 
     public function testCloseCommand(): void
     {
-        $connection = $this->createConnection();
+        $connection = $this->createRawConnection();
         $this->performHandshake($connection);
 
         $connection->sendMessage(new CloseRequestV1());

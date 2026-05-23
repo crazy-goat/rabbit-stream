@@ -21,24 +21,13 @@ use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use PHPUnit\Framework\TestCase;
 
-class HeartbeatTest extends TestCase
+class HeartbeatTest extends E2ETestCase
 {
     private const HEARTBEAT_INTERVAL = 1;
     private const MARGIN = 2;
 
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
     private ?StreamConnection $connection = null;
-
-    public static function setUpBeforeClass(): void
-    {
-        $host = getenv('RABBITMQ_HOST') ?: self::$host;
-        $port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-        self::$host = $host;
-        self::$port = $port;
-    }
 
     protected function tearDown(): void
     {

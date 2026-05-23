@@ -4,30 +4,13 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use PHPUnit\Framework\TestCase;
 
-class ConnectionTest extends TestCase
+class ConnectionTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
-    public static function setUpBeforeClass(): void
-    {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-    }
-
     public function testConnectionCreateAndStreamManagement(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $streamName = 'test-connection-stream-' . uniqid();
 
@@ -49,13 +32,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateStreamWithArguments(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $streamName = 'test-connection-stream-args-' . uniqid();
 
@@ -75,13 +52,7 @@ class ConnectionTest extends TestCase
 
     public function testGetMetadata(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $streamName = 'test-metadata-stream-' . uniqid();
         $connection->createStream($streamName);
@@ -98,13 +69,7 @@ class ConnectionTest extends TestCase
 
     public function testMetadataForMultipleStreams(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $existing1 = 'test-meta-multi-1-' . uniqid();
         $existing2 = 'test-meta-multi-2-' . uniqid();
@@ -143,13 +108,7 @@ class ConnectionTest extends TestCase
 
     public function testGetStreamStats(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $streamName = 'test-stats-stream-' . uniqid();
         $connection->createStream($streamName);
@@ -165,13 +124,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateDuplicateStreamThrows(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $streamName = 'test-duplicate-stream-' . uniqid();
 

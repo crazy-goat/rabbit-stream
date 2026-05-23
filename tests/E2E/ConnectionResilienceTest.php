@@ -7,32 +7,16 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\StreamConnection;
-use PHPUnit\Framework\TestCase;
 
 /**
  * @group destructive
  * @group slow
  */
-class ConnectionResilienceTest extends TestCase
+class ConnectionResilienceTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
-    public static function setUpBeforeClass(): void
-    {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-    }
-
     public function testOperationAfterSocketDisconnect(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $streamName = 'test-resilience-' . uniqid();
         $connection->createStream($streamName);
@@ -47,13 +31,7 @@ class ConnectionResilienceTest extends TestCase
 
     public function testIsConnectedReturnsFalseAfterSocketError(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $this->assertTrue($connection->isConnected());
 
@@ -66,13 +44,7 @@ class ConnectionResilienceTest extends TestCase
 
     public function testNoResourceLeaksAfterSocketError(): void
     {
-        $connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $connection = $this->createConnection();
 
         $streamName = 'test-resilience-leak-' . uniqid();
         $connection->createStream($streamName);
