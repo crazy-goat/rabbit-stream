@@ -36,6 +36,7 @@ class MetadataUpdateTest extends E2ETestCase
         }
     }
 
+    /** @param list<\Throwable> $errors */
     private function closeConnectionSafely(
         ?StreamConnection $connection,
         array &$errors,
@@ -91,7 +92,6 @@ class MetadataUpdateTest extends E2ETestCase
         // Call readLoop on subscriber connection — should receive MetadataUpdate
         $this->subscriberConnection->readLoop(maxFrames: 1, timeout: 3.0);
 
-        $this->assertNotNull($metadataUpdate, 'MetadataUpdate callback should have been invoked');
         $this->assertInstanceOf(MetadataUpdateResponseV1::class, $metadataUpdate);
         $this->assertSame(
             $this->streamName,
