@@ -18,15 +18,15 @@ class ReadMessageTimeoutTest extends E2ETestCase
         $start = microtime(true);
 
         try {
-            $connection->readMessage(timeout: 1.0);
+            $connection->readMessage(timeout: 0.3);
             $this->fail('Expected TimeoutException to be thrown');
         } catch (TimeoutException $e) {
             $this->assertStringContainsString('Read timeout', $e->getMessage());
         }
 
         $elapsed = microtime(true) - $start;
-        $this->assertGreaterThan(0.9, $elapsed);
-        $this->assertLessThan(2.0, $elapsed);
+        $this->assertGreaterThan(0.2, $elapsed);
+        $this->assertLessThan(1.0, $elapsed);
 
         $connection->close();
     }

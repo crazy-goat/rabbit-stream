@@ -392,8 +392,8 @@ class ConsumerTest extends TestCase
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
-        $timestamp = time() * 1000;
-        sleep(1);
+        $timestamp = (int)(microtime(true) * 1000);
+        usleep(100_000);
 
         $producer2 = $this->connection->createProducer($this->streamName);
         for ($i = 0; $i < 5; $i++) {

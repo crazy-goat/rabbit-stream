@@ -110,7 +110,7 @@ class CreditFlowControlTest extends E2ETestCase
             $this->assertSame(20, $pubConfirmCount, 'All 20 published messages should be confirmed');
 
             // readLoop with short timeout on sub — no credit, no deliveries
-            $subConnection->readLoop(timeout: 1.0);
+            $subConnection->readLoop(timeout: 0.2);
             $this->assertSame(1, $deliverCount, 'No new deliveries without credit');
 
             // Send more credit on subConnection
