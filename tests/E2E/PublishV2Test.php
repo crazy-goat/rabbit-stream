@@ -27,7 +27,7 @@ class PublishV2Test extends E2ETestCase
 
     protected function tearDown(): void
     {
-        if ($this->connection === null) {
+        if (!$this->connection instanceof StreamConnection) {
             return;
         }
         try {
