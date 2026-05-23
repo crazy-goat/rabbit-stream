@@ -8,6 +8,7 @@ use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -87,7 +88,8 @@ class MetadataUpdateTest extends E2ETestCase
 
         // Delete the stream from the admin connection
         $this->adminConnection->sendMessage(new DeleteStreamRequestV1($this->streamName));
-        $this->assertNotNull($this->adminConnection->readMessage());
+        $deleteResponse = $this->adminConnection->readMessage();
+        $this->assertInstanceOf(DeleteStreamResponseV1::class, $deleteResponse);
 
         // Call readLoop on subscriber connection — should receive MetadataUpdate
         $this->subscriberConnection->readLoop(maxFrames: 1, timeout: 3.0);
