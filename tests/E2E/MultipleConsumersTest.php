@@ -164,8 +164,8 @@ class MultipleConsumersTest extends TestCase
             $this->assertCount(2, $msgsA);
             $this->assertCount(3, $msgsB);
 
-            $bodiesA = array_map(fn(Message $m): string => $m->getBody(), $msgsA);
-            $bodiesB = array_map(fn(Message $m): string => $m->getBody(), $msgsB);
+            $bodiesA = array_map(fn(Message $m): string => (string)$m->getBody(), $msgsA);
+            $bodiesB = array_map(fn(Message $m): string => (string)$m->getBody(), $msgsB);
 
             $this->assertContains('from-A-1', $bodiesA);
             $this->assertContains('from-A-2', $bodiesA);
