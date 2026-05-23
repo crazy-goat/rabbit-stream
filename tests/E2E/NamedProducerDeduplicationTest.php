@@ -8,13 +8,9 @@ use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
-use PHPUnit\Framework\TestCase;
 
-class NamedProducerDeduplicationTest extends TestCase
+class NamedProducerDeduplicationTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
     private ?Connection $connection = null;
     private ?ProducerInterface $producer = null;
     private string $streamName;
@@ -25,23 +21,11 @@ class NamedProducerDeduplicationTest extends TestCase
         return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
     }
 
-    public static function setUpBeforeClass(): void
-    {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-    }
-
     protected function setUp(): void
     {
         $this->streamName = 'test-dedup-stream-' . uniqid();
         $this->producerRef = 'test-dedup-producer-' . uniqid();
-        $this->connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $this->connection = $this->createConnection();
         $this->connection->createStream($this->streamName);
     }
 
@@ -105,13 +89,7 @@ class NamedProducerDeduplicationTest extends TestCase
         $this->connection = null;
 
         // Step 4: Create a NEW connection with the same producer reference
-        $this->connection = Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        $this->connection = $this->createConnection();
 
         // Step 5: Create new producer with same reference
         $confirmed = [];

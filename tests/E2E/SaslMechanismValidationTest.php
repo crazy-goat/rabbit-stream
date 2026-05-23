@@ -12,21 +12,10 @@ use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use PHPUnit\Framework\TestCase;
 
-class SaslMechanismValidationTest extends TestCase
+class SaslMechanismValidationTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
     private ?StreamConnection $connection = null;
-
-    public static function setUpBeforeClass(): void
-    {
-        $host = getenv('RABBITMQ_HOST') ?: self::$host;
-        $port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-        self::$host = $host;
-        self::$port = $port;
-    }
 
     protected function tearDown(): void
     {
@@ -36,7 +25,7 @@ class SaslMechanismValidationTest extends TestCase
         $this->connection = null;
     }
 
-    private function createConnection(): StreamConnection
+    private function createRawConnection(): StreamConnection
     {
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
@@ -45,7 +34,7 @@ class SaslMechanismValidationTest extends TestCase
 
     private function performHandshakeUpToSaslAuthenticate(): StreamConnection
     {
-        $connection = $this->createConnection();
+        $connection = $this->createRawConnection();
 
         $connection->sendMessage(new PeerPropertiesRequestV1());
         $response = $connection->readMessage();

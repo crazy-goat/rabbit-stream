@@ -18,21 +18,10 @@ use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use PHPUnit\Framework\Attributes\Depends;
-use PHPUnit\Framework\TestCase;
 
-class ConnectionHandshakeTest extends TestCase
+class ConnectionHandshakeTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
     private ?StreamConnection $connection = null;
-
-    public static function setUpBeforeClass(): void
-    {
-        $host = getenv('RABBITMQ_HOST') ?: self::$host;
-        $port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-        self::$host = $host;
-        self::$port = $port;
-    }
 
     protected function tearDown(): void
     {
@@ -50,7 +39,7 @@ class ConnectionHandshakeTest extends TestCase
         $this->connection = null;
     }
 
-    private function createConnection(): StreamConnection
+    private function createRawConnection(): StreamConnection
     {
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
@@ -59,7 +48,7 @@ class ConnectionHandshakeTest extends TestCase
 
     public function testPeerPropertiesExchange(): StreamConnection
     {
-        $this->connection = $this->createConnection();
+        $this->connection = $this->createRawConnection();
 
         $this->connection->sendMessage(new PeerPropertiesRequestV1());
         $response = $this->connection->readMessage();
@@ -97,7 +86,7 @@ class ConnectionHandshakeTest extends TestCase
 
     public function testFullHandshake(): void
     {
-        $connection = $this->createConnection();
+        $connection = $this->createRawConnection();
 
         $connection->sendMessage(new PeerPropertiesRequestV1());
         $peerResponse = $connection->readMessage();
@@ -127,7 +116,7 @@ class ConnectionHandshakeTest extends TestCase
 
     public function testInvalidCredentialsThrows(): void
     {
-        $this->connection = $this->createConnection();
+        $this->connection = $this->createRawConnection();
 
         $this->connection->sendMessage(new PeerPropertiesRequestV1());
         $this->connection->readMessage();
@@ -149,7 +138,7 @@ class ConnectionHandshakeTest extends TestCase
 
     public function testInvalidVhostThrows(): void
     {
-        $this->connection = $this->createConnection();
+        $this->connection = $this->createRawConnection();
 
         $this->connection->sendMessage(new PeerPropertiesRequestV1());
         $this->connection->readMessage();

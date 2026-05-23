@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -24,8 +25,25 @@ abstract class E2ETestCase extends TestCase
         self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
     }
 
-    protected function connectAndOpen(): StreamConnection
-    {
+    protected function createConnection(
+        string $user = 'guest',
+        string $password = 'guest',
+        string $vhost = '/'
+    ): Connection {
+        return Connection::create(
+            host: self::$host,
+            port: self::$port,
+            user: $user,
+            password: $password,
+            vhost: $vhost,
+        );
+    }
+
+    protected function connectAndOpen(
+        string $user = 'guest',
+        string $password = 'guest',
+        string $vhost = '/'
+    ): StreamConnection {
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
 
@@ -35,14 +53,14 @@ abstract class E2ETestCase extends TestCase
         $connection->sendMessage(new SaslHandshakeRequestV1());
         $connection->readMessage();
 
-        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
+        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', $user, $password));
         $connection->readMessage();
 
         $tune = $connection->readMessage();
         $this->assertInstanceOf(TuneRequestV1::class, $tune);
         $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
-        $connection->sendMessage(new OpenRequestV1('/'));
+        $connection->sendMessage(new OpenRequestV1($vhost));
         $connection->readMessage();
 
         return $connection;

@@ -4,23 +4,12 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
-use PHPUnit\Framework\TestCase;
 
-class MultipleConsumersTest extends TestCase
+class MultipleConsumersTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
-    public static function setUpBeforeClass(): void
-    {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-    }
-
     private function amqp(string $body): string
     {
         return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
@@ -30,8 +19,8 @@ class MultipleConsumersTest extends TestCase
     {
         $stream = 'test-multi-consumer-' . uniqid();
 
-        $conn1 = Connection::create(self::$host, self::$port);
-        $conn2 = Connection::create(self::$host, self::$port);
+        $conn1 = $this->createConnection();
+        $conn2 = $this->createConnection();
 
         try {
             $conn1->createStream($stream);
@@ -79,7 +68,7 @@ class MultipleConsumersTest extends TestCase
     {
         $stream = 'test-multi-consumer-same-conn-' . uniqid();
 
-        $conn = Connection::create(self::$host, self::$port);
+        $conn = $this->createConnection();
 
         try {
             $conn->createStream($stream);
@@ -132,7 +121,7 @@ class MultipleConsumersTest extends TestCase
         $streamA = 'test-multi-stream-A-' . uniqid();
         $streamB = 'test-multi-stream-B-' . uniqid();
 
-        $conn = Connection::create(self::$host, self::$port);
+        $conn = $this->createConnection();
 
         try {
             $conn->createStream($streamA);
@@ -196,7 +185,7 @@ class MultipleConsumersTest extends TestCase
         $streamA = 'test-unsub-A-' . uniqid();
         $streamB = 'test-unsub-B-' . uniqid();
 
-        $conn = Connection::create(self::$host, self::$port);
+        $conn = $this->createConnection();
 
         try {
             $conn->createStream($streamA);

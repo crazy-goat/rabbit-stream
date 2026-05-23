@@ -6,28 +6,12 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
-use PHPUnit\Framework\TestCase;
 
-class PublishTest extends TestCase
+class PublishTest extends E2ETestCase
 {
-    private static string $host = '127.0.0.1';
-    private static int $port = 5552;
-
-    public static function setUpBeforeClass(): void
-    {
-        self::$host = getenv('RABBITMQ_HOST') ?: self::$host;
-        self::$port = (int)(getenv('RABBITMQ_PORT') ?: self::$port);
-    }
-
     private function connect(): Connection
     {
-        return Connection::create(
-            host: self::$host,
-            port: self::$port,
-            user: 'guest',
-            password: 'guest',
-            vhost: '/'
-        );
+        return $this->createConnection();
     }
 
     public function testPublishSingleMessage(): void
