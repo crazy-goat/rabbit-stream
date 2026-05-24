@@ -17,7 +17,6 @@ use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use PHPUnit\Framework\Attributes\Depends;
 
 class ConnectionHandshakeTest extends E2ETestCase
 {
@@ -25,15 +24,7 @@ class ConnectionHandshakeTest extends E2ETestCase
 
     protected function tearDown(): void
     {
-        // Only close connection in tearDown for tests that don't provide it to dependents
-        // Provider tests (testPeerPropertiesExchange, testSaslHandshake) pass connection via return
-        $providerTests = ['testPeerPropertiesExchange', 'testSaslHandshake'];
-        $currentTest = $this->name();
-
-        $isProviderTest = in_array($currentTest, $providerTests, true);
-        $hasOpenConnection = $this->connection instanceof StreamConnection && $this->connection->isConnected();
-
-        if (!$isProviderTest && $hasOpenConnection) {
+        if ($this->connection instanceof StreamConnection && $this->connection->isConnected()) {
             $this->connection->close();
         }
         $this->connection = null;
@@ -44,44 +35,6 @@ class ConnectionHandshakeTest extends E2ETestCase
         $connection = new StreamConnection(self::$host, self::$port);
         $connection->connect();
         return $connection;
-    }
-
-    public function testPeerPropertiesExchange(): StreamConnection
-    {
-        $this->connection = $this->createRawConnection();
-
-        $this->connection->sendMessage(new PeerPropertiesRequestV1());
-        $response = $this->connection->readMessage();
-
-        $this->assertInstanceOf(PeerPropertiesResponseV1::class, $response);
-
-        return $this->connection;
-    }
-
-    #[Depends('testPeerPropertiesExchange')]
-    public function testSaslHandshake(StreamConnection $connection): StreamConnection
-    {
-        $this->connection = $connection;
-
-        $this->connection->sendMessage(new SaslHandshakeRequestV1());
-        $response = $this->connection->readMessage();
-
-        $this->assertInstanceOf(SaslHandshakeResponseV1::class, $response);
-
-        return $this->connection;
-    }
-
-    #[Depends('testSaslHandshake')]
-    public function testSaslAuthenticate(StreamConnection $connection): void
-    {
-        $this->connection = $connection;
-
-        $this->connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
-        $response = $this->connection->readMessage();
-
-        $this->assertInstanceOf(SaslAuthenticateResponseV1::class, $response);
-
-        $this->connection->close();
     }
 
     public function testFullHandshake(): void
