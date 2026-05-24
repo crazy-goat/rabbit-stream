@@ -493,100 +493,115 @@ class StreamConnection
     {
         $key = $frame->peekUint16();
 
-        switch ($key) {
-            case KeyEnum::HEARTBEAT->value:
-                HeartbeatRequestV1::fromStreamBuffer($frame);
-                $heartbeat = new HeartbeatRequestV1();
-                $content = $this->serializer->serialize($heartbeat);
-                $this->sendFrame($this->wrapFrame($content));
-                if ($this->heartbeatCallback instanceof \Closure) {
-                    ($this->heartbeatCallback)();
-                }
-                break;
+        match ($key) {
+            KeyEnum::HEARTBEAT->value => $this->handleHeartbeat($frame),
+            KeyEnum::PUBLISH_CONFIRM->value => $this->handlePublishConfirm($frame),
+            KeyEnum::PUBLISH_ERROR->value => $this->handlePublishError($frame),
+            KeyEnum::DELIVER->value => $this->handleDeliver($frame),
+            KeyEnum::CLOSE->value => $this->handleServerClose($frame),
+            KeyEnum::METADATA_UPDATE->value => $this->handleMetadataUpdate($frame),
+            KeyEnum::CONSUMER_UPDATE->value => $this->handleConsumerUpdate($frame),
+            default => null,
+        };
+    }
 
-            case KeyEnum::PUBLISH_CONFIRM->value:
-                $confirm = PublishConfirmResponseV1::fromStreamBuffer($frame);
-                if (!$confirm instanceof PublishConfirmResponseV1) {
-                    throw new DeserializationException('Failed to deserialize PublishConfirm frame');
-                }
-                $publisherId = $confirm->getPublisherId();
-                if (isset($this->publisherCallbacks[$publisherId])) {
-                    ($this->publisherCallbacks[$publisherId]['onConfirm'])($confirm->getPublishingIds());
-                }
-                break;
-
-            case KeyEnum::PUBLISH_ERROR->value:
-                $error = PublishErrorResponseV1::fromStreamBuffer($frame);
-                if (!$error instanceof PublishErrorResponseV1) {
-                    throw new DeserializationException('Failed to deserialize PublishError frame');
-                }
-                $publisherId = $error->getPublisherId();
-                if (isset($this->publisherCallbacks[$publisherId])) {
-                    ($this->publisherCallbacks[$publisherId]['onError'])($error->getErrors());
-                }
-                break;
-
-            case KeyEnum::DELIVER->value:
-                $deliver = DeliverResponseV1::fromStreamBuffer($frame);
-                if (!$deliver instanceof DeliverResponseV1) {
-                    throw new DeserializationException('Failed to deserialize Deliver frame');
-                }
-                $subscriptionId = $deliver->getSubscriptionId();
-                if (isset($this->subscriberCallbacks[$subscriptionId])) {
-                    ($this->subscriberCallbacks[$subscriptionId])($deliver);
-                }
-                break;
-
-            case KeyEnum::CLOSE->value:
-                // Server-initiated close: read the close request and send response
-                $frame->getUint16(); // key
-                $frame->getUint16(); // version
-                $correlationId = $frame->getUint32();
-                $closingCode = $frame->getUint16();
-                $closingReason = $frame->getString();
-                $this->logger->debug(sprintf(
-                    'Server-initiated close: code=%d, reason=%s',
-                    $closingCode,
-                    $closingReason ?? ''
-                ));
-                // Send close response with OK
-                $response = (new WriteBuffer())
-                    ->addUInt16(KeyEnum::CLOSE_RESPONSE->value)
-                    ->addUInt16(1) // version
-                    ->addUInt32($correlationId)
-                    ->addUInt16(0x0001); // responseCode OK
-                $content = $response->getContents();
-                $this->sendFrame($this->wrapFrame($content));
-                $this->close();
-                break;
-
-            case KeyEnum::METADATA_UPDATE->value:
-                $update = MetadataUpdateResponseV1::fromStreamBuffer($frame);
-                if ($this->metadataUpdateCallback instanceof \Closure) {
-                    ($this->metadataUpdateCallback)($update);
-                }
-                break;
-
-            case KeyEnum::CONSUMER_UPDATE->value:
-                $query = ConsumerUpdateResponseV1::fromStreamBuffer($frame);
-                if (!$query instanceof ConsumerUpdateResponseV1) {
-                    throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
-                }
-                $offsetType = 1;
-                $offset = 0;
-                if ($this->consumerUpdateCallback instanceof \Closure) {
-                    [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
-                }
-                $reply = new ConsumerUpdateReplyV1(
-                    responseCode: 0x0001,
-                    offsetType: $offsetType,
-                    offset: $offset,
-                );
-                $reply->withCorrelationId($query->getCorrelationId());
-                $content = $this->serializer->serialize($reply);
-                $this->sendFrame($this->wrapFrame($content));
-                break;
+    private function handleHeartbeat(ReadBuffer $frame): void
+    {
+        HeartbeatRequestV1::fromStreamBuffer($frame);
+        $heartbeat = new HeartbeatRequestV1();
+        $content = $this->serializer->serialize($heartbeat);
+        $this->sendFrame($this->wrapFrame($content));
+        if ($this->heartbeatCallback instanceof \Closure) {
+            ($this->heartbeatCallback)();
         }
+    }
+
+    private function handlePublishConfirm(ReadBuffer $frame): void
+    {
+        $confirm = PublishConfirmResponseV1::fromStreamBuffer($frame);
+        if (!$confirm instanceof PublishConfirmResponseV1) {
+            throw new DeserializationException('Failed to deserialize PublishConfirm frame');
+        }
+        $publisherId = $confirm->getPublisherId();
+        if (isset($this->publisherCallbacks[$publisherId])) {
+            ($this->publisherCallbacks[$publisherId]['onConfirm'])($confirm->getPublishingIds());
+        }
+    }
+
+    private function handlePublishError(ReadBuffer $frame): void
+    {
+        $error = PublishErrorResponseV1::fromStreamBuffer($frame);
+        if (!$error instanceof PublishErrorResponseV1) {
+            throw new DeserializationException('Failed to deserialize PublishError frame');
+        }
+        $publisherId = $error->getPublisherId();
+        if (isset($this->publisherCallbacks[$publisherId])) {
+            ($this->publisherCallbacks[$publisherId]['onError'])($error->getErrors());
+        }
+    }
+
+    private function handleDeliver(ReadBuffer $frame): void
+    {
+        $deliver = DeliverResponseV1::fromStreamBuffer($frame);
+        if (!$deliver instanceof DeliverResponseV1) {
+            throw new DeserializationException('Failed to deserialize Deliver frame');
+        }
+        $subscriptionId = $deliver->getSubscriptionId();
+        if (isset($this->subscriberCallbacks[$subscriptionId])) {
+            ($this->subscriberCallbacks[$subscriptionId])($deliver);
+        }
+    }
+
+    private function handleServerClose(ReadBuffer $frame): void
+    {
+        $frame->getUint16(); // key
+        $frame->getUint16(); // version
+        $correlationId = $frame->getUint32();
+        $closingCode = $frame->getUint16();
+        $closingReason = $frame->getString();
+        $this->logger->debug(sprintf(
+            'Server-initiated close: code=%d, reason=%s',
+            $closingCode,
+            $closingReason ?? ''
+        ));
+
+        $response = (new WriteBuffer())
+            ->addUInt16(KeyEnum::CLOSE_RESPONSE->value)
+            ->addUInt16(1) // version
+            ->addUInt32($correlationId)
+            ->addUInt16(0x0001); // responseCode OK
+        $content = $response->getContents();
+        $this->sendFrame($this->wrapFrame($content));
+        $this->close();
+    }
+
+    private function handleMetadataUpdate(ReadBuffer $frame): void
+    {
+        $update = MetadataUpdateResponseV1::fromStreamBuffer($frame);
+        if ($this->metadataUpdateCallback instanceof \Closure) {
+            ($this->metadataUpdateCallback)($update);
+        }
+    }
+
+    private function handleConsumerUpdate(ReadBuffer $frame): void
+    {
+        $query = ConsumerUpdateResponseV1::fromStreamBuffer($frame);
+        if (!$query instanceof ConsumerUpdateResponseV1) {
+            throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
+        }
+        $offsetType = 1;
+        $offset = 0;
+        if ($this->consumerUpdateCallback instanceof \Closure) {
+            [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
+        }
+        $reply = new ConsumerUpdateReplyV1(
+            responseCode: 0x0001,
+            offsetType: $offsetType,
+            offset: $offset,
+        );
+        $reply->withCorrelationId($query->getCorrelationId());
+        $content = $this->serializer->serialize($reply);
+        $this->sendFrame($this->wrapFrame($content));
     }
 
     private function wrapFrame(string $content): string
