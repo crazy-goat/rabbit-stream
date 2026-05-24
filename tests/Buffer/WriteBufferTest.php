@@ -133,6 +133,20 @@ class WriteBufferTest extends TestCase
         (new WriteBuffer())->addString($invalidUtf8);
     }
 
+    public function testAddInvalidUtf8SkipsValidationWhenDisabled(): void
+    {
+        $buf = new WriteBuffer(validateStrings: false);
+        $invalidUtf8 = "\x80\x81";
+        $buf->addString($invalidUtf8);
+        $this->assertSame("\x00\x02\x80\x81", $buf->getContents());
+    }
+
+    public function testAddStringValidUtf8WorksWithValidationDisabled(): void
+    {
+        $buf = (new WriteBuffer(validateStrings: false))->addString('héllo');
+        $this->assertSame("\x00\x06héllo", $buf->getContents());
+    }
+
     public function testAddStringAtMaxLength(): void
     {
         $maxLengthString = str_repeat('a', 32767);
