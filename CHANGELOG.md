@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **WriteBuffer: make UTF-8 validation opt-in** — added `$validateStrings` constructor parameter (default `true`). Set to `false` to skip `mb_check_encoding` in high-throughput scenarios where input strings are guaranteed valid UTF-8 (#350)
 - **OsirisChunkParser: use `ReadBuffer::readBytes()` consistently** — replaced 3 instances of raw `substr` + `skip()` with `ReadBuffer::readBytes()` for atomic position tracking (#351)
 
 ### Added
