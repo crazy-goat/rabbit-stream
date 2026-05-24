@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `InvalidArgumentException` — input validation (extends native `\InvalidArgumentException`)
 
 ### Changed
+- **Performance: Consumer::subscribe** — replaced `array_merge($this->buffer, $messages)` with `array_push($this->buffer, ...$messages)` in the delivery callback hot path to avoid O(n) full-array copy on every delivery; reduces GC pressure when buffer is large (#348)
 - **E2E test infrastructure** — 19 E2E test classes now extend `E2ETestCase` instead of duplicating `$host`, `$port`, and `setUpBeforeClass()` boilerplate; added `createConnection()` helper and parametrized `connectAndOpen()` to `E2ETestCase` (79 insertions, 348 deletions) (#346)
 
 ### Documentation
