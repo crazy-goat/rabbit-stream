@@ -194,12 +194,7 @@ class StreamConnection
 
         $content = $this->serializer->serialize($request);
 
-        $frame = (new WriteBuffer())
-            ->addUInt32(strlen($content))
-            ->addRaw($content)
-            ->getContents();
-
-        $this->sendFrame($frame, $timeout);
+        $this->sendFrame($this->wrapFrame($content), $timeout);
     }
 
     public function sendFrame(string $frame, ?float $timeout = null): int
@@ -373,7 +368,7 @@ class StreamConnection
                 HeartbeatRequestV1::fromStreamBuffer($frame);
                 $heartbeat = new HeartbeatRequestV1();
                 $content = $this->serializer->serialize($heartbeat);
-                $this->sendFrame((new WriteBuffer())->addUInt32(strlen($content))->addRaw($content)->getContents());
+                $this->sendFrame($this->wrapFrame($content));
                 if ($this->heartbeatCallback instanceof \Closure) {
                     ($this->heartbeatCallback)();
                 }
@@ -431,9 +426,7 @@ class StreamConnection
                     ->addUInt32($correlationId)
                     ->addUInt16(0x0001); // responseCode OK
                 $content = $response->getContents();
-                $this->sendFrame(
-                    (new WriteBuffer())->addUInt32(strlen($content))->addRaw($content)->getContents()
-                );
+                $this->sendFrame($this->wrapFrame($content));
                 $this->close();
                 break;
 
@@ -461,9 +454,17 @@ class StreamConnection
                 );
                 $reply->withCorrelationId($query->getCorrelationId());
                 $content = $this->serializer->serialize($reply);
-                $this->sendFrame((new WriteBuffer())->addUInt32(strlen($content))->addRaw($content)->getContents());
+                $this->sendFrame($this->wrapFrame($content));
                 break;
         }
+    }
+
+    private function wrapFrame(string $content): string
+    {
+        return (new WriteBuffer())
+            ->addUInt32(strlen($content))
+            ->addRaw($content)
+            ->getContents();
     }
 
     public function readFrame(float $timeout = 30.0): ?ReadBuffer
