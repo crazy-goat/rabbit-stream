@@ -57,8 +57,7 @@ class OsirisChunkParser
 
             if (!$isSubBatch) {
                 $entrySize = $header & 0x7FFFFFFF;
-                $entryData = substr($chunkBytes, $buffer->getPosition(), $entrySize);
-                $buffer->skip($entrySize);
+                $entryData = $buffer->readBytes($entrySize);
                 $entries[] = new ChunkEntry($currentOffset, $entryData, $timestamp);
                 $currentOffset++;
             } else {
@@ -74,14 +73,12 @@ class OsirisChunkParser
 
                 $buffer->getUint32(); // uncompressedSize — read but not needed
                 $compressedSize = $buffer->getUint32();
-                $subBatchData = substr($chunkBytes, $buffer->getPosition(), $compressedSize);
-                $buffer->skip($compressedSize);
+                $subBatchData = $buffer->readBytes($compressedSize);
 
                 $subBuffer = new ReadBuffer($subBatchData);
                 for ($j = 0; $j < $uncompressedCount; $j++) {
                     $innerSize = $subBuffer->getUint32();
-                    $innerData = substr($subBatchData, $subBuffer->getPosition(), $innerSize);
-                    $subBuffer->skip($innerSize);
+                    $innerData = $subBuffer->readBytes($innerSize);
                     $entries[] = new ChunkEntry($currentOffset, $innerData, $timestamp);
                     $currentOffset++;
                 }
