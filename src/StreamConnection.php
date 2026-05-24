@@ -201,6 +201,10 @@ class StreamConnection
     {
         $this->logger->debug("Socket -> " . bin2hex($frame));
 
+        if (!$this->socket instanceof \Socket) {
+            throw new ConnectionException("Cannot write: socket is not connected");
+        }
+
         // If timeout is specified, wait for socket to be ready for writing
         if ($timeout !== null && $timeout > 0) {
             $deadline = microtime(true) + $timeout;
@@ -228,10 +232,6 @@ class StreamConnection
             if ($ready === 0) {
                 throw new TimeoutException("Write timeout: socket not ready for writing");
             }
-        }
-
-        if (!$this->socket instanceof \Socket) {
-            throw new ConnectionException("Cannot write: socket is not connected");
         }
 
         try {
@@ -291,6 +291,10 @@ class StreamConnection
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
     {
+        if (!$this->socket instanceof \Socket) {
+            throw new ConnectionException("Cannot read: socket is not connected");
+        }
+
         $this->running = true;
         $dispatched = 0;
         $deadline = $timeout !== null ? microtime(true) + $timeout : null;
@@ -469,6 +473,10 @@ class StreamConnection
 
     public function readFrame(float $timeout = 30.0): ?ReadBuffer
     {
+        if (!$this->socket instanceof \Socket) {
+            throw new ConnectionException("Cannot read: socket is not connected");
+        }
+
         $read = [$this->socket];
         $write = null;
         $except = null;
