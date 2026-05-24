@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
@@ -53,6 +54,12 @@ class StreamConnection
 
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
 
+    /**
+     * @param string                $host     RabbitMQ stream server hostname
+     * @param int                   $port     RabbitMQ stream server port
+     * @param LoggerInterface       $logger   PSR-3 logger (defaults to NullLogger)
+     * @param BinarySerializerInterface $serializer Serializer for request/response frames
+     */
     public function __construct(
         private readonly string $host = '127.0.0.1',
         private readonly int $port = 5552,
@@ -61,6 +68,11 @@ class StreamConnection
     ) {
     }
 
+    /**
+     * Open the TCP socket connection to the RabbitMQ stream server.
+     *
+     * @throws ConnectionException If the socket cannot be created or connected
+     */
     public function connect(): void
     {
         $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
@@ -81,6 +93,10 @@ class StreamConnection
         $this->socket = $socket;
     }
 
+    /**
+     * Close the TCP socket connection.
+     * Safe to call multiple times — subsequent calls are no-ops.
+     */
     public function close(): void
     {
         if ($this->connected && $this->socket instanceof \Socket) {
@@ -94,11 +110,19 @@ class StreamConnection
         $this->connected = false;
     }
 
+    /**
+     * Close the connection on object destruction.
+     */
     public function __destruct()
     {
         $this->close();
     }
 
+    /**
+     * Check whether the underlying TCP socket is currently connected and usable.
+     *
+     * @return bool True if the socket is valid and has no error state
+     */
     public function isConnected(): bool
     {
         if (!$this->connected) {
@@ -127,6 +151,13 @@ class StreamConnection
         return true;
     }
 
+    /**
+     * Set the maximum allowed frame size in bytes.
+     * Frames larger than this will cause the connection to be closed.
+     *
+     * @param int $maxFrameSize Maximum frame size in bytes (0 = no limit)
+     * @throws InvalidArgumentException If the value is negative
+     */
     public function setMaxFrameSize(int $maxFrameSize): void
     {
         if ($maxFrameSize < 0) {
@@ -137,11 +168,23 @@ class StreamConnection
         $this->maxFrameSize = $maxFrameSize;
     }
 
+    /**
+     * Get the current maximum allowed frame size in bytes.
+     *
+     * @return int Maximum frame size (0 = no limit)
+     */
     public function getMaxFrameSize(): int
     {
         return $this->maxFrameSize;
     }
 
+    /**
+     * Register callbacks for publish confirm/error notifications.
+     *
+     * @param int      $publisherId Publisher ID as declared with the server
+     * @param callable $onConfirm   Called with (array $publishingIds) when messages are confirmed
+     * @param callable $onError     Called with (array $errors) when messages fail
+     */
     public function registerPublisher(int $publisherId, callable $onConfirm, callable $onError): void
     {
         $this->publisherCallbacks[$publisherId] = [
@@ -150,41 +193,87 @@ class StreamConnection
         ];
     }
 
+    /**
+     * Register a callback for message delivery notifications.
+     *
+     * @param int      $subscriptionId Subscription ID as declared with the server
+     * @param callable $onDeliver      Called with (DeliverResponseV1 $deliver) for each delivered chunk
+     */
     public function registerSubscriber(int $subscriptionId, callable $onDeliver): void
     {
         $this->subscriberCallbacks[$subscriptionId] = $onDeliver;
     }
 
+    /**
+     * Remove a previously registered subscriber callback.
+     *
+     * @param int $subscriptionId Subscription ID to unregister
+     */
     public function unregisterSubscriber(int $subscriptionId): void
     {
         unset($this->subscriberCallbacks[$subscriptionId]);
     }
 
+    /**
+     * Remove a previously registered publisher callback.
+     *
+     * @param int $publisherId Publisher ID to unregister
+     */
     public function unregisterPublisher(int $publisherId): void
     {
         unset($this->publisherCallbacks[$publisherId]);
     }
 
+    /**
+     * Register a callback for metadata update notifications from the server.
+     *
+     * @param callable $callback Called with (MetadataUpdateResponseV1 $update) on topology changes
+     */
     public function onMetadataUpdate(callable $callback): void
     {
         $this->metadataUpdateCallback = \Closure::fromCallable($callback);
     }
 
+    /**
+     * Register a callback for heartbeat notifications.
+     * Pass null to disable the callback.
+     *
+     * @param callable|null $callback Called after each heartbeat echo (or null to clear)
+     */
     public function onHeartbeat(?callable $callback = null): void
     {
         $this->heartbeatCallback = $callback !== null ? \Closure::fromCallable($callback) : null;
     }
 
+    /**
+     * Register a callback for consumer update requests from the server.
+     *
+     * @param callable $callback Called with (ConsumerUpdateResponseV1 $update); must return
+     *                           [int $offsetType, int $offset] for the reply
+     */
     public function onConsumerUpdate(callable $callback): void
     {
         $this->consumerUpdateCallback = \Closure::fromCallable($callback);
     }
 
+    /**
+     * Signal the readLoop to stop gracefully at the next iteration.
+     */
     public function stop(): void
     {
         $this->running = false;
     }
 
+    /**
+     * Serialize and send a protocol request object to the server.
+     * Automatically assigns a correlation ID if the request supports it.
+     *
+     * @param object     $request Request object implementing ToStreamBufferInterface
+     * @param float|null $timeout Optional write timeout in seconds
+     * @throws ConnectionException      If the socket is not connected
+     * @throws InvalidArgumentException If the request does not implement ToStreamBufferInterface
+     * @throws TimeoutException         If the write times out
+     */
     public function sendMessage(object $request, ?float $timeout = null): void
     {
         if ($request instanceof CorrelationInterface) {
@@ -197,6 +286,15 @@ class StreamConnection
         $this->sendFrame($this->wrapFrame($content), $timeout);
     }
 
+    /**
+     * Write a raw binary frame to the socket.
+     *
+     * @param string     $frame  The complete frame payload (including length prefix)
+     * @param float|null $timeout Optional write timeout in seconds
+     * @return int Number of bytes written
+     * @throws ConnectionException If the socket is not connected or a write error occurs
+     * @throws TimeoutException    If the socket is not ready for writing within the timeout
+     */
     public function sendFrame(string $frame, ?float $timeout = null): int
     {
         $this->logger->debug("Socket -> " . bin2hex($frame));
@@ -250,6 +348,19 @@ class StreamConnection
         return $written;
     }
 
+    /**
+     * Read and deserialize the next non-server-push response frame.
+     * Server-push frames (heartbeat, publish confirm, deliver, etc.) are dispatched
+     * transparently to registered callbacks before returning.
+     *
+     * @param float $timeout Seconds to wait before throwing TimeoutException.
+     *                       0.0 means non-blocking (throws TimeoutException immediately if no data).
+     * @return object Deserialized response object
+     * @throws ConnectionException      If the socket is closed or a read error occurs
+     * @throws DeserializationException If the response frame cannot be deserialized
+     * @throws ProtocolException        If the response uses an unexpected protocol version or command
+     * @throws TimeoutException         If no response arrives within $timeout seconds
+     */
     public function readMessage(float $timeout = 30.0): object
     {
         $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
@@ -289,6 +400,21 @@ class StreamConnection
         }
     }
 
+    /**
+     * Enter a read loop that dispatches server-push frames to registered callbacks.
+     * The loop continues until one of:
+     *   - `stop()` is called
+     *   - The connection is closed
+     *   - `$maxFrames` frames have been dispatched
+     *   - `$timeout` seconds have elapsed
+     *
+     * If both `$maxFrames` and `$timeout` are null, the loop runs indefinitely
+     * (until `stop()` or disconnect).
+     *
+     * @param int|null   $maxFrames Maximum number of frames to dispatch (null = unlimited)
+     * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
+     * @throws ConnectionException If the socket is not connected
+     */
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
     {
         if (!$this->socket instanceof \Socket) {
@@ -471,6 +597,13 @@ class StreamConnection
             ->getContents();
     }
 
+    /**
+     * Read a single raw frame from the socket (length-prefixed).
+     *
+     * @param float $timeout Seconds to wait for data (0.0 = non-blocking poll)
+     * @return ReadBuffer|null Parsed frame buffer, or null if no data arrived within the timeout
+     * @throws ConnectionException If the socket is not connected, frame exceeds max size, or read error occurs
+     */
     public function readFrame(float $timeout = 30.0): ?ReadBuffer
     {
         if (!$this->socket instanceof \Socket) {
