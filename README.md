@@ -109,6 +109,46 @@ foreach ($messages as $message) {
 }
 ```
 
+### Consumer with Auto-Commit
+
+```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
+$connection = Connection::create(host: 'localhost', port: 5552);
+
+// Named consumer with auto-commit every 100 messages
+// The name is used to persist the offset on the server
+$consumer = $connection->createConsumer(
+    stream: 'my-stream',
+    offset: OffsetSpec::first(),
+    name: 'my-consumer-group',
+    autoCommit: 100,
+);
+
+while ($messages = $consumer->read(timeout: 5)) {
+    foreach ($messages as $msg) {
+        echo $msg->getBody() . "\n";
+    }
+}
+$consumer->close(); // stores final offset automatically
+
+// On next startup, resume from the stored offset
+$storedOffset = $connection->queryOffset('my-consumer-group', 'my-stream');
+$consumer = $connection->createConsumer(
+    stream: 'my-stream',
+    offset: OffsetSpec::offset($storedOffset + 1),
+    name: 'my-consumer-group',
+    autoCommit: 100,
+);
+
+$connection->close();
+```
+
+> **Note:** `autoCommit` triggers `storeOffset` every N messages. The offset is also stored on `close()`. A named consumer is required for offset persistence — unnamed consumers cannot use `storeOffset` or `queryOffset`.
+
+See `examples/consumer_auto_commit.php` for a full working example.
+
 ### Low-level Connection API
 
 ```php
