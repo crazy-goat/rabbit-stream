@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **OsirisChunkParser: use `ReadBuffer::readBytes()` consistently** — replaced 3 instances of raw `substr` + `skip()` with `ReadBuffer::readBytes()` for atomic position tracking (#351)
+
 ### Added
 - **E2E test: MetadataUpdate callback on stream deletion** — E2E test verifying that when a stream is deleted from one connection while another connection is subscribed, the subscribed connection receives a `MetadataUpdate` frame via the `onMetadataUpdate` callback with the correct stream name and response code (#160)
 - **E2E test: Multiple concurrent subscriptions on different streams** — two new E2E tests verifying that multiple subscriptions on a single connection, targeting different streams, correctly isolate message routing: each consumer receives only its own stream's messages; closing one consumer does not affect the other (#154)
