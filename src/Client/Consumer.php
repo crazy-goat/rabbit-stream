@@ -50,7 +50,7 @@ class Consumer implements ConsumerInterface
             function ($deliverResponse): void {
                 $entries = OsirisChunkParser::parse($deliverResponse->getChunkBytes());
                 $messages = AmqpMessageDecoder::decodeAll($entries);
-                $this->buffer = array_merge($this->buffer, $messages);
+                array_push($this->buffer, ...$messages);
 
                 if (count($this->buffer) < $this->maxBufferSize) {
                     $this->connection->sendMessage(
