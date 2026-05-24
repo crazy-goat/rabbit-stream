@@ -28,8 +28,15 @@ class WriteBuffer
     private const UINT64_MIN = 0;
     private const UINT64_MAX = PHP_INT_MAX;
 
-    public function __construct(private string $buffer = '')
-    {
+    /**
+     * @param bool $validateStrings When true (default), addString validates UTF-8 encoding.
+     *                              Set to false for high-throughput scenarios where
+     *                              input strings are guaranteed to be valid UTF-8.
+     */
+    public function __construct(
+        private string $buffer = '',
+        private readonly bool $validateStrings = true,
+    ) {
     }
 
     public function addInt8(int $value): self
@@ -148,7 +155,7 @@ class WriteBuffer
         if ($value === null) {
             $this->buffer .= pack('n', 0xFFFF); // -1 as unsigned int16
         } else {
-            if (!mb_check_encoding($value, 'UTF-8')) {
+            if ($this->validateStrings && !mb_check_encoding($value, 'UTF-8')) {
                 throw new InvalidArgumentException('String must be valid UTF-8');
             }
             $length = strlen($value);
