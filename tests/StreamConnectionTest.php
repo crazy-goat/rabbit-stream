@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests;
 
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
@@ -707,5 +708,86 @@ class StreamConnectionTest extends TestCase
         }
 
         return $data;
+    }
+
+    public function testSendFrameThrowsWhenSocketIsNull(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessage('socket is not connected');
+
+        $connection->sendMessage(new TuneRequestV1(1024, 100));
+    }
+
+    public function testReadFrameThrowsWhenSocketIsNull(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessage('socket is not connected');
+
+        $reflection = new \ReflectionMethod($connection, 'readFrame');
+        $reflection->invoke($connection);
+    }
+
+    public function testReadLoopThrowsWhenSocketIsNull(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessage('socket is not connected');
+
+        $reflection = new \ReflectionMethod($connection, 'readLoop');
+        $reflection->invoke($connection, 1, 0.1);
+    }
+
+    public function testSendFrameThrowsAfterClose(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->close();
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessage('socket is not connected');
+        $connection->sendMessage(new TuneRequestV1(1024, 100));
+
+        socket_close($serverSocket);
+    }
+
+    public function testReadFrameThrowsAfterClose(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->close();
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessage('socket is not connected');
+
+        $reflection = new \ReflectionMethod($connection, 'readFrame');
+        $reflection->invoke($connection);
+
+        socket_close($serverSocket);
+    }
+
+    public function testReadLoopThrowsAfterClose(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->close();
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessage('socket is not connected');
+
+        $reflection = new \ReflectionMethod($connection, 'readLoop');
+        $reflection->invoke($connection, 1, 0.1);
+
+        socket_close($serverSocket);
     }
 }
