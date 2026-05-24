@@ -461,4 +461,199 @@ class ConsumerTest extends TestCase
         );
         $this->assertSame(1, $capturedRequest->toArray()['credit']);
     }
+
+    public function testNoCreditsSentWhenPendingCreditsIsZero(): void
+    {
+        $creditRequests = [];
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$creditRequests): void {
+                if ($request instanceof CreditRequestV1) {
+                    $creditRequests[] = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+        $pendingCreditsProp->setValue($consumer, 0);
+
+        $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertCount(0, $creditRequests, 'No credits should be sent when pendingCredits is 0');
+    }
+
+    public function testNoCreditsSentWhenPendingCreditsIsNegative(): void
+    {
+        $creditRequests = [];
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$creditRequests): void {
+                if ($request instanceof CreditRequestV1) {
+                    $creditRequests[] = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+        $pendingCreditsProp->setValue($consumer, -5);
+
+        $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertCount(0, $creditRequests, 'No credits should be sent when pendingCredits is negative');
+    }
+
+    public function testCreditsCappedAtMaxUint16(): void
+    {
+        $capturedRequest = null;
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequest): void {
+                if ($request instanceof CreditRequestV1) {
+                    $capturedRequest = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 100000);
+
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+        $pendingCreditsProp->setValue($consumer, 70000);
+
+        $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertInstanceOf(CreditRequestV1::class, $capturedRequest);
+        $this->assertSame(65535, $capturedRequest->toArray()['credit'], 'Credits should be capped at MAX_UINT16');
+        $this->assertSame(70000 - 65535, $pendingCreditsProp->getValue($consumer));
+    }
+
+    public function testCreditsCappedAtAvailableSlots(): void
+    {
+        $capturedRequest = null;
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequest): void {
+                if ($request instanceof CreditRequestV1) {
+                    $capturedRequest = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 100);
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $bufferProp->setValue($consumer, [$msg1]);
+
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+        $pendingCreditsProp->setValue($consumer, 200);
+
+        $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertInstanceOf(CreditRequestV1::class, $capturedRequest);
+        $this->assertSame(
+            99,
+            $capturedRequest->toArray()['credit'],
+            'Credits should be capped at availableSlots (maxBufferSize - count(buffer))'
+        );
+        $this->assertSame(200 - 99, $pendingCreditsProp->getValue($consumer));
+    }
+
+    public function testPendingCreditsDecrementedCorrectlyAfterSend(): void
+    {
+        $capturedRequests = [];
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$capturedRequests): void {
+                if ($request instanceof CreditRequestV1) {
+                    $capturedRequests[] = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 100);
+
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+        $pendingCreditsProp->setValue($consumer, 50);
+
+        $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertCount(1, $capturedRequests);
+        $this->assertSame(50, $capturedRequests[0]->toArray()['credit']);
+        $this->assertSame(0, $pendingCreditsProp->getValue($consumer), 'pendingCredits should be decremented to 0');
+    }
+
+    public function testPendingCreditsAccumulateWhenBufferIsFull(): void
+    {
+        $creditRequests = [];
+
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$creditRequests): void {
+                if ($request instanceof CreditRequestV1) {
+                    $creditRequests[] = $request;
+                }
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 5);
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+        $msg2 = $this->createMock(Message::class);
+        $msg2->method('getOffset')->willReturn(1);
+        $msg3 = $this->createMock(Message::class);
+        $msg3->method('getOffset')->willReturn(2);
+        $msg4 = $this->createMock(Message::class);
+        $msg4->method('getOffset')->willReturn(3);
+        $msg5 = $this->createMock(Message::class);
+        $msg5->method('getOffset')->willReturn(4);
+
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
+
+        $bufferProp->setValue($consumer, [$msg1, $msg2, $msg3, $msg4, $msg5]);
+        $pendingCreditsProp->setValue($consumer, 3);
+
+        $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertCount(0, $creditRequests, 'No credits should be sent when buffer is full');
+
+        $this->assertSame(3, $pendingCreditsProp->getValue($consumer), 'pendingCredits should remain unchanged');
+
+        $bufferProp->setValue($consumer, [$msg1, $msg2, $msg3]);
+        $sendPendingCredits->invoke($consumer);
+
+        $this->assertCount(1, $creditRequests);
+        $this->assertSame(2, $creditRequests[0]->toArray()['credit']);
+        $this->assertSame(1, $pendingCreditsProp->getValue($consumer), 'pendingCredits decremented by available slots');
+    }
 }
