@@ -739,7 +739,7 @@ class StreamConnectionTest extends TestCase
         $this->expectExceptionMessage('socket is not connected');
 
         $reflection = new \ReflectionMethod($connection, 'readLoop');
-        $reflection->invoke($connection, maxFrames: 1, timeout: 0.1);
+        $reflection->invoke($connection, 1, 0.1);
     }
 
     public function testSendFrameThrowsAfterClose(): void
@@ -786,7 +786,7 @@ class StreamConnectionTest extends TestCase
         $this->expectExceptionMessage('socket is not connected');
 
         $reflection = new \ReflectionMethod($connection, 'readLoop');
-        $reflection->invoke($connection, maxFrames: 1, timeout: 0.1);
+        $reflection->invoke($connection, 1, 0.1);
 
         socket_close($serverSocket);
     }
