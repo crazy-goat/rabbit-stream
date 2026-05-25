@@ -335,26 +335,27 @@ class ConnectionTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function testNegotiatedMaxValueBothNonZeroReturnsMin(): void
+    /**
+     * @dataProvider negotiatedMaxValueProvider
+     */
+    public function testNegotiatedMaxValue(int $clientValue, int $serverValue, int $expected): void
     {
-        $this->assertSame(100, $this->invokeNegotiatedMaxValue(100, 200));
-        $this->assertSame(100, $this->invokeNegotiatedMaxValue(200, 100));
-        $this->assertSame(50, $this->invokeNegotiatedMaxValue(50, 50));
+        $this->assertSame($expected, $this->invokeNegotiatedMaxValue($clientValue, $serverValue));
     }
 
-    public function testNegotiatedMaxValueClientZeroReturnsServer(): void
+    /**
+     * @return array<string, array{int, int, int}>
+     */
+    public static function negotiatedMaxValueProvider(): array
     {
-        $this->assertSame(200, $this->invokeNegotiatedMaxValue(0, 200));
-    }
-
-    public function testNegotiatedMaxValueServerZeroReturnsClient(): void
-    {
-        $this->assertSame(100, $this->invokeNegotiatedMaxValue(100, 0));
-    }
-
-    public function testNegotiatedMaxValueBothZeroReturnsZero(): void
-    {
-        $this->assertSame(0, $this->invokeNegotiatedMaxValue(0, 0));
+        return [
+            'BOTH_ZERO'                => [0, 0, 0],
+            'CLIENT_ZERO_SERVER_1M'    => [0, 1048576, 1048576],
+            'CLIENT_1M_SERVER_ZERO'    => [1048576, 0, 1048576],
+            'CLIENT_512K_SERVER_1M'    => [524288, 1048576, 524288],
+            'CLIENT_1M_SERVER_512K'    => [1048576, 524288, 524288],
+            'BOTH_EQUAL_60'            => [60, 60, 60],
+        ];
     }
 
     public function testCloseClosesAllTrackedProducers(): void
