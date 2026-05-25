@@ -7,6 +7,30 @@ namespace CrazyGoat\RabbitStream\Client;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 
+/**
+ * Parses RabbitMQ Stream chunk binary format (Osiris chunk format).
+ *
+ * Chunk header layout (48 bytes):
+ *   1 byte  - magicVersion: high nibble = magic (must be 5), low nibble = version (must be 0)
+ *   1 byte  - chunkType: 0 = user data
+ *   2 bytes - numEntries: number of entries in this chunk
+ *   4 bytes - numRecords: total records across all entries
+ *   8 bytes - timestamp: milliseconds since Unix epoch
+ *   8 bytes - epoch: leader epoch
+ *   8 bytes - chunkFirstOffset: stream offset of the first entry in this chunk
+ *   4 bytes - chunkCrc: CRC-32 of the chunk data
+ *   4 bytes - dataLength: length of entries data section
+ *   4 bytes - trailerLength: length of trailer section (0 for user data)
+ *   1 byte  - reserved
+ *   3 bytes - padding (alignment to 4 bytes)
+ *
+ * Each entry:
+ *   Simple entry: 4-byte header (bit 31 = 0) + size in lower 31 bits + data
+ *   Sub-batch entry: 4-byte header (bit 31 = 1) + codec (bits 28-25) + count (lower 16 bits)
+ *                    + uncompressedSize (uint32) + compressedSize (uint32) + sub-batch data
+ *
+ * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/rabbitmq_stream/docs/PROTOCOL.adoc
+ */
 class OsirisChunkParser
 {
     /**
