@@ -44,7 +44,7 @@ code throws the specific exception class; `fromStreamBuffer()` still returns
 via `assertResponseCodeOk()`. Do not reintroduce bare `\Exception`.
 
 ### Pre-push hook runs `composer lint`; lint is a gate, never lowered
-<!-- id=DEC-003 date=2025-05-20 tags=ci,git-hooks,lint,policy trigger="when adding or editing .git/hooks/pre-push, bin/install-hooks.sh, or the lint scripts" hits=0 status=active -->
+<!-- id=DEC-003 date=2025-05-20 tags=ci,git-hooks,lint,policy trigger="when adding or editing .git/hooks/pre-push, bin/install-hooks.sh, or the lint scripts" hits=1 status=active -->
 
 `.git/hooks/pre-push` runs `composer lint` (PHPCS PSR-12 + Rector dry-run +
 PHPStan level 9 + `bin/kb-lint.php`) before every push. To skip in an
