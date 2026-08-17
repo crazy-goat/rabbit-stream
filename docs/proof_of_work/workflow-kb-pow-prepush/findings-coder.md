@@ -5,16 +5,19 @@ bugs noticed in passing — including ones outside this cycle's scope.
 
 ## This cycle (workflow / KB / PoW / pre-push bootstrap)
 
-- **Pre-existing PHPStan level-9 failures in `src/Buffer/ReadBuffer.php`** —
-  29 errors, all `chr()` argument range
-  (`Parameter #1 $codepoint of function chr expects int<0, 255>, int<0, max>
-  given`). Lines 99, 120, 123, 137 (and more). These are unrelated to this
-  change — my diff does not touch `src/` — but they make `composer lint` (and
-  therefore the new pre-push hook) non-green. **Suggested fix:** narrow the
-  `chr()` argument with a `& 0xFF` mask or an explicit range check, e.g.
-  `chr($byte & 0xFF)`. Worth a dedicated `bug`/`code-quality` issue. Not fixed
-  here because it is out of scope and would entangle a process-only PR with a
-  `src/` change.
+- **Pre-existing PHPStan level-9 `chr()` failures — FIXED in this cycle.**
+  29 errors across `tests/Client/AmqpDecoderMessageTest.php`,
+  `tests/Client/AmqpMessageDecoderTest.php`,
+  `tests/E2E/AmqpMessageDecoderE2ETest.php`. The AMQP test-frame builders
+  encoded single-byte fields (sizes, counts, descriptors, smalluint values)
+  with `chr()` but passed `int<0, max>` from `strlen`/multiplication/unguarded
+  `int` params. Fixed by narrowing the underlying type, not silencing:
+  `buildSection(int $descriptor)` got `@param int<0, 255>` (the smallulong
+  descriptor is a byte by definition); `chr(strlen(...))`, `chr($size)`,
+  `chr($count)`, `chr($count * 2)` masked with `& 0xFF` (genuinely narrows to
+  a byte — str8/list8/map8 are single-byte-length by spec). `composer phpstan`,
+  `composer lint`, and `composer test:unit` (632 tests) all green after the
+  fix. The pre-push hook now passes clean — proof the gate works end to end.
 - **No `.gitattributes` existed at all** — `composer archive` / GitHub tarballs
   would have shipped `tests/`, `docs/`, etc. This change adds one with
   `export-ignore` for `bin/`, `docs/helpers/`, `docs/proof_of_work/`. A
@@ -29,6 +32,10 @@ bugs noticed in passing — including ones outside this cycle's scope.
   caught it immediately (`tag index is out of sync with the entries (run
   --fix)`), `--fix` regenerated it correctly, second run clean. Good
   confirmation that the linter does its job.
+- **Pre-push hook verified end to end** — first push (before the `chr()` fix)
+  was correctly blocked by the hook with the PHPStan errors printed; after the
+  fix, `git push` (no `--no-verify`) passed with `pre-push: lint clean.`.
+  The gate is real.
 
 ## Out-of-scope observations (not fixed, candidate issues)
 
