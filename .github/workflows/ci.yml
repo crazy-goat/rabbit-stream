@@ -4,9 +4,16 @@ on:
   pull_request:
     branches: ["main"]
 
+# NOTE: every `name:` below must stay byte-identical to the branch protection
+# required status check contexts on `main` (`lint`, `unit-tests (PHP 8.1)` …
+# `unit-tests (PHP 8.4)`, `e2e-tests`). GitHub reports a job's `name:` as the
+# check context, so a human-friendly rename here silently makes the required
+# contexts unreachable and every pull request becomes permanently BLOCKED even
+# with all checks green. Renaming a job means updating the protection rule in
+# the same change.
 jobs:
   check-actor:
-    name: Check actor permissions
+    name: check-actor
     runs-on: ubuntu-latest
     outputs:
       allowed: ${{ steps.check.outputs.allowed }}
@@ -44,7 +51,7 @@ jobs:
             }
 
   lint:
-    name: Lint (PHPCS + Rector + PHPStan)
+    name: lint
     needs: check-actor
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
@@ -70,7 +77,7 @@ jobs:
         run: composer phpstan
 
   unit-tests:
-    name: Unit Tests (PHP ${{ matrix.php }})
+    name: unit-tests (PHP ${{ matrix.php }})
     needs: [check-actor, lint]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
@@ -93,7 +100,7 @@ jobs:
         run: ./vendor/bin/phpunit --testsuite unit --testdox
 
   e2e-tests:
-    name: E2E Tests
+    name: e2e-tests
     needs: [check-actor, lint]
     if: needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest

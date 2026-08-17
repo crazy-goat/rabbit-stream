@@ -424,6 +424,17 @@ There is **no `concurrency: cancel-in-progress`** on this workflow, so pushing
 again to the same PR starts a second full run rather than cancelling the first
 — be deliberate about pushes.
 
+> **Job names are the gate, not just labels.** GitHub reports each job's
+> `name:` as the status check context, and the branch protection rule on `main`
+> requires the contexts `lint`, `unit-tests (PHP 8.1)` … `unit-tests (PHP 8.4)`
+> and `e2e-tests` verbatim. So the `name:` values in `.github/workflows/ci.yml`
+> must stay byte-identical to those strings. Renaming a job to something more
+> human-friendly makes the required contexts unreachable: they sit pending
+> forever, and **every** PR reports `BLOCKED` with all checks green — merges are
+> then only possible by bypassing protection, which is exactly what the gate
+> exists to prevent. If a job must be renamed, update the protection rule in the
+> same change.
+
 ---
 
 ## 11. Handle CI Failures
