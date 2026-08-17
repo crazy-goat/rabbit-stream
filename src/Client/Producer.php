@@ -21,7 +21,7 @@ class Producer implements ProducerInterface
     private int $publishingId = 0;
     private int $pendingConfirms = 0;
 
-    private ?\Closure $onConfirm = null;
+    private readonly ?\Closure $onConfirm;
 
     public function __construct(
         private readonly StreamConnection $connection,
