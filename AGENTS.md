@@ -62,12 +62,27 @@ The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be
 ## QA Commands
 
 ```bash
-composer phpstan     # static analysis (PHPStan)
+composer phpstan     # static analysis (PHPStan level 9)
 composer cs          # check code style (PHPCS PSR-12)
 composer cs-fix      # auto-fix code style (phpcbf)
 composer rector      # preview refactoring suggestions (dry-run)
 composer rector:fix  # apply Rector refactoring
+composer kb-lint     # lint the docs/helpers/ knowledge base (runs inside `lint`)
+composer kb-lint:fix # regenerate the docs/helpers/ tag index
 ```
+
+## Git Hooks
+
+A pre-push hook runs `composer lint` (PHPCS + Rector dry-run + PHPStan level 9
++ `kb-lint`) before every push. Git does not version `.git/hooks/`, so install
+it after a fresh clone:
+
+```bash
+bash bin/install-hooks.sh   # symlinks bin/hooks/* into .git/hooks/
+```
+
+Bypass in an emergency with `git push --no-verify` — CI runs the same checks,
+so skipping locally just moves the failure later. See `bin/README.md`.
 
 ---
 

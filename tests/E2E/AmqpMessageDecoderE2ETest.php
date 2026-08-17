@@ -81,7 +81,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
             if (isset($properties[$fieldName])) {
                 $fieldValue = $properties[$fieldName];
                 if (is_string($fieldValue)) {
-                    $listItems .= "\xa1" . chr(strlen($fieldValue)) . $fieldValue;
+                    $listItems .= "\xa1" . chr(strlen($fieldValue) & 0xFF) . $fieldValue;
                 } elseif (is_int($fieldValue)) {
                     if ($fieldValue >= 0 && $fieldValue <= 255) {
                         $listItems .= "\x52" . chr($fieldValue);
@@ -96,7 +96,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         }
 
         $listSize = strlen($listItems) + 1;
-        $propertiesSection = "\x00\x53\x73\xc0" . chr($listSize) . chr($count) . $listItems;
+        $propertiesSection = "\x00\x53\x73\xc0" . chr($listSize & 0xFF) . chr($count & 0xFF) . $listItems;
 
         // Build Data section (0x75)
         $length = strlen($body);
@@ -117,10 +117,10 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         $count = 0;
 
         foreach ($appProperties as $key => $value) {
-            $mapItems .= "\xa1" . chr(strlen((string) $key)) . $key;
+            $mapItems .= "\xa1" . chr(strlen((string) $key) & 0xFF) . $key;
 
             if (is_string($value)) {
-                $mapItems .= "\xa1" . chr(strlen($value)) . $value;
+                $mapItems .= "\xa1" . chr(strlen($value) & 0xFF) . $value;
             } elseif (is_int($value)) {
                 if ($value >= 0 && $value <= 255) {
                     $mapItems .= "\x52" . chr($value);
@@ -134,7 +134,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         }
 
         $mapSize = strlen($mapItems) + 1;
-        $appPropsSection = "\x00\x53\x74\xc1" . chr($mapSize) . chr($count * 2) . $mapItems;
+        $appPropsSection = "\x00\x53\x74\xc1" . chr($mapSize & 0xFF) . chr(($count * 2) & 0xFF) . $mapItems;
 
         // Build Data section (0x75)
         $length = strlen($body);

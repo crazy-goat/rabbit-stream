@@ -11,6 +11,8 @@ class AmqpDecoderMessageTest extends TestCase
 {
     /**
      * Helper to build a described type section.
+     *
+     * @param int<0, 255> $descriptor AMQP smallulong descriptor
      */
     private function buildSection(int $descriptor, string $valueData): string
     {
@@ -72,7 +74,7 @@ class AmqpDecoderMessageTest extends TestCase
                 $fieldValue = $properties[$fieldName];
                 if (is_string($fieldValue)) {
                     // Use str8-utf8 for strings
-                    $listItems .= "\xa1" . chr(strlen($fieldValue)) . $fieldValue;
+                    $listItems .= "\xa1" . chr(strlen($fieldValue) & 0xFF) . $fieldValue;
                 } elseif (is_int($fieldValue)) {
                     if ($fieldValue >= 0 && $fieldValue <= 255) {
                         // Use smalluint for small positive integers
@@ -91,7 +93,7 @@ class AmqpDecoderMessageTest extends TestCase
 
         // Build list8: size (1 byte) + count (1 byte) + items
         $listSize = strlen($listItems) + 1; // +1 for count byte
-        $listData = "\xc0" . chr($listSize) . chr($count) . $listItems;
+        $listData = "\xc0" . chr($listSize & 0xFF) . chr($count & 0xFF) . $listItems;
 
         return $this->buildSection(0x73, $listData);
     }
@@ -109,11 +111,11 @@ class AmqpDecoderMessageTest extends TestCase
 
         foreach ($properties as $key => $value) {
             // Key: str8-utf8
-            $mapItems .= "\xa1" . chr(strlen((string) $key)) . $key;
+            $mapItems .= "\xa1" . chr(strlen((string) $key) & 0xFF) . $key;
 
             // Value
             if (is_string($value)) {
-                $mapItems .= "\xa1" . chr(strlen($value)) . $value;
+                $mapItems .= "\xa1" . chr(strlen($value) & 0xFF) . $value;
             } elseif (is_int($value)) {
                 if ($value >= 0 && $value <= 255) {
                     $mapItems .= "\x52" . chr($value);
@@ -131,7 +133,7 @@ class AmqpDecoderMessageTest extends TestCase
         // Build map8: size (1 byte) + count (1 byte) + items
         // count is number of pairs * 2 (key + value)
         $mapSize = strlen($mapItems) + 1; // +1 for count byte
-        $mapData = "\xc1" . chr($mapSize) . chr($count * 2) . $mapItems;
+        $mapData = "\xc1" . chr($mapSize & 0xFF) . chr(($count * 2) & 0xFF) . $mapItems;
 
         return $this->buildSection(0x74, $mapData);
     }
@@ -149,11 +151,11 @@ class AmqpDecoderMessageTest extends TestCase
 
         foreach ($annotations as $key => $value) {
             // Key: str8-utf8 or sym8
-            $mapItems .= "\xa3" . chr(strlen((string) $key)) . $key;
+            $mapItems .= "\xa3" . chr(strlen((string) $key) & 0xFF) . $key;
 
             // Value
             if (is_string($value)) {
-                $mapItems .= "\xa1" . chr(strlen($value)) . $value;
+                $mapItems .= "\xa1" . chr(strlen($value) & 0xFF) . $value;
             } elseif (is_int($value)) {
                 if ($value >= 0 && $value <= 255) {
                     $mapItems .= "\x52" . chr($value);
@@ -165,7 +167,7 @@ class AmqpDecoderMessageTest extends TestCase
         }
 
         $mapSize = strlen($mapItems) + 1;
-        $mapData = "\xc1" . chr($mapSize) . chr($count * 2) . $mapItems;
+        $mapData = "\xc1" . chr($mapSize & 0xFF) . chr(($count * 2) & 0xFF) . $mapItems;
 
         return $this->buildSection(0x72, $mapData);
     }
@@ -175,7 +177,9 @@ class AmqpDecoderMessageTest extends TestCase
      */
     private function buildAmqpValueSection(string|int $value): string
     {
-        $valueData = is_string($value) ? "\xa1" . chr(strlen($value)) . $value : "\x52" . chr($value);
+        $valueData = is_string($value)
+            ? "\xa1" . chr(strlen($value) & 0xFF) . $value
+            : "\x52" . chr($value & 0xFF);
         return $this->buildSection(0x77, $valueData);
     }
 
