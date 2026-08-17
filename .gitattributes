@@ -1,0 +1,5 @@
+# Versioned tooling and dev-only paths are not shipped.
+/bin                   export-ignore
+/bin/*                 export-ignore text eol=lf
+/docs/helpers          export-ignore
+/docs/proof_of_work    export-ignore

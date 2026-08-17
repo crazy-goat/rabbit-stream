@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Pre-push hook: runs `composer lint` (PHPCS PSR-12 + Rector dry-run +
+# PHPStan level 9 + bin/kb-lint.php) before allowing a push to succeed.
+#
+# Bypass in an emergency with: git push --no-verify
+# CI runs the same checks, so skipping locally just moves the failure later.
+#
+# This file lives in the repo as bin/hooks/pre-push. bin/install-hooks.sh
+# symlinks .git/hooks/pre-push -> bin/hooks/pre-push so the hook is versioned
+# with the code that depends on it.
+set -euo pipefail
+
+# Run from the repository root regardless of where the push was invoked from.
+root="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
+cd "$root"
+
+# Only lint when composer is available and vendor/ is installed.
+if ! command -v composer >/dev/null 2>&1; then
+    echo "pre-push: composer not found on PATH — skipping lint (install composer to enforce locally)." >&2
+    exit 0
+fi
+
+if [ ! -x "vendor/bin/phpcs" ] && [ ! -f "vendor/bin/phpcs" ]; then
+    echo "pre-push: vendor/ not installed — run 'composer install' first, or skip with --no-verify." >&2
+    exit 1
+fi
+
+echo "pre-push: running composer lint …"
+if composer lint >/tmp/rabbit-stream-prepush-lint.log 2>&1; then
+    echo "pre-push: lint clean."
+    exit 0
+fi
+
+echo "pre-push: lint failed. Log:" >&2
+echo "----- 8< ----- (/tmp/rabbit-stream-prepush-lint.log)" >&2
+cat /tmp/rabbit-stream-prepush-lint.log >&2 || true
+echo "----- >8 -----" >&2
+echo "pre-push: fix the issues above, or bypass with 'git push --no-verify' (CI will still check)." >&2
+exit 1

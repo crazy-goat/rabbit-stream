@@ -31,8 +31,10 @@
         "phpstan/phpstan": "^2.1"
     },
     "scripts": {
-        "lint": ["phpcs --standard=phpcs.xml.dist", "@rector", "@phpstan"],
-        "lint:fix": ["@rector:fix", "phpcbf --standard=phpcs.xml.dist"],
+        "lint": ["phpcs --standard=phpcs.xml.dist", "@rector", "@phpstan", "php bin/kb-lint.php"],
+        "lint:fix": ["@rector:fix", "phpcbf --standard=phpcs.xml.dist", "php bin/kb-lint.php --fix"],
+        "kb-lint": "php bin/kb-lint.php",
+        "kb-lint:fix": "php bin/kb-lint.php --fix",
         "phpstan": "phpstan analyse",
         "cs": "phpcs --standard=phpcs.xml.dist",
         "cs-fix": "phpcbf --standard=phpcs.xml.dist",

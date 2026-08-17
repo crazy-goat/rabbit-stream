@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **OsirisChunkParser: use `ReadBuffer::readBytes()` consistently** — replaced 3 instances of raw `substr` + `skip()` with `ReadBuffer::readBytes()` for atomic position tracking (#351)
 
 ### Added
+- **Process: subagent workflow** — `docs/workflow.md` describing the issue → feature branch → implementation → review rounds → PR → CI → merge cycle, adapted from the workerman-bundle workflow to this project's conventions (`main`, `feature/issue-NNN-*` branches, `composer lint` / `composer test` / `run-e2e.sh`, PHPStan level 9, milestone-driven backlog)
+- **Process: knowledge base** — `docs/helpers/` (`faq.md`, `decisions.md`, `README.md`) with a generated tag index, single-writer rule and decay rules, linted by `bin/kb-lint.php` (runs inside `composer lint`)
+- **Process: proof of work** — `docs/proof_of_work/` directory with a README documenting the four per-cycle Markdown files (`findings-coder.md`, `findings-review.md`, `code-decision-<x>.md`, `review-<x>.md`)
+- **Process: pre-push hook** — `bin/hooks/pre-push` runs `composer lint` before every push; installed via `bash bin/install-hooks.sh` (symlinks `bin/hooks/*` into `.git/hooks/`)
 - **E2E test: MetadataUpdate callback on stream deletion** — E2E test verifying that when a stream is deleted from one connection while another connection is subscribed, the subscribed connection receives a `MetadataUpdate` frame via the `onMetadataUpdate` callback with the correct stream name and response code (#160)
 - **E2E test: Multiple concurrent subscriptions on different streams** — two new E2E tests verifying that multiple subscriptions on a single connection, targeting different streams, correctly isolate message routing: each consumer receives only its own stream's messages; closing one consumer does not affect the other (#154)
 - **E2E test: SASL mechanism validation** — two new E2E tests verifying that unsupported SASL mechanisms (`SCRAM-SHA-256` and empty string) are rejected with `ProtocolException` containing `SASL_MECHANISM_NOT_SUPPORTED` (#148)
