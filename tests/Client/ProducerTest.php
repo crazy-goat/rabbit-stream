@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -284,6 +285,101 @@ class ProducerTest extends TestCase
         $producer->waitForConfirms();
 
         $this->addToAssertionCount(1);
+    }
+
+    public function testWaitForConfirmsCallsReadLoopWithMaxFramesOneAndPositiveTimeout(): void
+    {
+        // Regression guard for #385: waitForConfirms() must pass maxFrames: 1
+        // so readLoop() hands control back after each dispatched frame instead
+        // of blocking for the whole timeout.
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $captured = ['maxFrames' => null, 'timeout' => null];
+        $connection->expects($this->once())
+            ->method('readLoop')
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$registeredCallbacks, &$captured): void {
+                $captured['maxFrames'] = $maxFrames;
+                $captured['timeout'] = $timeout;
+                $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
+                ($registeredCallbacks['onConfirm'])([0]);
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('test message');
+
+        $producer->waitForConfirms(timeout: 5);
+
+        $this->assertSame(1, $captured['maxFrames'], 'readLoop() must be called with maxFrames === 1');
+        $this->assertIsFloat($captured['timeout']);
+        $this->assertGreaterThan(0.0, $captured['timeout'], 'readLoop() must be called with a positive timeout');
+    }
+
+    public function testWaitForConfirmsDrainsMultipleConfirmFramesOneAtATime(): void
+    {
+        // Guards the multi-confirm drain: with maxFrames: 1, readLoop() returns
+        // after a single dispatched frame, so waitForConfirms() must loop and
+        // call readLoop() again for each remaining pending confirm.
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $readLoopCallCount = 0;
+        $connection->expects($this->exactly(3))
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): void {
+                $readLoopCallCount++;
+                $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
+                // One confirm frame per readLoop() call, as with maxFrames: 1.
+                ($registeredCallbacks['onConfirm'])([$readLoopCallCount - 1]);
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('msg1');
+        $producer->send('msg2');
+        $producer->send('msg3');
+
+        $producer->waitForConfirms(timeout: 5);
+
+        $this->assertSame(3, $readLoopCallCount, 'readLoop() must be called once per confirm frame');
+    }
+
+    public function testWaitForConfirmsThrowsTimeoutExceptionWhenNoConfirmEverArrives(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        // readLoop() never invokes onConfirm, simulating a broker that never confirms.
+        $connection->expects($this->atLeastOnce())->method('readLoop');
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('test message');
+
+        $this->expectException(TimeoutException::class);
+        $this->expectExceptionMessage('Timed out waiting for 1 publish confirms');
+
+        $producer->waitForConfirms(timeout: 0.01);
     }
 
     public function testQuerySequenceThrowsForUnnamedProducer(): void

@@ -376,8 +376,13 @@ class ConsumerTest extends E2ETestCase
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
-        $timestamp = (int)(microtime(true) * 1000);
-        usleep(100_000);
+        // Only a millisecond-resolution gap is needed here, not a wall-clock
+        // boundary: the boundary used below is derived entirely from what the
+        // broker wrote (see the read-back below), never from the client clock.
+        // This just makes sure the two batches don't land in the same
+        // millisecond, which the assertion after the read-back verifies rather
+        // than assumes.
+        usleep(20_000);
 
         $producer2 = $this->connection->createProducer($this->streamName);
         for ($i = 0; $i < 5; $i++) {
@@ -386,14 +391,44 @@ class ConsumerTest extends E2ETestCase
         $producer2->waitForConfirms(timeout: 5);
         $producer2->close();
 
+        // Message::getTimestamp() is the CHUNK timestamp shared by every
+        // message in that chunk (OsirisChunkParser.php:66, :84-85), and the
+        // broker resolves OffsetSpec::timestamp($t) to the first chunk with
+        // chunkTs >= $t, delivered in full. So we read the whole stream back
+        // and derive the "after" boundary from the broker-written data itself.
+        $probe = $this->connection->createConsumer($this->streamName, OffsetSpec::first());
+        $all = [];
+        $deadline = time() + 5;
+        while (count($all) < 10 && time() < $deadline) {
+            foreach ($probe->read(timeout: 0.5) as $msg) {
+                $all[] = $msg;
+            }
+        }
+        $probe->close();
+
+        $this->assertCount(10, $all, 'Should have read back all 10 published messages');
+
+        $beforeTs = 0;
+        for ($i = 0; $i < 5; $i++) {
+            $beforeTs = max($beforeTs, $all[$i]->getTimestamp());
+        }
+        $this->assertSame('after-0', $all[5]->getBody(), 'Offset 5 must be the first "after" message');
+        $afterTs = $all[5]->getTimestamp();
+
+        $this->assertGreaterThan(
+            $beforeTs,
+            $afterTs,
+            'batches must land in chunks with distinct millisecond timestamps'
+        );
+
         $consumer = $this->connection->createConsumer(
             $this->streamName,
-            OffsetSpec::timestamp($timestamp)
+            OffsetSpec::timestamp($afterTs)
         );
 
         $received = [];
-        $deadline = time() + 5;
-        while (count($received) < 5 && time() < $deadline) {
+        $readDeadline = time() + 5;
+        while (count($received) < 5 && time() < $readDeadline) {
             $msgs = $consumer->read(timeout: 0.5);
             foreach ($msgs as $msg) {
                 $received[] = $msg->getBody();
@@ -403,7 +438,9 @@ class ConsumerTest extends E2ETestCase
         $consumer->close();
 
         $this->assertCount(5, $received, 'Should receive only messages published after the timestamp');
-        $this->assertSame('after-0', $received[0], 'First message should be after-0');
+        for ($i = 0; $i < 5; $i++) {
+            $this->assertSame("after-{$i}", $received[$i], "Message at index {$i} should be after-{$i}");
+        }
     }
 
     public function testSubscribeFromFutureTimestampReturnsNoMessages(): void

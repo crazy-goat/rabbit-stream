@@ -109,6 +109,53 @@ class ProducerTest extends E2ETestCase
         $producer->close();
     }
 
+    public function testWaitForConfirmsReturnsAsSoonAsConfirmArrives(): void
+    {
+        $this->assertNotNull($this->connection);
+
+        /** @var \CrazyGoat\RabbitStream\Client\ConfirmationStatus[] $confirmations */
+        $confirmations = [];
+        $producer = $this->connection->createProducer(
+            $this->streamName,
+            onConfirm: function ($status) use (&$confirmations): void {
+                $confirmations[] = $status;
+            }
+        );
+
+        $producer->send('test message');
+
+        // The timeout is deliberately generous (5s) so the assertion isn't
+        // flaky on a slow CI box. Before the fix for #385, waitForConfirms()
+        // always blocked for the *entire* timeout regardless of how quickly
+        // the broker actually confirmed, because readLoop() was called
+        // without maxFrames and only ever returns on deadline expiry. With
+        // the fix, readLoop(maxFrames: 1, ...) hands control back to the
+        // outer loop after each dispatched frame, so the call returns right
+        // after the confirm is processed. A real confirm round-trip over a
+        // local Docker broker is observed around 0.03s; 1.0s leaves ~30x
+        // headroom for CI slowness while still being 5x below the 5.0s
+        // timeout, so it reliably distinguishes "returned fast" from
+        // "blocked for the full timeout" without letting a ~2s regression
+        // through unnoticed.
+        $start = microtime(true);
+        $producer->waitForConfirms(timeout: 5.0);
+        $elapsed = microtime(true) - $start;
+
+        $message = "waitForConfirms() took {$elapsed}s; expected it to return shortly "
+            . "after the confirm arrived, not block for the full timeout";
+        $this->assertLessThan(1.0, $elapsed, $message);
+
+        // Guard against a future regression where send() stops incrementing
+        // pendingConfirms: waitForConfirms() would then return instantly
+        // without ever waiting for a real confirm, and an elapsed-time
+        // assertion alone would still pass vacuously. Assert the confirm
+        // actually arrived.
+        $this->assertCount(1, $confirmations, 'Exactly one confirm should have been received');
+        $this->assertTrue($confirmations[0]->isConfirmed(), 'The confirm should report success');
+
+        $producer->close();
+    }
+
     public function testWaitForConfirmsTimeoutThrows(): void
     {
         $this->assertNotNull($this->connection);
