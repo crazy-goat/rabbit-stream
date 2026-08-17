@@ -1,5 +1,11 @@
 # Code decision 1 — Producer::waitForConfirms() blocks the full timeout
 
+> **Superseded in places — read "Correction (round 2)" at the end of this file
+> first.** The `ConsumerTest` reasoning below (the "both batches land in one
+> chunk" mechanism and the 5s sleep it justified) was refuted empirically in
+> review round 2. The production fix itself was confirmed correct. The original
+> text is kept because the workflow keeps disagreement on the record.
+
 **Issue:** #385
 **Branch:** `feature/issue-385-waitforconfirms-full-timeout`
 

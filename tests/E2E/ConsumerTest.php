@@ -412,6 +412,7 @@ class ConsumerTest extends E2ETestCase
         for ($i = 0; $i < 5; $i++) {
             $beforeTs = max($beforeTs, $all[$i]->getTimestamp());
         }
+        $this->assertSame('after-0', $all[5]->getBody(), 'Offset 5 must be the first "after" message');
         $afterTs = $all[5]->getTimestamp();
 
         $this->assertGreaterThan(

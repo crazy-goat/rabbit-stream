@@ -92,3 +92,122 @@ services the socket for the whole timeout.
   violations.
 - `composer cs`, `composer phpstan` (level 9), `composer rector`,
   `composer kb-lint`, `composer test:unit` all pass.
+
+---
+
+# Findings — review — issue #385 (round 2, commit `c3f0890`)
+
+Nothing above is deleted or edited. Dispositions and new findings are appended.
+Full reasoning and measurements in `review-2.md`.
+
+## Disposition of round-1 findings
+
+- **FINDING A** (high, blocker) — **FIXED.** `tests/E2E/ConsumerTest.php:385` is now
+  `usleep(20_000)`, the `microtime()` boundary sample is gone (no `microtime()` call
+  remains in the test), and the boundary comes from broker data
+  (`ConsumerTest.php:399-421`). My own runs: full e2e suite **6/6 green**
+  (16.75/18.90/19.81/19.92/18.84/19.91 s), `--filter testSubscribeFromTimestamp`
+  **8/8 PASS** (0.059-0.071 s). N5's `connection closed by peer` did not reappear.
+  Round-1 recommendation withdrawn in favour of the implemented skew-immune variant
+  (see "clock skew" below).
+- **N1** (high) — **FIXED.** `code-decision-1.md:181-234` and `findings-coder.md:104-129`
+  preserve the original text, refute it with evidence, state the 1 ms `>=` equality race
+  as the real mechanism, and mark the "force a size-based chunk roll" follow-up
+  **withdrawn** (`code-decision-1.md:229-234`, `findings-coder.md:125-129`). The wrong
+  in-test comment is replaced (`ConsumerTest.php:378-384`). Residual: R2-4.
+- **N2** (medium) — **FIXED.** `tests/Client/ProducerTest.php:290`, `:328`, `:366`.
+  Mutation-verified: reverting `Producer.php:124` to `readLoop(timeout: $remaining)` makes
+  `testWaitForConfirmsCallsReadLoopWithMaxFramesOneAndPositiveTimeout` fail
+  ("Failed asserting that null is identical to 1"). The other two still pass against the
+  bug — see R2-1.
+- **N3** (low) — **FIXED.** `tests/E2E/ProducerTest.php:118-122` collects confirms,
+  `:153-154` assert exactly one confirmed `ConfirmationStatus`, `:145` tightens the bound
+  to 1.0. `assertCount(1, ...)` is exact given `Producer.php:52-56`. The tightening is
+  safe: 10/10 runs at 0.020-0.027 s whole-process wall time (~40x headroom).
+- **N4** (low) — **FIXED.** `findings-coder.md:131-155` records the unsoundness, the
+  `ext/sockets` normalisation as the actual reason, the `EINVAL` correction for Linux, the
+  instruction not to downgrade #382 on this basis, and the corrected frequency note.
+- **N5** (medium) — **FIXED** (subsumed by A). Absent from 6/6 full-suite runs.
+- **FINDING B** (low) — **STILL PRESENT**, untouched at `src/StreamConnection.php:477-482`,
+  correctly out of scope. **No follow-up issue exists yet** — step-9/10 action.
+- **N6** (low, informational) — **STILL PRESENT**, `src/StreamConnection.php:424`. No action.
+- **N7** (nit) — **STILL PRESENT.** `CHANGELOG.md` has no `[Unreleased]` entry for #385
+  (step 8).
+
+## Clock skew — the question `code-decision-2.md` asked this round
+
+**No meaningful skew on this setup; none at all on GitHub Actions.** Bracketed measurement
+through the stream protocol (host `microtime()` before/after a confirm vs the chunk
+timestamp read back), 8 runs: chunk timestamp inside a 0-1 ms host bracket every time
+(`ts - hostBefore` in {0, -1}). `docker exec date +%s%3N` fell inside the host bracket 3/3.
+GHA service containers share the runner's kernel and `CLOCK_REALTIME`, so skew there is
+zero by construction. The stated mechanism was therefore overcautious — but **the
+implemented variant is still the better choice**, because it compares no client clock to a
+broker clock at all, needs no spin-wait, and asserts its one precondition. Two residual
+grains of truth: 1 ms quantisation makes a `host >= brokerTs + 1` spin-wait exit up to ~1 ms
+early in broker time, and Docker Desktop VM clocks lag transiently after a macOS suspend
+(dev-only, not CI).
+
+## `$all[5]` positional indexing — sound
+
+Sound by protocol guarantee, not by luck. Single subscription from `OffsetSpec::first()`
+delivers ascending offsets (verified: `o0..o9` in order, 6/6 runs); `waitForConfirms()`
+guarantees all 5 `before-*` are committed at lower offsets before any `after-*` is
+published, so indices 0-4 are the before batch regardless of how it chunks; `setUp()`'s
+`uniqid()` stream plus `assertCount(10, $all)` rules out foreign messages. A shared chunk
+across the boundary, or a before chunk newer than `$afterTs`, both fail loudly on
+`assertGreaterThan`. Measured layout: `before-0..4 @T /o0..o4`, `after-0..4 @T+23..27ms
+/o5..o9`. Body-keying would be more self-documenting but not more correct — R2-2, nit.
+
+## New findings (round 2)
+
+### R2-1 — `tests/Client/ProducerTest.php:328`, `:366` | low | open
+`testWaitForConfirmsDrainsMultipleConfirmFramesOneAtATime` and
+`testWaitForConfirmsThrowsTimeoutExceptionWhenNoConfirmEverArrives` both PASS against the
+reverted fix (mutation-verified), because the mock's behaviour, not `Producer`'s, sets the
+cadence. Only `:290` is a #385 regression guard. The other two are legitimate drain/timeout
+coverage — just don't call them #385 guards in the PR body. `exactly(3)` is **not**
+over-specified: the cadence is mock-imposed, so a future multi-confirm-per-frame refactor
+would not break it, and it does catch a `while` degraded to `if`.
+
+### R2-2 — `tests/E2E/ConsumerTest.php:411` | nit | open
+`$afterTs = $all[5]->getTimestamp()` is correct but leaves the "index 5 is `after-0`"
+invariant implicit. `assertSame('after-0', $all[5]->getBody())` before it would make it
+explicit and give a better failure message.
+
+### R2-3 — `tests/E2E/ProducerTest.php:116`, `:120` | nit | open
+`/** @var \CrazyGoat\RabbitStream\Client\ConfirmationStatus[] ... */` uses an FQCN although
+the class is imported at `:7`, and the closure param is untyped, unlike `:41`, `:61`, `:223`
+in the same file. Typing the param `ConfirmationStatus $status` removes the need for the
+annotation and matches the file's convention.
+
+### R2-4 — `findings-coder.md:3`, `code-decision-1.md:129` | low | open
+The corrections are appended at the end of each file with no forward pointer on the refuted
+sections, so a reader arriving cold meets the falsified explanation first. Add
+`**Superseded — see "Correction (round 2)" at the end of this file.**` under each.
+
+### R2-5 — `tests/Client/ProducerTest.php:366` | nit | open
+Overlaps `testWaitForConfirmsThrowsOnTimeout` (`:184`); it does cover a distinct path
+(`timeout: 0.01` enters `readLoop()`, `timeout: 0` never does). It busy-loops the mock for
+10 ms, so PHPUnit records an unbounded number of invocations — measured harmless (unit
+suite 0.256 s / 46 MB, unchanged). Informational.
+
+## Not findings — verified this round
+- `src/Client/Producer.php:124` **unchanged from round 1** (`git diff HEAD~1..HEAD -- src/`
+  is empty). Still correct.
+- `readMessage()->willReturn(new \stdClass())` is not a landmine: `readMessage()` is declared
+  `: object` (`src/StreamConnection.php:364`) and both callers discard the value; the same
+  stub is pre-existing at `ProducerTest.php:84`, `:137`, `:195`, `:229`.
+- `$this->assertNotNull(...)` inside a mock callback surfaces correctly — verified by
+  inverting it: all three tests failed with a clean trace
+  (`ProducerTest.php:314 -> Producer.php:124 -> ProducerTest.php:321`). Nothing swallowed.
+- 20 ms gap headroom: measured chunk-timestamp delta 23-27 ms against a >0 ms requirement,
+  and insufficient headroom fails on a named assertion before the subscription, not as a
+  mystery `before-0` leak.
+- `composer cs`, `composer phpstan` (level 9), `composer rector`, `composer kb-lint`,
+  `composer test:unit` (635 tests / 1377 assertions, OK) all pass. No new `AGENTS.md` or KB
+  violations (round-2 diff is tests + `docs/proof_of_work/` only).
+
+## Verdict
+**Ready for step 7 and step 9.** All remaining findings are `low`/`nit`; no third review
+round is warranted.

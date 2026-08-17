@@ -1,5 +1,10 @@
 # Findings — coder — issue #385
 
+> **Superseded in places — read the "Correction (round 2)" section at the end of
+> this file first.** The mechanism blamed in the next section was refuted
+> empirically in review round 2; the text is kept because the workflow keeps
+> disagreement on the record, not because it is correct.
+
 ## Obstacle: an e2e test was silently relying on the bug being fixed here
 
 `tests/E2E/ConsumerTest.php::testSubscribeFromTimestamp` (around line 368,
