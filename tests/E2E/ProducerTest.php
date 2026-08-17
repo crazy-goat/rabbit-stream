@@ -112,7 +112,15 @@ class ProducerTest extends E2ETestCase
     public function testWaitForConfirmsReturnsAsSoonAsConfirmArrives(): void
     {
         $this->assertNotNull($this->connection);
-        $producer = $this->connection->createProducer($this->streamName);
+
+        /** @var \CrazyGoat\RabbitStream\Client\ConfirmationStatus[] $confirmations */
+        $confirmations = [];
+        $producer = $this->connection->createProducer(
+            $this->streamName,
+            onConfirm: function ($status) use (&$confirmations): void {
+                $confirmations[] = $status;
+            }
+        );
 
         $producer->send('test message');
 
@@ -124,17 +132,26 @@ class ProducerTest extends E2ETestCase
         // the fix, readLoop(maxFrames: 1, ...) hands control back to the
         // outer loop after each dispatched frame, so the call returns right
         // after the confirm is processed. A real confirm round-trip over a
-        // local Docker broker takes low tens of milliseconds; 2.0s leaves
-        // two orders of magnitude of headroom for CI slowness while still
-        // being far below the 5.0s timeout, so it reliably distinguishes
-        // "returned fast" from "blocked for the full timeout".
+        // local Docker broker is observed around 0.03s; 1.0s leaves ~30x
+        // headroom for CI slowness while still being 5x below the 5.0s
+        // timeout, so it reliably distinguishes "returned fast" from
+        // "blocked for the full timeout" without letting a ~2s regression
+        // through unnoticed.
         $start = microtime(true);
         $producer->waitForConfirms(timeout: 5.0);
         $elapsed = microtime(true) - $start;
 
         $message = "waitForConfirms() took {$elapsed}s; expected it to return shortly "
             . "after the confirm arrived, not block for the full timeout";
-        $this->assertLessThan(2.0, $elapsed, $message);
+        $this->assertLessThan(1.0, $elapsed, $message);
+
+        // Guard against a future regression where send() stops incrementing
+        // pendingConfirms: waitForConfirms() would then return instantly
+        // without ever waiting for a real confirm, and an elapsed-time
+        // assertion alone would still pass vacuously. Assert the confirm
+        // actually arrived.
+        $this->assertCount(1, $confirmations, 'Exactly one confirm should have been received');
+        $this->assertTrue($confirmations[0]->isConfirmed(), 'The confirm should report success');
 
         $producer->close();
     }

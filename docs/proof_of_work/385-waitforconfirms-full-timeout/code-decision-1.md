@@ -177,3 +177,53 @@ passed to `waitForConfirms()`:
   `usleep`, see above), `ServerInitiatedCloseTest` (~4.3s),
   `ConnectionHandshakeTest` (~2-3s, connection-refused/auth-failure paths),
   `HeartbeatTest` (~2.5s) — none of these call `Producer::waitForConfirms()`.
+
+## Correction (round 2, post-review) — the chunk-boundary story above is wrong
+
+The "unplanned scope" note above (`testSubscribeFromTimestamp`, lines
+129-150) and the timing table's characterization of that test as an
+unrelated 5s outlier are **both incorrect**. This was caught by
+`review-1.md` (round-1 critical review) and independently confirmed by a
+deep-reasoning consult. Recording what I originally concluded, why it was
+wrong, and what actually happens, per the workflow's requirement to keep
+disagreement on the record rather than silently rewriting history.
+
+**What I originally concluded:** that a short gap between the "before" and
+"after" publish batches risked both landing in the *same* osiris chunk, and
+that only a multi-second gap (I used 5s) reliably forced a new chunk.
+
+**Why that is false, with evidence:** a `PublishConfirm` is only emitted
+after osiris has written and committed the chunk containing that entry, so
+`waitForConfirms()` returning already implies the "before" chunk is closed.
+The "after" batch, published strictly afterward, can never be appended to
+an already-committed chunk — it is *always* a new chunk, regardless of gap
+length. This was verified directly against the running broker by reading
+back `Message::getTimestamp()` (the per-chunk timestamp,
+`src/Client/OsirisChunkParser.php:66`,`:84-85`) at gaps of 0ms, 1ms, 10ms,
+and 50ms: every single run produced two distinct chunk timestamps.
+
+**The real cause of the flake:** a one-millisecond equality race, not a
+chunk-batching effect. `OffsetSpec::timestamp()` (`src/VO/OffsetSpec.php:63`)
+resolves broker-side to the first chunk whose timestamp is `>=` the
+requested value. The old test sampled `$timestamp = (int)(microtime(true) *
+1000)` immediately after `waitForConfirms()` returned — i.e., now that the
+fix works, in the *same millisecond* the broker wrote the "before" chunk.
+Measured correlation over 10 runs was exact: `beforeChunkTs - $timestamp ==
+0` -> FAIL (`before-0` leaked), `== -1` -> PASS. Because the gap is inserted
+*after* `$timestamp` is sampled, **no value of `usleep()` — 100ms, 1.5s, 3s,
+or the 5s I committed — can affect this race.** The "3/3 clean full-suite
+runs" reported above was luck at roughly a 50% real pass rate for the 5s
+sleep (confirmed independently: 2/6 failures on `--filter
+testSubscribeFromTimestamp`, 2/4 red full-suite runs). The 5s sleep also
+introduced a second failure mode: a `ConnectionException: connection closed
+by peer` from holding a live connection idle for 5s.
+
+**What actually fixes it:** derive the timestamp boundary entirely from
+broker-written data (`Message::getTimestamp()`), never from the client
+wall clock. Implemented in round 2 — see `code-decision-2.md`.
+
+**Withdrawn:** the "suggested follow-up" in `findings-coder.md:32-38`
+("publish enough volume to force a size-based chunk roll") is withdrawn.
+It cannot help, because the premise it is built on (that batches can share
+a chunk) is false — a confirmed batch is, by construction, always in its
+own chunk already.

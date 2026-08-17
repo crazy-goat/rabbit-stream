@@ -131,3 +131,59 @@ likely to recur when someone adds a new blocking wait method), I'd suggest:
   built on `readLoop()` should follow this pattern, or it will always block
   for the full timeout regardless of how fast the awaited condition is
   actually satisfied.
+
+## Correction (round 2, post-review)
+
+Round-1 critical review (`review-1.md`) and an independent deep-reasoning
+consult both refuted two things recorded above with empirical evidence
+against the running broker. Not deleting the original text per the
+workflow's "keep disagreement on the record" rule — recording corrections
+here instead.
+
+### The "obstacle" section above (lines 1-38) is wrong
+
+I concluded the two publish batches could land in the *same* osiris chunk
+absent a multi-second gap, and that `usleep(5_000_000)` fixed
+`testSubscribeFromTimestamp`. Both are false. A `PublishConfirm` is only
+emitted after the chunk containing that entry is committed, so a batch
+published after `waitForConfirms()` returns can never share a chunk with
+the previous batch — verified at gaps of 0/1/10/50ms, always two distinct
+chunk timestamps. The actual flake is a 1ms equality race in
+`OffsetSpec::timestamp()`'s `>=` resolution against a client-sampled
+`microtime()` taken in the same millisecond as the "before" chunk write —
+a race the gap is inserted on the wrong side of, so no `usleep()` length
+can affect it. The committed 5s sleep measured at roughly a 50% real
+failure rate (2/6 on the filtered test, 2/4 red full-suite runs) and added
+a second failure mode (`ConnectionException: connection closed by peer`
+from a 5s idle connection). Full detail and the fix in
+`code-decision-1.md`'s "Correction (round 2)" section and
+`code-decision-2.md`.
+
+**Withdrawn:** the "suggested follow-up" above (lines 32-38) proposing to
+"actively verify chunk-boundary placement... by publishing enough volume
+to force a size-based chunk roll" is withdrawn. It cannot help — the
+premise (batches sharing a chunk) is false; a confirmed batch is always
+already in its own chunk.
+
+### The #382 analysis above (lines 40-80) is unsound
+
+"Neither Linux nor BSD enforces the POSIX range restriction" is not
+supportable from the experiment actually run (macOS/Darwin only) and is
+wrong about the mechanism in both directions. Linux's kernel `select()`
+**does** reject `tv_usec >= 1_000_000` with `EINVAL`. The reason nothing
+ever fails in this codebase is one layer higher: PHP's `ext/sockets`
+normalizes `usec > 999999` into `tv_sec` before calling the underlying
+`select()`/`poll()` syscall (matching the comment in PHP's own source
+about Solaris/BSD not liking out-of-range microsecond values), so the
+overflow never reaches libc. A single-platform PHP-level test cannot
+distinguish "PHP normalizes it" from "the kernel tolerates it" — do not
+use the paragraph above to argue #382 is lower priority without checking
+`ext/sockets`' own normalization code.
+
+**Frequency note, corrected:** the value passed to
+`src/StreamConnection.php:446-447` is unchanged by this PR, but is hit
+*more often*, not less. `$remaining` is recomputed from a deadline anchored
+once at `Producer.php:118`; post-fix, each `readLoop()` re-entry happens
+only milliseconds later, so `$remaining` is still ~5.0 and the computed
+`(sec=1, usec=3_999_997)` recurs once per dispatched frame instead of once
+per `waitForConfirms()` call. Still correctly out of scope for #385.
