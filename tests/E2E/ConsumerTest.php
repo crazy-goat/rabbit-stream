@@ -377,7 +377,16 @@ class ConsumerTest extends E2ETestCase
         $producer->close();
 
         $timestamp = (int)(microtime(true) * 1000);
-        usleep(100_000);
+        // NOTE: needs a real gap, not just a `usleep`. RabbitMQ batches messages that
+        // arrive close together into the same chunk, and the whole chunk carries one
+        // timestamp; a gap that is too short risks placing "before-*" and "after-*" in
+        // the same chunk, which would leak "before-*" into the timestamp-filtered read.
+        // Before the #385 fix, Producer::waitForConfirms() always blocked for the full
+        // 5s timeout regardless of how fast the broker actually confirmed, which
+        // incidentally created a multi-second gap here and masked this. Now that
+        // waitForConfirms() returns as soon as confirms arrive, this test needs its own
+        // explicit gap.
+        usleep(5_000_000);
 
         $producer2 = $this->connection->createProducer($this->streamName);
         for ($i = 0; $i < 5; $i++) {

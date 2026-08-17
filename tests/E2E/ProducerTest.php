@@ -109,6 +109,36 @@ class ProducerTest extends E2ETestCase
         $producer->close();
     }
 
+    public function testWaitForConfirmsReturnsAsSoonAsConfirmArrives(): void
+    {
+        $this->assertNotNull($this->connection);
+        $producer = $this->connection->createProducer($this->streamName);
+
+        $producer->send('test message');
+
+        // The timeout is deliberately generous (5s) so the assertion isn't
+        // flaky on a slow CI box. Before the fix for #385, waitForConfirms()
+        // always blocked for the *entire* timeout regardless of how quickly
+        // the broker actually confirmed, because readLoop() was called
+        // without maxFrames and only ever returns on deadline expiry. With
+        // the fix, readLoop(maxFrames: 1, ...) hands control back to the
+        // outer loop after each dispatched frame, so the call returns right
+        // after the confirm is processed. A real confirm round-trip over a
+        // local Docker broker takes low tens of milliseconds; 2.0s leaves
+        // two orders of magnitude of headroom for CI slowness while still
+        // being far below the 5.0s timeout, so it reliably distinguishes
+        // "returned fast" from "blocked for the full timeout".
+        $start = microtime(true);
+        $producer->waitForConfirms(timeout: 5.0);
+        $elapsed = microtime(true) - $start;
+
+        $message = "waitForConfirms() took {$elapsed}s; expected it to return shortly "
+            . "after the confirm arrived, not block for the full timeout";
+        $this->assertLessThan(2.0, $elapsed, $message);
+
+        $producer->close();
+    }
+
     public function testWaitForConfirmsTimeoutThrows(): void
     {
         $this->assertNotNull($this->connection);

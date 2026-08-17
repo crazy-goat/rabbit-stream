@@ -121,7 +121,7 @@ class Producer implements ProducerInterface
             if ($remaining <= 0) {
                 break;
             }
-            $this->connection->readLoop(timeout: $remaining);
+            $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
         }
         if ($this->pendingConfirms > 0) {
             throw new TimeoutException(
