@@ -61,7 +61,7 @@ class AmqpMessageDecoderTest extends TestCase
             if (isset($properties[$fieldName])) {
                 $fieldValue = $properties[$fieldName];
                 if (is_string($fieldValue)) {
-                    $listItems .= "\xa1" . chr(strlen($fieldValue)) . $fieldValue;
+                    $listItems .= "\xa1" . chr(strlen($fieldValue) & 0xFF) . $fieldValue;
                 } elseif (is_int($fieldValue)) {
                     if ($fieldValue >= 0 && $fieldValue <= 255) {
                         $listItems .= "\x52" . chr($fieldValue);
@@ -77,7 +77,7 @@ class AmqpMessageDecoderTest extends TestCase
         }
 
         $listSize = strlen($listItems) + 1;
-        $listData = "\xc0" . chr($listSize) . chr($count) . $listItems;
+        $listData = "\xc0" . chr($listSize & 0xFF) . chr($count & 0xFF) . $listItems;
 
         // 0x00 + smallulong 0x73 (Properties) + list
         return "\x00\x53\x73" . $listData;
@@ -94,10 +94,10 @@ class AmqpMessageDecoderTest extends TestCase
         $count = 0;
 
         foreach ($properties as $key => $value) {
-            $mapItems .= "\xa1" . chr(strlen((string) $key)) . $key;
+            $mapItems .= "\xa1" . chr(strlen((string) $key) & 0xFF) . $key;
 
             if (is_string($value)) {
-                $mapItems .= "\xa1" . chr(strlen($value)) . $value;
+                $mapItems .= "\xa1" . chr(strlen($value) & 0xFF) . $value;
             } elseif (is_int($value)) {
                 if ($value >= 0 && $value <= 255) {
                     $mapItems .= "\x52" . chr($value);
@@ -111,7 +111,7 @@ class AmqpMessageDecoderTest extends TestCase
         }
 
         $mapSize = strlen($mapItems) + 1;
-        $mapData = "\xc1" . chr($mapSize) . chr($count * 2) . $mapItems;
+        $mapData = "\xc1" . chr($mapSize & 0xFF) . chr(($count * 2) & 0xFF) . $mapItems;
 
         // 0x00 + smallulong 0x74 (ApplicationProperties) + map
         return "\x00\x53\x74" . $mapData;
@@ -302,12 +302,12 @@ class AmqpMessageDecoderTest extends TestCase
 
         $mapItems = '';
         foreach ($annotations as $key => $value) {
-            $mapItems .= "\xa3" . chr(strlen($key)) . $key;
+            $mapItems .= "\xa3" . chr(strlen($key) & 0xFF) . $key;
             // Use uint32 for values > 255
             $mapItems .= "\x70" . pack('N', $value);
         }
         $mapSize = strlen($mapItems) + 1;
-        $mapData = "\xc1" . chr($mapSize) . chr(2) . $mapItems;
+        $mapData = "\xc1" . chr($mapSize & 0xFF) . chr(2) . $mapItems;
 
         // 0x00 + smallulong 0x72 (MessageAnnotations) + map
         $amqpData = "\x00\x53\x72" . $mapData . $this->buildDataSection('Annotated');
