@@ -1,5 +1,4 @@
 
-```markdown
 # Findings — review (issue #413)
 
 One entry per finding. "Earlier round" = `findings-coder.md` (no prior
@@ -123,13 +122,18 @@ now asserts each captured `PublishedMessage::data` equals
 from `Producer::send()`/`sendBatch()` fails the unit suite (not only the
 Docker-gated E2E suite).
 
-```
 
----
+## New findings (review round 2)
 
-```acceptance-report
-{
-  "criteriaSatisfied": [
-    {
-      "id": "criterion-1",
-      "status": "satisfied",
+### N1 — tests/Client/ProducerTest.php — single-message send() wiring not unit-guarded
+- What is wrong: round 1's R2 fix guarded only the `sendBatch()` path
+  (`testSendBatchCreatesSingleRequestWithMultipleMessages`). The single-message
+  `send()` path had no unit assertion that the published body is
+  AMQP-encoded, so a regression dropping the encode from `send()` only (leaving
+  `sendBatch()` correct) would pass the unit suite and fail only Docker-gated E2E.
+- Severity: low.
+- Disposition: FIXED — added `testSendEncodesMessageBodyAsAmqpDataSection`
+  capturing the `PublishRequestV1` from `send('hello')` and asserting
+  `messages[0]['data'] === AmqpMessageEncoder::encodeDataSection('hello')`.
+  Both single and batch paths are now unit-guarded.
+- Automated check that could catch it: the new PHPUnit test.

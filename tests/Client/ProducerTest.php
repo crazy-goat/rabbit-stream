@@ -46,6 +46,43 @@ class ProducerTest extends TestCase
         $this->assertEquals(0.5, $capturedTimeout);
     }
 
+    public function testSendEncodesMessageBodyAsAmqpDataSection(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $capturedRequest = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request, $timeout) use (&$capturedRequest) {
+                if ($request instanceof PublishRequestV1) {
+                    $capturedRequest = $request;
+                }
+                return null;
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('hello');
+
+        $this->assertInstanceOf(PublishRequestV1::class, $capturedRequest);
+        /** @var PublishRequestV1 $capturedRequest */
+        $requestArray = $capturedRequest->toArray();
+        $messages = is_array($requestArray['messages']) ? $requestArray['messages'] : [];
+        $this->assertCount(1, $messages);
+
+        // Guard the Producer -> AmqpMessageEncoder wiring on the single-message
+        // path: send() must AMQP-encode the body, so a future refactor that
+        // drops the encode call fails the unit suite (not only Docker-gated E2E).
+        $this->assertIsArray($messages[0]);
+        $this->assertArrayHasKey('data', $messages[0]);
+        $this->assertSame(
+            AmqpMessageEncoder::encodeDataSection('hello'),
+            $messages[0]['data'],
+            'send() must AMQP-encode the message body'
+        );
+    }
+
     public function testSendBatchAcceptsOptionalWriteTimeout(): void
     {
         $connection = $this->createMock(StreamConnection::class);
