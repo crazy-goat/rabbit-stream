@@ -115,3 +115,80 @@ One entry per finding. Severity: high / medium / low / nit. Status: open / fixed
 - **Nit findings:** 2 (R1-4, R1-5)
 - **Verdict:** APPROVE — safe to merge. All low/nit findings are coverage/doc
   improvements that can be addressed in follow-up issues, not blockers.
+
+---
+
+## Round-2 status updates (R1-1 through R1-5) and new findings
+
+### R1-1 — Truncated-chunk test — **FIXED (verified round 2)**
+
+- **Round-2 verification:** Both tests added in commit `c5c2c5f`.
+  - `testTruncatedSimpleEntryThrowsException` (test file lines 187–201): truncation
+    offset 48+4+6=58 correct; asserts `\RuntimeException`; **uniquely** exercises the
+    `readBytes`→`ensureAvailable` guard — verified by simulation that removing the
+    guard causes `substr` to silently return 6 bytes, no exception, test FAILS. ✓
+  - `testTruncatedSubBatchBodyThrowsException` (test file lines 203–226): truncation
+    offset 48+11+2=61 correct; asserts `\RuntimeException`; exercises the guard as
+    first point of failure, but does NOT uniquely test it (see R2-1). ✓
+- **Status:** fixed — confirmed in round 2.
+
+### R1-2 — Empty sub-batch test — **FIXED (verified round 2)**
+
+- **Round-2 verification:** `testEmptySubBatchProducesNoEntries` (test file lines
+  228–243) asserts `assertSame([], $entries)` (strict identity, not just count).
+  Passes as part of 13-test suite. ✓
+- **Status:** fixed — confirmed in round 2.
+
+### R1-3 — `@see` docblock — **FIXED (verified round 2)**
+
+- **Round-2 verification:** `src/Client/OsirisChunkParser.php:32` now contains
+  `@see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/osiris/src/osiris_log.erl`
+  alongside the existing PROTOCOL.adoc link. Added in commit `c5c2c5f`. ✓
+- **Status:** fixed — confirmed in round 2.
+
+### R1-4 — Arithmetic correction in findings-coder.md — **FIXED (verified round 2)**
+
+- **Round-2 verification:** `findings-coder.md` obstacle #3 corrected in commit
+  `c5c2c5f`. New text states `(0x88000000 >> 25) & 0x0F = 4` (not 0), old fixture+
+  parser self-consistent for codecs 0–7, zstd test catches bug via old-parser-on-
+  new-fixture. Arithmetic verified by PHP simulation: `0x88000001 >> 25 = 0x44;
+  0x44 & 0x0F = 4`. ✓
+- **Status:** fixed — confirmed in round 2.
+
+### R1-5 — No unconsumed-trailing-bytes validation — **DELIBERATELY NOT FIXED (confirmed round 2)**
+
+- **Round-2 verification:** Decision recorded in `findings-review.md` R1-5 with
+  rationale: behavior change + overlaps coder finding #1 (numRecords cross-check),
+  filed as follow-up candidate. Severity nit. Reasonable deferral — no security
+  impact (ReadBuffer bounds prevent amplification). ✓
+- **Status:** deliberately not fixed — confirmed reasonable in round 2.
+
+---
+
+## R2-1 — Sub-batch truncation test does not uniquely exercise the ensureAvailable guard
+
+- **File:** `tests/Client/OsirisChunkParserTest.php:203–226`
+  (`testTruncatedSubBatchBodyThrowsException`)
+- **Severity:** nit
+- **Status:** deliberately not fixed — the test is still valid evidence that a
+  truncated sub-batch body fails loud (the externally observable contract). Isolating
+  the `readBytes` guard specifically would require a contrived fixture (inner uint32
+  length present, inner body truncated) for marginal extra coverage, and the
+  simple-entry truncation test already uniquely covers the `readBytes` guard. The
+  round-2 review agreed this is non-blocking. Recorded for completeness.
+- **What:** The test truncates the sub-batch body to 2 of 34 claimed bytes. The
+  `readBytes(34)`→`ensureAvailable(34)` guard fires first, so the test does exercise
+  it. But if `ensureAvailable` were removed from `readBytes`, the test would still
+  pass: `substr` silently returns 2 bytes, the inner `ReadBuffer` is 2 bytes, and the
+  inner `getUint32()` throws because `unpack('N', $twoByteString)` returns `false` →
+  the `if ($data === false) throw ...` check fires. Verified by simulation. The
+  simple-entry test does uniquely test the guard (no inner buffer, `substr` silently
+  returns short data, no secondary check catches it).
+- **Impact:** The sub-batch test doesn't isolate the `readBytes` guard — it relies on
+  a secondary defense. The test is still valid (proves truncation fails loud) but
+  doesn't uniquely prove the `readBytes` guard works. Non-blocking: the simple-entry
+  test provides unique coverage.
+- **Smallest safe fix direction:** Optionally add a sub-batch truncation test where
+  the body has enough bytes for the inner `getUint32` to succeed but not enough for
+  the inner `readBytes(innerSize)`, isolating the outer `readBytes` guard. Or document
+  the observation. Not blocking.
