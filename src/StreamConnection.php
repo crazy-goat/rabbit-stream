@@ -435,7 +435,10 @@ class StreamConnection
             $write = null;
             $except = null;
 
-            // Calculate remaining timeout for socket_select
+            // Calculate remaining timeout for socket_select.
+            // Cap $remaining BEFORE deriving both halves: select(2) rejects
+            // tv_usec >= 1_000_000 with EINVAL (e.g. 2.5s would produce
+            // sec = 1, usec = 1_500_000 without the cap).
             $selectTimeoutSec = 1;
             $selectTimeoutUsec = 0;
             if ($deadline !== null) {
@@ -443,8 +446,9 @@ class StreamConnection
                 if ($remaining <= 0) {
                     break;
                 }
-                $selectTimeoutSec = (int) min($remaining, 1);
-                $selectTimeoutUsec = (int) (($remaining - $selectTimeoutSec) * 1_000_000);
+                $capped = min($remaining, 1);
+                $selectTimeoutSec = (int) $capped;
+                $selectTimeoutUsec = (int) (($capped - $selectTimeoutSec) * 1_000_000);
             }
 
             $ready = socket_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
