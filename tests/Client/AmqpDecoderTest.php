@@ -466,6 +466,21 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame($this->buildExpectedNestedValue(3), $value);
     }
 
+    public function testDecodeMessageHonorsCustomMaxDepth(): void
+    {
+        // Direct test of decodeMessage()'s $maxDepth param: 5-deep body exceeds a limit of 3.
+        // Section value enters at depth 1, so depth 4 is reached and the limit of 3 is exceeded.
+        $message = "\x00\x53\x76" . $this->buildNestedList8(5);
+
+        try {
+            AmqpDecoder::decodeMessage($message, 3);
+            $this->fail('Expected DeserializationException when exceeding custom maxDepth via decodeMessage');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('AMQP recursion depth limit exceeded (max 3)', $e->getMessage());
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+    }
+
     public function testDecodeMessageWithShallowNestedBodyStillDecodes(): void
     {
         // Regression guard: legitimately nested message (20 levels) decodes normally.
