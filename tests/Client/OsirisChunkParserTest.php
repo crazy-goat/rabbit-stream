@@ -134,6 +134,50 @@ class OsirisChunkParserTest extends TestCase
         OsirisChunkParser::parse($chunk);
     }
 
+    public function testSubBatchHeaderParsedAsOneBytePlusUint16(): void
+    {
+        $innerEntries = [];
+        for ($i = 0; $i < 512; $i++) {
+            $innerEntries[] = ['data' => chr($i % 256)];
+        }
+
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 512,
+            timestamp: 1234567890,
+            chunkFirstOffset: 500,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => $innerEntries],
+            ]
+        );
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(512, $entries);
+        for ($i = 0; $i < 512; $i++) {
+            $this->assertSame(500 + $i, $entries[$i]->getOffset());
+            $this->assertSame(chr($i % 256), $entries[$i]->getData());
+        }
+    }
+
+    public function testCompressedSubBatchZstdThrowsException(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Compressed sub-batches not supported yet (codec: 4)');
+
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 4, 'entries' => [['data' => 'test']]],
+            ]
+        );
+
+        OsirisChunkParser::parse($chunk);
+    }
+
     public function testMixedSimpleAndSubBatchEntries(): void
     {
         $chunk = $this->createChunk(
@@ -187,8 +231,9 @@ class OsirisChunkParserTest extends TestCase
                 $innerEntries = is_array($entry['entries']) ? $entry['entries'] : [];
                 $count = count($innerEntries);
 
-                $header = 0x80000000 | ($codec << 25) | $count;
-                $dataSection .= pack('N', $header);
+                // Sub-batch header: 1 byte (T=1, codec in bits 6-4) + numRecords (uint16)
+                $dataSection .= pack('C', 0x80 | (($codec & 0x07) << 4));
+                $dataSection .= pack('n', $count);
 
                 $innerData = '';
                 foreach ($innerEntries as $innerEntry) {

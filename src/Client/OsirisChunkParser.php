@@ -26,7 +26,7 @@ use CrazyGoat\RabbitStream\Exception\DeserializationException;
  *
  * Each entry:
  *   Simple entry: 4-byte header (bit 31 = 0) + size in lower 31 bits + data
- *   Sub-batch entry: 4-byte header (bit 31 = 1) + codec (bits 28-25) + count (lower 16 bits)
+ *   Sub-batch entry: 1-byte header (bit 7 = 1, codec in bits 6-4) + numRecords (uint16)
  *                    + uncompressedSize (uint32) + compressedSize (uint32) + sub-batch data
  *
  * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/rabbitmq_stream/docs/PROTOCOL.adoc
@@ -76,17 +76,16 @@ class OsirisChunkParser
         $currentOffset = $chunkFirstOffset;
 
         for ($i = 0; $i < $numEntries; $i++) {
-            $header = $buffer->getUint32();
-            $isSubBatch = ($header & 0x80000000) !== 0;
+            $entryType = $buffer->getUint8();
+            $isSubBatch = ($entryType & 0x80) !== 0;
 
             if (!$isSubBatch) {
-                $entrySize = $header & 0x7FFFFFFF;
+                $entrySize = (($entryType & 0x7F) << 24) | ($buffer->getUint16() << 8) | $buffer->getUint8();
                 $entryData = $buffer->readBytes($entrySize);
                 $entries[] = new ChunkEntry($currentOffset, $entryData, $timestamp);
                 $currentOffset++;
             } else {
-                $codec = ($header >> 25) & 0x0F;
-                $uncompressedCount = $header & 0xFFFF;
+                $codec = ($entryType >> 4) & 0x07;
 
                 if ($codec !== 0) {
                     throw new DeserializationException(sprintf(
@@ -95,12 +94,13 @@ class OsirisChunkParser
                     ));
                 }
 
+                $numRecords = $buffer->getUint16();
                 $buffer->getUint32(); // uncompressedSize — read but not needed
                 $compressedSize = $buffer->getUint32();
                 $subBatchData = $buffer->readBytes($compressedSize);
 
                 $subBuffer = new ReadBuffer($subBatchData);
-                for ($j = 0; $j < $uncompressedCount; $j++) {
+                for ($j = 0; $j < $numRecords; $j++) {
                     $innerSize = $subBuffer->getUint32();
                     $innerData = $subBuffer->readBytes($innerSize);
                     $entries[] = new ChunkEntry($currentOffset, $innerData, $timestamp);
