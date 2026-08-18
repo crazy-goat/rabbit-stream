@@ -34,3 +34,4 @@
 | # | File:Line | What is wrong | Severity | What happened to it |
 |---|-----------|---------------|----------|-------------------|
 | 9 | docs/en/guide/flow-control.md:569-590 | The first "Custom ConsumerUpdate Callback" `<?php` snippet uses `OffsetSpec::TYPE_OFFSET` in its return statement but only imports `ConsumerUpdateResponseV1` — missing `use CrazyGoat\RabbitStream\VO\OffsetSpec;`. Would fatal with "Class not found" if run. Same class of defect as #3/#4/#7. Introduced by the 4d78483 offsetType rewrite (the sibling "Complete Example" snippet got the import; this one was missed). | low | Fixed: added `use CrazyGoat\RabbitStream\VO\OffsetSpec;` after the `ConsumerUpdateResponseV1` import. |
+Round 4: clean — no new findings.
