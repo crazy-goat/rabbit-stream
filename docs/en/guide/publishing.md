@@ -368,6 +368,7 @@ $response = $stream->readMessage();
 
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
 
 $message = new PublishedMessage(
     publishingId: 1,

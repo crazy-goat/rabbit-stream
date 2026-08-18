@@ -473,15 +473,17 @@ When the server sends `ConsumerUpdate` frames (e.g. to reassign a single-active-
 
 ```php
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 // Register callback for ConsumerUpdate (returns [offsetType, offset])
 $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     if ($query->getSubscriptionId() === 1) {
         echo "Consumer became active for subscription 1\n";
-        // Start processing messages from the beginning
-        return [0, 0];
+        // Start processing from the beginning of the stream (TYPE_FIRST).
+        return [OffsetSpec::TYPE_FIRST, 0];
     }
-    return [1, 0]; // OFFSET, start from 0
+    // Other subscriptions: resume at a stored offset (TYPE_OFFSET, offset 0).
+    return [OffsetSpec::TYPE_OFFSET, 0];
 });
 
 // Process messages in a loop (low-level API)

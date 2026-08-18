@@ -577,15 +577,16 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     echo "Subscription ID: {$query->getSubscriptionId()}\n";
     
     // Return [offsetType, offset]
-    // Offset types:
-    // 0 = FIRST (start from beginning)
-    // 1 = OFFSET (start from specific offset)
-    // 2 = NEXT (start from next offset)
-    // 3 = LAST (start from last message)
-    // 4 = TIMESTAMP (start from timestamp)
-    
+    // Offset types (see CrazyGoat\RabbitStream\VO\OffsetSpec):
+    //   OffsetSpec::TYPE_FIRST     = 1 (start from beginning)
+    //   OffsetSpec::TYPE_LAST      = 2 (start from last message)
+    //   OffsetSpec::TYPE_NEXT      = 3 (start after last consumed)
+    //   OffsetSpec::TYPE_OFFSET    = 4 (start from specific offset)
+    //   OffsetSpec::TYPE_TIMESTAMP = 5 (start from timestamp)
+    //   OffsetSpec::TYPE_INTERVAL  = 6 (start from interval)
+
     // Start from offset 100
-    return [1, 100];
+    return [OffsetSpec::TYPE_OFFSET, 100];
 });
 ```
 
@@ -593,11 +594,12 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
 
 | Type | Value | Description |
 |------|-------|-------------|
-| `FIRST` | 0 | Start from first message in stream |
-| `OFFSET` | 1 | Start from specific offset (must provide offset) |
-| `NEXT` | 2 | Start from next offset (after last consumed) |
-| `LAST` | 3 | Start from last message |
-| `TIMESTAMP` | 4 | Start from messages after timestamp |
+| `OffsetSpec::TYPE_FIRST` | 1 | Start from first message in stream |
+| `OffsetSpec::TYPE_LAST` | 2 | Start from last message |
+| `OffsetSpec::TYPE_NEXT` | 3 | Start from next offset (after last consumed) |
+| `OffsetSpec::TYPE_OFFSET` | 4 | Start from specific offset (must provide offset) |
+| `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start from messages after timestamp |
+| `OffsetSpec::TYPE_INTERVAL` | 6 | Start from interval |
 
 ### Complete Example
 
@@ -625,8 +627,8 @@ $connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection
 // Custom handler for becoming active
 $stream->onConsumerUpdate(function ($query) {
     echo "Promoted to active consumer!\n";
-    // Start from where we left off (offset type 1 = OFFSET)
-    return [1, 0];
+    // Start from where we left off (TYPE_OFFSET, offset 0).
+    return [OffsetSpec::TYPE_OFFSET, 0];
 });
 
 // Subscribe

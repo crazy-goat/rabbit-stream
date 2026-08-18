@@ -8,3 +8,17 @@
 | 4 | docs/en/guide/flow-control.md:317,371 | Two `<?php`-tagged snippets ("Basic Usage" and "Stopping the Loop") use `PublishRequestV1`, `PublishedMessage`, `AmqpMessageEncoder` without `use` imports. A nearby snippet ("readMessage() Transparent Dispatch", line 276) DOES include `use` statements for the same classes, making the inconsistency visible. Would fatal with "Class not found" if run as-is. Check: `php -l` on extracted block. | low | Fixed: added the three `use` statements (PublishRequestV1, PublishedMessage, AmqpMessageEncoder) after `<?php` in both snippets. |
 | 5 | docs/en/guide/stream-management.md:410 | `StreamMetadata` and `Connection` used as type hints in the `StreamMetadataCache` class snippet without `use` imports. Inline class definition (no `<?php` tag), illustrative only. | nit | Fixed: added `use CrazyGoat\RabbitStream\Client\Connection;` and `use CrazyGoat\RabbitStream\VO\StreamMetadata;` before the class. |
 | 6 | docs/en/guide/super-streams.md:476 | `ConsumerUpdateResponseV1` used as type hint in inline snippet without `use` import. Illustrative snippet, not a `<?php` block. | nit | Fixed: added `use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;` before the snippet. |
+
+---
+
+# Findings — Review Round 2
+
+| # | File:Line | What is wrong | Severity | What happened to it |
+|---|-----------|---------------|----------|-------------------|
+| 7 | docs/en/guide/publishing.md:374 | Missing `use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;` in the "Publish Messages" low-level snippet. The rewrite (a47bb50) changed `message: 'Hello'` to `message: AmqpMessageEncoder::encodeDataSection('Hello')` but did not add the import. Would fatal with "Class not found" if run as-is. Same class of issue as round-1 findings #3/#4. | low | |
+| 8 | docs/en/guide/super-streams.md:486-487 | ConsumerUpdate callback returns incorrect offsetType values. `[0, 0]` uses offsetType=0 which is not a valid OffsetSpec type (valid types start at 1=FIRST); comment says "from the beginning" which should be TYPE_FIRST=1. `[1, 0]` has comment "OFFSET" but offsetType=1 is TYPE_FIRST, not TYPE_OFFSET (=4). Introduced by a47bb50. | low | |
+
+# Resolutions — Round 2 findings
+
+- #7 (low, publishing.md:374): Fixed — added `use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;` to the "Publish Messages" low-level snippet import block.
+- #8 (low, super-streams.md:486-487): Fixed — replaced `[0, 0]` with `[OffsetSpec::TYPE_FIRST, 0]` and `[1, 0]` with `[OffsetSpec::TYPE_OFFSET, 0]`, added `use OffsetSpec`, and corrected the comments. Same class of defect also found and fixed in two more places during resolution: `flow-control.md:575` (inline offset-type comment block + `return [1, 100]` → `[OffsetSpec::TYPE_OFFSET, 100]`, plus the "Offset Types" table rewritten to the real `OffsetSpec` constants 1–6) and `flow-control.md:629` (`return [1, 0]` with wrong "offset type 1 = OFFSET" comment → `[OffsetSpec::TYPE_OFFSET, 0]`). All three were introduced by the a47bb50 rewrite.
