@@ -83,7 +83,8 @@ The root of all library-specific exceptions. Catching this handles any RabbitStr
 use CrazyGoat\RabbitStream\Exception\RabbitStreamException;
 
 try {
-    $connection->sendMessage($request);
+    $producer->send($message);
+    $producer->waitForConfirms(timeout: 5.0);
 } catch (RabbitStreamException $e) {
     // Handle any RabbitStream error
     error_log("RabbitStream error: " . $e->getMessage());
@@ -99,7 +100,7 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
 try {
-    $connection->createPublisher($publisherId, 'non-existent-stream');
+    $connection->createProducer('non-existent-stream'); // declares the publisher
 } catch (ProtocolException $e) {
     $code = $e->getResponseCode();
     
@@ -121,7 +122,13 @@ Specialized `ProtocolException` for authentication failures:
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 
 try {
-    $connection->authenticate($username, $password);
+    // Connection::create() performs the full handshake, including SASL
+    $connection = Connection::create(
+        host: '127.0.0.1',
+        port: 5552,
+        user: $username,
+        password: $password,
+    );
 } catch (AuthenticationException $e) {
     // Handle invalid credentials
     echo "Authentication failed: " . $e->getMessage();
@@ -136,7 +143,9 @@ Thrown when the response type doesn't match expectations. Useful for debugging p
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 
 try {
-    $response = $connection->sendMessage($request);
+    // Thrown when the server answers a request with an unexpected
+    // response class (e.g. after a protocol version mismatch)
+    $connection->deleteStream('my-stream');
 } catch (UnexpectedResponseException $e) {
     echo "Expected: " . $e->getExpectedClass();
     echo "Got: " . $e->getActualClass();
@@ -166,14 +175,14 @@ Specialized `ConnectionException` for timeout scenarios:
 ```php
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 
-try {
-    $connection->setTimeout(5); // 5 seconds
-    $response = $connection->readMessage();
-} catch (TimeoutException $e) {
-    // Handle timeout - maybe retry or reconnect
-    echo "Operation timed out";
-}
+// Low-level API: readMessage() throws TimeoutException when no response
+// frame arrives in time
+$response = $stream->readMessage(timeout: 5.0);
 ```
+
+> The high-level API surfaces timeouts through `Producer::waitForConfirms()`
+> — it throws `TimeoutException` when confirmations do not arrive within
+> the given timeout (see [Publishing Guide](publishing.md)).
 
 ### DeserializationException
 
@@ -183,11 +192,12 @@ Thrown when frame parsing fails, indicating protocol corruption or version misma
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 
 try {
-    $response = $connection->readMessage();
+    // Low-level API
+    $response = $stream->readMessage();
 } catch (DeserializationException $e) {
     // Protocol error - connection may be corrupted
     error_log("Protocol deserialization error: " . $e->getMessage());
-    $connection->close();
+    $stream->close();
 }
 ```
 
@@ -198,8 +208,11 @@ Thrown for invalid method arguments:
 ```php
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 
+$producer = $connection->createProducer('my-stream'); // unnamed producer
+
 try {
-    $connection->subscribe($subscriptionId, '', 'my-stream'); // Empty reference name
+    // Querying the sequence requires a named producer
+    $producer->querySequence();
 } catch (InvalidArgumentException $e) {
     echo "Invalid argument: " . $e->getMessage();
 }
@@ -209,27 +222,29 @@ try {
 
 ### Connection Establishment Errors
 
-Errors during the 5-step connection handshake:
+Errors during the 5-step connection handshake (TCP, PeerProperties, SASL, Tune, Open). The high-level `Connection::create()` performs all steps and throws on failure:
 
 ```php
-use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-function connectWithRetry(string $host, int $port, string $user, string $pass): ?StreamConnection
+function connectWithRetry(string $host, int $port, string $user, string $pass): ?Connection
 {
     $maxRetries = 3;
     $retryDelay = 1; // seconds
     
     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
         try {
-            $connection = new StreamConnection($host, $port);
-            $connection->connect();
-            $connection->authenticate($user, $pass);
-            $connection->open('/');
-            return $connection;
+            return Connection::create(
+                host: $host,
+                port: $port,
+                user: $user,
+                password: $pass,
+                vhost: '/'
+            );
         } catch (ConnectionException $e) {
             // Network error - retryable
             if ($attempt < $maxRetries) {
@@ -265,7 +280,13 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
 try {
-    $connection->authenticate($username, $password);
+    // Authentication happens inside Connection::create()
+    $connection = Connection::create(
+        host: '127.0.0.1',
+        port: 5552,
+        user: $username,
+        password: $password,
+    );
 } catch (AuthenticationException $e) {
     // Invalid credentials
     echo "Login failed. Please check your username and password.";
@@ -326,39 +347,36 @@ function ensureStreamExists($connection, string $streamName): void
 
 ### Publishing Errors
 
-Handle publisher creation and publish errors:
+Handle producer creation and publish errors:
 
 ```php
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-// Creating a publisher
+// Creating a producer (declares the publisher)
 try {
-    $connection->createPublisher($publisherId, 'my-stream');
+    $producer = $connection->createProducer('my-stream');
 } catch (ProtocolException $e) {
     $code = $e->getResponseCode();
     
     if ($code === ResponseCodeEnum::STREAM_NOT_EXIST) {
-        // Create stream first
+        // Create stream first, then retry
         $connection->createStream('my-stream');
-        $connection->createPublisher($publisherId, 'my-stream');
+        $producer = $connection->createProducer('my-stream');
     } elseif ($code === ResponseCodeEnum::ACCESS_REFUSED) {
         error_log("No permission to publish to this stream");
     }
 }
 
-// Publishing (async errors via callbacks)
-$connection->registerPublisher($publisherId, 
-    onConfirm: function ($status) {
+// Publishing (async errors surface in the onConfirm callback)
+$producer = $connection->createProducer(
+    'my-stream',
+    onConfirm: function (ConfirmationStatus $status) {
         if (!$status->isConfirmed()) {
             $errorCode = $status->getErrorCode();
             $publishingId = $status->getPublishingId();
             error_log("Publish $publishingId failed with code: $errorCode");
-        }
-    },
-    onError: function ($errors) {
-        foreach ($errors as $error) {
-            error_log("Publish error: " . $error->getMessage());
         }
     }
 );
@@ -371,22 +389,22 @@ Handle subscription and consumer errors:
 ```php
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-// Subscribing to a stream
+// Creating a consumer (subscribes to the stream)
 try {
-    $connection->subscribe(
-        subscriptionId: 1,
-        referenceName: 'my-consumer-group',
-        streamName: 'my-stream',
-        offsetType: OffsetSpecification::first()
+    $consumer = $connection->createConsumer(
+        'my-stream',
+        OffsetSpec::first(),
+        name: 'my-consumer-group'
     );
 } catch (ProtocolException $e) {
     $code = $e->getResponseCode();
     
     if ($code === ResponseCodeEnum::SUBSCRIPTION_ID_ALREADY_EXISTS) {
-        // Unsubscribe first, then retry
-        $connection->unsubscribe(1);
-        $connection->subscribe(1, 'my-consumer-group', 'my-stream', OffsetSpecification::first());
+        // A previous consumer still holds the subscription - close it and retry
+        $consumer->close();
+        $consumer = $connection->createConsumer('my-stream', OffsetSpec::first());
     } elseif ($code === ResponseCodeEnum::STREAM_NOT_EXIST) {
         error_log("Cannot subscribe - stream does not exist");
     } elseif ($code === ResponseCodeEnum::ACCESS_REFUSED) {
@@ -395,14 +413,16 @@ try {
 }
 
 // Handling NO_OFFSET on first consumer run
-if ($code === ResponseCodeEnum::NO_OFFSET) {
-    // First time consuming - start from beginning or latest
-    $connection->subscribe(
-        subscriptionId: 1,
-        referenceName: 'my-consumer-group',
-        streamName: 'my-stream',
-        offsetType: OffsetSpecification::first() // or ::last()
-    );
+// (this is how queryOffset() reports that nothing was stored yet)
+try {
+    $lastOffset = $consumer->queryOffset();
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::NO_OFFSET) {
+        // First time consuming - start from beginning or latest
+        $consumer = $connection->createConsumer('my-stream', OffsetSpec::first()); // or OffsetSpec::last()
+    } else {
+        throw $e;
+    }
 }
 ```
 
@@ -414,24 +434,24 @@ Handle operation timeouts gracefully:
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 
-$connection->setTimeout(10); // 10 second timeout
-
+// High-level: waitForConfirms() throws TimeoutException when
+// confirmations do not arrive in time
 try {
-    $response = $connection->readMessage();
+    $producer->waitForConfirms(timeout: 10.0); // 10 second timeout
 } catch (TimeoutException $e) {
     // Operation took too long
     // Decide: retry, reconnect, or fail
     
     // Option 1: Retry once
     try {
-        $response = $connection->readMessage();
+        $producer->waitForConfirms(timeout: 10.0);
     } catch (TimeoutException $e) {
         // Second timeout - give up
         throw new \RuntimeException("Operation timed out twice");
     }
 } catch (ConnectionException $e) {
-    // Connection lost
-    $connection->reconnect();
+    // Connection lost - re-establish it (Connection::create) and
+    // re-create the producer before continuing
 }
 ```
 
@@ -463,8 +483,11 @@ try {
 Always verify publish confirmations:
 
 ```php
-$connection->registerPublisher($publisherId,
-    onConfirm: function ($status) {
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+
+$producer = $connection->createProducer(
+    'my-stream',
+    onConfirm: function (ConfirmationStatus $status) {
         if (!$status->isConfirmed()) {
             // Handle publish failure
             $errorCode = $status->getErrorCode();
@@ -482,25 +505,26 @@ $connection->registerPublisher($publisherId,
 First-time consumers need special handling:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\OffsetSpecification;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-function subscribeWithOffsetFallback($connection, $subscriptionId, $reference, $stream, $preferredOffset)
-{
+function createConsumerWithOffsetFallback(
+    Connection $connection,
+    string $stream,
+    string $consumerName
+): \CrazyGoat\RabbitStream\Client\Consumer {
     try {
-        $connection->subscribe($subscriptionId, $reference, $stream, $preferredOffset);
+        // OffsetSpec::next() resumes from the stored offset, but the server
+        // answers NO_OFFSET when nothing has been stored yet
+        return $connection->createConsumer($stream, OffsetSpec::next(), name: $consumerName);
     } catch (ProtocolException $e) {
         if ($e->getResponseCode() === ResponseCodeEnum::NO_OFFSET) {
-            // No stored offset - use default
-            $connection->subscribe(
-                $subscriptionId, 
-                $reference, 
-                $stream, 
-                OffsetSpecification::first()
-            );
-        } else {
-            throw $e;
+            // No stored offset - start from the beginning
+            return $connection->createConsumer($stream, OffsetSpec::first(), name: $consumerName);
         }
+        throw $e;
     }
 }
 ```
@@ -510,15 +534,16 @@ function subscribeWithOffsetFallback($connection, $subscriptionId, $reference, $
 Always close connections properly:
 
 ```php
-function shutdown($connection, $publisherId = null, $subscriptionId = null)
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Client\Producer;
+use CrazyGoat\RabbitStream\Client\Consumer;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamException;
+
+function shutdown(Connection $connection, ?Producer $producer = null, ?Consumer $consumer = null): void
 {
     try {
-        if ($subscriptionId !== null) {
-            $connection->unsubscribe($subscriptionId);
-        }
-        if ($publisherId !== null) {
-            $connection->deletePublisher($publisherId);
-        }
+        $consumer?->close();
+        $producer?->close();
         $connection->close();
     } catch (RabbitStreamException $e) {
         // Log but don't throw - we're shutting down anyway
@@ -533,15 +558,14 @@ Include response codes and context in logs:
 
 ```php
 try {
-    $connection->createPublisher($id, $stream);
+    $connection->createProducer($stream);
 } catch (ProtocolException $e) {
     $code = $e->getResponseCode();
     $codeName = $code ? $code->name : 'UNKNOWN';
     $codeValue = $code ? $code->value : 'N/A';
     
     error_log(sprintf(
-        "Failed to create publisher %d for stream %s: %s (code: %d)",
-        $id,
+        "Failed to create producer for stream %s: %s (code: %d)",
         $stream,
         $codeName,
         $codeValue
@@ -567,8 +591,8 @@ function withRetry(callable $operation, int $maxRetries = 3, int $baseDelay = 1)
             usleep($baseDelay * 1000000 * (2 ** $i));
         } catch (ConnectionException $e) {
             $lastException = $e;
-            // Reconnect then retry
-            $connection->reconnect();
+            // Connection lost - re-establish it before retrying
+            // (e.g. $connection = Connection::create(...))
         }
     }
     

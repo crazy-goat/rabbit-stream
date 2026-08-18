@@ -82,35 +82,21 @@ try {
 <?php
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Request\CreateRequestV1;
-use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 function createStreamIdempotent(Connection $connection, string $name, array $args = []): bool
 {
     try {
-        // Try high-level API first
         $connection->createStream($name, $args);
-        return true;
-    } catch (\Exception $e) {
-        // If it failed, check if stream already exists using low-level API
-        $stream = $connection->getStreamConnection();
-        
-        $stream->sendMessage(new CreateRequestV1($name, $args));
-        $response = $stream->readMessage();
-        
-        if ($response instanceof CreateResponseV1) {
-            $code = $response->getResponseCode();
-            
-            if ($code === ResponseCodeEnum::OK) {
-                return true; // Created successfully
-            } elseif ($code === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
-                return false; // Already exists, not an error
-            }
+        return true; // Created successfully
+    } catch (ProtocolException $e) {
+        // The high-level API throws on any non-OK response code
+        if ($e->getResponseCode() === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
+            return false; // Already exists, not an error
         }
-        
         throw $e;
     }
 }
@@ -143,30 +129,22 @@ try {
 <?php
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
-use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 function deleteStreamSafe(Connection $connection, string $name): bool
 {
-    $stream = $connection->getStreamConnection();
-    
-    $stream->sendMessage(new DeleteStreamRequestV1($name));
-    $response = $stream->readMessage();
-    
-    if ($response instanceof DeleteStreamResponseV1) {
-        $code = $response->getResponseCode();
-        
-        if ($code === ResponseCodeEnum::OK) {
-            return true; // Deleted successfully
-        } elseif ($code === ResponseCodeEnum::STREAM_NOT_EXIST) {
+    try {
+        $connection->deleteStream($name);
+        return true; // Deleted successfully
+    } catch (ProtocolException $e) {
+        if ($e->getResponseCode() === ResponseCodeEnum::STREAM_NOT_EXIST) {
             return false; // Didn't exist, nothing to delete
         }
+        throw $e;
     }
-    
-    throw new \Exception("Delete failed: " . ($response?->getResponseCode()->getMessage() ?? 'Unknown error'));
 }
 
 // Usage
@@ -229,7 +207,7 @@ try {
             echo "  Status: OK\n";
             echo "  Leader: Broker {$streamMeta->getLeaderReference()}\n";
             
-            $replicas = $streamMeta->getReplicaReferences();
+            $replicas = $streamMeta->getReplicasReferences();
             if (count($replicas) > 0) {
                 echo "  Replicas: " . implode(', ', $replicas) . "\n";
             } else {
@@ -278,7 +256,7 @@ try {
         
         if ($code === ResponseCodeEnum::OK->value) {
             $leader = $streamMeta->getLeaderReference();
-            $replicaCount = count($streamMeta->getReplicaReferences());
+            $replicaCount = count($streamMeta->getReplicasReferences());
             echo "$name: leader=$leader, replicas=$replicaCount\n";
         } else {
             $error = ResponseCodeEnum::from($code);
@@ -481,7 +459,7 @@ try {
             echo "\nStream '{$streamMeta->getStreamName()}':\n";
             echo "  - Leader: Broker {$streamMeta->getLeaderReference()}\n";
             
-            $replicas = $streamMeta->getReplicaReferences();
+            $replicas = $streamMeta->getReplicasReferences();
             if (count($replicas) > 0) {
                 echo "  - Replicas: " . implode(', ', $replicas) . "\n";
             }
@@ -539,6 +517,7 @@ try {
 ```php
 <?php
 
+use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
@@ -551,8 +530,12 @@ use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
-$connection = Connection::create();
-$stream = $connection->getStreamConnection();
+// Low-level API: create a raw StreamConnection and complete the handshake
+// on it. Connection::create() runs the full handshake on the connection
+// we pass in, so $stream is ready for protocol-level commands afterwards.
+$stream = new StreamConnection('127.0.0.1', 5552);
+$stream->connect();
+$connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
 
 try {
     $streamName = 'low-level-stream';
@@ -565,7 +548,7 @@ try {
     $response = $stream->readMessage();
     
     if ($response instanceof CreateResponseV1) {
-        echo "Response code: " . $response->getResponseCode()->getMessage() . "\n";
+        echo "Stream created\n";
     }
     
     // Query metadata
@@ -597,7 +580,7 @@ try {
     $response = $stream->readMessage();
     
     if ($response instanceof DeleteStreamResponseV1) {
-        echo "Response code: " . $response->getResponseCode()->getMessage() . "\n";
+        echo "Stream deleted\n";
     }
     
 } finally {
@@ -737,7 +720,7 @@ class StreamManager
         return [
             'name' => $name,
             'leader' => $meta?->getLeaderReference(),
-            'replicas' => $meta?->getReplicaReferences(),
+            'replicas' => $meta?->getReplicasReferences(),
             'stats' => $stats,
         ];
     }

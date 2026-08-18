@@ -159,20 +159,20 @@ $consumer = $connection->createConsumer(
 
 ### 7. Server-Side Resolution (RabbitMQ 4.3+)
 
-Resolve an OffsetSpec to a concrete offset value before subscribing:
+Resolve an OffsetSpec to a concrete offset value before subscribing. There is no high-level wrapper for this command yet — use a raw `StreamConnection` (`$stream`), i.e. the low-level API:
 
 ```php
 use CrazyGoat\RabbitStream\Request\ResolveOffsetSpecRequestV1;
 use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
 
-// Resolve "last" to concrete offset
-$connection->sendMessage(new ResolveOffsetSpecRequestV1(
+// $stream is a handshaken StreamConnection
+// (see docs/en/examples/low-level-protocol.md)
+$stream->sendMessage(new ResolveOffsetSpecRequestV1(
     stream: 'events',
-    reference: 'my-consumer',
     offsetSpec: OffsetSpec::last()
 ));
 
-$response = $connection->readMessage();
+$response = $stream->readMessage();
 if ($response instanceof ResolveOffsetSpecResponseV1) {
     $concreteOffset = $response->getOffset();
     echo "Last offset is: {$concreteOffset}\n";
@@ -677,20 +677,28 @@ try {
 
 ## Low-Level Offset Operations
 
-For advanced use cases, use protocol-level commands:
+For advanced use cases, use protocol-level commands. The snippets below use a raw `StreamConnection` (`$stream`) — the low-level API. If you only need to store or query an offset by reference, the high-level `Connection` already covers it:
+
+```php
+// High-level, reference-based (no consumer instance needed)
+$connection->storeOffset('my-consumer', 'events', 1000);
+
+$stored = $connection->queryOffset('my-consumer', 'events');
+```
 
 ### Store Offset (Fire-and-Forget)
 
 ```php
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 
+// $stream is a handshaken StreamConnection (low-level API)
 $storeOffset = new StoreOffsetRequestV1(
-    offset: 1000,
     reference: 'my-consumer',
-    stream: 'events'
+    stream: 'events',
+    offset: 1000
 );
 
-$connection->sendMessage($storeOffset);
+$stream->sendMessage($storeOffset);
 // No response expected
 ```
 
@@ -700,13 +708,14 @@ $connection->sendMessage($storeOffset);
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 
+// $stream is a handshaken StreamConnection (low-level API)
 $queryOffset = new QueryOffsetRequestV1(
     reference: 'my-consumer',
     stream: 'events'
 );
 
-$connection->sendMessage($queryOffset);
-$response = $connection->readMessage();
+$stream->sendMessage($queryOffset);
+$response = $stream->readMessage();
 
 if ($response instanceof QueryOffsetResponseV1) {
     $offset = $response->getOffset();

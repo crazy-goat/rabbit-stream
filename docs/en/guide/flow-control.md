@@ -54,15 +54,22 @@ RabbitMQ Streams uses a simple but effective credit system:
 
 ### Initial Credit
 
-When subscribing to a stream, you specify the initial credit via the `SubscribeRequestV1`:
+When subscribing to a stream, you specify the initial credit via the `SubscribeRequestV1`. This guide shows the low-level API — the snippets use a raw `StreamConnection` (`$stream`):
 
 ```php
 <?php
 
 declare(strict_types=1);
 
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
+// Low-level connection, handshaken by the high-level factory
+$stream = new StreamConnection('127.0.0.1', 5552);
+$stream->connect();
+$connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
 
 // Subscribe with initial credit of 100
 $subscribe = new SubscribeRequestV1(
@@ -72,9 +79,12 @@ $subscribe = new SubscribeRequestV1(
     credit: 100  // Initial credit
 );
 
-$connection->sendMessage($subscribe);
-$response = $connection->readMessage();
+$stream->sendMessage($subscribe);
+$response = $stream->readMessage();
 ```
+
+> The high-level `Connection::createConsumer()` performs the subscribe and
+> manages credits internally — you only tune the `initialCredit` parameter.
 
 **Choosing the right value:**
 
@@ -90,12 +100,17 @@ $response = $connection->readMessage();
 
 ### Credit Replenishment
 
-After processing messages, send a `CreditRequestV1` to replenish credits:
+After processing messages, send a `CreditRequestV1` to replenish credits. This happens inside your `registerSubscriber()` deliver callback (low-level API):
 
 ```php
 <?php
 
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
+use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
+
+// Inside your registerSubscriber() callback:
+$messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
 
 // Process 50 messages
 foreach ($messages as $message) {
@@ -108,30 +123,36 @@ $creditRequest = new CreditRequestV1(
     credit: 50
 );
 
-$connection->sendMessage($creditRequest);
+$stream->sendMessage($creditRequest);
 ```
 
 **Replenishment Strategies:**
 
 1. **Message-by-message** (low latency):
    ```php
-   $connection->onDeliver(function ($deliver) use ($connection) {
-       processMessage($deliver);
+   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream): void {
+       $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
+       foreach ($messages as $message) {
+           processMessage($message);
+       }
        // Replenish 1 credit immediately
-       $connection->sendMessage(new CreditRequestV1(1, 1));
+       $stream->sendMessage(new CreditRequestV1(1, 1));
    });
    ```
 
 2. **Batch replenishment** (high throughput):
    ```php
    $processedCount = 0;
-   $connection->onDeliver(function ($deliver) use ($connection, &$processedCount) {
-       processMessage($deliver);
-       $processedCount++;
+   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream, &$processedCount): void {
+       $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
+       foreach ($messages as $message) {
+           processMessage($message);
+           $processedCount++;
+       }
        
        // Replenish every 50 messages
        if ($processedCount >= 50) {
-           $connection->sendMessage(new CreditRequestV1(1, 50));
+           $stream->sendMessage(new CreditRequestV1(1, 50));
            $processedCount = 0;
        }
    });
@@ -142,13 +163,16 @@ $connection->sendMessage($creditRequest);
    $lastReplenish = microtime(true);
    $processedCount = 0;
    
-   $connection->onDeliver(function ($deliver) use ($connection, &$lastReplenish, &$processedCount) {
-       processMessage($deliver);
-       $processedCount++;
+   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream, &$lastReplenish, &$processedCount): void {
+       $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
+       foreach ($messages as $message) {
+           processMessage($message);
+           $processedCount++;
+       }
        
        // Replenish every 100ms or 100 messages
        if ($processedCount >= 100 || (microtime(true) - $lastReplenish) > 0.1) {
-           $connection->sendMessage(new CreditRequestV1(1, $processedCount));
+           $stream->sendMessage(new CreditRequestV1(1, $processedCount));
            $processedCount = 0;
            $lastReplenish = microtime(true);
        }
@@ -171,12 +195,12 @@ When credits reach zero, the server stops sending messages. This is **not an err
 - Other operations (heartbeats, confirms) continue normally
 
 **Recovery:**
-Simply send a `CreditRequestV1` to add more credits:
+Simply send a `CreditRequestV1` to add more credits (low-level API):
 
 ```php
 // Check if we need more credits
 if ($messagesProcessed > 0) {
-    $connection->sendMessage(new CreditRequestV1($subscriptionId, $messagesProcessed));
+    $stream->sendMessage(new CreditRequestV1($subscriptionId, $messagesProcessed));
 }
 ```
 
@@ -249,13 +273,17 @@ The `readMessage()` method handles server-push frames transparently using an int
 - Your code only sees the response it was waiting for
 - Heartbeats are automatically echoed back
 
-**Example:**
+**Example (low-level API, `$stream` is a handshaken StreamConnection):**
 
 ```php
 <?php
 
+use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
+
 // Register callbacks before calling readMessage()
-$connection->registerPublisher(
+$stream->registerPublisher(
     publisherId: 1,
     onConfirm: function (array $publishingIds) {
         echo "Confirmed: " . implode(', ', $publishingIds) . "\n";
@@ -268,14 +296,15 @@ $connection->registerPublisher(
 );
 
 // Publish a message
-$connection->sendMessage(new PublishRequestV1(1, $message));
+$message = new PublishedMessage(1, AmqpMessageEncoder::encodeDataSection('Hello'));
+$stream->sendMessage(new PublishRequestV1(1, $message));
 
 // readMessage() will:
 // 1. Wait for data
 // 2. If PublishConfirm arrives first → dispatch to onConfirm, keep looping
 // 3. If PublishError arrives first → dispatch to onError, keep looping
 // 4. When the actual response arrives → return it to caller
-$response = $connection->readMessage();
+$response = $stream->readMessage();
 ```
 
 For a visual diagram of this flow, see [Server-Push Dispatch Diagram](../assets/diagrams/server-push-dispatch.md).
@@ -289,8 +318,9 @@ For pure asynchronous processing (e.g., driving publish confirms without blockin
 ```php
 <?php
 
-// Register a publisher with callbacks
-$connection->registerPublisher(
+// Register a publisher with callbacks (low-level API, $stream is a
+// handshaken StreamConnection)
+$stream->registerPublisher(
     publisherId: 1,
     onConfirm: function (array $publishingIds) {
         echo "Confirmed: " . implode(', ', $publishingIds) . "\n";
@@ -304,11 +334,14 @@ $connection->registerPublisher(
 
 // Publish messages
 for ($i = 1; $i <= 100; $i++) {
-    $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage($i, "Message {$i}")));
+    $stream->sendMessage(new PublishRequestV1(
+        1,
+        new PublishedMessage($i, AmqpMessageEncoder::encodeDataSection("Message {$i}"))
+    ));
 }
 
 // Process up to 100 server-push frames (confirms/errors)
-$connection->readLoop(maxFrames: 100);
+$stream->readLoop(maxFrames: 100);
 ```
 
 ### Parameters
@@ -333,7 +366,7 @@ $connection->readLoop();
 
 ### Stopping the Loop
 
-Call `stop()` from within a callback to interrupt the loop:
+Call `stop()` from within a callback to interrupt the loop (low-level API):
 
 ```php
 <?php
@@ -341,26 +374,29 @@ Call `stop()` from within a callback to interrupt the loop:
 $confirmedCount = 0;
 $targetCount = 100;
 
-$connection->registerPublisher(
+$stream->registerPublisher(
     publisherId: 1,
-    onConfirm: function (array $publishingIds) use ($connection, &$confirmedCount, $targetCount) {
+    onConfirm: function (array $publishingIds) use ($stream, &$confirmedCount, $targetCount) {
         $confirmedCount += count($publishingIds);
         echo "Progress: {$confirmedCount}/{$targetCount}\n";
         
         // Stop when all messages are confirmed
         if ($confirmedCount >= $targetCount) {
-            $connection->stop();
+            $stream->stop();
         }
     }
 );
 
 // Publish and wait for all confirms
 for ($i = 1; $i <= $targetCount; $i++) {
-    $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage($i, "Message {$i}")));
+    $stream->sendMessage(new PublishRequestV1(
+        1,
+        new PublishedMessage($i, AmqpMessageEncoder::encodeDataSection("Message {$i}"))
+    ));
 }
 
 // Loop until stop() is called or timeout
-$connection->readLoop(timeout: 30.0);
+$stream->readLoop(timeout: 30.0);
 echo "All messages confirmed!\n";
 ```
 
@@ -377,13 +413,16 @@ echo "All messages confirmed!\n";
 
 2. **Consumer message processing:**
    ```php
-   // Process messages for 30 seconds
-   $connection->registerSubscriber(1, function ($deliver) {
-       processMessage($deliver);
+   // Low-level API
+   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream): void {
+       $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
+       foreach ($messages as $message) {
+           processMessage($message);
+       }
        // Replenish credit
-       $connection->sendMessage(new CreditRequestV1(1, 1));
+       $stream->sendMessage(new CreditRequestV1(1, count($messages)));
    });
-   $connection->readLoop(timeout: 30.0);
+   $stream->readLoop(timeout: 30.0);
    ```
 
 3. **Event-driven architecture:**
@@ -402,14 +441,14 @@ Heartbeats keep connections alive during idle periods. The server sends heartbea
 
 ### Automatic Handling
 
-By default, heartbeats are handled automatically:
+By default, heartbeats are handled automatically (low-level API):
 
 ```php
 <?php
 
 // Heartbeats are transparent - you never see them
 // The client auto-echoes heartbeat frames back to the server
-$response = $connection->readMessage(); // Heartbeats handled internally
+$response = $stream->readMessage(); // Heartbeats handled internally
 ```
 
 ### Custom Heartbeat Callback
@@ -420,12 +459,12 @@ Register a callback to be notified when heartbeats arrive:
 <?php
 
 // Called every time a heartbeat is received (and echoed)
-$connection->onHeartbeat(function () {
+$stream->onHeartbeat(function () {
     echo "Heartbeat received at " . date('Y-m-d H:i:s') . "\n";
 });
 
 // Now readMessage() and readLoop() will call your callback
-$connection->readLoop(timeout: 60.0); // Will trigger callback multiple times
+$stream->readLoop(timeout: 60.0); // Will trigger callback multiple times
 ```
 
 **Use cases for custom callbacks:**
@@ -459,11 +498,16 @@ The **Single Active Consumer** feature ensures only one consumer processes messa
 
 ### How It Works
 
-1. Multiple consumers subscribe to the same stream with the same `consumerReference`
+1. Multiple consumers subscribe to the same stream as a **group** (the server-side concept of a consumer group; the protocol calls it a consumer reference)
 2. Only one consumer is **active** and receives messages
 3. Others are **inactive** and wait
 4. When the active consumer disconnects, the server promotes an inactive one
 5. The server sends `ConsumerUpdate` to ask the newly active consumer for its offset
+
+> Note: the current client cannot subscribe with a consumer reference, so
+> group-based coordination is not available through `SubscribeRequestV1`
+> yet. The `ConsumerUpdate` handling below still applies to any
+> subscription that receives such frames.
 
 ### ConsumerUpdate Flow
 
@@ -495,18 +539,17 @@ The **Single Active Consumer** feature ensures only one consumer processes messa
 
 ### Auto-Reply Mechanism
 
-By default, the client automatically replies to `ConsumerUpdate` with offset type 1 (OFFSET) and offset 0:
+By default, the client automatically replies to `ConsumerUpdate` with offset type 1 (OFFSET) and offset 0. The subscribe command itself does not carry a consumer reference in this client (single-active-consumer groups are not supported yet), but a subscription may still receive `ConsumerUpdate` frames:
 
 ```php
 <?php
 
-// Subscribe as single active consumer
+// Low-level API
 $subscribe = new SubscribeRequestV1(
     subscriptionId: 1,
     stream: 'my-stream',
     offsetSpec: OffsetSpec::next(),
-    credit: 100,
-    consumerReference: 'my-consumer-group'  // Same reference = single active
+    credit: 100
 );
 
 // Auto-reply is handled internally - no code needed!
@@ -514,17 +557,16 @@ $subscribe = new SubscribeRequestV1(
 
 ### Custom ConsumerUpdate Callback
 
-For custom offset selection, register a callback:
+For custom offset selection, register a callback (low-level API):
 
 ```php
 <?php
 
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 
-$connection->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
+$stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     echo "Becoming active consumer!\n";
     echo "Subscription ID: {$query->getSubscriptionId()}\n";
-    echo "Stream: {$query->getStreamName()}\n";
     
     // Return [offsetType, offset]
     // Offset types:
@@ -556,42 +598,43 @@ $connection->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array 
 
 declare(strict_types=1);
 
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
+use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-$connection = Connection::create(
-    host: '127.0.0.1',
-    port: 5552,
-    user: 'guest',
-    password: 'guest',
-);
+// Low-level connection, handshaken by the high-level factory
+$stream = new StreamConnection('127.0.0.1', 5552);
+$stream->connect();
+$connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
 
 // Custom handler for becoming active
-$connection->onConsumerUpdate(function ($query) {
+$stream->onConsumerUpdate(function ($query) {
     echo "Promoted to active consumer!\n";
     // Start from where we left off (offset type 1 = OFFSET)
     return [1, 0];
 });
 
-// Subscribe as part of a consumer group
+// Subscribe
 $subscribe = new SubscribeRequestV1(
     subscriptionId: 1,
     stream: 'my-stream',
     offsetSpec: OffsetSpec::next(),
-    credit: 100,
-    consumerReference: 'order-processor-group'
+    credit: 100
 );
 
-$connection->sendMessage($subscribe);
-$connection->readMessage(); // SubscribeResponse
+$stream->sendMessage($subscribe);
+$stream->readMessage(); // SubscribeResponse
 
 // Register message handler
-$connection->registerSubscriber(1, function ($deliver) use ($connection) {
-    $messages = $deliver->getMessages();
+$stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream): void {
+    $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
     echo "Received " . count($messages) . " messages\n";
     
     // Process messages
@@ -600,11 +643,11 @@ $connection->registerSubscriber(1, function ($deliver) use ($connection) {
     }
     
     // Replenish credits
-    $connection->sendMessage(new CreditRequestV1(1, count($messages)));
+    $stream->sendMessage(new CreditRequestV1(1, count($messages)));
 });
 
 // Run event loop
-$connection->readLoop();
+$stream->readLoop();
 ```
 
 ## Best Practices
@@ -625,12 +668,13 @@ $connection->readLoop();
 3. **Combine both** — Use `readMessage()` for setup, `readLoop()` for runtime
 
 ```php
+// Low-level API ($stream is a handshaken StreamConnection)
 // Setup phase - use readMessage()
-$connection->sendMessage(new DeclarePublisherRequestV1(1, null, 'my-stream'));
-$connection->readMessage(); // Wait for DeclarePublisherResponse
+$stream->sendMessage(new DeclarePublisherRequestV1(1, null, 'my-stream'));
+$stream->readMessage(); // Wait for DeclarePublisherResponse
 
 // Runtime phase - use readLoop()
-$connection->readLoop(maxFrames: 1000, timeout: 60.0);
+$stream->readLoop(maxFrames: 1000, timeout: 60.0);
 ```
 
 ### Error Handling
@@ -640,7 +684,8 @@ $connection->readLoop(maxFrames: 1000, timeout: 60.0);
 3. **Handle server-initiated close** — The server can close connections anytime
 
 ```php
-$connection->registerPublisher(
+// Low-level API ($stream is a handshaken StreamConnection)
+$stream->registerPublisher(
     publisherId: 1,
     onConfirm: function ($ids) { /* ... */ },
     onError: function ($errors) {
@@ -662,16 +707,17 @@ $connection->registerPublisher(
 
 1. **Enable heartbeats** — Prevents connection timeouts during idle periods
 2. **Use `onHeartbeat()` callback** — Log connection health for monitoring
-3. **Handle timeouts gracefully** — `readMessage()` and `readLoop()` can timeout
+3. **Handle timeouts gracefully** — `readMessage()` can time out (it throws `TimeoutException`); `readLoop()` returns silently when its timeout expires
 
 ```php
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 
 try {
-    $connection->readLoop(timeout: 30.0);
+    // Low-level API: wait up to 30s for the next response frame
+    $response = $stream->readMessage(timeout: 30.0);
 } catch (TimeoutException $e) {
     echo "No activity for 30 seconds, checking connection...\n";
-    // Send heartbeat or reconnect
+    echo "Connection still " . ($stream->isConnected() ? 'alive' : 'lost') . "\n";
 }
 ```
 

@@ -537,6 +537,18 @@ For detailed flow control documentation, see [Flow Control Guide](flow-control.m
 ## 7. Low-Level Consuming
 
 For advanced use cases, you can use the protocol-level commands directly.
+The snippets below use a raw `StreamConnection` (`$stream`) — the low-level
+API. Create it and complete the handshake on it first:
+
+```php
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\Connection;
+
+// Low-level connection, handshaken by the high-level factory
+$stream = new StreamConnection('127.0.0.1', 5552);
+$stream->connect();
+$connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
+```
 
 ### Subscribe
 
@@ -551,22 +563,24 @@ $subscribe = new SubscribeRequestV1(
     credit: 100
 );
 
-$connection->sendMessage($subscribe);
-$response = $connection->readMessage();
+$stream->sendMessage($subscribe);
+$response = $stream->readMessage();
 ```
 
 ### Handle Deliver Frames
 
-Deliver frames are server-push messages containing the actual data:
+Deliver frames are server-push messages containing the actual data. Each `DeliverResponseV1` carries raw Osiris chunk bytes, which you must parse and decode yourself:
 
 ```php
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
+use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
 
 // Register handler for deliver frames
-$connection->registerSubscriber(
+$stream->registerSubscriber(
     subscriptionId: 1,
-    callback: function (DeliverResponseV1 $deliver) use ($connection) {
-        $messages = $deliver->getMessages();
+    onDeliver: function (DeliverResponseV1 $deliver) use ($stream) {
+        $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
         
         foreach ($messages as $message) {
             echo "Offset: {$message->getOffset()}\n";
@@ -574,12 +588,12 @@ $connection->registerSubscriber(
         }
         
         // Replenish credits
-        $connection->sendMessage(new CreditRequestV1(1, count($messages)));
+        $stream->sendMessage(new CreditRequestV1(1, count($messages)));
     }
 );
 
 // Process deliver frames
-$connection->readLoop(maxFrames: 100);
+$stream->readLoop(maxFrames: 100);
 ```
 
 ### Store Offset (Fire-and-Forget)
@@ -588,12 +602,12 @@ $connection->readLoop(maxFrames: 100);
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 
 $storeOffset = new StoreOffsetRequestV1(
-    offset: 1000,
     reference: 'my-consumer',
-    stream: 'my-stream'
+    stream: 'my-stream',
+    offset: 1000
 );
 
-$connection->sendMessage($storeOffset);
+$stream->sendMessage($storeOffset);
 // No response expected - fire and forget
 ```
 
@@ -607,8 +621,8 @@ $queryOffset = new QueryOffsetRequestV1(
     stream: 'my-stream'
 );
 
-$connection->sendMessage($queryOffset);
-$response = $connection->readMessage();
+$stream->sendMessage($queryOffset);
+$response = $stream->readMessage();
 
 if ($response instanceof QueryOffsetResponseV1) {
     $offset = $response->getOffset();
@@ -622,8 +636,8 @@ if ($response instanceof QueryOffsetResponseV1) {
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 
 $unsubscribe = new UnsubscribeRequestV1(subscriptionId: 1);
-$connection->sendMessage($unsubscribe);
-$response = $connection->readMessage();
+$stream->sendMessage($unsubscribe);
+$response = $stream->readMessage();
 ```
 
 ### Complete Low-Level Example
@@ -633,27 +647,32 @@ $response = $connection->readMessage();
 
 declare(strict_types=1);
 
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
-use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
-$connection = Connection::create('127.0.0.1');
+// Low-level connection, handshaken by the high-level factory
+$stream = new StreamConnection('127.0.0.1', 5552);
+$stream->connect();
+$connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
 
 // Query existing offset
 $queryOffset = new QueryOffsetRequestV1(
     reference: 'low-level-consumer',
     stream: 'events'
 );
-$connection->sendMessage($queryOffset);
-$queryResponse = $connection->readMessage();
+$stream->sendMessage($queryOffset);
+$queryResponse = $stream->readMessage();
 
 $startOffset = OffsetSpec::first();
 if ($queryResponse instanceof QueryOffsetResponseV1) {
@@ -669,13 +688,13 @@ $subscribe = new SubscribeRequestV1(
     offsetSpec: $startOffset,
     credit: 100
 );
-$connection->sendMessage($subscribe);
-$connection->readMessage(); // SubscribeResponse
+$stream->sendMessage($subscribe);
+$stream->readMessage(); // SubscribeResponse
 
 // Register deliver handler
 $processed = 0;
-$connection->registerSubscriber(1, function ($deliver) use ($connection, &$processed) {
-    $messages = $deliver->getMessages();
+$stream->registerSubscriber(1, function ($deliver) use ($stream, &$processed) {
+    $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
     
     foreach ($messages as $message) {
         echo "[{$message->getOffset()}] {$message->getBody()}\n";
@@ -685,24 +704,24 @@ $connection->registerSubscriber(1, function ($deliver) use ($connection, &$proce
     // Store offset every 50 messages
     if ($processed % 50 === 0) {
         $lastOffset = $messages[count($messages) - 1]->getOffset();
-        $connection->sendMessage(new StoreOffsetRequestV1(
-            offset: $lastOffset,
+        $stream->sendMessage(new StoreOffsetRequestV1(
             reference: 'low-level-consumer',
-            stream: 'events'
+            stream: 'events',
+            offset: $lastOffset
         ));
     }
     
     // Replenish credits
-    $connection->sendMessage(new CreditRequestV1(1, count($messages)));
+    $stream->sendMessage(new CreditRequestV1(1, count($messages)));
 });
 
 // Process 100 deliver frames
-$connection->readLoop(maxFrames: 100);
+$stream->readLoop(maxFrames: 100);
 
 // Unsubscribe
 $unsubscribe = new UnsubscribeRequestV1(subscriptionId: 1);
-$connection->sendMessage($unsubscribe);
-$connection->readMessage(); // UnsubscribeResponse
+$stream->sendMessage($unsubscribe);
+$stream->readMessage(); // UnsubscribeResponse
 
 $connection->close();
 echo "Processed {$processed} messages\n";
