@@ -69,6 +69,22 @@ class ReadLoopTimeoutTest extends E2ETestCase
         $this->assertLessThan(1.0, $elapsed, 'readLoop should not block significantly longer than the timeout');
     }
 
+    public function testReadLoopReturnsAfterTimeoutLongerThanOneSecond(): void
+    {
+        $connection = $this->connectAndOpen();
+        $this->connection = $connection;
+
+        // Regression for #382: socket_select() seconds were clamped to 1 but
+        // microseconds came from the unclamped remainder, yielding
+        // tv_usec >= 1_000_000 -> EINVAL + ConnectionException on Linux.
+        $start = microtime(true);
+        $connection->readLoop(timeout: 2.5);
+        $elapsed = microtime(true) - $start;
+
+        $this->assertGreaterThan(2.3, $elapsed, 'readLoop should block for approximately the timeout duration');
+        $this->assertLessThan(3.5, $elapsed, 'readLoop should not block significantly longer than the timeout');
+    }
+
     public function testReadLoopWithZeroTimeout(): void
     {
         $connection = $this->connectAndOpen();

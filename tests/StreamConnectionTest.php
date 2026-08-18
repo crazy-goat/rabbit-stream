@@ -654,6 +654,30 @@ class StreamConnectionTest extends TestCase
         socket_close($clientSocket);
     }
 
+    public function testReadLoopHandlesTimeoutLongerThanOneSecond(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $start = microtime(true);
+        // No frame is sent: readLoop must poll with socket_select until the
+        // deadline. Regression for #382: the seconds were clamped to 1 while
+        // the microseconds were derived from the UNCLAMPED remainder
+        // (2.5s -> sec = 1, usec = 1_500_000), which select(2) rejects with
+        // EINVAL on Linux -> ConnectionException.
+        $connection->readLoop(maxFrames: 1, timeout: 2.5);
+        $elapsed = microtime(true) - $start;
+
+        $this->assertGreaterThan(2.3, $elapsed, 'readLoop should block for approximately the timeout duration');
+        $this->assertLessThan(3.5, $elapsed, 'readLoop should not block significantly longer than the timeout');
+        $this->assertTrue($connection->isConnected(), 'connection should remain usable after the timeout');
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
     /**
      * @return array{\Socket, \Socket}
      */
