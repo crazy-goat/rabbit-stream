@@ -99,6 +99,12 @@ class ReadBuffer
             return null;
         }
 
+        if ($len < 0) {
+            throw new DeserializationException(
+                sprintf('Invalid string length %d at position %d', $len, $this->position - 2)
+            );
+        }
+
         $this->ensureAvailable($len);
         $data = substr($this->buffer, $this->position, $len);
         $this->position += $len;
@@ -142,6 +148,19 @@ class ReadBuffer
     {
         $arrayLength = $this->getUint32();
 
+        $remaining = strlen($this->buffer) - $this->position;
+        if ($arrayLength > $remaining) {
+            throw new DeserializationException(
+                sprintf(
+                    'Invalid object array count %d at position %d: need at least %d bytes, but only %d available',
+                    $arrayLength,
+                    $this->position,
+                    $arrayLength,
+                    $remaining
+                )
+            );
+        }
+
         $data = [];
         for ($i = 0; $i < $arrayLength; $i++) {
             $item = $class::fromStreamBuffer($this);
@@ -159,6 +178,19 @@ class ReadBuffer
     {
         $arrayLength = $this->getUint32();
 
+        $remaining = strlen($this->buffer) - $this->position;
+        if ($arrayLength * 2 > $remaining) {
+            throw new DeserializationException(
+                sprintf(
+                    'Invalid string array count %d at position %d: need at least %d bytes, but only %d available',
+                    $arrayLength,
+                    $this->position,
+                    $arrayLength * 2,
+                    $remaining
+                )
+            );
+        }
+
         $data = [];
         for ($i = 0; $i < $arrayLength; $i++) {
             $data[] = $this->getString();
@@ -172,6 +204,12 @@ class ReadBuffer
         $size = $this->getInt32();
         if ($size === -1) {
             return null;
+        }
+
+        if ($size < 0) {
+            throw new DeserializationException(
+                sprintf('Invalid bytes length %d at position %d', $size, $this->position - 4)
+            );
         }
 
         $this->ensureAvailable($size);

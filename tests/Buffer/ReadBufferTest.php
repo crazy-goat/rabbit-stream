@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Buffer;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 use PHPUnit\Framework\TestCase;
 
@@ -34,6 +35,13 @@ class ReadBufferTest extends TestCase
         $this->assertNull($buf->getString());
     }
 
+    public function testGetStringEmpty(): void
+    {
+        $buf = new ReadBuffer("\x00\x00");
+        $this->assertSame('', $buf->getString());
+        $this->assertSame(2, $buf->getPosition());
+    }
+
     public function testGetBytes(): void
     {
         $buf = new ReadBuffer("\x00\x00\x00\x02AB");
@@ -46,10 +54,58 @@ class ReadBufferTest extends TestCase
         $this->assertNull($buf->getBytes());
     }
 
+    public function testGetBytesEmpty(): void
+    {
+        $buf = new ReadBuffer("\x00\x00\x00\x00");
+        $this->assertSame('', $buf->getBytes());
+        $this->assertSame(4, $buf->getPosition());
+    }
+
     public function testGetStringArray(): void
     {
         $buf = new ReadBuffer("\x00\x00\x00\x02\x00\x03foo\x00\x03bar");
         $this->assertSame(['foo', 'bar'], $buf->getStringArray());
+    }
+
+    public function testGetStringArrayEmpty(): void
+    {
+        $buf = new ReadBuffer("\x00\x00\x00\x00");
+        $this->assertSame([], $buf->getStringArray());
+        $this->assertSame(4, $buf->getPosition());
+    }
+
+    public function testGetStringWithNegativeLengthThrows(): void
+    {
+        $buf = new ReadBuffer(pack('n', 0xFFFE) . 'ABCDEF');
+        try {
+            $buf->getString();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid string length -2', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+    }
+
+    public function testGetStringArrayWithHugeCountAndNegativeLengthThrows(): void
+    {
+        $buf = new ReadBuffer(pack('N', 0xFFFFFFFF) . pack('n', 0xFFFE) . 'ABCDEF');
+        try {
+            $buf->getStringArray();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid string array count 4294967295', $e->getMessage());
+        }
+    }
+
+    public function testGetStringArrayWithCountLargerThanRemainingThrows(): void
+    {
+        $buf = new ReadBuffer(pack('N', 1000) . "\x00\x03foo");
+        try {
+            $buf->getStringArray();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid string array count 1000', $e->getMessage());
+        }
     }
 
     public function testRewind(): void
@@ -130,6 +186,18 @@ class ReadBufferTest extends TestCase
         $this->expectExceptionMessage('Buffer underflow');
         $buf = new ReadBuffer(pack('N', 100));
         $buf->getBytes();
+    }
+
+    public function testGetBytesWithNegativeLengthThrows(): void
+    {
+        $buf = new ReadBuffer(pack('N', 0xFFFFFFFE) . 'ABCDEF');
+        try {
+            $buf->getBytes();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid bytes length -2', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
     }
 
     public function testSkipThrowsOnUnderflow(): void
@@ -376,5 +444,16 @@ class ReadBufferTest extends TestCase
 
         $this->assertSame([], $result);
         $this->assertSame(4, $buf->getPosition());
+    }
+
+    public function testGetObjectArrayWithCountLargerThanRemainingThrows(): void
+    {
+        $buf = new ReadBuffer(pack('N', 1000) . "\x00\x03foo\x00\x03bar");
+        try {
+            $buf->getObjectArray(KeyValue::class);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid object array count 1000', $e->getMessage());
+        }
     }
 }
