@@ -571,6 +571,7 @@ For custom offset selection, register a callback (low-level API):
 <?php
 
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     echo "Becoming active consumer!\n";

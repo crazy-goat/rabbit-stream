@@ -22,3 +22,15 @@
 
 - #7 (low, publishing.md:374): Fixed — added `use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;` to the "Publish Messages" low-level snippet import block.
 - #8 (low, super-streams.md:486-487): Fixed — replaced `[0, 0]` with `[OffsetSpec::TYPE_FIRST, 0]` and `[1, 0]` with `[OffsetSpec::TYPE_OFFSET, 0]`, added `use OffsetSpec`, and corrected the comments. Same class of defect also found and fixed in two more places during resolution: `flow-control.md:575` (inline offset-type comment block + `return [1, 100]` → `[OffsetSpec::TYPE_OFFSET, 100]`, plus the "Offset Types" table rewritten to the real `OffsetSpec` constants 1–6) and `flow-control.md:629` (`return [1, 0]` with wrong "offset type 1 = OFFSET" comment → `[OffsetSpec::TYPE_OFFSET, 0]`). All three were introduced by the a47bb50 rewrite.
+
+# Findings — Review Round 3
+
+| # | File:Line | What is wrong | Severity | What happened to it |
+|---|-----------|---------------|----------|-------------------|
+| 9 | docs/en/guide/flow-control.md:569-590 | Missing `use CrazyGoat\RabbitStream\VO\OffsetSpec;` in the "Custom ConsumerUpdate Callback" `<?php` snippet. The `use` block imports only `ConsumerUpdateResponseV1`, but the body executes `return [OffsetSpec::TYPE_OFFSET, 100];` using the short class name. The comment writes the FQCN `CrazyGoat\RabbitStream\VO\OffsetSpec` but the executable line does not. Would fatal with "Class \"OffsetSpec\" not found" if run as-is. Same class of defect as round-1 #3/#4 and round-2 #7. The sibling "Complete Example" snippet at flow-control.md:611 *did* get `use OffsetSpec` (line 618) in the same 4d78483 commit, but this earlier snippet was missed. | low | |
+
+## Round 3 — new finding
+
+| # | File:Line | What is wrong | Severity | What happened to it |
+|---|-----------|---------------|----------|-------------------|
+| 9 | docs/en/guide/flow-control.md:569-590 | The first "Custom ConsumerUpdate Callback" `<?php` snippet uses `OffsetSpec::TYPE_OFFSET` in its return statement but only imports `ConsumerUpdateResponseV1` — missing `use CrazyGoat\RabbitStream\VO\OffsetSpec;`. Would fatal with "Class not found" if run. Same class of defect as #3/#4/#7. Introduced by the 4d78483 offsetType rewrite (the sibling "Complete Example" snippet got the import; this one was missed). | low | Fixed: added `use CrazyGoat\RabbitStream\VO\OffsetSpec;` after the `ConsumerUpdateResponseV1` import. |
