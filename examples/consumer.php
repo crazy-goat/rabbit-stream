@@ -36,6 +36,8 @@ while ($running) {
     $messages = $consumer->read(timeout: 5);
 
     foreach ($messages as $msg) {
+        // getBody() returns the plain payload: Producer wrapped it in an
+        // AMQP 1.0 Data section and the consumer decoded it back.
         echo "offset={$msg->getOffset()} body={$msg->getBody()}\n";
         $count++;
     }

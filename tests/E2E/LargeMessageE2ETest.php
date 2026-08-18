@@ -13,11 +13,6 @@ class LargeMessageE2ETest extends E2ETestCase
     private ?Connection $connection = null;
     private string $streamName;
 
-    private function amqp(string $body): string
-    {
-        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
-    }
-
     protected function setUp(): void
     {
         $this->connection = $this->createConnection();
@@ -62,7 +57,7 @@ class LargeMessageE2ETest extends E2ETestCase
     public function testPublishAndConsume100kbMessage(): void
     {
         $body = str_repeat('A', 100_000);
-        $messages = $this->publishAndConsume($this->amqp($body));
+        $messages = $this->publishAndConsume($body);
 
         $this->assertNotEmpty($messages, 'Should receive at least one message');
         $this->assertSame($body, $messages[0]->getBody(), '100KB body should round-trip correctly');
@@ -71,7 +66,7 @@ class LargeMessageE2ETest extends E2ETestCase
     public function testPublishAndConsume1mbMessage(): void
     {
         $body = str_repeat('B', 1_000_000);
-        $messages = $this->publishAndConsume($this->amqp($body));
+        $messages = $this->publishAndConsume($body);
 
         $this->assertNotEmpty($messages, 'Should receive at least one message');
         $this->assertSame($body, $messages[0]->getBody(), '1MB body should round-trip correctly');
@@ -92,7 +87,7 @@ class LargeMessageE2ETest extends E2ETestCase
             $body = str_repeat('C', 10_000);
             $producer = $conn->createProducer($streamName);
 
-            $producer->send($this->amqp($body));
+            $producer->send($body);
 
             $threw = true;
             try {

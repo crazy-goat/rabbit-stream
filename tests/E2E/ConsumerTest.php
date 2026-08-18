@@ -13,11 +13,6 @@ class ConsumerTest extends E2ETestCase
     private ?Connection $connection = null;
     private string $streamName;
 
-    private function amqp(string $body): string
-    {
-        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
-    }
-
     protected function setUp(): void
     {
         $this->connection = $this->createConnection();
@@ -52,7 +47,7 @@ class ConsumerTest extends E2ETestCase
     {
         $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
-        $producer->sendBatch([$this->amqp('hello'), $this->amqp('world'), $this->amqp('foo')]);
+        $producer->sendBatch(['hello', 'world', 'foo']);
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
@@ -79,7 +74,7 @@ class ConsumerTest extends E2ETestCase
     {
         $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
-        $producer->sendBatch([$this->amqp('msg1'), $this->amqp('msg2')]);
+        $producer->sendBatch(['msg1', 'msg2']);
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
@@ -101,7 +96,7 @@ class ConsumerTest extends E2ETestCase
     {
         $this->assertNotNull($this->connection);
         $producer = $this->connection->createProducer($this->streamName);
-        $producer->send($this->amqp('offset-test'));
+        $producer->send('offset-test');
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
 
@@ -137,7 +132,7 @@ class ConsumerTest extends E2ETestCase
         $producer = $this->connection->createProducer($this->streamName);
         $messages = [];
         for ($i = 0; $i < 5; $i++) {
-            $messages[] = $this->amqp("message-{$i}");
+            $messages[] = "message-{$i}";
         }
         $producer->sendBatch($messages);
         $producer->waitForConfirms(timeout: 5);
@@ -179,9 +174,9 @@ class ConsumerTest extends E2ETestCase
         // Publish 3 messages
         $producer = $this->connection->createProducer($this->streamName);
         $producer->sendBatch([
-            $this->amqp('msg1'),
-            $this->amqp('msg2'),
-            $this->amqp('msg3'),
+            'msg1',
+            'msg2',
+            'msg3',
         ]);
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
@@ -246,7 +241,7 @@ class ConsumerTest extends E2ETestCase
         $producer = $this->connection->createProducer($this->streamName);
         $messages = [];
         for ($i = 0; $i < 10; $i++) {
-            $messages[] = $this->amqp("message-{$i}");
+            $messages[] = "message-{$i}";
         }
         $producer->sendBatch($messages);
         $producer->waitForConfirms(timeout: 5);
@@ -309,7 +304,7 @@ class ConsumerTest extends E2ETestCase
         $producer = $this->connection->createProducer($this->streamName);
         $messages = [];
         for ($i = 0; $i < 5; $i++) {
-            $messages[] = $this->amqp("offset-zero-{$i}");
+            $messages[] = "offset-zero-{$i}";
         }
         $producer->sendBatch($messages);
         $producer->waitForConfirms(timeout: 5);
@@ -339,7 +334,7 @@ class ConsumerTest extends E2ETestCase
         $producer = $this->connection->createProducer($this->streamName);
         $messages = [];
         for ($i = 0; $i < 5; $i++) {
-            $messages[] = $this->amqp("beyond-end-{$i}");
+            $messages[] = "beyond-end-{$i}";
         }
         $producer->sendBatch($messages);
         $producer->waitForConfirms(timeout: 5);
@@ -353,7 +348,7 @@ class ConsumerTest extends E2ETestCase
 
         // Publish a new message while consumer is still subscribed
         $producer2 = $this->connection->createProducer($this->streamName);
-        $producer2->send($this->amqp('new-message-after-subscribe'));
+        $producer2->send('new-message-after-subscribe');
         $producer2->waitForConfirms(timeout: 5);
         $producer2->close();
 
@@ -371,7 +366,7 @@ class ConsumerTest extends E2ETestCase
 
         $producer = $this->connection->createProducer($this->streamName);
         for ($i = 0; $i < 5; $i++) {
-            $producer->send($this->amqp("before-{$i}"));
+            $producer->send("before-{$i}");
         }
         $producer->waitForConfirms(timeout: 5);
         $producer->close();
@@ -386,7 +381,7 @@ class ConsumerTest extends E2ETestCase
 
         $producer2 = $this->connection->createProducer($this->streamName);
         for ($i = 0; $i < 5; $i++) {
-            $producer2->send($this->amqp("after-{$i}"));
+            $producer2->send("after-{$i}");
         }
         $producer2->waitForConfirms(timeout: 5);
         $producer2->close();
@@ -449,7 +444,7 @@ class ConsumerTest extends E2ETestCase
 
         $producer = $this->connection->createProducer($this->streamName);
         for ($i = 0; $i < 3; $i++) {
-            $producer->send($this->amqp("msg-{$i}"));
+            $producer->send("msg-{$i}");
         }
         $producer->waitForConfirms(timeout: 5);
         $producer->close();

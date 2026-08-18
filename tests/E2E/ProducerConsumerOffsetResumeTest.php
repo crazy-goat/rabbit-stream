@@ -13,11 +13,6 @@ class ProducerConsumerOffsetResumeTest extends E2ETestCase
     private ?Connection $connection = null;
     private string $streamName;
 
-    private function amqp(string $body): string
-    {
-        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
-    }
-
     protected function setUp(): void
     {
         $this->connection = $this->createConnection();
@@ -43,7 +38,7 @@ class ProducerConsumerOffsetResumeTest extends E2ETestCase
         $producer = $this->connection->createProducer($this->streamName);
         $messages = [];
         for ($i = 0; $i < 10; $i++) {
-            $messages[] = $this->amqp("message-{$i}");
+            $messages[] = "message-{$i}";
         }
         $producer->sendBatch($messages);
         $producer->waitForConfirms(timeout: 5);

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Producer: `send()`/`sendBatch()` now wrap payloads in an AMQP 1.0 Data section** — payloads are no longer put on the wire verbatim, so a publish→consume round trip through `Consumer::read()` works out of the box (it previously threw `DeserializationException`). `Message::getBody()` returns the same plain string that was passed to `send()`. Raw pre-encoded AMQP 1.0 bytes can still be published via the low-level API with the new `AmqpMessageEncoder::encodeDataSection()` helper (#413)
 - **WriteBuffer: make UTF-8 validation opt-in** — added `$validateStrings` constructor parameter (default `true`). Set to `false` to skip `mb_check_encoding` in high-throughput scenarios where input strings are guaranteed valid UTF-8 (#350)
 - **OsirisChunkParser: use `ReadBuffer::readBytes()` consistently** — replaced 3 instances of raw `substr` + `skip()` with `ReadBuffer::readBytes()` for atomic position tracking (#351)
 

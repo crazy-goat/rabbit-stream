@@ -32,6 +32,10 @@ $producer->close();
 $connection->close();
 ```
 
+Message bodies are plain strings — `Producer::send()` and `sendBatch()`
+automatically wrap them in an [AMQP 1.0 Data section](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html#section-message-format)
+on the wire, and the consumer returns them unwrapped (see [Publishing](docs/en/guide/publishing.md)).
+
 ### Consuming
 
 ```php

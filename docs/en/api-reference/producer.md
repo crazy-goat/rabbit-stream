@@ -99,6 +99,8 @@ $producer->send('Urgent message', timeout: 1.0);
 
 #### Notes
 
+- `$message` is a plain payload string; it is automatically wrapped in an AMQP 1.0 Data section on the wire, so a consumer's `Message::getBody()` returns the same string unchanged
+- To publish pre-encoded AMQP 1.0 bytes, use the low-level API with `AmqpMessageEncoder::encodeDataSection()` — `send()` would wrap them again
 - Messages are assigned an auto-incrementing publishing ID internally
 - The message is not immediately confirmed; use `waitForConfirms()` or the `onConfirm` callback
 - For high throughput, consider `sendBatch()` instead
@@ -148,6 +150,7 @@ $producer->sendBatch($messages);
 
 - More efficient than multiple `send()` calls for high throughput
 - All messages in the batch share the same network frame
+- Each message is a plain payload string, automatically wrapped in an AMQP 1.0 Data section (same encoding as `send()`)
 - Each message still gets its own publishing ID and confirmation
 - Empty arrays are silently ignored (no-op)
 

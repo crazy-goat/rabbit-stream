@@ -16,11 +16,6 @@ class NamedProducerDeduplicationTest extends E2ETestCase
     private string $streamName;
     private string $producerRef;
 
-    private function amqp(string $body): string
-    {
-        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
-    }
-
     protected function setUp(): void
     {
         $this->streamName = 'test-dedup-stream-' . uniqid();
@@ -68,7 +63,7 @@ class NamedProducerDeduplicationTest extends E2ETestCase
         // Producer automatically starts from sequence+1 (1) when created with name
         $messages = [];
         for ($i = 1; $i <= 10; $i++) {
-            $messages[] = $this->amqp("message-{$i}");
+            $messages[] = "message-{$i}";
         }
         $this->producer->sendBatch($messages);
         $this->producer->waitForConfirms(timeout: 5);
@@ -113,7 +108,7 @@ class NamedProducerDeduplicationTest extends E2ETestCase
         // Producer automatically resumed from sequence+1 (11) when created with name
         $messages = [];
         for ($i = 11; $i <= 15; $i++) {
-            $messages[] = $this->amqp("message-{$i}");
+            $messages[] = "message-{$i}";
         }
         $this->producer->sendBatch($messages);
         $this->producer->waitForConfirms(timeout: 5);

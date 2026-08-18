@@ -13,11 +13,6 @@ class SuperStreamPublishConsumeTest extends E2ETestCase
     private ?Connection $connection = null;
     private string $superStreamName = '';
 
-    private function amqp(string $body): string
-    {
-        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
-    }
-
     protected function setUp(): void
     {
         $this->connection = $this->createConnection();
@@ -63,7 +58,7 @@ class SuperStreamPublishConsumeTest extends E2ETestCase
 
         // Publish a message to the target partition
         $producer = $this->connection->createProducer($targetPartition);
-        $producer->send($this->amqp('super-stream-message'));
+        $producer->send('super-stream-message');
         $producer->waitForConfirms(timeout: 5.0);
         $producer->close();
 
