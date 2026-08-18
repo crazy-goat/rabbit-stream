@@ -7,10 +7,15 @@
         <testsuite name="unit">
             <directory>tests/Buffer</directory>
             <directory>tests/Client</directory>
+            <directory>tests/Contract</directory>
+            <directory>tests/Enum</directory>
             <directory>tests/Request</directory>
             <directory>tests/Response</directory>
+            <directory>tests/Serializer</directory>
+            <directory>tests/Trait</directory>
             <directory>tests/Util</directory>
             <directory>tests/VO</directory>
+            <file>tests/ResponseBuilderTest.php</file>
             <file>tests/StreamConnectionTest.php</file>
         </testsuite>
         <testsuite name="e2e">
