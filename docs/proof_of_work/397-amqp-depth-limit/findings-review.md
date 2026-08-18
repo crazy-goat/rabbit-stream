@@ -93,3 +93,63 @@ for round 1. Status for each: **open** (no earlier round to resolve them).
 | C2 | Compound readers don't verify element ends within declared size | low | open, pre-existing, not a blocker | `readList8:496`, `readList32:525`, etc. — `$position > $endPosition` only checks start. Not introduced. |
 | C3 | Pre-existing risky test StreamConnectionTest | nit | open, pre-existing, not a blocker | `tests/StreamConnectionTest.php:567`. Unrelated. |
 | C4 | Depth check ordering (end-of-data before depth at exhausted input) | nit | not a real finding | Harmless cosmetic; both are catchable DeserializationException. |
+
+---
+
+## Round 2 confirmation (2025-08-18)
+
+Reviewer: review agent (round 2). Commit reviewed: `a131038` (F4 fix).
+
+### F4 — FIXED — confirmed
+
+The new test `testDecodeMessageHonorsCustomMaxDepth` in
+`tests/Client/AmqpDecoderTest.php:471–484` correctly:
+- Calls `AmqpDecoder::decodeMessage($message, 3)` with a non-default
+  `$maxDepth = 3`.
+- Uses a 5-deep nested list8 body (`buildNestedList8(5)`) carried in an
+  AmqpValue section (descriptor 0x76).
+- Asserts `DeserializationException` is thrown.
+- Asserts message contains `'AMQP recursion depth limit exceeded (max 3)'`.
+- Asserts `$e instanceof RabbitStreamExceptionInterface`.
+
+Manual depth trace confirms the exception fires at depth 4 (4 > 3 is
+true), producing the "max 3" message. Test passes (1 test, 2 assertions).
+**Status: fixed — no further action.**
+
+### F1 — still present — MEDIUM — confirmed justified deferral
+
+`readList32` (`src/Client/AmqpDecoder.php:517`) and `readMap32` (`:575`)
+still use uncapped attacker-supplied 32-bit `$count`. Not introduced by
+this PR, not a regression. Distinct vector (breadth, not depth). Out of
+scope for #397. **Status: still present, out of scope, separate issue.**
+
+### F2 — still present — LOW — confirmed justified deferral
+
+`AmqpMessageDecoder::decode()` (`src/Client/AmqpMessageDecoder.php:14`)
+still calls `decodeMessage()` without `$maxDepth`. The #397 acceptance
+criterion (configurable at AmqpDecoder level, default ≤ 32) is met.
+Threading through Consumer expands public API beyond scope. Not a
+regression. **Status: still present, out of scope, separate enhancement.**
+
+### F3 — still present — LOW — confirmed justified deferral
+
+`readBinary32`/`readString32`/`readSymbol32`
+(`src/Client/AmqpDecoder.php:397,414,428`) still use
+`$position + $length > strlen($data)`. Pre-existing, not introduced by
+this PR. 64-bit PHP (the norm) is unaffected. **Status: still present,
+pre-existing, separate issue.**
+
+### New issues from round-1 fix commit (a131038)
+
+**None.** The commit modifies only `tests/Client/AmqpDecoderTest.php`
+(+15 lines) and two docs files. No `src/` changes. All 650 unit tests
+pass (up from 649), no existing tests broken.
+
+### Automated checks (round 2)
+
+| Command | Result |
+|---|---|
+| `composer cs` | passed |
+| `composer phpstan` (level 9) | passed |
+| `composer rector` (dry-run) | passed |
+| `./vendor/bin/phpunit --testsuite unit` | passed (650 tests, 1404 assertions, 1 pre-existing risky) |
