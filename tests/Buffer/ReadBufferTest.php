@@ -35,6 +35,13 @@ class ReadBufferTest extends TestCase
         $this->assertNull($buf->getString());
     }
 
+    public function testGetStringEmpty(): void
+    {
+        $buf = new ReadBuffer("\x00\x00");
+        $this->assertSame('', $buf->getString());
+        $this->assertSame(2, $buf->getPosition());
+    }
+
     public function testGetBytes(): void
     {
         $buf = new ReadBuffer("\x00\x00\x00\x02AB");
@@ -47,10 +54,24 @@ class ReadBufferTest extends TestCase
         $this->assertNull($buf->getBytes());
     }
 
+    public function testGetBytesEmpty(): void
+    {
+        $buf = new ReadBuffer("\x00\x00\x00\x00");
+        $this->assertSame('', $buf->getBytes());
+        $this->assertSame(4, $buf->getPosition());
+    }
+
     public function testGetStringArray(): void
     {
         $buf = new ReadBuffer("\x00\x00\x00\x02\x00\x03foo\x00\x03bar");
         $this->assertSame(['foo', 'bar'], $buf->getStringArray());
+    }
+
+    public function testGetStringArrayEmpty(): void
+    {
+        $buf = new ReadBuffer("\x00\x00\x00\x00");
+        $this->assertSame([], $buf->getStringArray());
+        $this->assertSame(4, $buf->getPosition());
     }
 
     public function testGetStringWithNegativeLengthThrows(): void
