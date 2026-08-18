@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
@@ -179,6 +180,24 @@ class ProducerTest extends TestCase
         $requestArray = $capturedRequest->toArray();
         $messages = is_array($requestArray['messages']) ? $requestArray['messages'] : [];
         $this->assertSame(3, count($messages), 'Should have 3 messages');
+
+        // Guard the Producer -> AmqpMessageEncoder wiring: each published body
+        // must be the AMQP 1.0 Data-section-encoded form of the plain input, so
+        // a future refactor that drops the encode call fails the unit suite
+        // (not only the Docker-gated E2E suite).
+        $this->assertIsArray($messages[0]);
+        $this->assertArrayHasKey('data', $messages[0]);
+        $this->assertSame(
+            AmqpMessageEncoder::encodeDataSection('msg1'),
+            $messages[0]['data'],
+            'sendBatch() must AMQP-encode each message body'
+        );
+        $this->assertIsArray($messages[2]);
+        $this->assertArrayHasKey('data', $messages[2]);
+        $this->assertSame(
+            AmqpMessageEncoder::encodeDataSection('msg3'),
+            $messages[2]['data']
+        );
     }
 
     public function testWaitForConfirmsThrowsOnTimeout(): void
