@@ -44,6 +44,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `DeserializationException` — buffer/parsing errors
   - `InvalidArgumentException` — input validation (extends native `\InvalidArgumentException`)
 
+### Fixed
+- **Security: AMQP decoder recursion depth limit** — `AmqpDecoder::decodeValue()` recursed into compound/described types with no depth limit, so a ~750 KB nested payload (`memory_limit=128M`) or 6 MB (default frame limit) caused an uncatchable PHP fatal `Allowed memory size exhausted` that killed the worker process. Reachable from an untrusted publisher via `Consumer::read()` → `AmqpMessageDecoder::decode()` → `AmqpDecoder::decodeMessage()`. Added a `$depth` parameter threaded through every recursive reader and a configurable `$maxDepth` (default 32) on `decodeValue()`/`decodeMessage()`; exceeding it throws a catchable `DeserializationException` (`RabbitStreamExceptionInterface`) instead of a fatal. Public API signatures are preserved via optional parameters (#397)
+
 ### Changed
 - **Performance: Consumer::subscribe** — replaced `array_merge($this->buffer, $messages)` with `array_push($this->buffer, ...$messages)` in the delivery callback hot path to avoid O(n) full-array copy on every delivery; reduces GC pressure when buffer is large (#348)
 - **E2E test infrastructure** — 19 E2E test classes now extend `E2ETestCase` instead of duplicating `$host`, `$port`, and `setUpBeforeClass()` boilerplate; added `createConnection()` helper and parametrized `connectAndOpen()` to `E2ETestCase` (79 insertions, 348 deletions) (#346)

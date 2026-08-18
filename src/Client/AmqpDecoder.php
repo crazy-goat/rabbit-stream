@@ -8,16 +8,27 @@ use CrazyGoat\RabbitStream\Exception\DeserializationException;
 
 class AmqpDecoder
 {
+    private const MAX_RECURSION_DEPTH = 32;
+
     /**
      * Decode a single AMQP 1.0 value from the binary data at the given position.
      * Returns [value, newPosition].
      *
+     * @param int $depth current recursion depth (start at 0)
+     * @param int $maxDepth maximum allowed recursion depth
      * @return array{0: mixed, 1: int}
      */
-    public static function decodeValue(string $data, int $position): array
-    {
+    public static function decodeValue(
+        string $data,
+        int $position,
+        int $depth = 0,
+        int $maxDepth = self::MAX_RECURSION_DEPTH
+    ): array {
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data');
+        }
+        if ($depth > $maxDepth) {
+            throw new DeserializationException(sprintf('AMQP recursion depth limit exceeded (max %d)', $maxDepth));
         }
 
         $formatCode = ord($data[$position]);
@@ -60,15 +71,15 @@ class AmqpDecoder
             0xb3 => self::readSymbol32($data, $position), // sym32
 
             // Compound types (8-bit length)
-            0xc0 => self::readList8($data, $position), // list8
-            0xc1 => self::readMap8($data, $position), // map8
+            0xc0 => self::readList8($data, $position, $depth, $maxDepth), // list8
+            0xc1 => self::readMap8($data, $position, $depth, $maxDepth), // map8
 
             // Compound types (32-bit length)
-            0xd0 => self::readList32($data, $position), // list32
-            0xd1 => self::readMap32($data, $position), // map32
+            0xd0 => self::readList32($data, $position, $depth, $maxDepth), // list32
+            0xd1 => self::readMap32($data, $position, $depth, $maxDepth), // map32
 
             // Described type
-            0x00 => self::readDescribedType($data, $position),
+            0x00 => self::readDescribedType($data, $position, $depth, $maxDepth),
 
             default => throw new DeserializationException(sprintf('Unsupported AMQP type: 0x%02x', $formatCode)),
         };
@@ -79,9 +90,10 @@ class AmqpDecoder
      * Returns ['header' => [...], 'properties' => [...], 'applicationProperties' => [...],
      *          'messageAnnotations' => [...], 'body' => string|mixed]
      *
+     * @param int $maxDepth maximum allowed recursion depth
      * @return array<string, mixed>
      */
-    public static function decodeMessage(string $data): array
+    public static function decodeMessage(string $data, int $maxDepth = self::MAX_RECURSION_DEPTH): array
     {
         if ($data === '') {
             throw new DeserializationException('Empty message data');
@@ -111,7 +123,7 @@ class AmqpDecoder
             }
 
             // Read the described type
-            [$descriptor, $value, $position] = self::readDescribedTypeWithPosition($data, $position);
+            [$descriptor, $value, $position] = self::readDescribedTypeWithPosition($data, $position, 0, $maxDepth);
 
             // Match descriptor to section
             switch ($descriptor) {
@@ -470,7 +482,7 @@ class AmqpDecoder
     // Compound type readers
 
     /** @return array{0: array<int, mixed>, 1: int} */
-    private static function readList8(string $data, int $position): array
+    private static function readList8(string $data, int $position, int $depth, int $maxDepth): array
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading list8 header');
@@ -485,7 +497,7 @@ class AmqpDecoder
             if ($position > $endPosition) {
                 throw new DeserializationException('List8 count exceeds available data');
             }
-            [$value, $position] = self::decodeValue($data, $position);
+            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $list[] = $value;
         }
 
@@ -493,7 +505,7 @@ class AmqpDecoder
     }
 
     /** @return array{0: array<int, mixed>, 1: int} */
-    private static function readList32(string $data, int $position): array
+    private static function readList32(string $data, int $position, int $depth, int $maxDepth): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading list32 header');
@@ -514,7 +526,7 @@ class AmqpDecoder
             if ($position > $endPosition) {
                 throw new DeserializationException('List32 count exceeds available data');
             }
-            [$value, $position] = self::decodeValue($data, $position);
+            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $list[] = $value;
         }
 
@@ -522,7 +534,7 @@ class AmqpDecoder
     }
 
     /** @return array{0: array<string|int, mixed>, 1: int} */
-    private static function readMap8(string $data, int $position): array
+    private static function readMap8(string $data, int $position, int $depth, int $maxDepth): array
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading map8 header');
@@ -538,11 +550,11 @@ class AmqpDecoder
             if ($position > $endPosition) {
                 throw new DeserializationException('Map8 count exceeds available data');
             }
-            [$key, $position] = self::decodeValue($data, $position);
+            [$key, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             if ($position > $endPosition) {
                 throw new DeserializationException('Map8 missing value for key');
             }
-            [$value, $position] = self::decodeValue($data, $position);
+            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
             $map[$mapKey] = $value;
         }
@@ -551,7 +563,7 @@ class AmqpDecoder
     }
 
     /** @return array{0: array<string|int, mixed>, 1: int} */
-    private static function readMap32(string $data, int $position): array
+    private static function readMap32(string $data, int $position, int $depth, int $maxDepth): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading map32 header');
@@ -573,11 +585,11 @@ class AmqpDecoder
             if ($position > $endPosition) {
                 throw new DeserializationException('Map32 count exceeds available data');
             }
-            [$key, $position] = self::decodeValue($data, $position);
+            [$key, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             if ($position > $endPosition) {
                 throw new DeserializationException('Map32 missing value for key');
             }
-            [$value, $position] = self::decodeValue($data, $position);
+            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
             $map[$mapKey] = $value;
         }
@@ -588,10 +600,10 @@ class AmqpDecoder
     // Described type reader
 
     /** @return array{0: array{descriptor: mixed, value: mixed}, 1: int} */
-    private static function readDescribedType(string $data, int $position): array
+    private static function readDescribedType(string $data, int $position, int $depth, int $maxDepth): array
     {
-        [$descriptor, $position] = self::decodeValue($data, $position);
-        [$value, $position] = self::decodeValue($data, $position);
+        [$descriptor, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
+        [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
         return [['descriptor' => $descriptor, 'value' => $value], $position];
     }
 
@@ -600,16 +612,16 @@ class AmqpDecoder
      *
      * @return array{0: mixed, 1: mixed, 2: int}
      */
-    private static function readDescribedTypeWithPosition(string $data, int $position): array
+    private static function readDescribedTypeWithPosition(string $data, int $position, int $depth, int $maxDepth): array
     {
         // Skip the 0x00 marker (already checked by caller)
         $position++;
 
         // Read the descriptor
-        [$descriptor, $position] = self::decodeValue($data, $position);
+        [$descriptor, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
 
         // Read the value
-        [$value, $position] = self::decodeValue($data, $position);
+        [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
 
         return [$descriptor, $value, $position];
     }

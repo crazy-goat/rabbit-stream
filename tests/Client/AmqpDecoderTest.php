@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\AmqpDecoder;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 use PHPUnit\Framework\TestCase;
 
 class AmqpDecoderTest extends TestCase
@@ -394,5 +396,123 @@ class AmqpDecoderTest extends TestCase
 
         // map8: size=3, count=4 (but only 1 byte of data)
         AmqpDecoder::decodeValue("\xc1\x03\x04\xa1", 0);
+    }
+
+    // ========== Recursion depth limit (issue #397) ==========
+
+    public function testDecodeDeeplyNestedPoCPayloadThrowsCatchableException(): void
+    {
+        // PoC payload from issue #397: 6 MB of nested list8 frames, well under the
+        // 8 MB frame limit. Must throw a catchable DeserializationException, not a fatal.
+        $payload = str_repeat("\xc0\xff\x01", 2_000_000);
+        $baseline = memory_get_usage(true);
+
+        try {
+            AmqpDecoder::decodeValue($payload, 0);
+            $this->fail('Expected DeserializationException for deeply nested payload');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('AMQP recursion depth limit exceeded (max 32)', $e->getMessage());
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+
+        // The depth check must fire long before the payload can exhaust memory.
+        $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
+    }
+
+    public function testDecodeMessageWithDeeplyNestedBodyThrows(): void
+    {
+        // Exposure path from Consumer::read(): section value nested 33 lists deep.
+        // Section value enters at depth 1, so the innermost element exceeds the limit.
+        $message = "\x00\x53\x75" . $this->buildNestedList8(33);
+
+        try {
+            AmqpDecoder::decodeMessage($message);
+            $this->fail('Expected DeserializationException for deeply nested body');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('AMQP recursion depth limit exceeded (max 32)', $e->getMessage());
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+    }
+
+    public function testDecodeNestedListsAtDepthLimit(): void
+    {
+        // depth == limit must still decode: 32 nested lists with a null at the center.
+        [$value, $pos] = AmqpDecoder::decodeValue($this->buildNestedList8(32), 0);
+        $this->assertSame($this->buildExpectedNestedValue(32), $value);
+        $this->assertSame(strlen($this->buildNestedList8(32)), $pos);
+    }
+
+    public function testDecodeNestedListsBeyondDepthLimitThrows(): void
+    {
+        // depth == limit + 1 must throw.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('AMQP recursion depth limit exceeded (max 32)');
+
+        AmqpDecoder::decodeValue($this->buildNestedList8(33), 0);
+    }
+
+    public function testDecodeValueHonorsCustomMaxDepth(): void
+    {
+        // Custom maxDepth: 5 nested lists exceed a limit of 3...
+        try {
+            AmqpDecoder::decodeValue($this->buildNestedList8(5), 0, 0, 3);
+            $this->fail('Expected DeserializationException when exceeding custom maxDepth');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('AMQP recursion depth limit exceeded (max 3)', $e->getMessage());
+        }
+
+        // ...but 3 nested lists decode fine with a limit of 3.
+        [$value] = AmqpDecoder::decodeValue($this->buildNestedList8(3), 0, 0, 3);
+        $this->assertSame($this->buildExpectedNestedValue(3), $value);
+    }
+
+    public function testDecodeMessageHonorsCustomMaxDepth(): void
+    {
+        // Direct test of decodeMessage()'s $maxDepth param: 5-deep body exceeds a limit of 3.
+        // Section value enters at depth 1, so depth 4 is reached and the limit of 3 is exceeded.
+        $message = "\x00\x53\x76" . $this->buildNestedList8(5);
+
+        try {
+            AmqpDecoder::decodeMessage($message, 3);
+            $this->fail('Expected DeserializationException when exceeding custom maxDepth via decodeMessage');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('AMQP recursion depth limit exceeded (max 3)', $e->getMessage());
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+    }
+
+    public function testDecodeMessageWithShallowNestedBodyStillDecodes(): void
+    {
+        // Regression guard: legitimately nested message (20 levels) decodes normally.
+        // AmqpValue section (0x76) is the correct carrier for a structured body.
+        $message = "\x00\x53\x76" . $this->buildNestedList8(20);
+
+        $sections = AmqpDecoder::decodeMessage($message);
+        $this->assertSame($this->buildExpectedNestedValue(20), $sections['body']);
+    }
+
+    /**
+     * Build a list8 chain $depth lists deep (each list holds a single child, innermost holds null).
+     */
+    private function buildNestedList8(int $depth): string
+    {
+        $payload = "\x40"; // innermost element: null
+        for ($i = 0; $i < $depth; $i++) {
+            $size = strlen($payload) + 1; // size includes the count byte
+            $payload = "\xc0" . chr($size & 0xFF) . "\x01" . $payload;
+        }
+        return $payload;
+    }
+
+    /**
+     * Build the expected decoded value for buildNestedList8().
+     */
+    private function buildExpectedNestedValue(int $depth): mixed
+    {
+        $value = null;
+        for ($i = 0; $i < $depth; $i++) {
+            $value = [$value];
+        }
+        return $value;
     }
 }
