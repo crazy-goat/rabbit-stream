@@ -10,11 +10,6 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 class MultipleConsumersTest extends E2ETestCase
 {
-    private function amqp(string $body): string
-    {
-        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
-    }
-
     public function testTwoConsumersOnDifferentConnectionsReceiveAllMessages(): void
     {
         $stream = 'test-multi-consumer-' . uniqid();
@@ -27,11 +22,11 @@ class MultipleConsumersTest extends E2ETestCase
 
             $producer = $conn1->createProducer($stream);
             $producer->sendBatch([
-                $this->amqp('msg-1'),
-                $this->amqp('msg-2'),
-                $this->amqp('msg-3'),
-                $this->amqp('msg-4'),
-                $this->amqp('msg-5'),
+                'msg-1',
+                'msg-2',
+                'msg-3',
+                'msg-4',
+                'msg-5',
             ]);
             $producer->waitForConfirms(timeout: 5);
             $producer->close();
@@ -75,9 +70,9 @@ class MultipleConsumersTest extends E2ETestCase
 
             $producer = $conn->createProducer($stream);
             $producer->sendBatch([
-                $this->amqp('a'),
-                $this->amqp('b'),
-                $this->amqp('c'),
+                'a',
+                'b',
+                'c',
             ]);
             $producer->waitForConfirms(timeout: 5);
             $producer->close();
@@ -129,17 +124,17 @@ class MultipleConsumersTest extends E2ETestCase
 
             $producerA = $conn->createProducer($streamA);
             $producerA->sendBatch([
-                $this->amqp('from-A-1'),
-                $this->amqp('from-A-2'),
+                'from-A-1',
+                'from-A-2',
             ]);
             $producerA->waitForConfirms(timeout: 5);
             $producerA->close();
 
             $producerB = $conn->createProducer($streamB);
             $producerB->sendBatch([
-                $this->amqp('from-B-1'),
-                $this->amqp('from-B-2'),
-                $this->amqp('from-B-3'),
+                'from-B-1',
+                'from-B-2',
+                'from-B-3',
             ]);
             $producerB->waitForConfirms(timeout: 5);
             $producerB->close();
@@ -193,8 +188,8 @@ class MultipleConsumersTest extends E2ETestCase
 
             $producer = $conn->createProducer($streamA);
             $producer->sendBatch([
-                $this->amqp('initial-a-1'),
-                $this->amqp('initial-a-2'),
+                'initial-a-1',
+                'initial-a-2',
             ]);
             $producer->waitForConfirms(timeout: 5);
             $producer->close();
@@ -207,7 +202,7 @@ class MultipleConsumersTest extends E2ETestCase
 
             // Publish a message to streamB while consumerB is subscribed
             $producerB = $conn->createProducer($streamB);
-            $producerB->send($this->amqp('to-B-before-close'));
+            $producerB->send('to-B-before-close');
             $producerB->waitForConfirms(timeout: 5);
             $producerB->close();
 
@@ -220,7 +215,7 @@ class MultipleConsumersTest extends E2ETestCase
 
             // Publish more messages to streamB after consumerA is closed
             $producerB2 = $conn->createProducer($streamB);
-            $producerB2->send($this->amqp('to-B-after-close'));
+            $producerB2->send('to-B-after-close');
             $producerB2->waitForConfirms(timeout: 5);
             $producerB2->close();
 

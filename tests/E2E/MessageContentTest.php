@@ -13,11 +13,6 @@ class MessageContentTest extends E2ETestCase
     private ?Connection $connection = null;
     private string $streamName;
 
-    private function amqp(string $body): string
-    {
-        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
-    }
-
     protected function setUp(): void
     {
         $this->connection = $this->createConnection();
@@ -66,7 +61,7 @@ class MessageContentTest extends E2ETestCase
 
     public function testEmptyMessageBody(): void
     {
-        $messages = $this->publishAndConsume($this->amqp(''));
+        $messages = $this->publishAndConsume('');
 
         $this->assertNotEmpty($messages, 'Should receive at least one message');
         $body = $messages[0]->getBody();
@@ -76,7 +71,7 @@ class MessageContentTest extends E2ETestCase
     public function testMessageWithNullBytes(): void
     {
         $originalBody = "hello\x00world\x00";
-        $messages = $this->publishAndConsume($this->amqp($originalBody));
+        $messages = $this->publishAndConsume($originalBody);
 
         $this->assertNotEmpty($messages);
         $body = $messages[0]->getBody();
@@ -86,7 +81,7 @@ class MessageContentTest extends E2ETestCase
     public function testMessageWithUtf8Multibyte(): void
     {
         $originalBody = "Héllo Wörld 🐰 日本語";
-        $messages = $this->publishAndConsume($this->amqp($originalBody));
+        $messages = $this->publishAndConsume($originalBody);
 
         $this->assertNotEmpty($messages);
         $body = $messages[0]->getBody();
@@ -96,7 +91,7 @@ class MessageContentTest extends E2ETestCase
     public function testMessageWithBinaryData(): void
     {
         $originalBody = random_bytes(256);
-        $messages = $this->publishAndConsume($this->amqp($originalBody));
+        $messages = $this->publishAndConsume($originalBody);
 
         $this->assertNotEmpty($messages);
         $body = $messages[0]->getBody();
@@ -117,10 +112,10 @@ class MessageContentTest extends E2ETestCase
         ];
 
         $producer->sendBatch([
-            $this->amqp($payloads['empty']),
-            $this->amqp($payloads['nulls']),
-            $this->amqp($payloads['utf8']),
-            $this->amqp($payloads['binary']),
+            $payloads['empty'],
+            $payloads['nulls'],
+            $payloads['utf8'],
+            $payloads['binary'],
         ]);
         $producer->waitForConfirms(timeout: 5);
         $producer->close();

@@ -34,6 +34,8 @@ $producer = $connection->createProducer(
 );
 
 for ($i = 0; $i < 10_000; $i++) {
+    // Bodies are plain strings; Producer wraps each one in an AMQP 1.0
+    // Data section on the wire, so consumers see the same string.
     $producer->send("hello_world_{$i}");
 }
 

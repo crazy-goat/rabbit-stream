@@ -56,6 +56,55 @@ $producer->sendBatch($messages);
 
 Batch publishing reduces network overhead and improves throughput significantly.
 
+### Message Encoding
+
+RabbitStream consumers expect every delivered entry to be an AMQP 1.0 message
+(the consumer decodes each delivery with `AmqpDecoder::decodeMessage()`). To
+keep the high-level API simple, `Producer::send()` and `Producer::sendBatch()`
+automatically wrap each payload in an AMQP 1.0 **Data section** (descriptor
+`0x75`) before putting it on the wire:
+
+```
+0x00 0x53 0x75 0xb0 <uint32 length> <payload>
+```
+
+This means you always pass a **plain string** to `send()` / `sendBatch()` —
+UTF-8 text, binary data and null bytes are all safe (the payload is
+length-prefixed) — and the consumer's `Message::getBody()` returns exactly
+the same string, without any AMQP framing:
+
+```php
+$producer->send('Hello, World!');
+// on the wire: a Data section wrapping "Hello, World!"
+// consumer:   $message->getBody() === 'Hello, World!'
+```
+
+#### Publishing Raw (Pre-Encoded) Messages
+
+If you build AMQP 1.0 messages yourself (e.g. to add `properties` or
+`applicationProperties` sections, or to interoperate with a message already
+produced by another library), publish the pre-encoded bytes through the
+low-level API instead of `Producer::send()` — `Producer::send()` wraps its
+argument again, so a pre-encoded message would be nested.
+
+For the common case of a raw payload that must go on the wire as a plain Data
+section, use the public helper `AmqpMessageEncoder::encodeDataSection($body)`
+(or its alias `AmqpMessageEncoder::encode($body)`):
+
+```php
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
+use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
+
+$message = new PublishedMessage(
+    publishingId: 1,
+    message: AmqpMessageEncoder::encodeDataSection('Hello'),
+);
+
+$request = new PublishRequestV1($publisherId, $message);
+$connection->sendMessage($request);
+```
+
 ### Closing the Producer
 
 Always close producers when you're done to free up resources:

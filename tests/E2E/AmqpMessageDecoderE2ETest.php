@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
 use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -35,9 +36,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
      */
     private function buildAmqpDataMessage(string $body): string
     {
-        // Data section: 0x00 + descriptor 0x75 + vbin32 + content
-        $length = strlen($body);
-        return "\x00\x53\x75\xb0" . pack('N', $length) . $body;
+        return AmqpMessageEncoder::encodeDataSection($body);
     }
 
     /**

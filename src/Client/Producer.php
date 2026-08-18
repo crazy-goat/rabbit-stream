@@ -77,17 +77,31 @@ class Producer implements ProducerInterface
         $this->connection->readMessage();
     }
 
+    /**
+     * Publish a single message.
+     *
+     * @param string $message plain payload (e.g. UTF-8 string or binary data). It is
+     *                        automatically wrapped in an AMQP 1.0 Data section on the
+     *                        wire, so a consumer's Message::getBody() returns the same
+     *                        string unchanged. Use AmqpMessageEncoder::encodeDataSection()
+     *                        when publishing pre-encoded bytes via the low-level API.
+     * @param ?float $timeout socket write timeout in seconds; null uses connection default
+     */
     public function send(string $message, ?float $timeout = null): void
     {
         $this->pendingConfirms++;
         $this->connection->sendMessage(new PublishRequestV1(
             $this->publisherId,
-            new PublishedMessage($this->publishingId++, $message)
+            new PublishedMessage($this->publishingId++, AmqpMessageEncoder::encodeDataSection($message))
         ), $timeout);
     }
 
     /**
-     * @param string[] $messages
+     * Publish multiple messages in a single batch.
+     *
+     * @param string[] $messages plain payloads; each one is automatically wrapped in an
+     *                           AMQP 1.0 Data section on the wire (see send())
+     * @param ?float $timeout socket write timeout in seconds; null uses connection default
      */
     public function sendBatch(array $messages, ?float $timeout = null): void
     {
@@ -96,7 +110,7 @@ class Producer implements ProducerInterface
         }
         $published = [];
         foreach ($messages as $message) {
-            $published[] = new PublishedMessage($this->publishingId++, $message);
+            $published[] = new PublishedMessage($this->publishingId++, AmqpMessageEncoder::encodeDataSection($message));
             $this->pendingConfirms++;
         }
         $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published), $timeout);
