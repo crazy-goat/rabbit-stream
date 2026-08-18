@@ -392,6 +392,11 @@ use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 // Creating a consumer (subscribes to the stream)
+//
+// Note: createConsumer() throws ProtocolException at subscribe time for any
+// non-OK response code — the high-level Connection does not expose the raw
+// response object. Inspect the code via $e->getResponseCode().
+$consumer = null;
 try {
     $consumer = $connection->createConsumer(
         'my-stream',
@@ -400,16 +405,25 @@ try {
     );
 } catch (ProtocolException $e) {
     $code = $e->getResponseCode();
-    
+
     if ($code === ResponseCodeEnum::SUBSCRIPTION_ID_ALREADY_EXISTS) {
-        // A previous consumer still holds the subscription - close it and retry
-        $consumer->close();
-        $consumer = $connection->createConsumer('my-stream', OffsetSpec::first());
+        // A previous consumer still holds this subscription id on the broker.
+        // The thrown createConsumer() never returned a Consumer object, so
+        // there is nothing on this side to close. Re-subscribe with a fresh
+        // subscription id (the high-level Connection allocates ids itself,
+        // so simply retry createConsumer() — or, if the name collides with a
+        // long-lived consumer, pick a unique consumer name).
+        $consumer = $connection->createConsumer('my-stream', OffsetSpec::first(), name: 'my-consumer-group-2');
     } elseif ($code === ResponseCodeEnum::STREAM_NOT_EXIST) {
         error_log("Cannot subscribe - stream does not exist");
     } elseif ($code === ResponseCodeEnum::ACCESS_REFUSED) {
         error_log("No permission to consume from this stream");
     }
+}
+
+if ($consumer === null) {
+    // STREAM_NOT_EXIST or ACCESS_REFUSED — nothing to consume from.
+    return;
 }
 
 // Handling NO_OFFSET on first consumer run

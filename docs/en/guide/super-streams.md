@@ -472,6 +472,8 @@ foreach ($partitions as $partition) {
 When the server sends `ConsumerUpdate` frames (e.g. to reassign a single-active-consumer subscription), the client auto-replies and lets you hook the decision via `onConsumerUpdate()` on a raw `StreamConnection` — low-level API:
 
 ```php
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+
 // Register callback for ConsumerUpdate (returns [offsetType, offset])
 $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     if ($query->getSubscriptionId() === 1) {

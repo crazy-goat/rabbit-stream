@@ -575,6 +575,7 @@ Deliver frames are server-push messages containing the actual data. Each `Delive
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
+use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 
 // Register handler for deliver frames
 $stream->registerSubscriber(

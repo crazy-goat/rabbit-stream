@@ -397,6 +397,9 @@ function handleStreamError(ResponseCodeEnum $code, string $operation): void
 Cache metadata to reduce server load:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\VO\StreamMetadata;
+
 class StreamMetadataCache
 {
     private array $cache = [];

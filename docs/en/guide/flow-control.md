@@ -318,6 +318,10 @@ For pure asynchronous processing (e.g., driving publish confirms without blockin
 ```php
 <?php
 
+use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
+
 // Register a publisher with callbacks (low-level API, $stream is a
 // handshaken StreamConnection)
 $stream->registerPublisher(
@@ -370,6 +374,10 @@ Call `stop()` from within a callback to interrupt the loop (low-level API):
 
 ```php
 <?php
+
+use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
 
 $confirmedCount = 0;
 $targetCount = 100;
