@@ -178,6 +178,65 @@ class OsirisChunkParserTest extends TestCase
         OsirisChunkParser::parse($chunk);
     }
 
+    public function testTruncatedSimpleEntryThrowsException(): void
+    {
+        // Valid 48-byte header + a simple entry that claims 11 bytes but only 6 are present.
+        // The ReadBuffer underflow guard must fail loud rather than read past the buffer.
+        $this->expectException(\RuntimeException::class);
+
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello World'],
+            ]
+        );
+        // Header (48) + 4-byte simple-entry header (size = 11) = 52; keep only 6 body bytes.
+        $truncated = substr($chunk, 0, 52 + 6);
+        OsirisChunkParser::parse($truncated);
+    }
+
+    public function testTruncatedSubBatchBodyThrowsException(): void
+    {
+        // Sub-batch entry whose compressedSize claims more bytes than the chunk carries.
+        $this->expectException(\RuntimeException::class);
+
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 2,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => [
+                    ['data' => 'SubMessage 1'],
+                    ['data' => 'SubMessage 2'],
+                ]],
+            ]
+        );
+        // Header (48) + sub-batch header (1+2+4+4 = 11) = 59; keep only 2 body bytes.
+        $truncated = substr($chunk, 0, 59 + 2);
+        OsirisChunkParser::parse($truncated);
+    }
+
+    public function testEmptySubBatchProducesNoEntries(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 0,
+            timestamp: 1234567890,
+            chunkFirstOffset: 42,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => []],
+            ]
+        );
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertSame([], $entries);
+    }
+
     public function testMixedSimpleAndSubBatchEntries(): void
     {
         $chunk = $this->createChunk(

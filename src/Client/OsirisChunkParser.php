@@ -30,6 +30,7 @@ use CrazyGoat\RabbitStream\Exception\DeserializationException;
  *                    + uncompressedSize (uint32) + compressedSize (uint32) + sub-batch data
  *
  * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/rabbitmq_stream/docs/PROTOCOL.adoc
+ * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/osiris/src/osiris_log.erl
  */
 class OsirisChunkParser
 {

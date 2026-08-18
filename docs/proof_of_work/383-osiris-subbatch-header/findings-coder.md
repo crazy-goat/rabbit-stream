@@ -18,14 +18,22 @@
    into the size fields → buffer underflow / garbage. So the test would
    have caught the original bug, as required.
 
-3. **Codec=4 (zstd) was silently ignored by the old bit math, exactly as
-   the issue claimed.** Old: `codec = (0x80000000 | ...) >> 25 & 0x0F`.
-   For the old fixture with codec 4 that's `0x80000000 | (4 << 25) =
-   0x88000000` → `(0x88000000 >> 25) & 0x0F = 0` → guard never fired and
-   the parser happily read garbage as uncompressed records. New fixture
-   byte 0 = `0x80 | (4 << 4) = 0xC0` → `codec = (0xC0 >> 4) & 0x07 = 4`
-   → guard fires. `testCompressedSubBatchZstdThrowsException` locks this
-   in.
+3. **Codec=4 (zstd) and the regression test.** The issue claimed the old
+   bit math silently ignored codec 4. That is **not** arithmetically
+   accurate for the *old fixture*: `0x80000000 | (4 << 25) = 0x88000000`
+   and `(0x88000000 >> 25) & 0x0F = 4` (not 0), so on the old
+   self-consistent fixture the guard *did* fire for codec 4. The real
+   defect is the **wrong wire layout** relative to real Osiris chunks,
+   not internally inconsistent math. The new regression test
+   `testCompressedSubBatchZstdThrowsException` still catches the bug,
+   but via a different path: the **old parser on the new fixture**
+   reads byte 0 = `0x80 | (4 << 4) = 0xC0` as part of a uint32
+   (`0xC0000100` for count=1), extracts `codec = (0xC0000100 >> 25) &
+   0x0F = 0`, skips the guard, and underflows reading the body — so it
+   throws, but with the wrong exception. With the new parser,
+   `codec = (0xC0 >> 4) & 0x07 = 4` → the guard fires with the expected
+   `'codec: 4'` message. (Corrected during review round 1 — see
+   `findings-review.md` R1-4.)
 
 4. **`DeserializationException` is a `RuntimeException`** (via
    `RabbitStreamException`), so the new tests keep the pre-existing
