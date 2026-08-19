@@ -14,7 +14,7 @@ subagents *propose* candidate entries in their report — they never append
 - `e2e` — FAQ-001, FAQ-002, FAQ-004
 - `gh` — FAQ-003
 - `offset` — FAQ-004
-- `protocol` — FAQ-002, FAQ-004, FAQ-005
+- `protocol` — FAQ-002, FAQ-004, FAQ-005, FAQ-006
 - `socket` — FAQ-002, FAQ-005
 <!-- kb-index:end -->
 
@@ -86,3 +86,26 @@ Two consequences, both learned the hard way in #385:
 
 `readLoop()` never inspects application state, so `readLoop(timeout: $t)`
 without `maxFrames` always blocks the full `$t` (#385). Pass `maxFrames: 1`.
+
+### When reviewing wire-format parsers, verify the transmit path — on-disk layout ≠ wire layout
+<!-- id=FAQ-006 date=2026-08-19 tags=protocol trigger="when reviewing or implementing a parser for a broker payload (chunk, frame, message, sub-batch)" hits=0 status=active -->
+
+A broker's on-disk record layout and what it actually transmits can differ.
+For Osiris user chunks the header declares the on-disk sizes of the bloom
+filter and trailer sections, but Deliver frames omit **both** sections'
+bytes (`select_amount_to_send(user_data, ?CHNK_USER, ...)` skips the bloom
+bytes; the trailer is written only on disk with tracking deltas). Round 1 of
+#399 added a fit check `header + dataLength + trailerLength <= received`
+based purely on the on-disk format — it would have rejected legitimate chunks
+from exactly the auto-commit / named-producer workflows the library documents,
+because a nonzero `trailerLength` with no bytes behind it is legal on the
+wire. The check had to be relaxed to data-section-only (`header + dataLength
+<= received`). Same lesson in the other direction: `bloomSize` is
+informational in Deliver frames, so validating it against received bytes
+would also reject legal traffic.
+
+Before asserting a parser guard on any reserved/informational header field,
+trace the broker's send path (osiris `osiris_writer`/`osiris_log.erl`) — not
+just the on-disk format docs — and pin the wire contract with a test that
+carries a nonzero informational field with no bytes behind it
+(`testNonzeroTrailerLengthWithoutTrailerBytesParses`).
