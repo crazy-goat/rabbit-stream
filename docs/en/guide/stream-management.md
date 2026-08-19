@@ -51,28 +51,20 @@ $connection->createStream('my-stream', [
 
 ### Error Handling: STREAM_ALREADY_EXISTS
 
-Handle the case when a stream already exists:
+Handle the case when a stream already exists — the high-level API throws `ProtocolException` when the server answers with an error code:
 
 ```php
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Request\CreateRequestV1;
-use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 
-// Using low-level API for fine-grained error handling
-$connection->getStreamConnection()->sendMessage(
-    new CreateRequestV1('my-stream', ['max-age' => '1h'])
-);
-$response = $connection->getStreamConnection()->readMessage();
-
-if ($response instanceof CreateResponseV1) {
-    $code = $response->getResponseCode();
-    
-    if ($code === ResponseCodeEnum::OK) {
-        echo "Stream created successfully\n";
-    } elseif ($code === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
+try {
+    $connection->createStream('my-stream', ['max-age' => '1h']);
+    echo "Stream created successfully\n";
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
         echo "Stream already exists - continuing\n";
     } else {
-        throw new \Exception("Create failed: " . $code->getMessage());
+        throw $e;
     }
 }
 ```
@@ -92,24 +84,17 @@ $connection->deleteStream('my-stream');
 Handle the case when the stream doesn't exist:
 
 ```php
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
-use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 
-$connection->getStreamConnection()->sendMessage(
-    new DeleteStreamRequestV1('my-stream')
-);
-$response = $connection->getStreamConnection()->readMessage();
-
-if ($response instanceof DeleteStreamResponseV1) {
-    $code = $response->getResponseCode();
-    
-    if ($code === ResponseCodeEnum::OK) {
-        echo "Stream deleted successfully\n";
-    } elseif ($code === ResponseCodeEnum::STREAM_NOT_EXIST) {
+try {
+    $connection->deleteStream('my-stream');
+    echo "Stream deleted successfully\n";
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::STREAM_NOT_EXIST) {
         echo "Stream does not exist - nothing to delete\n";
     } else {
-        throw new \Exception("Delete failed: " . $code->getMessage());
+        throw $e;
     }
 }
 ```
@@ -133,12 +118,22 @@ if ($connection->streamExists('my-stream')) {
 The `streamExists()` method queries stream metadata and checks the response code:
 
 ```php
-// Equivalent low-level implementation
-$connection->getStreamConnection()->sendMessage(
-    new MetadataRequestV1(['my-stream'])
-);
-$response = $connection->getStreamConnection()->readMessage();
+// Equivalent low-level implementation — StreamConnection is the raw
+// protocol connection, used here directly (low-level API).
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 
+// Create a raw StreamConnection and complete the handshake on it:
+$stream = new StreamConnection($host, $port);
+$stream->connect();
+$connection = Connection::create(host: $host, port: $port, streamConnection: $stream);
+
+$stream->sendMessage(new MetadataRequestV1(['my-stream']));
+$response = $stream->readMessage();
+
+$exists = false;
 foreach ($response->getStreamMetadata() as $meta) {
     if ($meta->getStreamName() === 'my-stream') {
         $exists = $meta->getResponseCode() === ResponseCodeEnum::OK->value;
@@ -214,7 +209,7 @@ foreach ($metadata->getStreamMetadata() as $streamMeta) {
     echo "Stream: {$streamMeta->getStreamName()}\n";
     echo "  Response Code: {$streamMeta->getResponseCode()}\n";
     echo "  Leader: Broker {$streamMeta->getLeaderReference()}\n";
-    echo "  Replicas: " . implode(', ', $streamMeta->getReplicaReferences()) . "\n";
+    echo "  Replicas: " . implode(', ', $streamMeta->getReplicasReferences()) . "\n";
 }
 ```
 
@@ -232,7 +227,7 @@ foreach ($metadata->getStreamMetadata() as $streamMeta) {
     
     if ($code === ResponseCodeEnum::OK->value) {
         $leader = $streamMeta->getLeaderReference();
-        $replicas = $streamMeta->getReplicaReferences();
+        $replicas = $streamMeta->getReplicasReferences();
         echo "$name: leader=$leader, replicas=" . count($replicas) . "\n";
     } else {
         echo "$name: error - " . ResponseCodeEnum::from($code)->getMessage() . "\n";
@@ -267,12 +262,17 @@ Use the low-level protocol classes when:
 ### Low-Level Example
 
 ```php
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 
-$stream = $connection->getStreamConnection();
+// Create a raw StreamConnection and complete the handshake on it:
+$stream = new StreamConnection($host, $port);
+$stream->connect();
+$connection = Connection::create(host: $host, port: $port, streamConnection: $stream);
 
 // Create
 $stream->sendMessage(new CreateRequestV1('my-stream'));
@@ -325,7 +325,7 @@ try {
     $metadata = $connection->getMetadata([$streamName]);
     foreach ($metadata->getStreamMetadata() as $meta) {
         echo "Leader: Broker {$meta->getLeaderReference()}\n";
-        echo "Replicas: " . implode(', ', $meta->getReplicaReferences()) . "\n";
+        echo "Replicas: " . implode(', ', $meta->getReplicasReferences()) . "\n";
     }
     
     // 4. Get statistics
@@ -397,6 +397,9 @@ function handleStreamError(ResponseCodeEnum $code, string $operation): void
 Cache metadata to reduce server load:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\VO\StreamMetadata;
+
 class StreamMetadataCache
 {
     private array $cache = [];

@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Docs: removed non-existent `Connection::getStreamConnection()` and other invented API calls from the English documentation** — 37 calls to `Connection::getStreamConnection()` (which never existed on the high-level `Connection`) and ~150 calls to `sendMessage()`/`readMessage()`/`registerPublisher()`/`registerSubscriber()`/`stop()`/`registerDeliverCallback()` on the high-level `Connection` (where they do not exist) were rewritten across 9 doc files to use the real high-level API (`createStream`, `deleteStream`, `createSuperStream`, `deleteSuperStream`, `route`, `getMetadata`, `getStreamStats`, `queryOffset`, `storeOffset`, `createProducer`, `createConsumer`) and labelled low-level `StreamConnection` sections where no high-level wrapper exists. Also corrected invented APIs (`OffsetType` enum, `OffsetSpecification`, `DeliverResponseV1::getMessages()`, `StreamMetadata::getReplicaReferences()`, wrong `OffsetSpec` type values) and missing `use` imports. Every "complete working example" in the stream-management and super-stream docs now fatals no longer on its first line (#423)
+
 ### Changed
 - **Producer: `send()`/`sendBatch()` now wrap payloads in an AMQP 1.0 Data section** — payloads are no longer put on the wire verbatim, so a publish→consume round trip through `Consumer::read()` works out of the box (it previously threw `DeserializationException`). `Message::getBody()` returns the same plain string that was passed to `send()`. Raw pre-encoded AMQP 1.0 bytes can still be published via the low-level API with the new `AmqpMessageEncoder::encodeDataSection()` helper (#413)
 - **WriteBuffer: make UTF-8 validation opt-in** — added `$validateStrings` constructor parameter (default `true`). Set to `false` to skip `mb_check_encoding` in high-throughput scenarios where input strings are guaranteed valid UTF-8 (#350)

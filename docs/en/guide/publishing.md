@@ -102,7 +102,10 @@ $message = new PublishedMessage(
 );
 
 $request = new PublishRequestV1($publisherId, $message);
-$connection->sendMessage($request);
+
+// Low-level API: $stream is a handshaken StreamConnection and $publisherId
+// must have been declared first (see "Low-Level Publishing" below).
+$stream->sendMessage($request);
 ```
 
 ### Closing the Producer
@@ -309,8 +312,9 @@ $message = new PublishedMessageV2(
 // Create the publish request
 $request = new PublishRequestV2($publisherId, $message);
 
-// Send via low-level connection
-$connection->sendMessage($request);
+// Send via the low-level connection
+// (low-level API: $stream is a handshaken StreamConnection)
+$stream->sendMessage($request);
 ```
 
 ### V1 vs V2 Comparison
@@ -327,6 +331,18 @@ For high-level API usage, the `Producer` class handles the protocol version auto
 ## 5. Low-Level Publishing
 
 For advanced use cases, you can use the protocol-level API directly.
+The snippets below use a raw `StreamConnection` (`$stream`) — the
+low-level API. Create it and complete the handshake on it first:
+
+```php
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\Connection;
+
+// Low-level connection, handshaken by the high-level factory
+$stream = new StreamConnection('127.0.0.1', 5552);
+$stream->connect();
+$connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
+```
 
 ### Declare Publisher
 
@@ -338,11 +354,11 @@ use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 $request = new DeclarePublisherRequestV1(
     publisherId: 1,
     publisherReference: 'my-publisher',  // null for unnamed
-    streamName: 'my-stream'
+    stream: 'my-stream'
 );
 
-$connection->sendMessage($request);
-$response = $connection->readMessage();
+$stream->sendMessage($request);
+$response = $stream->readMessage();
 ```
 
 ### Publish Messages
@@ -352,22 +368,23 @@ $response = $connection->readMessage();
 
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
 
 $message = new PublishedMessage(
     publishingId: 1,
-    message: 'Hello'
+    message: AmqpMessageEncoder::encodeDataSection('Hello')
 );
 
 $request = new PublishRequestV1($publisherId, $message);
-$connection->sendMessage($request);
+$stream->sendMessage($request);
 ```
 
 ### Handle Confirms
 
-Register callbacks to handle asynchronous confirms:
+Register callbacks to handle asynchronous confirms before publishing:
 
 ```php
-$connection->registerPublisher(
+$stream->registerPublisher(
     $publisherId,
     onConfirm: function (array $publishingIds): void {
         echo "Confirmed: " . implode(', ', $publishingIds) . "\n";
@@ -390,8 +407,8 @@ Clean up when done:
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 
 $request = new DeletePublisherRequestV1($publisherId);
-$connection->sendMessage($request);
-$response = $connection->readMessage();
+$stream->sendMessage($request);
+$response = $stream->readMessage();
 ```
 
 ## 6. Error Handling
@@ -426,24 +443,38 @@ try {
 
 ### Publishing to Non-existent Stream
 
-Attempting to publish to a non-existent stream results in a `PublishError`:
+Creating a producer for a stream that does not exist fails immediately with a `ProtocolException` (the publisher declare is rejected with `STREAM_NOT_EXIST`):
 
 ```php
 <?php
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-$producer = $connection->createProducer('non-existent-stream');
-$producer->send('message');
-
-// In the onConfirm callback:
-onConfirm: function (ConfirmationStatus $status) {
-    if (!$status->isConfirmed()) {
-        if ($status->getErrorCode() === ResponseCodeEnum::STREAM_NOT_EXIST->value) {
-            echo "Stream does not exist!\n";
-        }
+try {
+    $producer = $connection->createProducer('non-existent-stream');
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::STREAM_NOT_EXIST) {
+        echo "Stream does not exist!\n";
+    } else {
+        throw $e;
     }
 }
+```
+
+If the stream is deleted while the producer is active, subsequent messages fail asynchronously and surface in the `onConfirm` callback as a failed `ConfirmationStatus`:
+
+```php
+$producer = $connection->createProducer(
+    'my-stream',
+    onConfirm: function (ConfirmationStatus $status) {
+        if (!$status->isConfirmed()) {
+            if ($status->getErrorCode() === ResponseCodeEnum::STREAM_NOT_EXIST->value) {
+                echo "Stream does not exist!\n";
+            }
+        }
+    }
+);
 ```
 
 ### Error Recovery Strategies

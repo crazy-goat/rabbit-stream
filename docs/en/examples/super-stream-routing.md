@@ -27,17 +27,12 @@ declare(strict_types=1);
 require_once __DIR__ . '/vendor/autoload.php';
 
 use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\Enum\OffsetType;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
-use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
-use CrazyGoat\RabbitStream\Request\RouteRequestV1;
-use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
-use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
-use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
-use CrazyGoat\RabbitStream\Response\RouteResponseV1;
+use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 /**
  * Super Stream Routing Example
@@ -51,10 +46,12 @@ use CrazyGoat\RabbitStream\Response\RouteResponseV1;
 class SuperStreamRoutingExample
 {
     private Connection $connection;
+    private StreamConnection $stream; // low-level handle, for partitions listing
     private string $superStreamName;
     private int $partitionCount;
     private array $partitions = [];
     private array $producers = [];
+    private array $consumers = [];
     private int $messagesReceived = 0;
     
     public function __construct(
@@ -73,13 +70,17 @@ class SuperStreamRoutingExample
             $this->partitions[] = "{$superStreamName}-{$i}";
         }
         
-        // Connect to RabbitMQ
+        // Connect to RabbitMQ: wrap a raw StreamConnection so it is also
+        // available for the low-level partitions query below
+        $this->stream = new StreamConnection($host, $port);
+        $this->stream->connect();
         $this->connection = Connection::create(
             host: $host,
             port: $port,
             user: $user,
             password: $password,
-            vhost: '/'
+            vhost: '/',
+            streamConnection: $this->stream
         );
         
         echo "Connected to RabbitMQ Streams at {$host}:{$port}\n";
@@ -96,42 +97,34 @@ class SuperStreamRoutingExample
         
         $bindingKeys = array_map('strval', range(0, $this->partitionCount - 1));
         
-        $this->connection->getStreamConnection()->sendMessage(
-            new CreateSuperStreamRequestV1(
+        try {
+            $this->connection->createSuperStream(
                 $this->superStreamName,
                 $this->partitions,
                 $bindingKeys,
                 ['max-age' => '1h'] // 1 hour retention
-            )
-        );
-        
-        $response = $this->connection->getStreamConnection()->readMessage();
-        
-        if ($response instanceof CreateSuperStreamResponseV1) {
-            $code = $response->getResponseCode();
-            
-            if ($code === ResponseCodeEnum::OK) {
-                echo "✓ Super stream created successfully\n";
-            } elseif ($code === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
+            );
+            echo "✓ Super stream created successfully\n";
+        } catch (ProtocolException $e) {
+            if ($e->getResponseCode() === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
                 echo "✓ Super stream already exists (continuing)\n";
             } else {
-                throw new \Exception("Failed to create super stream: " . $code->getMessage());
+                throw $e;
             }
         }
     }
     
     /**
      * Verify partitions exist
+     * Uses the low-level API: there is no high-level wrapper for listing
+     * partitions yet.
      */
     public function verifyPartitions(): void
     {
         echo "\n=== Verifying Partitions ===\n";
         
-        $this->connection->getStreamConnection()->sendMessage(
-            new PartitionsRequestV1($this->superStreamName)
-        );
-        
-        $response = $this->connection->getStreamConnection()->readMessage();
+        $this->stream->sendMessage(new PartitionsRequestV1($this->superStreamName));
+        $response = $this->stream->readMessage();
         
         if ($response instanceof PartitionsResponseV1) {
             $discoveredPartitions = $response->getStreams();
@@ -155,18 +148,10 @@ class SuperStreamRoutingExample
         $testCustomers = ['alice', 'bob', 'charlie', 'diana', 'eve'];
         
         foreach ($testCustomers as $customer) {
-            $this->connection->getStreamConnection()->sendMessage(
-                new RouteRequestV1($customer, $this->superStreamName)
-            );
-            
-            $response = $this->connection->getStreamConnection()->readMessage();
-            
-            if ($response instanceof RouteResponseV1) {
-                $targetPartitions = $response->getStreams();
-                $partitionIndex = $this->getPartitionIndex($customer);
-                echo "  Customer '$customer' (hash: {$partitionIndex}) -> " . 
-                     implode(', ', $targetPartitions) . "\n";
-            }
+            $targetPartitions = $this->connection->route($customer, $this->superStreamName);
+            $partitionIndex = $this->getPartitionIndex($customer);
+            echo "  Customer '$customer' (hash: {$partitionIndex}) -> " . 
+                 implode(', ', $targetPartitions) . "\n";
         }
     }
     
@@ -221,26 +206,21 @@ class SuperStreamRoutingExample
     }
     
     /**
-     * Subscribe to all partitions
+     * Subscribe to all partitions and consume messages
      */
-    public function subscribeToPartitions(): void
+    public function createConsumers(): void
     {
-        echo "\n=== Subscribing to Partitions ===\n";
+        echo "\n=== Creating Consumers ===\n";
         
-        $subscriptionId = 1;
-        foreach ($this->partitions as $partition) {
-            $this->connection->getStreamConnection()->sendMessage(
-                new SubscribeRequestV1(
-                    subscriptionId: $subscriptionId,
-                    streamName: $partition,
-                    offsetType: OffsetType::FIRST,
-                    offsetValue: 0
-                )
+        // High-level consumers: subscribe + credit management are handled
+        // internally (no manual Subscribe/Credit requests needed)
+        foreach ($this->partitions as $i => $partition) {
+            $this->consumers[$partition] = $this->connection->createConsumer(
+                $partition,
+                OffsetSpec::first(),
+                name: 'super-stream-demo-' . $i
             );
-            
-            $this->connection->getStreamConnection()->readMessage();
-            echo "  Subscribed to $partition (subscriptionId: $subscriptionId)\n";
-            $subscriptionId++;
+            echo "  Created consumer for $partition\n";
         }
     }
     
@@ -253,34 +233,17 @@ class SuperStreamRoutingExample
         
         $this->messagesReceived = 0;
         
-        // Register deliver callback for subscription 1 (orders-0)
-        $this->connection->getStreamConnection()->registerDeliverCallback(
-            1,
-            function ($message) use ($maxMessages) {
-                return $this->handleMessage($message, 'orders-0', $maxMessages);
-            }
-        );
-        
-        // Register deliver callback for subscription 2 (orders-1)
-        $this->connection->getStreamConnection()->registerDeliverCallback(
-            2,
-            function ($message) use ($maxMessages) {
-                return $this->handleMessage($message, 'orders-1', $maxMessages);
-            }
-        );
-        
-        // Register deliver callback for subscription 3 (orders-2)
-        $this->connection->getStreamConnection()->registerDeliverCallback(
-            3,
-            function ($message) use ($maxMessages) {
-                return $this->handleMessage($message, 'orders-2', $maxMessages);
-            }
-        );
-        
-        // Read messages for up to 10 seconds or until we reach max
+        // Read from every partition; read() pumps the underlying read loop
         $startTime = time();
         while ($this->messagesReceived < $maxMessages && (time() - $startTime) < 10) {
-            $this->connection->getStreamConnection()->readLoop(maxFrames: 1, timeout: 0.1);
+            foreach ($this->consumers as $partition => $consumer) {
+                foreach ($consumer->read(timeout: 0.1) as $message) {
+                    $this->handleMessage($message, $partition, $maxMessages);
+                    if ($this->messagesReceived >= $maxMessages) {
+                        break 3;
+                    }
+                }
+            }
         }
         
         echo "\nTotal messages received: {$this->messagesReceived}\n";
@@ -289,9 +252,9 @@ class SuperStreamRoutingExample
     /**
      * Handle an incoming message
      */
-    private function handleMessage($message, string $partition, int $maxMessages): bool
+    private function handleMessage(\CrazyGoat\RabbitStream\Client\Message $message, string $partition, int $maxMessages): void
     {
-        $data = json_decode($message->getData(), true);
+        $data = json_decode($message->getBody(), true);
         
         echo sprintf(
             "  [%s] Order #%d from %s: $%d\n",
@@ -302,9 +265,6 @@ class SuperStreamRoutingExample
         );
         
         $this->messagesReceived++;
-        
-        // Return false to stop receiving more messages for this subscription
-        return $this->messagesReceived < $maxMessages;
     }
     
     /**
@@ -328,18 +288,15 @@ class SuperStreamRoutingExample
             echo "  Closed producer for $partition\n";
         }
         
-        // Delete super stream
-        $this->connection->getStreamConnection()->sendMessage(
-            new DeleteSuperStreamRequestV1($this->superStreamName)
-        );
-        
-        $response = $this->connection->getStreamConnection()->readMessage();
-        
-        if ($response instanceof DeleteSuperStreamResponseV1) {
-            if ($response->getResponseCode() === ResponseCodeEnum::OK) {
-                echo "  ✓ Super stream deleted\n";
-            }
+        // Close all consumers
+        foreach ($this->consumers as $partition => $consumer) {
+            $consumer->close();
+            echo "  Closed consumer for $partition\n";
         }
+        
+        // Delete super stream
+        $this->connection->deleteSuperStream($this->superStreamName);
+        echo "  ✓ Super stream deleted\n";
         
         // Close connection
         $this->connection->close();
@@ -357,7 +314,7 @@ class SuperStreamRoutingExample
             $this->testRouting();
             $this->createProducers();
             $this->publishMessages(100);
-            $this->subscribeToPartitions();
+            $this->createConsumers();
             $this->consumeMessages(20);
             $this->cleanup();
             
@@ -444,10 +401,10 @@ Messages published. Distribution:
   orders-1: 40 messages
   orders-2: 40 messages
 
-=== Subscribing to Partitions ===
-  Subscribed to orders-0 (subscriptionId: 1)
-  Subscribed to orders-1 (subscriptionId: 2)
-  Subscribed to orders-2 (subscriptionId: 3)
+=== Creating Consumers ===
+  Created consumer for orders-0
+  Created consumer for orders-1
+  Created consumer for orders-2
 
 === Consuming Messages (max 20) ===
   [orders-0] Order #2 from charlie: $456
@@ -463,6 +420,9 @@ Total messages received: 20
   Closed producer for orders-0
   Closed producer for orders-1
   Closed producer for orders-2
+  Closed consumer for orders-0
+  Closed consumer for orders-1
+  Closed consumer for orders-2
   ✓ Super stream deleted
   ✓ Connection closed
 
@@ -501,18 +461,24 @@ $this->producers[$partitionName]->send($message);
 
 ### 3. Parallel Consumption
 
-Multiple subscriptions allow parallel consumption:
+Multiple high-level consumers (one per partition) allow parallel consumption — each `Consumer` subscribes and manages credits internally:
 
 ```php
-foreach ($this->partitions as $partition) {
-    $this->connection->getStreamConnection()->sendMessage(
-        new SubscribeRequestV1(
-            subscriptionId: $subscriptionId++,
-            streamName: $partition,
-            offsetType: OffsetType::FIRST,
-            offsetValue: 0
-        )
+foreach ($this->partitions as $i => $partition) {
+    $this->consumers[$partition] = $this->connection->createConsumer(
+        $partition,
+        OffsetSpec::first(),
+        name: 'super-stream-demo-' . $i
     );
+}
+
+// Pump deliveries and read from every partition
+while (true) {
+    foreach ($this->consumers as $partition => $consumer) {
+        foreach ($consumer->read(timeout: 1.0) as $message) {
+            echo "[$partition] {$message->getBody()}\n";
+        }
+    }
 }
 ```
 
@@ -526,10 +492,15 @@ foreach ($this->producers as $producer) {
     $producer->close();
 }
 
-// 2. Delete super stream
-$connection->sendMessage(new DeleteSuperStreamRequestV1($superStreamName));
+// 2. Close consumers (unsubscribes from the partitions)
+foreach ($this->consumers as $consumer) {
+    $consumer->close();
+}
 
-// 3. Close connection
+// 3. Delete super stream
+$connection->deleteSuperStream($superStreamName);
+
+// 4. Close connection
 $connection->close();
 ```
 
@@ -546,7 +517,8 @@ $bindingKeys = ['us', 'eu', 'asia'];
 
 // Route based on region
 $region = 'eu';
-$connection->sendMessage(new RouteRequestV1($region, 'orders'));
+$streams = $connection->route($region, 'orders');
+echo implode(', ', $streams);
 ```
 
 ### Range-Based Routing
@@ -569,17 +541,14 @@ function getPartitionForValue(float $value): string
 
 ### Consumer Groups
 
-For coordinated consumption with single active consumer:
+RabbitMQ Streams supports single-active-consumer groups, but the current client cannot subscribe with a consumer/group reference yet (the field is not exposed by `SubscribeRequestV1`). Until then, consume from each partition with an independently named high-level consumer:
 
 ```php
-$connection->sendMessage(new SubscribeRequestV1(
-    subscriptionId: 1,
-    streamName: 'orders-0',
-    offsetType: OffsetType::FIRST,
-    offsetValue: 0,
-    groupName: 'order-processors',  // Same for all consumers
-    consumerName: 'consumer-1',    // Unique per instance
-));
+$consumer = $connection->createConsumer(
+    'orders-0',
+    OffsetSpec::first(),
+    name: 'order-processor-1', // Unique per instance
+);
 ```
 
 ## Troubleshooting
@@ -588,11 +557,11 @@ $connection->sendMessage(new SubscribeRequestV1(
 
 **Cause**: Trying to publish to a partition that doesn't exist.
 
-**Solution**: Verify partitions exist before publishing:
+**Solution**: Verify partitions exist before publishing (low-level API — there is no high-level wrapper for listing partitions):
 
 ```php
-$connection->sendMessage(new PartitionsRequestV1($superStreamName));
-$response = $connection->readMessage();
+$this->stream->sendMessage(new PartitionsRequestV1($superStreamName));
+$response = $this->stream->readMessage();
 ```
 
 ### Issue: "Access refused"
