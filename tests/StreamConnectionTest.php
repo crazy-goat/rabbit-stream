@@ -568,6 +568,7 @@ class StreamConnectionTest extends TestCase
 
     public function testDispatchMetadataUpdateWithoutCallbackDoesNotCrash(): void
     {
+        $this->expectNotToPerformAssertions();
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
         $connection = new StreamConnection('127.0.0.1', 5552);
