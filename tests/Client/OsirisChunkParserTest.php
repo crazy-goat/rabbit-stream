@@ -6,6 +6,8 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\ChunkEntry;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
 class OsirisChunkParserTest extends TestCase
@@ -88,7 +90,7 @@ class OsirisChunkParserTest extends TestCase
 
     public function testInvalidMagicThrowsException(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Invalid chunk magic: expected 5, got 0');
 
         // 0x00 has magic=0, version=0 → invalid magic
@@ -98,7 +100,7 @@ class OsirisChunkParserTest extends TestCase
 
     public function testUnsupportedChunkVersionThrowsException(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Unsupported chunk version: expected 0, got 1');
 
         // 0x51 has magic=5, version=1 → unsupported version
@@ -108,7 +110,7 @@ class OsirisChunkParserTest extends TestCase
 
     public function testUnsupportedChunkTypeThrowsException(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Unsupported chunk type');
 
         // 0x50 = valid magic+version, then 0x01 = invalid chunk type
@@ -118,7 +120,7 @@ class OsirisChunkParserTest extends TestCase
 
     public function testCompressedSubBatchThrowsException(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Compressed sub-batches not supported yet');
 
         $chunk = $this->createChunk(
@@ -162,7 +164,7 @@ class OsirisChunkParserTest extends TestCase
 
     public function testCompressedSubBatchZstdThrowsException(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Compressed sub-batches not supported yet (codec: 4)');
 
         $chunk = $this->createChunk(
@@ -182,7 +184,7 @@ class OsirisChunkParserTest extends TestCase
     {
         // Valid 48-byte header + a simple entry that claims 11 bytes but only 6 are present.
         // The ReadBuffer underflow guard must fail loud rather than read past the buffer.
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(DeserializationException::class);
 
         $chunk = $this->createChunk(
             numEntries: 1,
@@ -201,7 +203,7 @@ class OsirisChunkParserTest extends TestCase
     public function testTruncatedSubBatchBodyThrowsException(): void
     {
         // Sub-batch entry whose compressedSize claims more bytes than the chunk carries.
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(DeserializationException::class);
 
         $chunk = $this->createChunk(
             numEntries: 1,
@@ -265,6 +267,302 @@ class OsirisChunkParserTest extends TestCase
         $this->assertSame('Batch 2', $entries[2]->getData());
         $this->assertSame(203, $entries[3]->getOffset());
         $this->assertSame('Last', $entries[3]->getData());
+    }
+
+    public function testDataLengthExceedingChunkSizeThrowsException(): void
+    {
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('dataLength');
+
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello World'],
+            ]
+        );
+        // Declare 1000 more data bytes than the chunk actually carries.
+        $chunk = substr_replace($chunk, pack('N', 1000 + 11), 36, 4);
+        OsirisChunkParser::parse($chunk);
+    }
+
+    public function testNonzeroTrailerLengthWithoutTrailerBytesParses(): void
+    {
+        // On the stream-protocol wire, Deliver frames omit the trailer for
+        // user-data chunks (osiris select_amount_to_send(user_data, ...) sends
+        // data only) while the header still declares its on-disk size. A chunk
+        // with a nonzero trailerLength field and no trailer bytes is therefore
+        // legitimate and must parse.
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello World'],
+            ]
+        );
+        // Declare a 512-byte trailer that was never sent.
+        $chunk = substr_replace($chunk, pack('N', 512), 40, 4);
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('Hello World', $entries[0]->getData());
+    }
+
+    public function testEntryBeyondDeclaredDataSectionThrows(): void
+    {
+        // A chunk whose header declares dataLength covering only the first entry.
+        // A second entry is physically present after the declared data section —
+        // the parser must not read it, because it sits outside the data section;
+        // hitting the end of the bounded sub-buffer must throw instead.
+        $this->expectException(DeserializationException::class);
+
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello'],
+            ]
+        );
+        // Header claims 1 entry, but we append a second entry (size 5, "World")
+        // after the declared data section and bump numEntries to 2.
+        $chunk = substr_replace($chunk, pack('n', 2), 2, 2);
+        $chunk .= pack('N', 5) . 'World';
+        OsirisChunkParser::parse($chunk);
+    }
+
+    public function testTrailingBytesAfterDeclaredSectionsAreIgnored(): void
+    {
+        // Tolerant direction: extra bytes after header + data + trailer are not
+        // an error (the declared sections still fit), they are simply ignored.
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello'],
+            ]
+        );
+        $chunk .= "\x00\x00\x00\x05World"; // garbage beyond the declared sections
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('Hello', $entries[0]->getData());
+    }
+
+    public function testSubBatchDeclaringMoreRecordsThanDataThrowsException(): void
+    {
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Sub-batch declares 5 records but only 4 bytes of data');
+
+        // Sub-batch claiming 5 records, but its body is a single 4-byte size
+        // prefix (one zero-size record) — 5 records need at least 20 bytes.
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 5,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => [
+                    ['data' => ''],
+                ]],
+            ]
+        );
+        $chunk = substr_replace($chunk, pack('n', 5), 49, 2); // numRecords in sub-batch header
+        OsirisChunkParser::parse($chunk);
+    }
+
+    public function testSubBatchUncompressedSizeCannotHoldRecordsThrowsException(): void
+    {
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('uncompressedSize 4 cannot hold them');
+
+        // Sub-batch claiming 5 records with an uncompressedSize of only 4 bytes
+        // (one zero-size record's worth) — 5 records need at least 20 bytes.
+        // Mirrors the broker's own publish-time validation
+        // (check_message_count_fits_uncompressed_size in rabbit_stream_utils.erl).
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 5,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => array_fill(0, 5, ['data' => ''])],
+            ]
+        );
+        // uncompressedSize field at 51..54 (48-byte chunk header + 1 entry-type
+        // byte + 2 bytes of sub-batch numRecords).
+        $chunk = substr_replace($chunk, pack('N', 4), 51, 4);
+        OsirisChunkParser::parse($chunk);
+    }
+
+    public function testCustomMaxEntriesPerChunkAboveDefaultParsesLargerChunk(): void
+    {
+        // Round-1 review F1: workloads that legitimately exceed the default
+        // ceiling must be able to raise it per call. 280 000 records (5 sub-batches
+        // x 56 000) sit above the 262 144 default and below the raised cap.
+        $chunk = $this->createAmplificationChunk(subBatchCount: 5, recordsPerSubBatch: 56000);
+
+        try {
+            OsirisChunkParser::parse($chunk);
+            $this->fail('Expected the default ceiling to reject a 280 000-record chunk');
+        } catch (DeserializationException) {
+            // expected: 280 000 > default 262 144
+        }
+
+        $entries = OsirisChunkParser::parse($chunk, maxEntriesPerChunk: 300000);
+
+        $this->assertCount(280000, $entries);
+    }
+
+    public function testInLoopCeilingKeepsMemoryBounded(): void
+    {
+        // Round-1 review F3: when the header under-declares records (numRecords =
+        // 0) the up-front check cannot fire, so the in-loop ceiling must bound
+        // allocation (at most the cap, ~262 144 entries) and throw.
+        $chunk = $this->createAmplificationChunk(subBatchCount: 5, recordsPerSubBatch: 65535);
+        $chunk = substr_replace($chunk, pack('N', 0), 4, 4); // header numRecords = 0
+
+        $before = memory_get_usage(true);
+        try {
+            OsirisChunkParser::parse($chunk);
+            $this->fail('Expected DeserializationException from the in-loop ceiling');
+        } catch (DeserializationException $e) {
+            $allocated = memory_get_usage(true) - $before;
+            $this->assertStringContainsString('maximum allowed per chunk', $e->getMessage());
+            $this->assertLessThan(
+                64 * 1024 * 1024,
+                $allocated,
+                sprintf(
+                    'In-loop ceiling allocated %.1f MB — allocation must stay bounded (issue #399)',
+                    $allocated / 1048576
+                )
+            );
+        }
+    }
+
+    public function testMaxEntriesPerChunkGuardThrowsException(): void
+    {
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('more than 5 entries');
+
+        // Header declares only 5 records (passes the up-front header check), but
+        // the sub-batch itself carries 10 — the in-loop ceiling must fire.
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 5,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => array_fill(0, 10, ['data' => ''])],
+            ]
+        );
+
+        OsirisChunkParser::parse($chunk, maxEntriesPerChunk: 5);
+    }
+
+    public function testMaxEntriesPerChunkExactlyAtLimitParses(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 10,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => array_fill(0, 10, ['data' => ''])],
+            ]
+        );
+
+        $entries = OsirisChunkParser::parse($chunk, maxEntriesPerChunk: 10);
+
+        $this->assertCount(10, $entries);
+    }
+
+    public function testMaxEntriesPerChunkBelowOneThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxEntriesPerChunk must be at least 1');
+
+        $chunk = $this->createChunk(
+            numEntries: 0,
+            numRecords: 0,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: []
+        );
+
+        OsirisChunkParser::parse($chunk, maxEntriesPerChunk: 0);
+    }
+
+    public function testAmplificationPayloadRejectedWithBoundedMemory(): void
+    {
+        // PoC-scale chunk from issue #399: 30 sub-batches x 65 535 zero-size
+        // records claim 1 966 050 records in a ~7.86 MB chunk (144 bytes per
+        // record would be 144 bytes on the wire). Parsing them all would
+        // allocate ~200 MB of ChunkEntry objects. The parser must reject the
+        // chunk up front and stay within a small fraction of that.
+        $chunk = $this->createAmplificationChunk(subBatchCount: 30, recordsPerSubBatch: 65535);
+        $this->assertLessThan(8 * 1024 * 1024, strlen($chunk));
+
+        $before = memory_get_usage(true);
+        try {
+            OsirisChunkParser::parse($chunk);
+            $this->fail('Expected DeserializationException for the amplification payload');
+        } catch (DeserializationException) {
+            $allocated = memory_get_usage(true) - $before;
+            $this->assertLessThan(
+                64 * 1024 * 1024,
+                $allocated,
+                sprintf(
+                    'Parsing the amplification chunk allocated %.1f MB — the entry ceiling ' .
+                    'must keep allocation bounded (issue #399)',
+                    $allocated / 1048576
+                )
+            );
+        }
+    }
+
+    /**
+     * Builds an amplification chunk: $subBatchCount sub-batches, each carrying
+     * $recordsPerSubBatch zero-size records (4 bytes each on the wire).
+     */
+    private function createAmplificationChunk(int $subBatchCount, int $recordsPerSubBatch): string
+    {
+        $recordPrefix = pack('N', 0); // zero-size inner entry: 4-byte size prefix
+        $subBatchBody = str_repeat($recordPrefix, $recordsPerSubBatch);
+        $uncompressedSize = strlen($subBatchBody);
+
+        $dataSection = '';
+        for ($i = 0; $i < $subBatchCount; $i++) {
+            $dataSection .= pack('C', 0x80);              // sub-batch entry, codec 0
+            $dataSection .= pack('n', $recordsPerSubBatch); // records in this sub-batch
+            $dataSection .= pack('N', $uncompressedSize);   // uncompressedSize
+            $dataSection .= pack('N', $uncompressedSize);   // compressedSize
+            $dataSection .= $subBatchBody;
+        }
+
+        $header = pack('C', 0x50);
+        $header .= pack('C', 0x00);
+        $header .= pack('n', $subBatchCount);
+        $header .= pack('N', $subBatchCount * $recordsPerSubBatch); // numRecords
+        $header .= pack('J', 1234567890);                            // timestamp
+        $header .= pack('J', 1);                                     // epoch
+        $header .= pack('J', 0);                                     // chunkFirstOffset
+        $header .= pack('N', 0);                                     // chunkCrc
+        $header .= pack('N', strlen($dataSection));                  // dataLength
+        $header .= pack('N', 0);                                     // trailerLength
+        $header .= pack('C', 0);                                     // bloomSize
+        $header .= "\x00\x00\x00";                                   // reserved
+
+        return $header . $dataSection;
     }
 
     /**
