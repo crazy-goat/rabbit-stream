@@ -31,6 +31,7 @@ class StreamConnection
     private ?\Socket $socket = null;
     private int $correlationId = 0;
     private bool $running = false;
+    private readonly bool $debugLogging;
 
     /** @var array<int, array{onConfirm: callable, onError: callable}> */
     private array $publisherCallbacks = [];
@@ -66,6 +67,9 @@ class StreamConnection
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
     ) {
+        // Resolve once at construction: avoids paying bin2hex() cost on every
+        // frame when the logger won't emit debug records (NullLogger default).
+        $this->debugLogging = !$logger instanceof NullLogger;
     }
 
     /**
@@ -297,7 +301,7 @@ class StreamConnection
      */
     public function sendFrame(string $frame, ?float $timeout = null): int
     {
-        $this->logger->debug("Socket -> " . bin2hex($frame));
+        $this->debugFrame('Socket -> ', $frame, keyOffset: 4);
 
         if (!$this->socket instanceof \Socket) {
             throw new ConnectionException("Cannot write: socket is not connected");
@@ -669,9 +673,51 @@ class StreamConnection
             throw new ConnectionException("Failed to read frame data");
         }
 
-        $this->logger->debug("Socket <-" . bin2hex($frameData));
+        $this->debugFrame('Socket <-', $frameData, keyOffset: 0);
 
         return new ReadBuffer($frameData);
+    }
+
+    /**
+     * Log a raw frame at debug level, redacting SASL_AUTHENTICATE frames that
+     * contain plaintext credentials ("\0username\0password").
+     *
+     * Both bin2hex() and the logger call are skipped entirely when debug
+     * logging is disabled ($debugLogging is false), so the hot path pays zero
+     * cost with NullLogger or a logger filtering out debug records.
+     *
+     * @param string $prefix    Log message prefix ("Socket -> " or "Socket <-")
+     * @param string $frame     Raw frame bytes; in sendFrame this includes the
+     *                          4-byte length prefix, in readFrame it does not
+     * @param int    $keyOffset Byte offset of the uint16 command key within $frame
+     */
+    private function debugFrame(string $prefix, string $frame, int $keyOffset): void
+    {
+        if (!$this->debugLogging) {
+            return;
+        }
+
+        // Extract the 2-byte big-endian command key at the given offset.
+        if (strlen($frame) < $keyOffset + 2) {
+            // Frame too short to contain a key — log raw as before.
+            $this->logger->debug($prefix . bin2hex($frame));
+            return;
+        }
+
+        $keyUnpacked = unpack('n', substr($frame, $keyOffset, 2));
+        $key = $keyUnpacked !== false ? $keyUnpacked[1] : null;
+
+        if ($key === KeyEnum::SASL_AUTHENTICATE->value) {
+            // Never hex-encode: the body contains "\0username\0password".
+            $this->logger->debug(sprintf(
+                '%s <redacted: SASL_AUTHENTICATE, %d bytes>',
+                $prefix,
+                strlen($frame)
+            ));
+            return;
+        }
+
+        $this->logger->debug($prefix . bin2hex($frame));
     }
 
     private function readBytes(int $length): ?string

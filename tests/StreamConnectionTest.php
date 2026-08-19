@@ -8,12 +8,14 @@ use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -813,5 +815,136 @@ class StreamConnectionTest extends TestCase
         $reflection->invoke($connection, 1, 0.1);
 
         socket_close($serverSocket);
+    }
+
+    // ---- Frame logging redaction tests (#401) ----
+
+    public function testNullLoggerProducesNoDebugOutputOnSendFrame(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        // NullLogger — debug logging is disabled, bin2hex must not run
+        $connection = new StreamConnection('127.0.0.1', 5552, new NullLogger());
+        $this->injectSocket($connection, $clientSocket);
+
+        // Should not throw and should not produce any debug output.
+        // The gate ($debugLogging === false) ensures bin2hex is never called.
+        $written = $connection->sendFrame($this->buildFrame(0x0014, 1));
+        $this->assertGreaterThan(0, $written);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSaslAuthenticateFrameIsRedactedWhenDebugLoggingEnabled(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        $username = 'secret-user';
+        $password = 's3cr3t-p4ss';
+        $connection->sendMessage(
+            new SaslAuthenticateRequestV1('PLAIN', $username, $password)
+        );
+
+        $debugMessages = $logger->debugMessages();
+        $this->assertCount(1, $debugMessages, 'exactly one debug message expected for sendFrame');
+
+        $msg = $debugMessages[0];
+        $this->assertStringContainsString('redacted', $msg);
+        $this->assertStringContainsString('SASL_AUTHENTICATE', $msg);
+
+        // The credential bytes must NOT appear in the log — neither as raw text
+        // nor as hex.
+        $this->assertStringNotContainsString($username, $msg);
+        $this->assertStringNotContainsString($password, $msg);
+        $this->assertStringNotContainsString(bin2hex($username), $msg);
+        $this->assertStringNotContainsString(bin2hex($password), $msg);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testNonSaslFrameProducesNormalHexDebugLineWhenDebugLoggingEnabled(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        // TuneRequestV1 is not SASL_AUTHENTICATE, so we expect normal hex logging.
+        $connection->sendMessage(new TuneRequestV1(1024, 100));
+
+        $debugMessages = $logger->debugMessages();
+        $this->assertCount(1, $debugMessages);
+        $this->assertStringStartsWith('Socket -> ', $debugMessages[0]);
+        // Must contain hex digits (bin2hex output), not a redaction marker.
+        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
+        $this->assertMatchesRegularExpression('/^Socket -> [0-9a-f]+$/', $debugMessages[0]);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSaslAuthenticateReadFrameIsRedactedWhenDebugLoggingEnabled(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Build a SASL_AUTHENTICATE response frame (key 0x0013, version 1) with
+        // credential-like bytes in the body, and write it from the server side.
+        $username = 'secret-user';
+        $password = 's3cr3t-p4ss';
+        $payload = pack('nn', 0x0013, 1)
+            . pack('N', 1)        // correlationId
+            . pack('n', 0x0001)   // responseCode OK
+            . "\0" . $username . "\0" . $password;
+        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+
+        $connection->readFrame(timeout: 1.0);
+
+        $debugMessages = $logger->debugMessages();
+        $this->assertCount(1, $debugMessages, 'exactly one debug message expected for readFrame');
+
+        $msg = $debugMessages[0];
+        $this->assertStringContainsString('redacted', $msg);
+        $this->assertStringContainsString('SASL_AUTHENTICATE', $msg);
+        $this->assertStringNotContainsString($username, $msg);
+        $this->assertStringNotContainsString($password, $msg);
+        $this->assertStringNotContainsString(bin2hex($username), $msg);
+        $this->assertStringNotContainsString(bin2hex($password), $msg);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testNonSaslReadFrameProducesNormalHexDebugLineWhenDebugLoggingEnabled(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        $payload = pack('nn', 0x0014, 1) . pack('N', 1) . pack('n', 0x0001);
+        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+
+        $connection->readFrame(timeout: 1.0);
+
+        $debugMessages = $logger->debugMessages();
+        $this->assertCount(1, $debugMessages);
+        $this->assertStringStartsWith('Socket <-', $debugMessages[0]);
+        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
+        $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
     }
 }
