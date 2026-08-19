@@ -890,7 +890,21 @@ class StreamConnectionTest extends TestCase
         socket_close($clientSocket);
     }
 
-    public function testSaslAuthenticateReadFrameIsRedactedWhenDebugLoggingEnabled(): void
+    /**
+     * Synthetic test: drive debugFrame()'s key-match branch through the
+     * readFrame() entry point using a frame whose command key is the
+     * SASL_AUTHENTICATE REQUEST key (0x0013).
+     *
+     * This is NOT a real wire scenario — a server never sends 0x0013 on the
+     * read path; the SASL_AUTHENTICATE *response* uses 0x8013
+     * (KeyEnum::SASL_AUTHENTICATE_RESPONSE), which debugFrame() does NOT
+     * redact (and does not need to: the response carries no client
+     * credentials — the leak is solely in the request, see
+     * testSaslAuthenticateFrameIsRedactedWhenDebugLoggingEnabled). This test
+     * only exercises the redaction branch of debugFrame() via readFrame() to
+     * confirm the helper behaves identically on both entry points.
+     */
+    public function testDebugFrameRedactsFrameWithSaslAuthenticateRequestKeyOnReadPath(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
@@ -898,8 +912,9 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
 
-        // Build a SASL_AUTHENTICATE response frame (key 0x0013, version 1) with
-        // credential-like bytes in the body, and write it from the server side.
+        // Fabricated frame with the SASL_AUTHENTICATE REQUEST key (0x0013) and
+        // credential-like bytes in the body. Written from the server side purely
+        // to drive debugFrame() through readFrame(); never occurs on the wire.
         $username = 'secret-user';
         $password = 's3cr3t-p4ss';
         $payload = pack('nn', 0x0013, 1)
@@ -920,6 +935,37 @@ class StreamConnectionTest extends TestCase
         $this->assertStringNotContainsString($password, $msg);
         $this->assertStringNotContainsString(bin2hex($username), $msg);
         $this->assertStringNotContainsString(bin2hex($password), $msg);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    /**
+     * A real SASL_AUTHENTICATE *response* (key 0x8013) carries no client
+     * credentials, so debugFrame() must log it as normal hex. This documents
+     * the intended behaviour and guards against someone over-redacting on the
+     * read path.
+     */
+    public function testSaslAuthenticateResponseReadFrameIsLoggedAsNormalHex(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Real SASL_AUTHENTICATE_RESPONSE frame (key 0x8013, version 1):
+        // correlationId + responseCode OK. No credential body.
+        $payload = pack('nn', 0x8013, 1) . pack('N', 1) . pack('n', 0x0001);
+        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+
+        $connection->readFrame(timeout: 1.0);
+
+        $debugMessages = $logger->debugMessages();
+        $this->assertCount(1, $debugMessages);
+        $this->assertStringStartsWith('Socket <-', $debugMessages[0]);
+        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
+        $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
 
         socket_close($serverSocket);
         socket_close($clientSocket);

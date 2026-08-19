@@ -1,0 +1,10 @@
+# Findings — Review Round 1 — Issue #401
+
+Review of branch `feature/issue-401-redact-frame-logging`, commit `ec34066`.
+Format: `file:line` | what is wrong | severity | status | automated check that could catch it.
+
+| file:line | what is wrong | severity | status (round 1) | automated check |
+|-----------|---------------|----------|------------------|-----------------|
+| tests/StreamConnectionTest.php:893-920 | Read-path redaction test `testSaslAuthenticateReadFrameIsRedactedWhenDebugLoggingEnabled` fabricates a frame with key **0x0013** on the read side. 0x0013 is the SASL_AUTHENTICATE *request* key; the server's response uses **0x8013** (`SASL_AUTHENTICATE_RESPONSE`), which `debugFrame()` does NOT redact. The comment at L901 calls the 0x0013 frame a "SASL_AUTHENTICATE **response** frame" — factually wrong about the protocol. The test name + comment imply read-path SASL responses are protected in production, which is not the case (and not needed, since the response carries no credentials). The helper logic being tested is correct and this is NOT a security gap, but the test documentation misleads future maintainers. | low | fixed (round 1) — renamed to `testDebugFrameRedactsFrameWithSaslAuthenticateRequestKeyOnReadPath` with a docblock stating it is a synthetic helper test (not a wire scenario; 0x0013 never appears on the read path); comment corrected (0x0013 = request key, 0x8013 = response key, not redacted because it carries no credentials). Added `testSaslAuthenticateResponseReadFrameIsLogedAsNormalHex` documenting that a real 0x8013 response frame is hex-logged normally. | none (semantic/accuracy defect in test docs; no tool flags misleading comments) |
+
+Suggested fix direction: correct the comment (0x0013 = request key; response key = 0x8013, not redacted because it carries no credentials) and rename/relabel the test to make clear it is a synthetic exercise of `debugFrame()`'s key-match via the `readFrame()` entry point, not a real wire scenario. Optionally add a test asserting a real 0x8013 read frame is hex-logged normally to document the intended behavior.
