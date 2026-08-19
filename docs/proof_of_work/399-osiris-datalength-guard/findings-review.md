@@ -264,3 +264,73 @@ deleted; statuses below supersede the "open" markers from round 1.
   exception extends `RabbitStreamException` extends `\RuntimeException`, so the
   tightened assertions are still satisfied by every error path the parser throws).
 - Status: **fixed**
+
+---
+
+## Round-2 review statuses (appended by review-critical; round-1 entries above are untouched)
+
+Re-verified during round 2 with broker-source evidence and mutation tests. Full
+detail in `review-2.md`.
+
+### F1 — fixed (documented decision + configurability test)
+- Verdict: **fixed**. Docblock rationale verified accurate against broker sources
+  (server does not enforce `frame_max` on Deliver; 1 MiB / 4 B = 262 144; real
+  AMQP records ≥ ~6 B). `testCustomMaxEntriesPerChunkAboveDefaultParsesLargerChunk`
+  (280 000 records: rejected at default, parses at cap 300 000) pins the knob.
+  Carry-over: CHANGELOG upgrade note must land at workflow step 8 (main session).
+
+### F2 — not a real finding as suggested (evidence verified); the real latent bug it concealed was found and fixed
+- Verdict: **not a real finding as suggested**, with the coder's evidence
+  re-verified on current-main sources: `osiris_bloom.erl` `to_binary/1` is `<<>>`
+  only for empty/unfiltered filter sets (nonzero `bloomSize` is legitimate);
+  `select_amount_to_send(user_data, ?CHNK_USER, ...) -> {FilterSize, DataSize}`
+  omits bloom bytes on the wire (entries genuinely start at byte 48); this client
+  never requests another chunk selector. Rejecting or skipping per the round-1
+  suggestion would break legitimate chunks. **However** — the underlying
+  wire-vs-on-disk instinct was right: round-1's `trailerLength` fit check was a
+  real latent regression (user chunks carry nonzero on-disk trailer fields whose
+  bytes are absent from Deliver frames — `osiris_writer.erl handle_batch:293`
+  writes `TrkData` trailers). Fixed in `384d37b` (data-section-only fit check
+  `OsirisChunkParser.php:130-144`) and pinned by
+  `testNonzeroTrailerLengthWithoutTrailerBytesParses` — mutation-verified to
+  ERROR against the round-1 parser. Coder's disposition accepted.
+
+### F3 — fixed
+- Verdict: **fixed**. `testInLoopCeilingKeepsMemoryBounded` (header `numRecords = 0`,
+  5 × 65 535-record sub-batches) asserts the in-loop message and < 64 MB delta
+  (baseline before parse; ~28 MB actual, ~2x margin). Mutation-verified: fails
+  without the round-1 in-loop guard, passes at round 1 and HEAD.
+
+### N1 — fixed (`testEntryBeyondDeclaredDataSectionThrows`, comment rewritten)
+### N2 — fixed (`subBatchRecords * 4 > uncompressedSize` capacity check; equality deliberately not enforced — broker's `validate_compressed_sub_batch/5` never compares the sizes, verified)
+### N3 — fixed (`$subBatchRecords`)
+### N4 — fixed (7 legacy expectations tightened to `DeserializationException::class`, verified in file)
+
+---
+
+## New findings (round 2)
+
+### N5 — Class docblock header field list mislabels bloomSize/reserved
+- `src/Client/OsirisChunkParser.php:24-26`
+- What is wrong: the field list reads "1 byte - reserved" + "3 bytes - padding
+  (alignment to 4 bytes)", but offset 44 is `bloomSize` (FilterSize, uint8) and
+  offsets 45-47 are `reserved` (uint24) — the wire and the code comment at `:115`
+  agree with the latter. `bloomSize` is absent from the field list entirely, so
+  the docblock contradicts the code right next to the round-2 "informational
+  bloomSize" documentation. Total byte count (48) is correct; doc-only, no code
+  impact.
+- Suggested fix: replace the two lines with `1 byte - bloomSize: on-disk bloom
+  filter size (informational — bytes not transmitted in Deliver)` + `3 bytes -
+  reserved (uint24)`, mirroring the read sites.
+- Severity: nit
+- Status: **open**
+- Status: **fixed** — docblock reworded by main session: lines 24-26 now read
+  `1 byte - bloomSize: on-disk size of the bloom filter section (bytes are
+  omitted from Deliver frames)` + `3 bytes - reserved (alignment to 4 bytes)`,
+  mirroring the read sites at `:115-116`.
+
+### Note (accepted risk, not a finding) — broker `chunk_selector=all`/`data` would change the wire shape
+- Reachability verified: `get_chunk_selector/1` defaults to `user_data` and this
+  client never sends the property (no `chunk_selector` in `src/`). Documented in
+  the class docblock; no action.
+- Status: closed (by design, documented).

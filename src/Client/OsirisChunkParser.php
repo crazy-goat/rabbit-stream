@@ -22,8 +22,8 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
  *   4 bytes - chunkCrc: CRC-32 of the chunk data
  *   4 bytes - dataLength: length of entries data section
  *   4 bytes - trailerLength: on-disk length of trailer section (bytes are omitted from Deliver frames)
- *   1 byte  - reserved
- *   3 bytes - padding (alignment to 4 bytes)
+ *   1 byte  - bloomSize: on-disk size of the bloom filter section (bytes are omitted from Deliver frames)
+ *   3 bytes - reserved (alignment to 4 bytes)
  *
  * The data section (dataLength bytes) follows the header immediately; the trailer
  * (trailerLength bytes) follows it on disk. On the stream-protocol wire, Deliver
