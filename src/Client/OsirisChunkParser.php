@@ -21,13 +21,18 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
  *   8 bytes - chunkFirstOffset: stream offset of the first entry in this chunk
  *   4 bytes - chunkCrc: CRC-32 of the chunk data
  *   4 bytes - dataLength: length of entries data section
- *   4 bytes - trailerLength: length of trailer section (0 for user data)
+ *   4 bytes - trailerLength: on-disk length of trailer section (bytes are omitted from Deliver frames)
  *   1 byte  - reserved
  *   3 bytes - padding (alignment to 4 bytes)
  *
  * The data section (dataLength bytes) follows the header immediately; the trailer
- * (trailerLength bytes) comes after it. Entry parsing is strictly bounded to the
- * data section — bytes outside it (trailer, padding, other frames) are never read.
+ * (trailerLength bytes) follows it on disk. On the stream-protocol wire, Deliver
+ * frames transmit header + data only for user-data chunks (osiris
+ * `select_amount_to_send(user_data, ?CHNK_USER, ...)` skips the bloom bytes and
+ * omits the trailer), while the header still declares their on-disk sizes — so
+ * `bloomSize` and `trailerLength` are informational here, and a nonzero value
+ * with no bytes behind it is legitimate. Entry parsing is strictly bounded to
+ * the data section; bytes outside it (bloom, trailer, padding) are never read.
  *
  * Each entry:
  *   Simple entry: 4-byte header (bit 31 = 0) + size in lower 31 bits + data
@@ -42,18 +47,27 @@ class OsirisChunkParser
     /**
      * Default ceiling for entries produced from a single chunk.
      *
-     * A chunk is received in a single frame, bounded by the frame size limit
-     * (8 MB by default in this client). Entries cost as little as 4 bytes on the
-     * wire (a sub-batch inner entry is just a uint32 size prefix), so a legal-
-     * sized frame could otherwise expand into millions of ChunkEntry objects
-     * (~30x memory amplification). 262 144 entries cap the transient parser
-     * memory at roughly 30 MB while staying far above what a compliant broker
-     * produces (chunks are well below the frame limit in practice).
+     * A chunk is received in a single frame; the server does not enforce
+     * `frame_max` on Deliver frames, so the broker's chunk-flush batching is the
+     * practical cap on chunk size. 262 144 is the theoretical record maximum of
+     * a 1 MiB data section at the 4-byte minimum per-entry wire cost (a sub-batch
+     * inner entry is just a uint32 size prefix); real AMQP records cost at least
+     * ~6 bytes including the prefix, so reaching the cap needs a >1.5 MiB chunk
+     * of near-empty records — a workload no current broker produces. Exceeding
+     * the cap therefore means the chunk is hostile or pathological, and failing
+     * loud with a DeserializationException (rather than exhausting memory) is
+     * the intended behavior. Callers with a genuinely larger workload can raise
+     * it per call via $maxEntriesPerChunk.
      */
     private const DEFAULT_MAX_ENTRIES_PER_CHUNK = 262144;
 
     /**
-     * @param int $maxEntriesPerChunk Hard ceiling for entries produced from one chunk
+     * @param int $maxEntriesPerChunk Hard ceiling for entries produced from one chunk.
+     *                                Defaults to DEFAULT_MAX_ENTRIES_PER_CHUNK, which
+     *                                is ~7.5x below the ~1.9M records an 8 MB
+     *                                amplification chunk can hold
+     *                                (see issue #399); pass a larger value only if a
+     *                                known workload requires it.
      * @return ChunkEntry[]
      * @throws DeserializationException If the chunk violates the declared sizes, declares
      *                                  implausible record counts, or exceeds the entry ceiling
@@ -97,8 +111,8 @@ class OsirisChunkParser
         $chunkFirstOffset = $buffer->getUint64();  // First offset in chunk
         $buffer->getInt32();                      // chunkCrc
         $dataLength = $buffer->getUint32();      // Size of the data (entries) section
-        $trailerLength = $buffer->getUint32();   // Size of the trailer section
-        $buffer->getUint8();                      // bloomSize
+        $buffer->getUint32();                     // trailerLength — informational only (see class docblock)
+        $buffer->getUint8();                      // bloomSize — informational only (see class docblock)
         $buffer->readBytes(3);                    // reserved
 
         $headerSize = $buffer->getPosition();
@@ -113,17 +127,18 @@ class OsirisChunkParser
             ));
         }
 
-        // The declared data and trailer sections must fit inside the received chunk.
+        // The declared data section must fit inside the received chunk. The
+        // trailerLength and bloomSize fields are deliberately NOT part of this
+        // check: Deliver frames omit the bloom and trailer bytes for user-data
+        // chunks while the header still declares their on-disk sizes, so those
+        // fields can be nonzero with no bytes behind them (see class docblock).
         $chunkSize = strlen($chunkBytes);
-        $declaredChunkSize = $headerSize + $dataLength + $trailerLength;
-        if ($declaredChunkSize > $chunkSize) {
+        if ($headerSize + $dataLength > $chunkSize) {
             throw new DeserializationException(sprintf(
-                'Chunk size mismatch: header (%d) + dataLength (%d) + trailerLength (%d) ' .
-                '= %d exceeds the %d received bytes',
+                'Chunk size mismatch: header (%d) + dataLength (%d) = %d exceeds the %d received bytes',
                 $headerSize,
                 $dataLength,
-                $trailerLength,
-                $declaredChunkSize,
+                $headerSize + $dataLength,
                 $chunkSize
             ));
         }
@@ -160,24 +175,38 @@ class OsirisChunkParser
                     ));
                 }
 
-                $numRecords = $buffer->getUint16();
-                $buffer->getUint32(); // uncompressedSize — read but not needed
+                $subBatchRecords = $buffer->getUint16();
+                $uncompressedSize = $buffer->getUint32();
+
+                // Each record costs at least 4 bytes both in the bytes actually
+                // present and in the declared uncompressed size (a uint32 size
+                // prefix). The broker enforces the latter on publish
+                // (rabbit_stream_utils.erl check_message_count_fits_uncompressed_size)
+                // but NOT that uncompressedSize equals the on-wire body size
+                // (compressedSize), so equality is deliberately not required.
                 $compressedSize = $buffer->getUint32();
 
-                // Each record costs at least 4 bytes in the sub-batch body (a
-                // uint32 size prefix), so anything claiming more is implausible.
-                if ($numRecords * 4 > $compressedSize) {
+                if ($subBatchRecords * 4 > $compressedSize) {
                     throw new DeserializationException(sprintf(
                         'Sub-batch declares %d records but only %d bytes of data (minimum 4 bytes per record)',
-                        $numRecords,
+                        $subBatchRecords,
                         $compressedSize
+                    ));
+                }
+
+                if ($subBatchRecords * 4 > $uncompressedSize) {
+                    throw new DeserializationException(sprintf(
+                        'Sub-batch declares %d records but uncompressedSize %d cannot hold them ' .
+                        '(minimum 4 bytes per record)',
+                        $subBatchRecords,
+                        $uncompressedSize
                     ));
                 }
 
                 $subBatchData = $buffer->readBytes($compressedSize);
 
                 $subBuffer = new ReadBuffer($subBatchData);
-                for ($j = 0; $j < $numRecords; $j++) {
+                for ($j = 0; $j < $subBatchRecords; $j++) {
                     if ($entryCount >= $maxEntriesPerChunk) {
                         throw self::entryLimitExceeded($maxEntriesPerChunk);
                     }

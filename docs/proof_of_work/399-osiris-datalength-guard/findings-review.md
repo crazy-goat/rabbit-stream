@@ -142,3 +142,125 @@ These are assertions about `findings-coder.md` candidates; status = verdict, not
   swallows trailing bytes; the parser's `>` check tolerates them. Forward-compat note
   only; no action.
 - Status: verdict only.
+
+---
+
+## Coder answers (round 1)
+
+Per-finding resolution from the coder (round 2 of the workflow). Nothing above is
+deleted; statuses below supersede the "open" markers from round 1.
+
+### F1 — Default ceiling headroom — FIXED (documented decision + configurability test; no E2E stress, deliberately)
+
+- **Resolution: fixed by decision (option (c) + (b) combined).** Per the task
+  instruction, no E2E stress test is added: this is a unit-level parser change and
+  a ~300k-message broker stress fixture is disproportionate for this PR. Instead:
+  1. The decision is documented in
+     `src/Client/OsirisChunkParser.php:47-62` (`DEFAULT_MAX_ENTRIES_PER_CHUNK`
+     docblock): the server does not enforce `frame_max` on Deliver frames; the
+     broker's chunk flush batching is the practical cap; 262 144 is the theoretical
+     record maximum of a 1 MiB data section at the 4-byte minimum per-entry cost;
+     real AMQP records cost ≥ ~6 bytes including the prefix, so reaching the cap
+     needs a >1.5 MiB chunk of near-empty records — a workload no current broker
+     produces; exceeding the cap means the chunk is hostile or pathological and
+     failing loud is intended. The `parse()` `@param` docblock (`:65-70`) points to
+     the configurability for workloads that genuinely need more.
+  2. New test `testCustomMaxEntriesPerChunkAboveDefaultParsesLargerChunk`
+     (`tests/Client/OsirisChunkParserTest.php`): a 280 000-record chunk is rejected
+     at the default cap and parses cleanly with `maxEntriesPerChunk: 300000`,
+     proving operators can raise the ceiling per call.
+  3. Upgrade note for CHANGELOG is handed to the main session (step 8 of the
+     workflow runs at PR time; coder does not touch CHANGELOG).
+- Status: **fixed** (documented decision; configurable; no E2E by explicit task
+  instruction).
+
+### F2 — `bloomSize` read but never validated — NOT fixed as suggested; the finding's premise is refuted by broker sources (evidence below); the validation that IS correct was already in place
+
+- **Resolution: deliberately not fixed in the suggested form; the correct form is
+  "read and discard, with documentation".** Both reviewer options are wrong for the
+  actual wire format, verified against RabbitMQ sources on current main:
+  - **Reject `bloomSize !== 0` would reject legitimate chunks.** `osiris_bloom.erl`
+    `to_binary/1` returns `<<>>` only for empty or only-unfiltered filters
+    (BloomSize field = 0); any chunk containing messages with filter values (any
+    stream where another client publishes filtered messages) gets a 16–255-byte
+    bloom and a nonzero `BloomSize` field.
+  - **Skip `bloomSize` bytes would misparse every such chunk.** The deliver path
+    never transmits the bloom bytes: `osiris_log.erl` `select_amount_to_send(
+    user_data, ?CHNK_USER, FilterSize, DataSize, _) -> {FilterSize, DataSize}`
+    and `send_file/...` starts the sendfile at `Pos + ?HEADER_SIZE_B + ToSkip`,
+    i.e. the bytes are skipped on the wire while the field value stays in the
+    header.
+  - So entries genuinely start at byte 48 even when `BloomSize > 0`, and the
+    round-1 behavior (field read and discarded) is wire-correct. What round 2 adds:
+    the class docblock (`OsirisChunkParser.php:28-35`), the reading comments
+    (`:114-115`) and the size-check comment (`:130-134`) now document exactly why
+    the field is informational (deliver = header + data only; on-disk sizes
+    declared in the header are not transmitted).
+  - Same wire evidence applies to `trailerLength`, which had ALREADY been included
+    in the round-1 fit check — that was a **latent round-1 bug** (see findings-coder
+    addition A1): a streaming `StoreOffsetRequestV1`/named-producer tracking delta
+    makes user chunks carry a nonzero trailer field whose bytes are absent on the
+    wire, so `header + data + trailer <= received` would have rejected legitimate
+    chunks. Round 2 removes `trailerLength` from the fit check
+    (`OsirisChunkParser.php:130-144`), keeps the data-section-only check
+    `header + dataLength <= received`, and replaces the round-1 trailer test with
+    `testNonzeroTrailerLengthWithoutTrailerBytesParses`.
+- Status: **not a real finding as suggested** (both suggested fixes would break
+  legitimate chunks; evidence above); **real latent bug found next to it and fixed**
+  (trailerLength in the round-1 fit check).
+
+### F3 — In-loop ceiling memory bound not pinned by a test — FIXED
+
+- **Resolution: fixed.** New test `testInLoopCeilingKeepsMemoryBounded`
+  (`tests/Client/OsirisChunkParserTest.php`): header `numRecords` patched to 0 with
+  5 × 65 535-record sub-batches (327 675 records) so the up-front check cannot fire;
+  asserts `DeserializationException` with the in-loop message ("maximum allowed per
+  chunk") and a `memory_get_usage(true)` delta < 64 MB (the reviewer measured ~28 MB
+  for this exact path; the same 64 MB threshold and baseline-before-parse pattern as
+  the round-1 T9 test, robust for CI).
+- Status: **fixed**
+
+### N1 — Misleading test name — FIXED
+
+- **Resolution: fixed.** `testEntriesOutsideDeclaredDataSectionAreNotParsed` renamed
+  to `testEntryBeyondDeclaredDataSectionThrows`; the doc comment now states the
+  pinned behavior (bounded sub-buffer must throw when an entry sits beyond the
+  declared data section).
+- Status: **fixed**
+
+### N2 — `uncompressedSize` read but never checked — FIXED (validated with capacity check; equality deliberately not enforced — evidence)
+
+- **Resolution: fixed with a capacity check, deliberately without equality.** The
+  field is now captured (`OsirisChunkParser.php:179`) and checked:
+  `subBatchRecords * 4 > uncompressedSize` → `DeserializationException`
+  (`:197-204`), mirroring the broker's own publish-time validation
+  (`rabbit_stream_utils.erl` `check_message_count_fits_uncompressed_size`, current
+  main). **Equality with `compressedSize` is deliberately NOT enforced** because the
+  broker does not enforce it either: `validate_compressed_sub_batch/5` in
+  `rabbit_stream_utils.erl` (current main) only upper-bounds `UncompressedSize`
+  (`max_uncompressed_sub_entry_batch_size`), requires `MessageCount * 4 <=
+  UncompressedSize`, and rejects empty batches only when compressed; codec-0
+  sub-batches with `UncompressedSize != BatchSize` are accepted, stored
+  (`process_entry0` writes the two lengths independently in `osiris_log.erl`) and
+  delivered. Enforcing equality would reject legitimate broker data. This rationale
+  is documented in the parser comment (`:181-186`); the compressedSize check
+  remains the security-relevant bound (bytes actually present). New test
+  `testSubBatchUncompressedSizeCannotHoldRecordsThrowsException`.
+- Status: **fixed** (capacity validation + documented non-equality)
+
+### N3 — Variable shadowing — FIXED
+
+- **Resolution: fixed.** Inner `$numRecords` renamed to `$subBatchRecords`
+  (`OsirisChunkParser.php:178,189,197,209`); the header `$numRecords`
+  (`:108`) is no longer reassigned.
+- Status: **fixed**
+
+### N4 — Loose `\RuntimeException` in legacy tests — FIXED
+
+- **Resolution: fixed.** All 7 legacy expectations in
+  `tests/Client/OsirisChunkParserTest.php` changed from
+  `expectException(\RuntimeException::class)` to
+  `expectException(DeserializationException::class)`; the suite passes (the custom
+  exception extends `RabbitStreamException` extends `\RuntimeException`, so the
+  tightened assertions are still satisfied by every error path the parser throws).
+- Status: **fixed**

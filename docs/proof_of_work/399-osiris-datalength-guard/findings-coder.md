@@ -101,3 +101,55 @@
   tolerable by design (the parser's `>` size check is forward-tolerant), but a
   future version bump of Deliver should re-parse the chunk explicitly rather
   than rely on "rest of frame". No action now.
+
+---
+
+## Round-2 addendum (found during the round-1 review cycle)
+
+### A1 — Round-1's `trailerLength` fit check would have rejected legitimate chunks (fixed in round 2)
+
+- **Where:** round-1 `src/Client/OsirisChunkParser.php` size check — fixed at
+  `src/Client/OsirisChunkParser.php:130-144`.
+- **What:** my round-1 check `headerSize + dataLength + trailerLength <=
+  chunkSize` assumed the wire chunk contains header + data + trailer. It does
+  not: `osiris_log.erl` `select_amount_to_send(user_data, ?CHNK_USER,
+  FilterSize, DataSize, _TrailerSize) -> {FilterSize, DataSize}` — Deliver
+  frames from the `user_data` chunk selector omit **both** the bloom bytes and
+  the trailer while the 48-byte header still declares their on-disk sizes.
+  `trailerLength` is nonzero on real user chunks whenever tracking deltas exist
+  (store offset / `StoreOffsetRequestV1`, named producers with deduplication,
+  single-active-consumer) — so the round-1 check would have thrown
+  `DeserializationException` on legitimate chunks from exactly the workflows
+  this library documents (auto-commit!).
+- **Evidence:** `osiris_log.erl` `make_chunk/7` writes `TSize` from
+  `iolist_size(TData)` (tracking deltas) into the header; `send_file/5`
+  `{ToSkip, ToSend}` = `{FilterSize, DataSize}` for user-data; `sendfile`
+  starts at `Pos + ?HEADER_SIZE_B + ToSkip`; `rabbit_stream_reader.erl`
+  `send_file_callback` wraps exactly `HeaderData + DataSize` in the Deliver
+  frame; `get_chunk_selector/1` defaults to `user_data`.
+- **Suggested fix (applied):** fit check is now data-section-only
+  (`headerSize + dataLength <= chunkSize`) with a comment; replacement test
+  `testNonzeroTrailerLengthWithoutTrailerBytesParses` pins the wire contract.
+  The reviewer's F2 (which suggested rejecting nonzero `bloomSize`) was based
+  on the same on-disk assumption and is refuted by `osiris_bloom.erl`
+  `to_binary/1` (nonzero for any chunk with filter values) — see
+  `findings-review.md` coder answers, F2.
+
+### A2 — The broker's own sub-batch validation is weaker than either server-side intuition suggests
+
+- **Where:** `rabbit_stream_utils.erl` `validate_compressed_sub_batch/5`
+  (rabbitmq-server, current main).
+- **What:** `check_batch_size(BatchSize, CompressionType)` rejects empty batches
+  only when compressed; `check_message_count_fits_uncompressed_size` bounds
+  `MessageCount * 4 <= UncompressedSize`; there is **no** check that
+  `UncompressedSize == BatchSize` for codec 0. So a codec-0 sub-batch can carry
+  arbitrarily mismatched sizes through a compliant broker and reach this
+  parser. Consequence for the client: equality must not be enforced (see
+  round-2 N2 resolution); the client's own `records * 4 > compressedSize`
+  check is stricter than the broker on the bytes-present bound and will reject
+  some payloads the broker accepts (e.g. 25 records in a 50-byte body) — that
+  is fine and intentional (fail loud on inconsistent data), worth knowing for
+  compatibility questions.
+- **Suggested fix:** none — documented in the parser comment; the behavior is
+  the security-by-construction one.
+
