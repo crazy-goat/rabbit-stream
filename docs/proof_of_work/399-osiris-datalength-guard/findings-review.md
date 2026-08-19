@@ -334,3 +334,52 @@ detail in `review-2.md`.
   client never sends the property (no `chunk_selector` in `src/`). Documented in
   the class docblock; no action.
 - Status: closed (by design, documented).
+
+---
+
+## Round-3 statuses (appended by review-critical; all earlier entries untouched)
+
+Convergence round. Full detail in `review-3.md`. Only the N5 docblock fix landed
+since round 2 (`0214936`); parser logic is byte-identical to the round-2-reviewed
+state (`git diff 384d37b..HEAD` = 2 docblock lines + committed round-2 docs).
+
+### F1 — fixed (documented decision)
+- Round-3 verdict: **fixed**. Docblock rationale unchanged and still accurate;
+  config test present; gates green. CHANGELOG note remains a step-8 item for the
+  main session (process, not a code finding).
+
+### F2 — not a real finding as suggested (evidence verified); concealed regression fixed
+- Round-3 verdict: **not a real finding as suggested**; the trailer fix from
+  `384d37b` remains in place and pinned by `testNonzeroTrailerLengthWithoutTrailerBytesParses`.
+
+### F3 — fixed
+- Round-3 verdict: **fixed** — `testInLoopCeilingKeepsMemoryBounded` present and
+  passing in the full unit suite (863 tests).
+
+### N1 — fixed · ### N2 — fixed · ### N3 — fixed · ### N4 — fixed
+- Round-3 verdict: **fixed** for all four (re-verified in file; see review-3.md §2).
+
+### N5 — Class docblock header field list mislabels bloomSize/reserved — FIXED
+- Round-3 verdict: **fixed, verified in the file** (not only in the annotation).
+  `src/Client/OsirisChunkParser.php:24-26` now reads:
+  `4 bytes - trailerLength: on-disk length of trailer section (bytes are omitted
+  from Deliver frames)` / `1 byte - bloomSize: on-disk size of the bloom filter
+  section (bytes are omitted from Deliver frames)` / `3 bytes - reserved
+  (alignment to 4 bytes)`. Matches the read sites (`:115-116`), the 48-byte wire
+  layout (FilterSize uint8 at offset 44, Reserved uint24 at 45-47), and the
+  "informational fields" prose at `:28-35`.
+
+### Note — `chunk_selector=all`/`data` wire shape
+- Round-3 verdict: **closed** (by design, documented; unreachable from this client).
+
+---
+
+**Round-3 outcome: no open findings.**
+
+All round-1/2 findings (F1-F3, N1-N5) are fixed or resolved with verified evidence;
+the round-3 delta introduced nothing new; all gates green (cs / phpstan level 9 /
+rector dry-run / unit suite). Acceptance criteria of #399 all met. Branch is ready
+for workflow steps 8 (CHANGELOG) and 9 (PR). Remaining items are process, not
+findings: CHANGELOG entry (step 8) and step-14 issue candidates C1 (Consumer
+whole-chunk buffering) and C4 (plan-doc header drift), plus the proposed KB
+lesson (verify the transmit path when reviewing wire-format parsers).
