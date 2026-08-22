@@ -682,6 +682,31 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame(strlen($payload), $pos);
     }
 
+    public function testDecodeMap32AtElementCapDecodes(): void
+    {
+        // Boundary: exactly MAX_COMPOUND_ELEMENTS key+value elements (i.e.
+        // 65 536 pairs) decodes without error. Use uint16 (0x60, 3 bytes) as
+        // keys (unique int keys 0..65535) and null (0x40) as values, so each
+        // pair lands under a distinct key. 4 bytes per pair × 65536 = 262 144
+        // bytes of content + 8-byte header — a compact payload near the cap.
+        $numPairs = 65536; // MAX_COMPOUND_ELEMENTS / 2
+        $content = '';
+        for ($i = 0; $i < $numPairs; $i++) {
+            $content .= "\x60" . pack('n', $i); // uint16 key (3 bytes, big-endian)
+            $content .= "\x40";                 // null value (1 byte)
+        }
+        $count = $numPairs * 2; // 131072 = MAX_COMPOUND_ELEMENTS
+        $size = strlen($content) + 4;
+        $payload = "\xd1" . pack('N', $size) . pack('N', $count) . $content;
+
+        [$value, $pos] = AmqpDecoder::decodeValue($payload, 0);
+        assert(is_array($value));
+        $this->assertCount($numPairs, $value);
+        $this->assertArrayHasKey(255, $value);
+        $this->assertSame(null, $value[255]);
+        $this->assertSame(strlen($payload), $pos);
+    }
+
     /**
      * Build a list8 chain $depth lists deep (each list holds a single child, innermost holds null).
      */
