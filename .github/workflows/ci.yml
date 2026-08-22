@@ -18,7 +18,7 @@ jobs:
     outputs:
       allowed: ${{ steps.check.outputs.allowed }}
     steps:
-      - name: Check if actor is owner or collaborator
+      - name: Check if actor is owner, collaborator, or PR is labeled
         id: check
         uses: actions/github-script@v7
         with:
@@ -29,6 +29,20 @@ jobs:
             // Always allow the org/repo owner
             if (actor === owner) {
               core.setOutput('allowed', 'true');
+              return;
+            }
+
+            // Bypass: a maintainer labeled the PR with `ci-allow`,
+            // so CI runs regardless of the author's permission level.
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const labeled = labels.some(l => l.name === 'ci-allow');
+            if (labeled) {
+              core.setOutput('allowed', 'true');
+              core.info(`PR #${context.issue.number} has label "ci-allow" — running CI.`);
               return;
             }
 
