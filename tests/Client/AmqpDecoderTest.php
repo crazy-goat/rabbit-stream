@@ -491,6 +491,222 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame($this->buildExpectedNestedValue(20), $sections['body']);
     }
 
+    // ========== Element-count cap (issue #449) ==========
+
+    public function testDecodeList32WithOversizedCountThrowsBeforeAllocating(): void
+    {
+        // PoC from issue #449 (lying variant): a list32 whose attacker-supplied
+        // 32-bit count far exceeds the bytes available. A single null element
+        // (0x40) is 1 byte, so count must be <= the available content bytes.
+        // count = 8,388,608 with only 1 real content byte would otherwise build an
+        // ~8-million-entry array from a 10-byte frame (uncatchable OOM fatal).
+        // size = 5 (4 count bytes + 1 content byte), count = 0x00800000, content = 0x40.
+        // Note: the guard's available-bytes window is size - 3 (= 2 here), because
+        // $endPosition = position + size - 4 is treated as an inclusive bound (a
+        // pre-existing off-by-one in the size math); the cap is still tight enough.
+        $payload = "\xd0\x00\x00\x00\x05\x00\x80\x00\x00\x40";
+        $baseline = memory_get_usage(true);
+
+        try {
+            AmqpDecoder::decodeValue($payload, 0);
+            $this->fail('Expected DeserializationException for oversized list32 count');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('List32 count 8388608 exceeds available bytes 2', $e->getMessage());
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+
+        // The guard must fire long before the array can be allocated: an
+        // unguarded decode of count=8,388,608 would need hundreds of MB.
+        $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
+    }
+
+    public function testDecodeMap32WithOversizedCountThrowsBeforeAllocating(): void
+    {
+        // Same breadth vector for map32: count is total key+value elements (pairs*2).
+        // count = 8,388,608 with only 1 real content byte available -> throws before
+        // allocating the multi-hundred-MB map.
+        $payload = "\xd1\x00\x00\x00\x05\x00\x80\x00\x00\x40";
+        $baseline = memory_get_usage(true);
+
+        try {
+            AmqpDecoder::decodeValue($payload, 0);
+            $this->fail('Expected DeserializationException for oversized map32 count');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Map32 count 8388608 exceeds available bytes 2', $e->getMessage());
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+
+        $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
+    }
+
+    public function testDecodeList32CountWithinAvailableBytesStillDecodes(): void
+    {
+        // Boundary: count well within the available window. size = 7 (content = 3
+        // null bytes), count = 3. available = size - 3 = 4, 3 <= 4 -> decodes.
+        [$value, $pos] = AmqpDecoder::decodeValue("\xd0\x00\x00\x00\x07\x00\x00\x00\x03\x40\x40\x40", 0);
+        $this->assertSame([null, null, null], $value);
+        $this->assertSame(12, $pos);
+    }
+
+    public function testDecodeMap32CountWithinAvailableBytesStillDecodes(): void
+    {
+        // Boundary: 1 pair = 2 elements, both 1-byte nulls. size = 6 (content = 2),
+        // count = 2. available = size - 3 = 3, 2 <= 3 -> decodes. Null key coerces
+        // to '' by the map key logic.
+        [$value, $pos] = AmqpDecoder::decodeValue("\xd1\x00\x00\x00\x06\x00\x00\x00\x02\x40\x40", 0);
+        $this->assertSame(['' => null], $value);
+        $this->assertSame(11, $pos);
+    }
+
+    public function testDecodeList32CountExceedingAvailableThrows(): void
+    {
+        // Boundary just past the cap: size = 7 -> available = 4, count = 5 > 4.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('List32 count 5 exceeds available bytes 4');
+
+        AmqpDecoder::decodeValue("\xd0\x00\x00\x00\x07\x00\x00\x00\x05\x40\x40\x40", 0);
+    }
+
+    public function testDecodeMap32CountExceedingAvailableThrows(): void
+    {
+        // Boundary just past the cap: size = 6 -> available = 3, count = 4 > 3.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map32 count 4 exceeds available bytes 3');
+
+        AmqpDecoder::decodeValue("\xd1\x00\x00\x00\x06\x00\x00\x00\x04\x40\x40", 0);
+    }
+
+    public function testDecodeValidList32AndMap32StillDecodeIdentically(): void
+    {
+        // Regression guard: the existing valid fixtures from testDecodeList32 /
+        // testDecodeMap32 must decode byte-for-byte identically after the guard.
+        [$list, $listPos] = AmqpDecoder::decodeValue(
+            "\xd0\x00\x00\x00\x06\x00\x00\x00\x02\x52\x01\x52\x02",
+            0
+        );
+        $this->assertSame([1, 2], $list);
+        $this->assertSame(13, $listPos);
+
+        [$map, $mapPos] = AmqpDecoder::decodeValue(
+            "\xd1\x00\x00\x00\x09\x00\x00\x00\x02\xa1\x01k\x52\x01",
+            0
+        );
+        $this->assertSame(['k' => 1], $map);
+        $this->assertSame(14, $mapPos);
+    }
+
+    public function testDecodeMessageWithOversizedList32BodyThrows(): void
+    {
+        // Exposure path from Consumer::read() -> decodeMessage(): an AmqpValue
+        // body (0x76) carrying a list32 with an oversized count must throw
+        // catchably rather than fatal-OOM.
+        $body = "\xd0\x00\x00\x00\x05\x00\x80\x00\x00\x40";
+        $message = "\x00\x53\x76" . $body;
+
+        try {
+            AmqpDecoder::decodeMessage($message);
+            $this->fail('Expected DeserializationException for oversized list32 body');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('List32 count 8388608 exceeds available bytes 2', $e->getMessage());
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+    }
+
+    public function testDecodeList32HonestLargeFrameThrowsBeforeAllocating(): void
+    {
+        // Headline PoC from issue #449: an *honest* list32 whose count truthfully
+        // equals the available bytes. count = MAX_COMPOUND_ELEMENTS + 1 null
+        // elements (0x40), each 1 byte, with a truthful size. The available-bytes
+        // guard does NOT fire (count == available), but the element cap does —
+        // before the loop allocates the multi-hundred-MB array.
+        $count = 131073; // MAX_COMPOUND_ELEMENTS (131072) + 1
+        $content = str_repeat("\x40", $count);
+        $size = $count + 4; // 4 count bytes + count content bytes
+        $payload = "\xd0" . pack('N', $size) . pack('N', $count) . $content;
+        $baseline = memory_get_usage(true);
+
+        try {
+            AmqpDecoder::decodeValue($payload, 0);
+            $this->fail('Expected DeserializationException for honest large list32');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString(
+                'List32 count 131073 exceeds maximum compound elements 131072',
+                $e->getMessage()
+            );
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+
+        // The guard fires before the loop: no multi-hundred-MB allocation.
+        $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
+    }
+
+    public function testDecodeMap32HonestLargeFrameThrowsBeforeAllocating(): void
+    {
+        // Same honest-large-frame vector for map32. count is total key+value
+        // elements; use MAX_COMPOUND_ELEMENTS + 1 one-byte nulls with truthful size.
+        $count = 131073;
+        $content = str_repeat("\x40", $count);
+        $size = $count + 4;
+        $payload = "\xd1" . pack('N', $size) . pack('N', $count) . $content;
+        $baseline = memory_get_usage(true);
+
+        try {
+            AmqpDecoder::decodeValue($payload, 0);
+            $this->fail('Expected DeserializationException for honest large map32');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString(
+                'Map32 count 131073 exceeds maximum compound elements 131072',
+                $e->getMessage()
+            );
+            $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
+        }
+
+        $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
+    }
+
+    public function testDecodeList32AtElementCapDecodes(): void
+    {
+        // Boundary: exactly MAX_COMPOUND_ELEMENTS elements decodes without error.
+        // Use smalluint (0x52, 2 bytes: format code + value) to keep the payload
+        // small while exercising a count near the cap.
+        $count = 131072; // MAX_COMPOUND_ELEMENTS
+        $element = "\x52\x00"; // smalluint 0 (2 bytes)
+        $content = str_repeat($element, $count);
+        $size = strlen($content) + 4;
+        $payload = "\xd0" . pack('N', $size) . pack('N', $count) . $content;
+
+        [$value, $pos] = AmqpDecoder::decodeValue($payload, 0);
+        assert(is_array($value));
+        $this->assertCount($count, $value);
+        $this->assertSame(0, $value[0]);
+        $this->assertSame(strlen($payload), $pos);
+    }
+
+    public function testDecodeMap32AtElementCapDecodes(): void
+    {
+        // Boundary: exactly MAX_COMPOUND_ELEMENTS key+value elements (i.e.
+        // 65 536 pairs) decodes without error. Use uint16 (0x60, 3 bytes) as
+        // keys (unique int keys 0..65535) and null (0x40) as values, so each
+        // pair lands under a distinct key. 4 bytes per pair × 65536 = 262 144
+        // bytes of content + 8-byte header — a compact payload near the cap.
+        $numPairs = 65536; // MAX_COMPOUND_ELEMENTS / 2
+        $content = '';
+        for ($i = 0; $i < $numPairs; $i++) {
+            $content .= "\x60" . pack('n', $i); // uint16 key (3 bytes, big-endian)
+            $content .= "\x40";                 // null value (1 byte)
+        }
+        $count = $numPairs * 2; // 131072 = MAX_COMPOUND_ELEMENTS
+        $size = strlen($content) + 4;
+        $payload = "\xd1" . pack('N', $size) . pack('N', $count) . $content;
+
+        [$value, $pos] = AmqpDecoder::decodeValue($payload, 0);
+        assert(is_array($value));
+        $this->assertCount($numPairs, $value);
+        $this->assertArrayHasKey(255, $value);
+        $this->assertSame(null, $value[255]);
+        $this->assertSame(strlen($payload), $pos);
+    }
+
     /**
      * Build a list8 chain $depth lists deep (each list holds a single child, innermost holds null).
      */
