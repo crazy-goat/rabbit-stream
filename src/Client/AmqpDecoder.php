@@ -11,6 +11,16 @@ class AmqpDecoder
     private const MAX_RECURSION_DEPTH = 32;
 
     /**
+     * Maximum number of elements a single compound (list or map) may declare.
+     * Caps breadth amplification: without it an honest 8 MiB frame of 1-byte
+     * null elements builds an ~8 M-entry PHP array (~128–256 MB) and triggers an
+     * uncatchable `Allowed memory size exhausted` fatal at memory_limit=128M.
+     * 128 K elements is generous for real AMQP messages (~10 MB worst case) and
+     * well below any OOM threshold. See issue #449.
+     */
+    private const MAX_COMPOUND_ELEMENTS = 131072;
+
+    /**
      * Decode a single AMQP 1.0 value from the binary data at the given position.
      * Returns [value, newPosition].
      *
@@ -521,6 +531,33 @@ class AmqpDecoder
         $position += 8;
         $endPosition = $position + $size - 4; // size includes the 4 count bytes
 
+        // Security (#449): the 32-bit $count is attacker-supplied. A flat list is
+        // depth 1, so the #397 recursion guard does not apply. Cap $count to the
+        // bytes actually available in the content span before allocating: every
+        // element is at least 1 byte (its format code), so a count larger than the
+        // available bytes is malformed and cannot be satisfied without allocating
+        // a multi-hundred-MB array from a small frame (OOM fatal).
+        $available = $endPosition - $position + 1;
+        if ($count > $available) {
+            throw new DeserializationException(sprintf(
+                'List32 count %d exceeds available bytes %d',
+                $count,
+                $available
+            ));
+        }
+        // Security (#449): also cap honest large frames. When count truthfully
+        // equals the available bytes (e.g. 8 M null elements in an 8 MiB frame),
+        // the available-bytes guard above does not fire, but the loop still
+        // builds a multi-hundred-MB array → uncatchable OOM fatal. A flat list
+        // is depth 1, so the #397 recursion guard does not apply either.
+        if ($count > self::MAX_COMPOUND_ELEMENTS) {
+            throw new DeserializationException(sprintf(
+                'List32 count %d exceeds maximum compound elements %d',
+                $count,
+                self::MAX_COMPOUND_ELEMENTS
+            ));
+        }
+
         $list = [];
         for ($i = 0; $i < $count; $i++) {
             if ($position > $endPosition) {
@@ -578,6 +615,28 @@ class AmqpDecoder
         }
         $position += 8;
         $endPosition = $position + $size - 4; // size includes the 4 count bytes
+
+        // Security (#449): the 32-bit $count (total key+value elements, i.e. pairs*2)
+        // is attacker-supplied. As with readList32, cap it to the bytes actually
+        // available before allocating: every element is at least 1 byte (its format
+        // code), so a count larger than the available bytes is malformed and would
+        // otherwise allocate a multi-hundred-MB map from a small frame (OOM fatal).
+        $available = $endPosition - $position + 1;
+        if ($count > $available) {
+            throw new DeserializationException(sprintf(
+                'Map32 count %d exceeds available bytes %d',
+                $count,
+                $available
+            ));
+        }
+        // Security (#449): also cap honest large frames — see readList32.
+        if ($count > self::MAX_COMPOUND_ELEMENTS) {
+            throw new DeserializationException(sprintf(
+                'Map32 count %d exceeds maximum compound elements %d',
+                $count,
+                self::MAX_COMPOUND_ELEMENTS
+            ));
+        }
 
         $map = [];
         $numPairs = (int)($count / 2);
