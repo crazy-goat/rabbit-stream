@@ -485,4 +485,4 @@ Confirmed messages:
 - [Publishing Guide](../guide/publishing.md)
 - [Basic Producer Example](basic-producer.md)
 - [Producer API Reference](../api-reference/producer.md)
-- [Publish Flow Diagram](../assets/diagrams/publish-flow.md)
+- [Publish Flow Diagram](../../assets/diagrams/publish-flow.md)

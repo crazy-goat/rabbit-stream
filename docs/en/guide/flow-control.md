@@ -307,7 +307,7 @@ $stream->sendMessage(new PublishRequestV1(1, $message));
 $response = $stream->readMessage();
 ```
 
-For a visual diagram of this flow, see [Server-Push Dispatch Diagram](../assets/diagrams/server-push-dispatch.md).
+For a visual diagram of this flow, see [Server-Push Dispatch Diagram](../../assets/diagrams/server-push-dispatch.md).
 
 ## readLoop() for Async Processing
 
@@ -735,7 +735,7 @@ try {
 ## See Also
 
 - [Server Push Frames](../protocol/server-push-frames.md) — Detailed protocol reference
-- [Server-Push Dispatch Diagram](../assets/diagrams/server-push-dispatch.md) — Visual flow diagrams
+- [Server-Push Dispatch Diagram](../../assets/diagrams/server-push-dispatch.md) — Visual flow diagrams
 - [Publishing Guide](publishing.md) — Publish confirms and error handling
 - [Connection Lifecycle](connection-lifecycle.md) — Connection handshake and heartbeats
 - [Consuming Guide](consuming.md) — Message consumption patterns
