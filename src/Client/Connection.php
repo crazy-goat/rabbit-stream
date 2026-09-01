@@ -74,6 +74,7 @@ class Connection implements ConnectionInterface
         ?LoggerInterface $logger = null,
         ?int $requestedFrameMax = null,
         ?int $requestedHeartbeat = null,
+        ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
     ): self {
         if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
@@ -81,6 +82,9 @@ class Connection implements ConnectionInterface
         }
         if ($requestedHeartbeat !== null && $requestedHeartbeat < 0) {
             throw new \InvalidArgumentException('requestedHeartbeat must not be negative');
+        }
+        if ($maxDeliverFrameSize !== null && $maxDeliverFrameSize < 0) {
+            throw new \InvalidArgumentException('maxDeliverFrameSize must not be negative');
         }
 
         $logger ??= new NullLogger();
@@ -134,9 +138,30 @@ class Connection implements ConnectionInterface
         );
         $streamConnection->sendMessage(new TuneResponseV1($negotiatedFrameMax, $negotiatedHeartbeat));
 
+        // Negotiation must only ever LOWER the incoming control-frame cap from its
+        // safe default: a broker sending frameMax = 0xFFFFFFFF (or any huge value)
+        // when the caller didn't explicitly request one must not blow the cap open
+        // (see GH #398). If the caller explicitly passed requestedFrameMax, that is
+        // a deliberate raise (or lower) and is honored as-is.
         if ($negotiatedFrameMax > 0) {
-            $streamConnection->setMaxFrameSize($negotiatedFrameMax);
+            $streamConnection->setMaxFrameSize(
+                $requestedFrameMax !== null
+                    ? $negotiatedFrameMax
+                    : min($negotiatedFrameMax, StreamConnection::DEFAULT_MAX_FRAME_SIZE)
+            );
         }
+
+        // The broker does not enforce frame_max on Deliver frames (0x0008) — a
+        // stream chunk is sent whole — so Deliver frames get their own, separately
+        // sized cap rather than being bound by the negotiated control-frame max.
+        $streamConnection->setMaxDeliverFrameSize(
+            $maxDeliverFrameSize ?? StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE
+        );
+
+        // Frames we send are bound by the actual negotiated frame_max: writing a
+        // larger frame would just get the connection closed by the broker, so
+        // reject it fast and clearly instead (see sendFrame()).
+        $streamConnection->setOutgoingMaxFrameSize($negotiatedFrameMax);
 
         // 6. Open
         $streamConnection->sendMessage(new OpenRequestV1($vhost));
@@ -333,9 +358,17 @@ class Connection implements ConnectionInterface
         string $stream,
         ?string $name = null,
         ?callable $onConfirm = null,
+        int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
     ): ProducerInterface {
         $publisherId = $this->publisherIdCounter++;
-        $producer = new Producer($this->streamConnection, $stream, $publisherId, $name, $onConfirm);
+        $producer = new Producer(
+            $this->streamConnection,
+            $stream,
+            $publisherId,
+            $name,
+            $onConfirm,
+            $maxPendingConfirms
+        );
         $this->producers[$publisherId] = $producer;
         return $producer;
     }

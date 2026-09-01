@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Contract;
 
+use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
@@ -47,6 +48,7 @@ interface ConnectionInterface
         string $stream,
         ?string $name = null,
         ?callable $onConfirm = null,
+        int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
     ): ProducerInterface;
 
     public function createConsumer(

@@ -167,7 +167,10 @@ class StreamConnectionTest extends TestCase
         $connection->setMaxFrameSize(1024);
 
         $frameSize = 2048;
-        socket_write($serverSocket, pack('N', $frameSize));
+        // The size is followed by the 2-byte key (0x0014, an arbitrary non-Deliver
+        // key) since readFrame() now reads size + key before deciding which cap
+        // (maxFrameSize vs maxDeliverFrameSize) applies.
+        socket_write($serverSocket, pack('N', $frameSize) . pack('n', 0x0014));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed \d+/');
@@ -187,7 +190,7 @@ class StreamConnectionTest extends TestCase
 
         $connection->setMaxFrameSize(1024);
 
-        socket_write($serverSocket, pack('N', 2048));
+        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0014));
 
         try {
             $connection->readFrame();
@@ -214,6 +217,217 @@ class StreamConnectionTest extends TestCase
         $buffer = $connection->readFrame();
 
         $this->assertNotNull($buffer);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    // ---- Deliver frame cap tests (broker does not enforce frame_max on Deliver) ----
+
+    public function testDefaultMaxDeliverFrameSizeIs64MB(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertEquals(64 * 1024 * 1024, $connection->getMaxDeliverFrameSize());
+    }
+
+    public function testMaxDeliverFrameSizeCanBeChanged(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxDeliverFrameSize(128 * 1024 * 1024);
+
+        $this->assertEquals(128 * 1024 * 1024, $connection->getMaxDeliverFrameSize());
+    }
+
+    public function testMaxDeliverFrameSizeCanBeSetToZero(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxDeliverFrameSize(0);
+
+        $this->assertEquals(0, $connection->getMaxDeliverFrameSize());
+    }
+
+    public function testSetMaxDeliverFrameSizeRejectsNegativeValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Max deliver frame size must be >= 0');
+
+        $connection->setMaxDeliverFrameSize(-1);
+    }
+
+    public function testReadFrameAllowsDeliverFrameLargerThanMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // A control-frame cap far smaller than the Deliver frame we send below.
+        // Sizes are kept well under the AF_UNIX socketpair's small kernel buffer
+        // (a real write of >1MB would block here since nothing reads
+        // concurrently) — the point is only that the Deliver cap, not
+        // maxFrameSize, governs Deliver frames.
+        $connection->setMaxFrameSize(200);
+        $connection->setMaxDeliverFrameSize(4000);
+
+        // Deliver frame (key 0x0008) bigger than maxFrameSize but within
+        // maxDeliverFrameSize: must NOT be rejected, reproducing a broker
+        // sending an oversized coalesced chunk despite a smaller negotiated
+        // frame_max.
+        $content = str_repeat('x', 1000);
+        $frame = $this->buildFrame(0x0008, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $buffer = $connection->readFrame();
+
+        $this->assertNotNull($buffer);
+        $this->assertEquals(0x0008, $buffer->peekUint16());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testReadFrameRejectsDeliverFrameExceedingMaxDeliverFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setMaxDeliverFrameSize(1024);
+
+        // size (2048) + key (0x0008 = Deliver); no further payload needed since
+        // the cap is enforced right after the key is read.
+        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0008));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed 1024/');
+
+        $connection->readFrame();
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testReadFrameNonDeliverFrameStillUsesMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setMaxFrameSize(1024);
+        $connection->setMaxDeliverFrameSize(2 * 1024 * 1024);
+
+        // A non-Deliver frame (0x0014) exceeding maxFrameSize must still be
+        // rejected, even though maxDeliverFrameSize is much larger.
+        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0014));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed 1024/');
+
+        $connection->readFrame();
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    // ---- Outgoing frame cap tests (fail fast on oversized outgoing frames) ----
+
+    public function testDefaultOutgoingMaxFrameSizeIsUnlimited(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertEquals(0, $connection->getOutgoingMaxFrameSize());
+    }
+
+    public function testOutgoingMaxFrameSizeCanBeChanged(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setOutgoingMaxFrameSize(1024 * 1024);
+
+        $this->assertEquals(1024 * 1024, $connection->getOutgoingMaxFrameSize());
+    }
+
+    public function testSetOutgoingMaxFrameSizeRejectsNegativeValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Outgoing max frame size must be >= 0');
+
+        $connection->setOutgoingMaxFrameSize(-1);
+    }
+
+    public function testSendFrameThrowsInvalidArgumentExceptionWhenFrameExceedsOutgoingMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setOutgoingMaxFrameSize(1024);
+
+        $frame = $this->buildFrame(0x0014, 1, str_repeat('x', 2048));
+
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Frame size \d+ exceeds negotiated maximum frame size of 1024/');
+
+        try {
+            $connection->sendFrame($frame);
+        } finally {
+            // Nothing must have been written to the socket, and the connection
+            // must stay connected/usable — this is a fail-fast validation error,
+            // not a socket failure.
+            $this->assertTrue($connection->isConnected());
+            socket_set_nonblock($serverSocket);
+            $this->assertFalse(@socket_read($serverSocket, 1), 'no bytes should have been written to the socket');
+        }
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSendFrameAllowsFrameWithinOutgoingMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setOutgoingMaxFrameSize(1024);
+
+        $frame = $this->buildFrame(0x0014, 1, str_repeat('x', 100));
+
+        $written = $connection->sendFrame($frame);
+
+        $this->assertEquals(strlen($frame), $written);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSendFrameAllowsAnyFrameWhenOutgoingMaxFrameSizeIsZero(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setOutgoingMaxFrameSize(0);
+
+        // Kept well under the AF_UNIX socketpair's small kernel send buffer —
+        // nothing reads concurrently here, so a bigger write would block.
+        $frame = $this->buildFrame(0x0014, 1, str_repeat('x', 4000));
+
+        $written = $connection->sendFrame($frame);
+
+        $this->assertEquals(strlen($frame), $written);
 
         socket_close($serverSocket);
         socket_close($clientSocket);

@@ -41,19 +41,36 @@ class StreamConnection
     private ?\Closure $heartbeatCallback = null;
     private ?\Closure $consumerUpdateCallback = null;
 
+    /**
+     * Keyed by protocol key for O(1) isset() lookup instead of in_array()'s
+     * linear scan (GitHub #411) — this is checked once per received frame.
+     *
+     * @var array<int, true>
+     */
     private const SERVER_PUSH_KEYS = [
-        0x0003, // PublishConfirm
-        0x0004, // PublishError
-        0x0008, // Deliver
-        0x0010, // MetadataUpdate
-        0x0016, // Close (server-initiated)
-        0x0017, // Heartbeat
-        0x001a, // ConsumerUpdate
+        0x0003 => true, // PublishConfirm
+        0x0004 => true, // PublishError
+        0x0008 => true, // Deliver
+        0x0010 => true, // MetadataUpdate
+        0x0016 => true, // Close (server-initiated)
+        0x0017 => true, // Heartbeat
+        0x001a => true, // ConsumerUpdate
     ];
 
     public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
 
+    /**
+     * The broker does not enforce frame_max on Deliver frames (0x0008): a chunk is
+     * sent whole regardless of the negotiated frame_max, so Deliver frames need a
+     * separate, larger cap. 64MB comfortably exceeds chunks observed in practice
+     * (multi-megabyte coalesced chunks from a fast producer) while still guarding
+     * against a hostile/broken broker sending an unbounded frame.
+     */
+    public const DEFAULT_MAX_DELIVER_FRAME_SIZE = 64 * 1024 * 1024;
+
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
+    private int $maxDeliverFrameSize = self::DEFAULT_MAX_DELIVER_FRAME_SIZE;
+    private int $outgoingMaxFrameSize = 0;
 
     /**
      * @param string                $host     RabbitMQ stream server hostname
@@ -183,6 +200,67 @@ class StreamConnection
     }
 
     /**
+     * Set the maximum allowed size in bytes for incoming Deliver frames (key 0x0008).
+     *
+     * The broker does not enforce the negotiated frame_max on Deliver frames — a
+     * stream chunk is sent whole, so this needs its own (larger) cap independent
+     * of {@see setMaxFrameSize()}.
+     *
+     * @param int $maxDeliverFrameSize Maximum Deliver frame size in bytes (0 = no limit)
+     * @throws InvalidArgumentException If the value is negative
+     */
+    public function setMaxDeliverFrameSize(int $maxDeliverFrameSize): void
+    {
+        if ($maxDeliverFrameSize < 0) {
+            throw new InvalidArgumentException(
+                "Max deliver frame size must be >= 0 (0 = no limit), got {$maxDeliverFrameSize}"
+            );
+        }
+        $this->maxDeliverFrameSize = $maxDeliverFrameSize;
+    }
+
+    /**
+     * Get the current maximum allowed size in bytes for incoming Deliver frames.
+     *
+     * @return int Maximum Deliver frame size (0 = no limit)
+     */
+    public function getMaxDeliverFrameSize(): int
+    {
+        return $this->maxDeliverFrameSize;
+    }
+
+    /**
+     * Set the negotiated outgoing frame size limit in bytes.
+     *
+     * Frames written via {@see sendFrame()} larger than this are rejected up
+     * front with an {@see InvalidArgumentException} before anything is written
+     * to the socket, instead of being written and having the broker close the
+     * connection.
+     *
+     * @param int $outgoingMaxFrameSize Maximum outgoing frame size in bytes (0 = no limit)
+     * @throws InvalidArgumentException If the value is negative
+     */
+    public function setOutgoingMaxFrameSize(int $outgoingMaxFrameSize): void
+    {
+        if ($outgoingMaxFrameSize < 0) {
+            throw new InvalidArgumentException(
+                "Outgoing max frame size must be >= 0 (0 = no limit), got {$outgoingMaxFrameSize}"
+            );
+        }
+        $this->outgoingMaxFrameSize = $outgoingMaxFrameSize;
+    }
+
+    /**
+     * Get the current negotiated outgoing frame size limit in bytes.
+     *
+     * @return int Maximum outgoing frame size (0 = no limit)
+     */
+    public function getOutgoingMaxFrameSize(): int
+    {
+        return $this->outgoingMaxFrameSize;
+    }
+
+    /**
      * Register callbacks for publish confirm/error notifications.
      *
      * @param int      $publisherId Publisher ID as declared with the server
@@ -296,11 +374,24 @@ class StreamConnection
      * @param string     $frame  The complete frame payload (including length prefix)
      * @param float|null $timeout Optional write timeout in seconds
      * @return int Number of bytes written
-     * @throws ConnectionException If the socket is not connected or a write error occurs
-     * @throws TimeoutException    If the socket is not ready for writing within the timeout
+     * @throws ConnectionException      If the socket is not connected or a write error occurs
+     * @throws InvalidArgumentException If the frame exceeds the negotiated outgoing frame size limit
+     * @throws TimeoutException         If the socket is not ready for writing within the timeout
      */
     public function sendFrame(string $frame, ?float $timeout = null): int
     {
+        if ($this->outgoingMaxFrameSize > 0) {
+            // $frame includes the 4-byte length prefix added by wrapFrame(); the
+            // negotiated frame_max applies to the payload only.
+            $payloadSize = strlen($frame) - 4;
+            if ($payloadSize > $this->outgoingMaxFrameSize) {
+                throw new InvalidArgumentException(
+                    "Frame size {$payloadSize} exceeds negotiated maximum frame size of " .
+                    "{$this->outgoingMaxFrameSize}"
+                );
+            }
+        }
+
         $this->debugFrame('Socket -> ', $frame, keyOffset: 4);
 
         if (!$this->socket instanceof \Socket) {
@@ -389,7 +480,7 @@ class StreamConnection
 
             $key = $frame->peekUint16();
 
-            if (in_array($key, self::SERVER_PUSH_KEYS, true)) {
+            if (isset(self::SERVER_PUSH_KEYS[$key])) {
                 $this->dispatchServerPush($frame);
 
                 // Connection may have been closed by server-initiated close
@@ -467,14 +558,16 @@ class StreamConnection
                 continue;
             }
 
-            $frame = $this->readFrame(timeout: 0.0);
+            // socket_select() already confirmed the socket is readable above;
+            // avoid a second, redundant select per frame (see readFrameNoWait()).
+            $frame = $this->readFrameNoWait();
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
                 continue;
             }
 
             $key = $frame->peekUint16();
 
-            if (in_array($key, self::SERVER_PUSH_KEYS, true)) {
+            if (isset(self::SERVER_PUSH_KEYS[$key])) {
                 $this->dispatchServerPush($frame);
                 $dispatched++;
 
@@ -614,10 +707,9 @@ class StreamConnection
 
     private function wrapFrame(string $content): string
     {
-        return (new WriteBuffer())
-            ->addUInt32(strlen($content))
-            ->addRaw($content)
-            ->getContents();
+        // Direct pack()+concat instead of a WriteBuffer object: this runs once
+        // per outgoing message (and once per heartbeat/close-response reply).
+        return pack('N', strlen($content)) . $content;
     }
 
     /**
@@ -650,6 +742,32 @@ class StreamConnection
             return null;
         }
 
+        return $this->readFrameNoWait();
+    }
+
+    /**
+     * Read a single raw frame from the socket without first calling socket_select().
+     *
+     * Callers must already know the socket is readable (or be prepared to block on
+     * the underlying socket_read() calls) — this exists so readLoop(), which already
+     * performs its own socket_select() before every frame, does not pay for a second,
+     * redundant select per frame.
+     *
+     * The frame is decoded as Size(uint32) + Key(uint16) + rest of payload: the key
+     * is read separately from the remaining payload so that the size cap can be
+     * chosen based on the frame's key — Deliver frames (0x0008) are not capped by
+     * the negotiated frame_max, since the broker sends stream chunks whole
+     * regardless of frame_max; they use {@see $maxDeliverFrameSize} instead.
+     *
+     * @return ReadBuffer|null Parsed frame buffer, or null if no data arrived
+     * @throws ConnectionException If the socket is not connected, frame exceeds max size, or read error occurs
+     */
+    private function readFrameNoWait(): ?ReadBuffer
+    {
+        if (!$this->socket instanceof \Socket) {
+            throw new ConnectionException("Cannot read: socket is not connected");
+        }
+
         $sizeData = $this->readBytes(4);
         if ($sizeData === null) {
             return null;
@@ -661,16 +779,48 @@ class StreamConnection
         }
         $size = $sizeUnpacked[1];
 
-        if ($this->maxFrameSize > 0 && $size > $this->maxFrameSize) {
-            $this->close();
-            throw new ConnectionException(
-                "Frame size {$size} exceeds maximum allowed {$this->maxFrameSize}"
-            );
+        if ($size < 2) {
+            throw new DeserializationException("Frame size {$size} is too small to contain a key");
         }
 
-        $frameData = $this->readBytes($size);
-        if ($frameData === null) {
-            throw new ConnectionException("Failed to read frame data");
+        // Fast path: a frame that fits under BOTH caps is read in one piece, no
+        // key peek and no concatenation. Only a frame exceeding the smaller cap
+        // needs its key inspected, because Deliver frames (0x0008) get their own
+        // cap — the broker does not enforce frame_max on them.
+        $fastCap = match (true) {
+            $this->maxFrameSize <= 0 => $this->maxDeliverFrameSize,
+            $this->maxDeliverFrameSize <= 0 => $this->maxFrameSize,
+            default => min($this->maxFrameSize, $this->maxDeliverFrameSize),
+        };
+        if ($fastCap <= 0 || $size <= $fastCap) {
+            $frameData = $this->readBytes($size);
+            if ($frameData === null) {
+                throw new ConnectionException("Failed to read frame data");
+            }
+        } else {
+            $keyData = $this->readBytes(2);
+            if ($keyData === null) {
+                throw new ConnectionException("Failed to read frame key");
+            }
+
+            $keyUnpacked = unpack('n', $keyData);
+            $key = $keyUnpacked !== false ? $keyUnpacked[1] : null;
+
+            $cap = $key === KeyEnum::DELIVER->value ? $this->maxDeliverFrameSize : $this->maxFrameSize;
+
+            if ($cap > 0 && $size > $cap) {
+                $this->close();
+                throw new ConnectionException(
+                    "Frame size {$size} exceeds maximum allowed {$cap}"
+                );
+            }
+
+            $remainingData = $this->readBytes($size - 2);
+            if ($remainingData === null) {
+                throw new ConnectionException("Failed to read frame data");
+            }
+
+            $frameData = $keyData . $remainingData;
         }
 
         $this->debugFrame('Socket <-', $frameData, keyOffset: 0);
@@ -720,32 +870,55 @@ class StreamConnection
         $this->logger->debug($prefix . bin2hex($frame));
     }
 
+    /**
+     * Read exactly $length bytes from the socket into a single buffer.
+     *
+     * Uses socket_recv() with MSG_WAITALL so the kernel fills as much of the
+     * request as it can in one call instead of the previous socket_read()
+     * loop, which issued one syscall (and one string realloc via `.=`) per
+     * available chunk — for an 8MB Deliver frame that could be hundreds of
+     * short reads. MSG_WAITALL still returns short on a signal (EINTR) or a
+     * partial receive before the full length is available, so the loop below
+     * keeps issuing recv() for the remainder; a `''` chunk still means the
+     * peer closed the connection, and SOCKET_ETIMEDOUT still yields null,
+     * matching the previous semantics exactly.
+     */
     private function readBytes(int $length): ?string
     {
         if (!$this->socket instanceof \Socket) {
             throw new ConnectionException("Cannot read: socket is not connected");
         }
 
+        if ($length === 0) {
+            return '';
+        }
+
         $data = '';
         $remaining = $length;
 
         while ($remaining > 0) {
-            $chunk = socket_read($this->socket, $remaining);
-            if ($chunk === false) {
+            $chunk = '';
+            $read = socket_recv($this->socket, $chunk, $remaining, MSG_WAITALL);
+
+            if ($read === false) {
                 $error = socket_last_error($this->socket);
+                if ($error === SOCKET_EINTR) {
+                    continue;
+                }
                 if ($error === SOCKET_ETIMEDOUT) {
                     return null;
                 }
                 $this->connected = false;
                 throw new ConnectionException("Failed to read from socket: " . socket_strerror($error));
             }
-            if ($chunk === '') {
+
+            if ($read === 0) {
                 $this->connected = false;
                 throw new ConnectionException("Failed to read from socket: connection closed by peer");
             }
 
             $data .= $chunk;
-            $remaining -= strlen($chunk);
+            $remaining -= $read;
         }
 
         return $data;
