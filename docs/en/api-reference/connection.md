@@ -20,6 +20,7 @@ class Connection
         ?LoggerInterface $logger = null,
         ?int $requestedFrameMax = null,
         ?int $requestedHeartbeat = null,
+        ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
     ): self;
     
@@ -70,6 +71,7 @@ public static function create(
     ?LoggerInterface $logger = null,
     ?int $requestedFrameMax = null,
     ?int $requestedHeartbeat = null,
+    ?int $maxDeliverFrameSize = null,
     ?StreamConnection $streamConnection = null,
 ): self
 ```
@@ -85,8 +87,9 @@ public static function create(
 | `$vhost` | `string` | No | Virtual host. Default: `/` |
 | `$serializer` | `?BinarySerializerInterface` | No | Custom binary serializer. Default: `PhpBinarySerializer` |
 | `$logger` | `?LoggerInterface` | No | PSR-3 logger for debugging. Default: `NullLogger` |
-| `$requestedFrameMax` | `?int` | No | Requested maximum frame size. `0` means unlimited. Default: `null` (use server value) |
+| `$requestedFrameMax` | `?int` | No | Requested maximum frame size for the *outgoing* protocol negotiation. `0` means unlimited. Default: `null` (use server value, capped by `StreamConnection::DEFAULT_MAX_FRAME_SIZE` unless you pass this explicitly — see [negotiation caveat](#frame_max-negotiation-only-lowers-the-default) below) |
 | `$requestedHeartbeat` | `?int` | No | Requested heartbeat interval in seconds. `0` disables heartbeats. Default: `null` (use server value) |
+| `$maxDeliverFrameSize` | `?int` | No | Max size in bytes for incoming **Deliver** frames (key `0x0008`), which the broker does not bound by the negotiated `frame_max` — see [Deliver frames need their own cap](#deliver-frames-need-their-own-cap) below. Default: `null` (`StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE`, 64MB) |
 | `$streamConnection` | `?StreamConnection` | No | Pre-configured stream connection (advanced use). Default: `null` |
 
 ### Return Value
@@ -95,10 +98,40 @@ public static function create(
 
 ### Exceptions
 
-- `InvalidArgumentException` - If `requestedFrameMax` or `requestedHeartbeat` is negative
+- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, or `maxDeliverFrameSize` is negative
 - `AuthenticationException` - If PLAIN SASL mechanism is not supported or credentials are invalid
 - `UnexpectedResponseException` - If the server returns an unexpected response during handshake
 - `ConnectionException` - If the TCP connection cannot be established
+
+### Deliver frames need their own cap
+
+The broker does not enforce the negotiated `frame_max` on Deliver frames: a
+stream chunk is sent whole, however big it grew due to server-side
+coalescing (e.g. a fast producer publishing several batches without calling
+`waitForConfirms()` between them). `StreamConnection` therefore caps Deliver
+frames with a separate, larger limit (`maxDeliverFrameSize`, default 64MB)
+instead of the same limit used for every other incoming frame
+(`StreamConnection::setMaxFrameSize()` / `DEFAULT_MAX_FRAME_SIZE`, 8MB). See
+[Performance Tuning → Frame Size Limits](../advanced/performance-tuning.md#frame-size-limits)
+for the full write-up and a reproduction of the underlying broker behavior.
+
+### `frame_max` negotiation only lowers the default
+
+If you don't pass `requestedFrameMax`, a broker advertising a huge `frame_max`
+during Tune (including `0xFFFFFFFF`) cannot raise the effective control-frame
+cap above `StreamConnection::DEFAULT_MAX_FRAME_SIZE` — the negotiated value is
+only ever used to *lower* it. Pass `requestedFrameMax` explicitly to raise (or
+lower) the cap deliberately.
+
+### Outgoing frames over frame_max fail fast
+
+A frame larger than the negotiated `frame_max` is now rejected before
+anything is written to the socket, raising
+`CrazyGoat\RabbitStream\Exception\InvalidArgumentException` with the frame
+size and the limit in the message — the connection stays connected and
+usable. Previously the oversized frame was written, the broker closed the
+connection, and the failure surfaced later as an unrelated-looking "Cannot
+read: socket is not connected".
 
 ### Connection Handshake Flow
 
@@ -154,6 +187,16 @@ $connection = Connection::create(
     host: 'localhost',
     requestedFrameMax: 1048576,  // 1MB
     requestedHeartbeat: 30         // 30 seconds
+);
+```
+
+**Connection with a raised Deliver frame cap:**
+```php
+// Only needed if you expect broker-coalesced chunks bigger than the 64MB
+// default (see "Deliver frames need their own cap" above).
+$connection = Connection::create(
+    host: 'localhost',
+    maxDeliverFrameSize: 128 * 1024 * 1024,
 );
 ```
 
