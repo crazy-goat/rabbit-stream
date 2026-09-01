@@ -260,9 +260,10 @@ class MessageTest extends TestCase
         $afterConstruction = memory_get_usage();
         $constructionDelta = $afterConstruction - $before;
 
-        // The full un-decoded payload would be ~= $count * $bodySize (~4 MB); a
-        // zero-copy view must add far less than that just to construct the objects.
-        $this->assertLessThan($count * $bodySize / 4, $constructionDelta);
+        // A per-message payload copy would add >= $count * $bodySize (~4 MB); the
+        // objects themselves cost ~1 MB on PHP 8.1-8.3 (less on 8.4+), so half the
+        // payload size separates the two cases with room for allocator variance.
+        $this->assertLessThan($count * $bodySize / 2, $constructionDelta);
 
         // Sanity: decoding still works correctly afterwards.
         $this->assertSame($body, $messages[0]->getBody());
