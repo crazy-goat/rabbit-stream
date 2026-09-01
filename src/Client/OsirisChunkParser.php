@@ -68,6 +68,13 @@ class OsirisChunkParser
      *                                amplification chunk can hold
      *                                (see issue #399); pass a larger value only if a
      *                                known workload requires it.
+     * @param int $offset Absolute offset of the chunk within $chunkBytes. Defaults to 0
+     *                     (the whole string is the chunk), so existing callers passing a
+     *                     plain chunk string are unaffected. Pass a nonzero offset (with
+     *                     $length) to parse a chunk that lives inside a larger buffer
+     *                     (e.g. a whole Deliver frame) without copying it out first.
+     * @param ?int $length Chunk length; defaults to everything from $offset to the end
+     *                     of $chunkBytes.
      * @return ChunkEntry[]
      * @throws DeserializationException If the chunk violates the declared sizes, declares
      *                                  implausible record counts, or exceeds the entry ceiling
@@ -75,13 +82,91 @@ class OsirisChunkParser
      */
     public static function parse(
         string $chunkBytes,
-        int $maxEntriesPerChunk = self::DEFAULT_MAX_ENTRIES_PER_CHUNK
+        int $maxEntriesPerChunk = self::DEFAULT_MAX_ENTRIES_PER_CHUNK,
+        int $offset = 0,
+        ?int $length = null
     ): array {
+        return iterator_to_array(self::parseEntries($chunkBytes, $maxEntriesPerChunk, $offset, $length), false);
+    }
+
+    /**
+     * Same wire-format parsing as parse(), but yields ChunkEntry instances one at a
+     * time instead of materialising the whole entry list, so a caller that only
+     * needs the first few entries (or wants to wrap each one lazily, e.g. into a
+     * lazily-decoded Message) never allocates the rest.
+     *
+     * @param int $maxEntriesPerChunk See parse().
+     * @param int $offset See parse().
+     * @param ?int $length See parse().
+     * @return \Generator<int, ChunkEntry>
+     * @throws DeserializationException See parse().
+     * @throws InvalidArgumentException See parse().
+     */
+    public static function parseEntries(
+        string $chunkBytes,
+        int $maxEntriesPerChunk = self::DEFAULT_MAX_ENTRIES_PER_CHUNK,
+        int $offset = 0,
+        ?int $length = null
+    ): \Generator {
+        $entries = self::parseRaw($chunkBytes, $maxEntriesPerChunk, $offset, $length);
+        foreach ($entries as [$entryOffset, $data, $timestamp]) {
+            yield new ChunkEntry($entryOffset, $data, $timestamp);
+        }
+    }
+
+    /**
+     * Same wire-format parsing as parse(), but yields fully-formed Message
+     * instances directly — one per chunk entry — without ever allocating an
+     * intermediate ChunkEntry. This is the hot path for Consumer's deliver
+     * callback: for every entry it saves one ChunkEntry object plus the extra
+     * indirection of AmqpMessageDecoder::decode() per message.
+     *
+     * @param int $maxEntriesPerChunk See parse().
+     * @param int $offset See parse().
+     * @param ?int $length See parse().
+     * @return \Generator<int, Message>
+     * @throws DeserializationException See parse().
+     * @throws InvalidArgumentException See parse().
+     */
+    public static function parseMessages(
+        string $chunkBytes,
+        int $maxEntriesPerChunk = self::DEFAULT_MAX_ENTRIES_PER_CHUNK,
+        int $offset = 0,
+        ?int $length = null
+    ): \Generator {
+        $entries = self::parseRaw($chunkBytes, $maxEntriesPerChunk, $offset, $length);
+        foreach ($entries as [$entryOffset, $data, $timestamp]) {
+            yield Message::fromRawEntry($entryOffset, $timestamp, $data);
+        }
+    }
+
+    /**
+     * Shared parsing core behind parseEntries() and parseMessages(): does all
+     * chunk-header and entry validation and yields raw [offset, data, timestamp]
+     * tuples, so neither caller duplicates the wire-format logic. The entry loop
+     * operates directly on the data-section string with a local integer cursor
+     * (unpack()/ord() with explicit bounds checks) rather than going through
+     * ReadBuffer's per-call overhead, since this loop runs once per message.
+     *
+     * @param int $maxEntriesPerChunk See parse().
+     * @param int $offset See parse().
+     * @param ?int $length See parse().
+     * @return \Generator<int, array{0: int, 1: string, 2: int}>
+     * @throws DeserializationException See parse().
+     * @throws InvalidArgumentException See parse().
+     */
+    private static function parseRaw(
+        string $chunkBytes,
+        int $maxEntriesPerChunk,
+        int $offset = 0,
+        ?int $length = null
+    ): \Generator {
         if ($maxEntriesPerChunk < 1) {
             throw new InvalidArgumentException('maxEntriesPerChunk must be at least 1');
         }
 
-        $buffer = new ReadBuffer($chunkBytes);
+        $buffer = new ReadBuffer($chunkBytes, $offset, $length);
+        $windowLength = $length ?? (strlen($chunkBytes) - $offset);
 
         $magicVersion = $buffer->getUint8();
         $magic = ($magicVersion >> 4) & 0x0F;
@@ -115,7 +200,9 @@ class OsirisChunkParser
         $buffer->getUint8();                      // bloomSize — informational only (see class docblock)
         $buffer->readBytes(3);                    // reserved
 
-        $headerSize = $buffer->getPosition();
+        // getPosition() is window-relative; the data section is addressed with
+        // absolute offsets into $chunkBytes below, so convert once here.
+        $headerSize = $offset + $buffer->getPosition();
 
         // A chunk that declares more records than the client will ever accept is
         // rejected up front, before any entry is allocated.
@@ -127,27 +214,30 @@ class OsirisChunkParser
             ));
         }
 
-        // The declared data section must fit inside the received chunk. The
+        // The declared data section must fit inside the received chunk window. The
         // trailerLength and bloomSize fields are deliberately NOT part of this
         // check: Deliver frames omit the bloom and trailer bytes for user-data
         // chunks while the header still declares their on-disk sizes, so those
         // fields can be nonzero with no bytes behind them (see class docblock).
-        $chunkSize = strlen($chunkBytes);
-        if ($headerSize + $dataLength > $chunkSize) {
+        $chunkEnd = $offset + $windowLength;
+        if ($headerSize + $dataLength > $chunkEnd) {
             throw new DeserializationException(sprintf(
                 'Chunk size mismatch: header (%d) + dataLength (%d) = %d exceeds the %d received bytes',
-                $headerSize,
+                $headerSize - $offset,
                 $dataLength,
-                $headerSize + $dataLength,
-                $chunkSize
+                $headerSize + $dataLength - $offset,
+                $windowLength
             ));
         }
 
         // Bound entry parsing to exactly the declared data section, so entries
-        // can never spill into the trailer or past the received bytes.
-        $buffer = new ReadBuffer(substr($chunkBytes, $headerSize, $dataLength));
+        // can never spill into the trailer or past the received bytes. Read
+        // directly out of $chunkBytes with an absolute cursor (unpack()/ord(),
+        // no substr() copy of the data section) instead of a ReadBuffer, since
+        // this loop runs once per message rather than once per chunk (#484).
+        $dataEnd = $headerSize + $dataLength;
+        $pos = $headerSize;
 
-        $entries = [];
         $entryCount = 0;
         $currentOffset = $chunkFirstOffset;
 
@@ -156,13 +246,15 @@ class OsirisChunkParser
                 throw self::entryLimitExceeded($maxEntriesPerChunk);
             }
 
-            $entryType = $buffer->getUint8();
+            $entryType = self::readUint8At($chunkBytes, $dataEnd, $pos);
             $isSubBatch = ($entryType & 0x80) !== 0;
 
             if (!$isSubBatch) {
-                $entrySize = (($entryType & 0x7F) << 24) | ($buffer->getUint16() << 8) | $buffer->getUint8();
-                $entryData = $buffer->readBytes($entrySize);
-                $entries[] = new ChunkEntry($currentOffset, $entryData, $timestamp);
+                $entrySize = (($entryType & 0x7F) << 24)
+                    | (self::readUint16At($chunkBytes, $dataEnd, $pos) << 8)
+                    | self::readUint8At($chunkBytes, $dataEnd, $pos);
+                $entryData = self::readBytesAt($chunkBytes, $dataEnd, $pos, $entrySize);
+                yield [$currentOffset, $entryData, $timestamp];
                 $entryCount++;
                 $currentOffset++;
             } else {
@@ -175,8 +267,8 @@ class OsirisChunkParser
                     ));
                 }
 
-                $subBatchRecords = $buffer->getUint16();
-                $uncompressedSize = $buffer->getUint32();
+                $subBatchRecords = self::readUint16At($chunkBytes, $dataEnd, $pos);
+                $uncompressedSize = self::readUint32At($chunkBytes, $dataEnd, $pos);
 
                 // Each record costs at least 4 bytes both in the bytes actually
                 // present and in the declared uncompressed size (a uint32 size
@@ -184,7 +276,7 @@ class OsirisChunkParser
                 // (rabbit_stream_utils.erl check_message_count_fits_uncompressed_size)
                 // but NOT that uncompressedSize equals the on-wire body size
                 // (compressedSize), so equality is deliberately not required.
-                $compressedSize = $buffer->getUint32();
+                $compressedSize = self::readUint32At($chunkBytes, $dataEnd, $pos);
 
                 if ($subBatchRecords * 4 > $compressedSize) {
                     throw new DeserializationException(sprintf(
@@ -203,23 +295,118 @@ class OsirisChunkParser
                     ));
                 }
 
-                $subBatchData = $buffer->readBytes($compressedSize);
+                // The sub-batch payload IS message data (it holds the inner records
+                // read below), so this copy stays — unlike the outer data-section
+                // substr() removed above, it is proportional to real message bytes.
+                $subBatchData = self::readBytesAt($chunkBytes, $dataEnd, $pos, $compressedSize);
 
-                $subBuffer = new ReadBuffer($subBatchData);
+                $subLen = $compressedSize;
+                $subPos = 0;
                 for ($j = 0; $j < $subBatchRecords; $j++) {
                     if ($entryCount >= $maxEntriesPerChunk) {
                         throw self::entryLimitExceeded($maxEntriesPerChunk);
                     }
-                    $innerSize = $subBuffer->getUint32();
-                    $innerData = $subBuffer->readBytes($innerSize);
-                    $entries[] = new ChunkEntry($currentOffset, $innerData, $timestamp);
+                    $innerSize = self::readUint32At($subBatchData, $subLen, $subPos);
+                    $innerData = self::readBytesAt($subBatchData, $subLen, $subPos, $innerSize);
+                    yield [$currentOffset, $innerData, $timestamp];
                     $entryCount++;
                     $currentOffset++;
                 }
             }
         }
+    }
 
-        return $entries;
+    /**
+     * Read a uint8 at $pos in $data (of known length $len), matching
+     * ReadBuffer::getUint8()'s bounds-check exception exactly, and advance $pos.
+     */
+    private static function readUint8At(string $data, int $len, int &$pos): int
+    {
+        $available = $len - $pos;
+        if ($available < 1) {
+            throw new DeserializationException(sprintf(
+                'Buffer underflow: need %d bytes at position %d, but only %d available',
+                1,
+                $pos,
+                $available
+            ));
+        }
+        $value = ord($data[$pos]);
+        $pos++;
+        return $value;
+    }
+
+    /**
+     * Read a big-endian uint16 at $pos in $data (of known length $len), matching
+     * ReadBuffer::getUint16()'s bounds-check exception exactly, and advance $pos.
+     */
+    private static function readUint16At(string $data, int $len, int &$pos): int
+    {
+        $available = $len - $pos;
+        if ($available < 2) {
+            throw new DeserializationException(sprintf(
+                'Buffer underflow: need %d bytes at position %d, but only %d available',
+                2,
+                $pos,
+                $available
+            ));
+        }
+        $unpacked = unpack('n', $data, $pos);
+        if ($unpacked === false) {
+            throw new DeserializationException('Failed to unpack uint16 at position ' . $pos);
+        }
+        $pos += 2;
+        return $unpacked[1];
+    }
+
+    /**
+     * Read a big-endian uint32 at $pos in $data (of known length $len), matching
+     * ReadBuffer::getUint32()'s bounds-check exception exactly, and advance $pos.
+     */
+    private static function readUint32At(string $data, int $len, int &$pos): int
+    {
+        $available = $len - $pos;
+        if ($available < 4) {
+            throw new DeserializationException(sprintf(
+                'Buffer underflow: need %d bytes at position %d, but only %d available',
+                4,
+                $pos,
+                $available
+            ));
+        }
+        $unpacked = unpack('N', $data, $pos);
+        if ($unpacked === false) {
+            throw new DeserializationException('Failed to unpack uint32 at position ' . $pos);
+        }
+        $pos += 4;
+        return $unpacked[1];
+    }
+
+    /**
+     * Read $length bytes at $pos in $data (of known length $len), matching
+     * ReadBuffer::readBytes()'s exceptions exactly, and advance $pos.
+     */
+    private static function readBytesAt(string $data, int $len, int &$pos, int $length): string
+    {
+        if ($length < 0) {
+            throw new DeserializationException(
+                sprintf('Invalid read length %d at position %d', $length, $pos)
+            );
+        }
+        $available = $len - $pos;
+        if ($length > $available) {
+            throw new DeserializationException(
+                sprintf(
+                    'Buffer underflow: need %d bytes at position %d, but only %d available',
+                    $length,
+                    $pos,
+                    $available
+                )
+            );
+        }
+        $result = substr($data, $pos, $length);
+        $pos += $length;
+        return $result;
     }
 
     private static function entryLimitExceeded(int $maxEntriesPerChunk): DeserializationException

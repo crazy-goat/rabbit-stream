@@ -224,6 +224,37 @@ class ReadBufferTest extends TestCase
         $buf->peekUint16();
     }
 
+    public function testSkipWithNegativeCountThrows(): void
+    {
+        // Regression guard for #447: a negative count previously slipped past
+        // ensureAvailable()'s bounds check (never > the available byte count)
+        // and silently moved position backwards instead of failing loudly.
+        $buf = new ReadBuffer('abcdef');
+        try {
+            $buf->skip(-1);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid skip length -1', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+        $this->assertSame(0, $buf->getPosition(), 'position must not move on a rejected negative skip');
+    }
+
+    public function testReadBytesWithNegativeLengthThrows(): void
+    {
+        // Regression guard for #447 (see testSkipWithNegativeCountThrows).
+        $buf = new ReadBuffer('abcdef');
+        $buf->skip(2);
+        try {
+            $buf->readBytes(-3);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid read length -3', $e->getMessage());
+            $this->assertStringContainsString('position 2', $e->getMessage());
+        }
+        $this->assertSame(2, $buf->getPosition(), 'position must not move on a rejected negative readBytes');
+    }
+
     public function testSequentialReadsThrowOnUnderflow(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -455,5 +486,219 @@ class ReadBufferTest extends TestCase
         } catch (DeserializationException $e) {
             $this->assertStringContainsString('Invalid object array count 1000', $e->getMessage());
         }
+    }
+
+    // --- Window (offset/length) tests -------------------------------------------------
+
+    public function testWindowReadsAreRelativeToOffset(): void
+    {
+        $backing = 'PREFIX *SUFFIX';
+        $buf = new ReadBuffer($backing, offset: 6, length: 2);
+
+        $this->assertSame(0x2A, $buf->getUint16());
+        $this->assertSame(2, $buf->getPosition());
+    }
+
+    public function testWindowDefaultLengthIsToEndOfBuffer(): void
+    {
+        $backing = 'PREFIXhello';
+        $buf = new ReadBuffer($backing, offset: 6);
+
+        $this->assertSame('hello', $buf->getRemainingBytes());
+    }
+
+    public function testWindowGetStringRespectsBounds(): void
+    {
+        $backing = 'XX fooYY';
+        $buf = new ReadBuffer($backing, offset: 2, length: 5);
+
+        $this->assertSame('foo', $buf->getString());
+        $this->assertSame(5, $buf->getPosition());
+    }
+
+    public function testWindowGetBytesRespectsBounds(): void
+    {
+        $backing = 'XX' . pack('N', 3) . 'abc' . 'YY';
+        $buf = new ReadBuffer($backing, offset: 2, length: 7);
+
+        $this->assertSame('abc', $buf->getBytes());
+    }
+
+    public function testWindowReadPastEndThrows(): void
+    {
+        $backing = "\x00\x01\x02\x03\x04\x05";
+        $buf = new ReadBuffer($backing, offset: 1, length: 2);
+
+        $buf->readBytes(2);
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Buffer underflow: need 1 bytes at position 2, but only 0 available');
+        $buf->getUint8();
+    }
+
+    public function testWindowCannotReadBeyondItsLengthEvenIfBackingStringHasMoreData(): void
+    {
+        $backing = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09";
+        $buf = new ReadBuffer($backing, offset: 0, length: 3);
+
+        $buf->readBytes(3);
+        $this->expectException(DeserializationException::class);
+        $buf->getUint8();
+    }
+
+    public function testWindowCannotReadBeforeItsOffset(): void
+    {
+        $backing = "\x00\x01\x02\x03\x04\x05";
+        $buf = new ReadBuffer($backing, offset: 3, length: 3);
+
+        // Position 0 of the window is absolute offset 3; getUint8() must return
+        // byte 3 (0x03), never byte 0 of the backing string.
+        $this->assertSame(0x03, $buf->getUint8());
+    }
+
+    public function testWindowRewindReturnsToWindowStartNotBackingStart(): void
+    {
+        $backing = "\xFF\xFF" . "\x00\x2A";
+        $buf = new ReadBuffer($backing, offset: 2, length: 2);
+
+        $buf->getUint16();
+        $buf->rewind();
+
+        $this->assertSame(0, $buf->getPosition());
+        $this->assertSame(0x2A, $buf->getUint16());
+    }
+
+    public function testWindowSkipRespectsBounds(): void
+    {
+        $backing = "\x00\x01\x02\x03\x04\x05";
+        $buf = new ReadBuffer($backing, offset: 1, length: 3);
+
+        $buf->skip(3);
+        $this->expectException(DeserializationException::class);
+        $buf->skip(1);
+    }
+
+    public function testWindowPeekUint16DoesNotAdvancePosition(): void
+    {
+        $backing = 'X4Y';
+        $buf = new ReadBuffer($backing, offset: 1, length: 2);
+
+        $this->assertSame(0x1234, $buf->peekUint16());
+        $this->assertSame(0, $buf->getPosition());
+        $this->assertSame(0x1234, $buf->getUint16());
+    }
+
+    public function testWindowGetRemainingBytesCopiesOnlyTheWindow(): void
+    {
+        $backing = 'PREFIXMIDDLESUFFIX';
+        $buf = new ReadBuffer($backing, offset: 6, length: 6);
+
+        $this->assertSame('MIDDLE', $buf->getRemainingBytes());
+    }
+
+    public function testWindowGetRemainingWindowIsZeroCopyAndScopedToTheWindow(): void
+    {
+        $backing = 'PREFIXMIDDLESUFFIX';
+        $buf = new ReadBuffer($backing, offset: 6, length: 6);
+
+        $buf->getUint8(); // advance position by 1 within the window
+        [$rawBuffer, $absOffset, $length] = $buf->getRemainingWindow();
+
+        $this->assertSame($backing, $rawBuffer);
+        $this->assertSame(7, $absOffset);
+        $this->assertSame(5, $length);
+        $this->assertSame(substr($backing, $absOffset, $length), 'IDDLE');
+    }
+
+    public function testGetRemainingWindowPastEndThrows(): void
+    {
+        $buf = new ReadBuffer("\x00\x01");
+        $buf->readBytes(2);
+
+        // position === windowLength is valid (empty remainder); force position
+        // past the end via skip() to exercise the underflow branch.
+        $reflection = new \ReflectionProperty($buf, 'position');
+        $reflection->setValue($buf, 5);
+
+        $this->expectException(DeserializationException::class);
+        $buf->getRemainingWindow();
+    }
+
+    public function testSliceCreatesIndependentWindowSharingTheBackingString(): void
+    {
+        $backing = "\x00\x01\x02\x03\x04\x05\x06\x07";
+        $buf = new ReadBuffer($backing);
+        $buf->skip(2); // position now at absolute offset 2
+
+        $slice = $buf->slice(1, 3); // absolute offset 3, length 3
+
+        // The parent buffer's position is untouched by slicing.
+        $this->assertSame(2, $buf->getPosition());
+
+        $this->assertSame(0x03, $slice->getUint8());
+        $this->assertSame(0x04, $slice->getUint8());
+        $this->assertSame(0x05, $slice->getUint8());
+        $this->expectException(DeserializationException::class);
+        $slice->getUint8();
+    }
+
+    public function testSliceDefaultLengthGoesToEndOfParentWindow(): void
+    {
+        $backing = "\x00\x01\x02\x03\x04\x05";
+        $buf = new ReadBuffer($backing, offset: 1, length: 4); // window: bytes 1..4
+
+        $buf->skip(1); // window position 1 (absolute offset 2)
+        $slice = $buf->slice(1); // absolute offset 3, default length to end of parent window (2 bytes left: 3,4)
+
+        $this->assertSame(0x03, $slice->getUint8());
+        $this->assertSame(0x04, $slice->getUint8());
+        $this->expectException(DeserializationException::class);
+        $slice->getUint8();
+    }
+
+    public function testNestedSlicesEachRespectTheirOwnBounds(): void
+    {
+        $backing = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09";
+        $outer = new ReadBuffer($backing, offset: 1, length: 8); // window: bytes 1..8
+
+        $middle = $outer->slice(1, 6); // absolute offset 2, length 6: bytes 2..7
+        $inner = $middle->slice(1, 4); // absolute offset 3, length 4: bytes 3..6
+
+        $this->assertSame(0x03, $inner->getUint8());
+        $this->assertSame(0x04, $inner->getUint8());
+        $this->assertSame(0x05, $inner->getUint8());
+        $this->assertSame(0x06, $inner->getUint8());
+        $this->expectException(DeserializationException::class);
+        $inner->getUint8();
+    }
+
+    public function testSliceWithNegativeOffsetThrows(): void
+    {
+        $buf = new ReadBuffer("\x00\x01\x02");
+        $this->expectException(DeserializationException::class);
+        $buf->slice(-1);
+    }
+
+    public function testSliceOffsetPastWindowEndThrows(): void
+    {
+        $buf = new ReadBuffer("\x00\x01\x02", offset: 0, length: 2);
+        $this->expectException(DeserializationException::class);
+        $buf->slice(3);
+    }
+
+    public function testSliceLengthExceedingAvailableThrows(): void
+    {
+        $buf = new ReadBuffer("\x00\x01\x02\x03", offset: 0, length: 3);
+        $this->expectException(DeserializationException::class);
+        $buf->slice(0, 10);
+    }
+
+    public function testSliceAtExactWindowEndProducesEmptySlice(): void
+    {
+        $buf = new ReadBuffer("\x00\x01\x02", offset: 0, length: 3);
+        $slice = $buf->slice(3);
+
+        $this->assertSame(0, $slice->getPosition());
+        $this->expectException(DeserializationException::class);
+        $slice->getUint8();
     }
 }

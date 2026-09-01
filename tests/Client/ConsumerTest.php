@@ -25,6 +25,35 @@ class ConsumerTest extends TestCase
         return $connection;
     }
 
+    /**
+     * Sets the internal buffer array AND the unreadCount it must be kept in sync
+     * with (see #408 — back-pressure accounting uses unreadCount, not the raw
+     * array size), simulating messages having arrived via the deliver callback.
+     *
+     * @param Message[] $messages
+     */
+    private function setBuffer(Consumer $consumer, array $messages): void
+    {
+        (new \ReflectionProperty($consumer, 'buffer'))->setValue($consumer, $messages);
+        (new \ReflectionProperty($consumer, 'unreadCount'))->setValue($consumer, count($messages));
+    }
+
+    private function setPendingCredits(Consumer $consumer, int $value): void
+    {
+        (new \ReflectionProperty($consumer, 'pendingCredits'))->setValue($consumer, $value);
+    }
+
+    private function setCreditsInFlight(Consumer $consumer, int $value): void
+    {
+        (new \ReflectionProperty($consumer, 'creditsInFlight'))->setValue($consumer, $value);
+    }
+
+    private function getPendingCredits(Consumer $consumer): int
+    {
+        $value = (new \ReflectionProperty($consumer, 'pendingCredits'))->getValue($consumer);
+        return is_int($value) ? $value : 0;
+    }
+
     public function testReadAcceptsFloatTimeout(): void
     {
         $connection = $this->createMock(StreamConnection::class);
@@ -260,15 +289,10 @@ class ConsumerTest extends TestCase
         $this->assertFalse($storeOffsetCalled, 'autoCommit=0 should not trigger storeOffset');
     }
 
-    public function testReadOneBuffersRemainingMessages(): void
+    public function testReadOneIsConstantTimeAndReleasesBufferWhenDrained(): void
     {
-        $registeredCallback = null;
         $connection = $this->createMock(StreamConnection::class);
-        $connection->expects($this->any())
-            ->method('registerSubscriber')
-            ->willReturnCallback(function (int $id, callable $cb) use (&$registeredCallback): void {
-                $registeredCallback = $cb;
-            });
+        $connection->expects($this->any())->method('registerSubscriber');
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
 
@@ -279,17 +303,28 @@ class ConsumerTest extends TestCase
         $msg2 = $this->createMock(Message::class);
         $msg2->method('getOffset')->willReturn(1);
 
+        $this->setBuffer($consumer, [$msg1, $msg2]);
+
         $bufferProp = new \ReflectionProperty($consumer, 'buffer');
-        $bufferProp->setValue($consumer, [$msg1, $msg2]);
+        $bufferHeadProp = new \ReflectionProperty($consumer, 'bufferHead');
+        $unreadCountProp = new \ReflectionProperty($consumer, 'unreadCount');
 
         $result = $consumer->readOne();
-
         $this->assertSame($msg1, $result);
 
-        $remaining = $bufferProp->getValue($consumer);
-        $this->assertIsArray($remaining);
-        $this->assertCount(1, $remaining);
-        $this->assertSame($msg2, $remaining[0]);
+        // Head cursor advances instead of the whole array being reindexed
+        // (array_shift-style); unreadCount — not the raw array size — reflects
+        // what is actually left to read.
+        $this->assertSame(1, $bufferHeadProp->getValue($consumer));
+        $this->assertSame(1, $unreadCountProp->getValue($consumer));
+
+        $result2 = $consumer->readOne();
+        $this->assertSame($msg2, $result2);
+
+        // Buffer fully drained: released back to an empty array, cursor reset.
+        $this->assertSame([], $bufferProp->getValue($consumer));
+        $this->assertSame(0, $bufferHeadProp->getValue($consumer));
+        $this->assertSame(0, $unreadCountProp->getValue($consumer));
     }
 
     public function testReadReturnsAllBufferedMessages(): void
@@ -302,8 +337,7 @@ class ConsumerTest extends TestCase
         $msg2 = $this->createMock(Message::class);
         $msg2->method('getOffset')->willReturn(1);
 
-        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
-        $bufferProp->setValue($consumer, [$msg1, $msg2]);
+        $this->setBuffer($consumer, [$msg1, $msg2]);
 
         $result = $consumer->read();
 
@@ -311,7 +345,33 @@ class ConsumerTest extends TestCase
         $this->assertSame($msg1, $result[0]);
         $this->assertSame($msg2, $result[1]);
 
+        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
+        $unreadCountProp = new \ReflectionProperty($consumer, 'unreadCount');
         $this->assertSame([], $bufferProp->getValue($consumer));
+        $this->assertSame(0, $unreadCountProp->getValue($consumer));
+    }
+
+    public function testReadAfterPartialReadOneReturnsOnlyUnreadMessages(): void
+    {
+        $connection = $this->makeConnection();
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+
+        $msg1 = $this->createMock(Message::class);
+        $msg1->method('getOffset')->willReturn(0);
+        $msg2 = $this->createMock(Message::class);
+        $msg2->method('getOffset')->willReturn(1);
+        $msg3 = $this->createMock(Message::class);
+        $msg3->method('getOffset')->willReturn(2);
+
+        $this->setBuffer($consumer, [$msg1, $msg2, $msg3]);
+
+        $first = $consumer->readOne();
+        $this->assertSame($msg1, $first);
+
+        // read() must return only msg2 and msg3 — the already-consumed msg1
+        // (whose slot was unset, not merely skipped) must not reappear.
+        $rest = $consumer->read();
+        $this->assertSame([$msg2, $msg3], $rest);
     }
 
     public function testMaxBufferSizeMustBeGreaterThanZero(): void
@@ -340,7 +400,78 @@ class ConsumerTest extends TestCase
         new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: -1);
     }
 
-    public function testCreditWithheldWhenBufferExceedsMaxBufferSize(): void
+    public function testDeliverCallbackNeverDropsMessagesEvenPastMaxBufferSize(): void
+    {
+        // #485: a whole chunk is always accepted into the buffer, even when it
+        // overshoots maxBufferSize — messages are never dropped.
+        $registeredCallback = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$registeredCallback): void {
+                $registeredCallback = $cb;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 2);
+        $this->assertIsCallable($registeredCallback);
+
+        // Build a minimal one-entry Osiris chunk carrying a single-byte AMQP body.
+        $chunkBytes = $this->buildOneEntryChunk('X');
+
+        // Deliver 3 chunks of 1 message each — well past maxBufferSize=2.
+        $deliver = new class ($chunkBytes) {
+            public function __construct(private readonly string $bytes)
+            {
+            }
+
+            public function getChunkBytes(): string
+            {
+                return $this->bytes;
+            }
+
+            /** @return array{0: string, 1: int, 2: int} */
+            public function getChunkView(): array
+            {
+                return [$this->bytes, 0, strlen($this->bytes)];
+            }
+        };
+
+        $registeredCallback($deliver);
+        $registeredCallback($deliver);
+        $registeredCallback($deliver);
+
+        $unreadCountProp = new \ReflectionProperty($consumer, 'unreadCount');
+        $this->assertSame(3, $unreadCountProp->getValue($consumer), 'All 3 chunks worth of messages must be kept');
+    }
+
+    /**
+     * Builds a minimal valid single-entry Osiris user-data chunk containing one
+     * simple entry with the given raw entry bytes.
+     */
+    private function buildOneEntryChunk(string $entryData): string
+    {
+        $dataSection = pack('N', strlen($entryData)) . $entryData;
+        $dataLength = strlen($dataSection);
+
+        $header = pack('C', 0x50); // magic=5, version=0
+        $header .= pack('C', 0x00); // chunkType: user data
+        $header .= pack('n', 1); // numEntries
+        $header .= pack('N', 1); // numRecords
+        $header .= pack('J', 1000); // timestamp
+        $header .= pack('J', 1); // epoch
+        $header .= pack('J', 0); // chunkFirstOffset
+        $header .= pack('N', 0); // chunkCrc
+        $header .= pack('N', $dataLength); // dataLength
+        $header .= pack('N', 0); // trailerLength
+        $header .= pack('C', 0); // bloomSize
+        $header .= "\x00\x00\x00"; // reserved
+
+        return $header . $dataSection;
+    }
+
+    public function testNoCreditGrantedWhileUnreadCountAtOrOverMaxBufferSize(): void
     {
         $creditRequests = [];
 
@@ -357,30 +488,23 @@ class ConsumerTest extends TestCase
 
         $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 2);
 
-        $msg1 = $this->createMock(Message::class);
-        $msg1->method('getOffset')->willReturn(0);
-        $msg2 = $this->createMock(Message::class);
-        $msg2->method('getOffset')->willReturn(1);
-
-        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-
-        $bufferProp->setValue($consumer, [$msg1]);
-        $creditRequests = [];
-
         $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
-        $sendPendingCredits->invoke($consumer);
+        $unreadCountProp = new \ReflectionProperty($consumer, 'unreadCount');
 
+        // Below the bound: gate is open, but pendingCredits is 0 so nothing to send.
+        $unreadCountProp->setValue($consumer, 1);
+        $creditRequests = [];
+        $sendPendingCredits->invoke($consumer);
         $this->assertCount(0, $creditRequests);
 
-        $bufferProp->setValue($consumer, [$msg1, $msg2]);
-        $pendingCreditsProp->setValue($consumer, 1);
+        // At/over the bound: gate closed regardless of pendingCredits.
+        $unreadCountProp->setValue($consumer, 2);
+        $this->setPendingCredits($consumer, 1);
         $creditRequests = [];
-
         $sendPendingCredits->invoke($consumer);
 
-        $this->assertCount(0, $creditRequests, 'Credits should be withheld when buffer at maxBufferSize');
-        $this->assertSame(1, $pendingCreditsProp->getValue($consumer));
+        $this->assertCount(0, $creditRequests, 'Credits should be withheld when unreadCount >= maxBufferSize');
+        $this->assertSame(1, $this->getPendingCredits($consumer), 'pendingCredits must remain owed, not lost');
     }
 
     public function testPendingCreditsSentAfterReadDrainsBuffer(): void
@@ -406,11 +530,12 @@ class ConsumerTest extends TestCase
         $msg2 = $this->createMock(Message::class);
         $msg2->method('getOffset')->willReturn(1);
 
-        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-
-        $bufferProp->setValue($consumer, [$msg1, $msg2]);
-        $pendingCreditsProp->setValue($consumer, 2);
+        $this->setBuffer($consumer, [$msg1, $msg2]);
+        // Simulate 2 chunks having been delivered without replenishing credit
+        // (creditsInFlight dropped by 2 from its initial value), leaving 2
+        // credit units owed.
+        $this->setCreditsInFlight($consumer, 8);
+        $this->setPendingCredits($consumer, 2);
 
         $consumer->read();
 
@@ -420,7 +545,7 @@ class ConsumerTest extends TestCase
             'Pending credits should be sent after read()'
         );
         $this->assertSame(2, $capturedRequest->toArray()['credit']);
-        $this->assertSame(0, $pendingCreditsProp->getValue($consumer));
+        $this->assertSame(0, $this->getPendingCredits($consumer));
     }
 
     public function testPendingCreditsSentAfterReadOneDrainsBuffer(): void
@@ -446,11 +571,9 @@ class ConsumerTest extends TestCase
         $msg2 = $this->createMock(Message::class);
         $msg2->method('getOffset')->willReturn(1);
 
-        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-
-        $bufferProp->setValue($consumer, [$msg1, $msg2]);
-        $pendingCreditsProp->setValue($consumer, 1);
+        $this->setBuffer($consumer, [$msg1, $msg2]);
+        $this->setCreditsInFlight($consumer, 9);
+        $this->setPendingCredits($consumer, 1);
 
         $consumer->readOne();
 
@@ -479,8 +602,7 @@ class ConsumerTest extends TestCase
 
         $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
 
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-        $pendingCreditsProp->setValue($consumer, 0);
+        $this->setPendingCredits($consumer, 0);
 
         $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
         $sendPendingCredits->invoke($consumer);
@@ -505,8 +627,7 @@ class ConsumerTest extends TestCase
 
         $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
 
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-        $pendingCreditsProp->setValue($consumer, -5);
+        $this->setPendingCredits($consumer, -5);
 
         $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
         $sendPendingCredits->invoke($consumer);
@@ -529,21 +650,32 @@ class ConsumerTest extends TestCase
             });
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
 
-        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 100000);
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            initialCredit: 1000000,
+            maxBufferSize: 100000,
+        );
 
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-        $pendingCreditsProp->setValue($consumer, 70000);
+        // No credit currently outstanding, so headroom (1,000,000) does not bind —
+        // only the protocol's own uint16 credit field width does.
+        $this->setCreditsInFlight($consumer, 0);
+        $this->setPendingCredits($consumer, 70000);
 
         $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
         $sendPendingCredits->invoke($consumer);
 
         $this->assertInstanceOf(CreditRequestV1::class, $capturedRequest);
         $this->assertSame(65535, $capturedRequest->toArray()['credit'], 'Credits should be capped at MAX_UINT16');
-        $this->assertSame(70000 - 65535, $pendingCreditsProp->getValue($consumer));
+        $this->assertSame(70000 - 65535, $this->getPendingCredits($consumer));
     }
 
-    public function testCreditsCappedAtAvailableSlots(): void
+    public function testCreditsCappedAtInitialCreditHeadroom(): void
     {
+        // #473: outstanding (in-flight) credit must never exceed initialCredit,
+        // regardless of how many credit units are owed or how big the buffer is.
         $capturedRequest = null;
 
         $connection = $this->createMock(StreamConnection::class);
@@ -557,16 +689,18 @@ class ConsumerTest extends TestCase
             });
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
 
-        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 100);
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            initialCredit: 100,
+            maxBufferSize: 100000,
+        );
 
-        $msg1 = $this->createMock(Message::class);
-        $msg1->method('getOffset')->willReturn(0);
-
-        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
-        $bufferProp->setValue($consumer, [$msg1]);
-
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-        $pendingCreditsProp->setValue($consumer, 200);
+        // 1 credit unit already outstanding — headroom is 99.
+        $this->setCreditsInFlight($consumer, 1);
+        $this->setPendingCredits($consumer, 200);
 
         $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
         $sendPendingCredits->invoke($consumer);
@@ -575,9 +709,9 @@ class ConsumerTest extends TestCase
         $this->assertSame(
             99,
             $capturedRequest->toArray()['credit'],
-            'Credits should be capped at availableSlots (maxBufferSize - count(buffer))'
+            'Credits should be capped at initialCredit - creditsInFlight'
         );
-        $this->assertSame(200 - 99, $pendingCreditsProp->getValue($consumer));
+        $this->assertSame(200 - 99, $this->getPendingCredits($consumer));
     }
 
     public function testPendingCreditsDecrementedCorrectlyAfterSend(): void
@@ -595,20 +729,27 @@ class ConsumerTest extends TestCase
             });
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
 
-        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 100);
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            initialCredit: 50,
+            maxBufferSize: 100,
+        );
 
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-        $pendingCreditsProp->setValue($consumer, 50);
+        $this->setCreditsInFlight($consumer, 0);
+        $this->setPendingCredits($consumer, 50);
 
         $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
         $sendPendingCredits->invoke($consumer);
 
         $this->assertCount(1, $capturedRequests);
         $this->assertSame(50, $capturedRequests[0]->toArray()['credit']);
-        $this->assertSame(0, $pendingCreditsProp->getValue($consumer), 'pendingCredits should be decremented to 0');
+        $this->assertSame(0, $this->getPendingCredits($consumer), 'pendingCredits should be decremented to 0');
     }
 
-    public function testPendingCreditsAccumulateWhenBufferIsFull(): void
+    public function testPendingCreditsRemainOwedWhileBufferFullThenSentOnceItDrains(): void
     {
         $creditRequests = [];
 
@@ -623,37 +764,35 @@ class ConsumerTest extends TestCase
             });
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
 
-        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: 5);
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            initialCredit: 10,
+            maxBufferSize: 5,
+        );
 
-        $msg1 = $this->createMock(Message::class);
-        $msg1->method('getOffset')->willReturn(0);
-        $msg2 = $this->createMock(Message::class);
-        $msg2->method('getOffset')->willReturn(1);
-        $msg3 = $this->createMock(Message::class);
-        $msg3->method('getOffset')->willReturn(2);
-        $msg4 = $this->createMock(Message::class);
-        $msg4->method('getOffset')->willReturn(3);
-        $msg5 = $this->createMock(Message::class);
-        $msg5->method('getOffset')->willReturn(4);
+        $unreadCountProp = new \ReflectionProperty($consumer, 'unreadCount');
 
-        $bufferProp = new \ReflectionProperty($consumer, 'buffer');
-        $pendingCreditsProp = new \ReflectionProperty($consumer, 'pendingCredits');
-
-        $bufferProp->setValue($consumer, [$msg1, $msg2, $msg3, $msg4, $msg5]);
-        $pendingCreditsProp->setValue($consumer, 3);
+        // Buffer full (unreadCount == maxBufferSize): 3 credit units owed, none sent.
+        $unreadCountProp->setValue($consumer, 5);
+        $this->setCreditsInFlight($consumer, 7);
+        $this->setPendingCredits($consumer, 3);
 
         $sendPendingCredits = new \ReflectionMethod($consumer, 'sendPendingCredits');
         $sendPendingCredits->invoke($consumer);
 
-        $this->assertCount(0, $creditRequests, 'No credits should be sent when buffer is full');
+        $this->assertCount(0, $creditRequests, 'No credits should be sent while the buffer is full');
+        $this->assertSame(3, $this->getPendingCredits($consumer), 'pendingCredits should remain unchanged');
 
-        $this->assertSame(3, $pendingCreditsProp->getValue($consumer), 'pendingCredits should remain unchanged');
-
-        $bufferProp->setValue($consumer, [$msg1, $msg2, $msg3]);
+        // Buffer drains below the bound: owed credits are now granted, bounded
+        // by the initialCredit headroom (10 - 7 = 3).
+        $unreadCountProp->setValue($consumer, 2);
         $sendPendingCredits->invoke($consumer);
 
         $this->assertCount(1, $creditRequests);
-        $this->assertSame(2, $creditRequests[0]->toArray()['credit']);
-        $this->assertSame(1, $pendingCreditsProp->getValue($consumer), 'pendingCredits decremented by available slots');
+        $this->assertSame(3, $creditRequests[0]->toArray()['credit']);
+        $this->assertSame(0, $this->getPendingCredits($consumer));
     }
 }

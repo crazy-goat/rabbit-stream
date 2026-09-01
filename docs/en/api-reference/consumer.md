@@ -49,7 +49,8 @@ $consumer = $connection->createConsumer(
     OffsetSpec $offset,               // Required: Starting offset specification
     ?string $name = null,             // Optional: Consumer name for offset tracking
     int $autoCommit = 0,             // Optional: Auto-commit interval (messages)
-    int $initialCredit = 10,          // Optional: Initial flow control credits
+    int $initialCredit = 10,          // Optional: Initial flow control credits (chunk-granular)
+    int $maxBufferSize = 1000,        // Optional: Target buffer bound (message-granular)
 ): Consumer
 ```
 
@@ -61,7 +62,8 @@ $consumer = $connection->createConsumer(
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification. Use `OffsetSpec::first()`, `OffsetSpec::last()`, `OffsetSpec::offset()`, etc. |
 | `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`. |
 | `$autoCommit` | `int` | No | Number of messages between automatic offset commits. `0` disables auto-commit. |
-| `$initialCredit` | `int` | No | Initial number of flow control credits. Higher values increase throughput but use more memory. |
+| `$initialCredit` | `int` | No | Initial number of flow control credits. **Chunk-granular**: 1 credit = 1 future chunk delivery, and outstanding (in-flight) credit is capped at this value — the server can never have more than `initialCredit` chunks in flight at once. Higher values increase throughput but allow more chunks (and therefore memory) in flight. |
+| `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — a chunk in flight when the buffer is already full is still accepted in full (messages are never dropped), so the buffer can transiently exceed this by up to one chunk's worth of messages. |
 
 ### OffsetSpec Factory Methods
 
@@ -523,31 +525,51 @@ try {
 
 ## Flow Control
 
+### Chunk vs. message semantics
+
+This is the part of flow control that is easy to get wrong, so it's worth
+stating precisely:
+
+- The server always delivers whole **chunks** (one Deliver frame = one chunk,
+  atomic on the wire) — anywhere from 1 to thousands of messages each.
+- The server's credit system is **chunk-granular**: 1 credit grants exactly 1
+  future chunk delivery, regardless of how many messages that chunk turns out
+  to contain.
+- `maxBufferSize` is a **message** bound: the target ceiling on unread
+  messages held in the client-side buffer.
+
+Because a delivered chunk is never split or dropped (at-least-once delivery —
+no message is ever discarded once it arrives), the buffer can transiently hold
+more than `maxBufferSize` messages, by at most one chunk's worth, right after a
+chunk lands. What `maxBufferSize` actually controls is credit: once the unread
+count reaches or exceeds it, no further credit is granted, so the server stops
+delivering new chunks until the buffer drains back below the limit.
+
 ### Credit Mechanism
 
 RabbitMQ Streams uses a credit-based flow control system:
 
-1. **Initial Credit** - Specified when creating the consumer (`initialCredit` parameter)
-2. **Credits Consumed** - Each delivered message consumes one credit
-3. **Credits Replenished** - The client automatically sends more credits as messages are processed
-4. **Backpressure** - When the buffer reaches `maxBufferSize`, credits are held back
+1. **Initial Credit** - Specified when creating the consumer (`initialCredit` parameter); this is also the hard cap on outstanding (in-flight, i.e. sent-but-not-yet-consumed) credit — the server can never have more than `initialCredit` chunks in flight at once
+2. **Credits Consumed** - Each delivered chunk consumes one credit, no matter how many messages it contains
+3. **Credits Replenished** - The client automatically sends more credit as the buffer drains, one credit per chunk's worth of headroom that reopens
+4. **Backpressure** - While the unread count is at or over `maxBufferSize`, no new credit is granted at all; credit withheld this way is remembered and granted once the buffer drains
 
 ### Buffer Management
 
 The consumer maintains an internal buffer of messages:
 
-- **Default Size**: 1000 messages (`maxBufferSize`)
+- **Default Size**: 1000 messages (`maxBufferSize`) — a target, not a hard cap (see above)
 - **Automatic Replenishment**: Credits are sent as the buffer drains
-- **Pending Credits**: Credits are accumulated when the buffer is full and sent when space is available
+- **Pending Credits**: Credit units withheld while the buffer was full are remembered and sent once space is available, bounded by the `initialCredit` cap on outstanding credit
 
 ### Backpressure Handling
 
 When the consumer cannot keep up with the message rate:
 
-1. The internal buffer fills up
-2. New credits are not sent to the server
-3. The server stops sending messages
-4. As the buffer drains, credits are replenished
+1. The internal buffer's unread count reaches `maxBufferSize`
+2. No new credit is granted to the server (a chunk already in flight may still land — it is never dropped)
+3. Once un-replenished, the server eventually runs out of credit and stops sending new chunks
+4. As the buffer drains via `read()`/`readOne()`, withheld credit is granted back, up to the `initialCredit` cap on outstanding credit
 
 ```php
 // High-throughput consumer with large buffer
