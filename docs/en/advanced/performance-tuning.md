@@ -387,9 +387,49 @@ Measured on the `bench-batch` stream (200k × 1 KB messages, chunks up to
 | `OsirisChunkParser::parse()` on a ~2.12 MB chunk | ~0.95 ms | ~0.67 ms |
 
 Per-message payload `substr()` inside `OsirisChunkParser` (extracting each
-entry's own bytes, and a sub-batch's inner-record bytes) is unchanged — those
-copies are proportional to real message data and are the `Message`'s own
-payload, not chunk-wide churn.
+entry's own bytes, and a sub-batch's inner-record bytes) used to still copy
+proportional to real message data — see the next section for how that copy
+was eliminated too.
+
+### Zero-Copy Messages (No Per-Message Payload Copy)
+
+Even with the chunk-wide copies above eliminated, `OsirisChunkParser::parseMessages()`
+still `substr()`-ed each entry's own bytes out of the chunk before handing them
+to `Message::fromRawEntry()` — so a chunk of N lazily-decoded messages cost one
+chunk buffer *plus* N payload copies.
+
+`Message` gained a second lazy constructor, `Message::fromChunkView(int $offset,
+int $timestamp, string $chunk, int $start, int $length)`, which stores the
+chunk string, start and length instead of copying a substring out of it. PHP
+strings are refcounted, so passing `$chunk` here just bumps a refcount — every
+`Message` built from one chunk shares that single buffer. Decoding (still
+lazy, on the first accessor call) reads the fast-path prefix and length field
+directly out of the chunk at the entry's absolute offset, and does exactly one
+`substr()` to extract the body; the generic fallback `substr()`s only the
+entry's own range before calling `AmqpDecoder::decodeMessage()`. `Message::fromRawEntry()`
+is unchanged and still available for a caller holding a standalone byte
+string.
+
+`OsirisChunkParser::parseMessages()` now yields `fromChunkView()` views for
+both plain entries and sub-batch inner records — sub-batch inner entries are
+views into the *outer* chunk string too, no longer copied into an
+intermediate sub-batch buffer first. `parseEntries()`/`parse()`
+(`ChunkEntry`-based) are unchanged, since `ChunkEntry` needs a real byte
+string.
+
+Measured on the `bench-batch` stream (200k × 1 KB messages, chunks up to
+~6356 messages, `initialCredit=5000`):
+
+| Metric | Before | After |
+|--------|--------|-------|
+| `Consumer::read()` peak memory | 31 MB | 27 MB |
+| `Consumer::readOne()` peak memory | 25 MB | 17 MB |
+
+Throughput (msg/s) is essentially unchanged — this is a memory win, not a CPU
+one. `readOne()` benefits more than `read()` because it never holds more than
+one decoded `Message` alive at a time, so its peak is dominated by how many
+*undecoded* chunk-view `Message`s plus chunk buffers are alive at once, which
+the zero-copy view reduces the most.
 
 ## Timeout Tuning
 

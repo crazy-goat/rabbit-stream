@@ -101,6 +101,176 @@ class MessageTest extends TestCase
         $this->assertSame('', $msg->getBody());
     }
 
+    public function testFromChunkViewDoesNotDecodeUntilAccessorIsCalled(): void
+    {
+        // Same invalid-bytes probe as testFromRawEntryDoesNotDecodeUntilAccessorIsCalled(),
+        // but through the chunk-view constructor: the surrounding chunk has padding on
+        // both sides so a bug that reads outside [start, start+length) would trip either
+        // the fast-path prefix check or the generic decoder differently than intended.
+        $chunk = "PADDING\xFF\xFF\xFFPADDING";
+        $msg = Message::fromChunkView(offset: 1, timestamp: 1000, chunk: $chunk, start: 7, length: 3);
+
+        $this->assertSame(1, $msg->getOffset());
+        $this->assertSame(1000, $msg->getTimestamp());
+
+        $this->expectException(DeserializationException::class);
+        $msg->getBody();
+    }
+
+    public function testFromChunkViewGetterAccessorsAllTriggerDecode(): void
+    {
+        $chunk = "\xFF\xFF\xFF";
+        $msg = Message::fromChunkView(offset: 1, timestamp: 1000, chunk: $chunk, start: 0, length: 3);
+        $this->expectException(DeserializationException::class);
+        $msg->getProperties();
+    }
+
+    /**
+     * @dataProvider chunkViewOffsetProvider
+     */
+    public function testFromChunkViewMatchesFromRawEntryForVbin32(int $padStart, int $padEnd): void
+    {
+        $body = str_repeat('x', 1024);
+        $rawData = "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
+        $chunk = str_repeat('P', $padStart) . $rawData . str_repeat('P', $padEnd);
+
+        $viaRawEntry = Message::fromRawEntry(offset: 5, timestamp: 2000, rawData: $rawData);
+        $viaChunkView = Message::fromChunkView(
+            offset: 5,
+            timestamp: 2000,
+            chunk: $chunk,
+            start: $padStart,
+            length: strlen($rawData),
+        );
+
+        $this->assertSame(5, $viaChunkView->getOffset());
+        $this->assertSame(2000, $viaChunkView->getTimestamp());
+        $this->assertSame($viaRawEntry->getBody(), $viaChunkView->getBody());
+        $this->assertSame($body, $viaChunkView->getBody());
+        $this->assertSame($viaRawEntry->getProperties(), $viaChunkView->getProperties());
+        $this->assertSame($viaRawEntry->getApplicationProperties(), $viaChunkView->getApplicationProperties());
+        $this->assertSame($viaRawEntry->getMessageAnnotations(), $viaChunkView->getMessageAnnotations());
+    }
+
+    /**
+     * @dataProvider chunkViewOffsetProvider
+     */
+    public function testFromChunkViewMatchesFromRawEntryForVbin8(int $padStart, int $padEnd): void
+    {
+        $body = 'short body';
+        $rawData = "\x00\x53\x75\xa0" . chr(strlen($body)) . $body;
+        $chunk = str_repeat('P', $padStart) . $rawData . str_repeat('P', $padEnd);
+
+        $viaRawEntry = Message::fromRawEntry(offset: 5, timestamp: 2000, rawData: $rawData);
+        $viaChunkView = Message::fromChunkView(
+            offset: 5,
+            timestamp: 2000,
+            chunk: $chunk,
+            start: $padStart,
+            length: strlen($rawData),
+        );
+
+        $this->assertSame($viaRawEntry->getBody(), $viaChunkView->getBody());
+        $this->assertSame($body, $viaChunkView->getBody());
+        $this->assertSame($viaRawEntry->getProperties(), $viaChunkView->getProperties());
+    }
+
+    /**
+     * @dataProvider chunkViewOffsetProvider
+     */
+    public function testFromChunkViewMatchesFromRawEntryForMessageWithProperties(int $padStart, int $padEnd): void
+    {
+        $messageId = 'msg-1';
+        $propsListItems = "\xa1" . chr(strlen($messageId)) . $messageId;
+        $propsListSize = strlen($propsListItems) + 1;
+        $propertiesSection = "\x00\x53\x73" . "\xc0" . chr($propsListSize & 0xFF) . chr(1) . $propsListItems;
+
+        $body = 'hello';
+        $dataSection = "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
+
+        $rawData = $propertiesSection . $dataSection;
+        $chunk = str_repeat('P', $padStart) . $rawData . str_repeat('P', $padEnd);
+
+        $viaRawEntry = Message::fromRawEntry(offset: 7, timestamp: 3000, rawData: $rawData);
+        $viaChunkView = Message::fromChunkView(
+            offset: 7,
+            timestamp: 3000,
+            chunk: $chunk,
+            start: $padStart,
+            length: strlen($rawData),
+        );
+
+        $this->assertSame($viaRawEntry->getBody(), $viaChunkView->getBody());
+        $this->assertSame($body, $viaChunkView->getBody());
+        $this->assertSame($viaRawEntry->getMessageId(), $viaChunkView->getMessageId());
+        $this->assertSame(['message-id' => 'msg-1'], $viaChunkView->getProperties());
+    }
+
+    /** @return array<string, array{0: int, 1: int}> */
+    public static function chunkViewOffsetProvider(): array
+    {
+        return [
+            'no padding' => [0, 0],
+            'padded on both sides' => [11, 13],
+        ];
+    }
+
+    public function testFromChunkViewOffsetAndTimestampPassthrough(): void
+    {
+        $rawData = "\x00\x53\x75\xb0" . pack('N', 2) . 'hi';
+        $msg = Message::fromChunkView(
+            offset: 999,
+            timestamp: 123456,
+            chunk: $rawData,
+            start: 0,
+            length: strlen($rawData),
+        );
+
+        $this->assertSame(999, $msg->getOffset());
+        $this->assertSame(123456, $msg->getTimestamp());
+    }
+
+    public function testFromChunkViewConstructionDoesNotCopyPayload(): void
+    {
+        // Building many chunk-view Messages out of one big chunk string must not add
+        // memory proportional to the payload bytes before any accessor is called —
+        // only construction itself (offsets/refs), which is much smaller than the
+        // chunk. Generous slack is allowed since PHP's allocator/GC behavior varies.
+        $bodySize = 1024;
+        $count = 4000;
+        $body = str_repeat('x', $bodySize);
+        $entry = "\x00\x53\x75\xb0" . pack('N', $bodySize) . $body;
+        $chunk = str_repeat($entry, $count);
+        $entryLength = strlen($entry);
+
+        gc_collect_cycles();
+        $before = memory_get_usage();
+
+        $messages = [];
+        for ($i = 0; $i < $count; $i++) {
+            $messages[] = Message::fromChunkView(
+                offset: $i,
+                timestamp: 1000,
+                chunk: $chunk,
+                start: $i * $entryLength,
+                length: $entryLength,
+            );
+        }
+
+        $afterConstruction = memory_get_usage();
+        $constructionDelta = $afterConstruction - $before;
+
+        // The full un-decoded payload would be ~= $count * $bodySize (~4 MB); a
+        // zero-copy view must add far less than that just to construct the objects.
+        $this->assertLessThan($count * $bodySize / 4, $constructionDelta);
+
+        // Sanity: decoding still works correctly afterwards.
+        $this->assertSame($body, $messages[0]->getBody());
+        $this->assertSame($body, $messages[$count - 1]->getBody());
+
+        unset($messages);
+    }
+
     public function testMessageWithPropertiesStillFullyDecodesViaGenericDecoder(): void
     {
         // Properties section (descriptor 0x73): a list8 containing just message-id
