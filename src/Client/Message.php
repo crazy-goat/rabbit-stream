@@ -28,7 +28,7 @@ class Message
         private array $properties = [],
         private array $applicationProperties = [],
         private array $messageAnnotations = [],
-        private readonly ?string $rawData = null,
+        private ?string $rawData = null,
     ) {
         $this->decoded = $this->rawData === null;
     }
@@ -59,6 +59,9 @@ class Message
         }
 
         $rawData = (string) $this->rawData;
+        // The raw bytes are no longer needed once decoded: releasing them keeps a
+        // single copy of the payload per message (body only) instead of two.
+        $this->rawData = null;
 
         // Fast path: this library's own Producer always encodes a message body
         // as exactly one AMQP 1.0 Data section (no header/properties/annotations),
