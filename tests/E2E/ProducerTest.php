@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 
 class ProducerTest extends E2ETestCase
@@ -209,6 +210,52 @@ class ProducerTest extends E2ETestCase
             fn(): string => str_repeat('X', 1024),
             30.0
         );
+    }
+
+    public function testMaxPendingConfirmsBoundsInFlightMessages(): void
+    {
+        // Regression coverage for the deliver-frame-cap flow-control work:
+        // Producer::send() historically never read the socket, so a long
+        // run of send() calls without waitForConfirms() left an unbounded
+        // number of frames in flight. maxPendingConfirms enforces back-
+        // pressure by draining confirms off the socket once the window
+        // fills, so getPendingConfirms() must never exceed the configured
+        // cap and every message must still end up confirmed.
+        $streamConnection = $this->connectAndOpen();
+
+        $messageCount = 50000;
+        $maxPendingConfirms = 1000;
+        $observedMax = 0;
+        $confirmedCount = 0;
+
+        $producer = new Producer(
+            $streamConnection,
+            $this->streamName,
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmedCount): void {
+                if ($status->isConfirmed()) {
+                    $confirmedCount++;
+                }
+            },
+            maxPendingConfirms: $maxPendingConfirms,
+        );
+
+        for ($i = 0; $i < $messageCount; $i++) {
+            $producer->send("message-{$i}");
+            $observedMax = max($observedMax, $producer->getPendingConfirms());
+        }
+
+        $producer->waitForConfirms(timeout: 60.0);
+
+        $this->assertLessThanOrEqual(
+            $maxPendingConfirms,
+            $observedMax,
+            'pendingConfirms must never exceed maxPendingConfirms'
+        );
+        $this->assertSame($messageCount, $confirmedCount, 'All messages must eventually be confirmed');
+
+        $producer->close();
+        $streamConnection->close();
     }
 
     /**

@@ -31,4 +31,6 @@ interface ProducerInterface
     public function getLastPublishingId(): ?int;
 
     public function querySequence(): int;
+
+    public function getPendingConfirms(): int;
 }

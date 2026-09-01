@@ -17,6 +17,7 @@ class Producer
     public function waitForConfirms(float $timeout = 5.0): void;
     public function getLastPublishingId(): ?int;
     public function querySequence(): int;
+    public function getPendingConfirms(): int;
 }
 ```
 
@@ -39,6 +40,7 @@ $producer = $connection->createProducer(
 | `$stream` | `string` | Yes | Name of the stream to publish to |
 | `$name` | `?string` | No | Unique producer name for deduplication. If provided, enables exactly-once semantics across reconnects. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus` object. |
+| `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Once reached, `send()`/`sendBatch()` block, draining confirms until the count drops back below the limit. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
 
 ### Examples
 
@@ -281,6 +283,40 @@ $id3 = $producer->getLastPublishingId(); // 5 (2 + 3 messages)
 - For named producers, this is automatically managed based on `querySequence()`
 - Publishing IDs start at 1 for unnamed producers
 - Publishing IDs start at `querySequence() + 1` for named producers
+
+---
+
+### getPendingConfirms()
+
+Get the number of publishes sent but not yet confirmed or errored.
+
+```php
+public function getPendingConfirms(): int
+```
+
+#### Parameters
+
+None
+
+#### Return Value
+
+`int` - Current count of outstanding (unconfirmed) publishes
+
+#### Example
+
+```php
+$producer->send('Message 1');
+$producer->send('Message 2');
+echo $producer->getPendingConfirms(); // 2
+
+$producer->waitForConfirms();
+echo $producer->getPendingConfirms(); // 0
+```
+
+#### Notes
+
+- Decremented as `onConfirm`/publish-error frames arrive, whether observed via `waitForConfirms()`, the `onConfirm` callback, or the `maxPendingConfirms` back-pressure drain in `send()`/`sendBatch()`
+- Useful for custom throttling or metrics alongside `maxPendingConfirms`
 
 ---
 
