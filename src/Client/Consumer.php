@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
@@ -13,6 +14,7 @@ use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
@@ -49,6 +51,7 @@ class Consumer implements ConsumerInterface
     private int $unreadCount = 0;
     private int $messagesProcessed = 0;
     private int $lastOffset = 0;
+    private bool $hasProcessedMessage = false;
 
     /** Credit units (1 unit = 1 chunk) withheld because the buffer had no room when a chunk arrived. */
     private int $pendingCredits = 0;
@@ -56,6 +59,21 @@ class Consumer implements ConsumerInterface
     /** Credit units (1 unit = 1 chunk) already sent to the server but not yet consumed by a delivered chunk. */
     private int $creditsInFlight = 0;
 
+    /**
+     * Whether this consumer is currently allowed to receive messages. Always
+     * true for a non-single-active-consumer subscription. A single active
+     * consumer subscription starts as inactive and flips per the broker's
+     * ConsumerUpdate query (see subscribe()).
+     */
+    private bool $active;
+
+    private ?\Closure $consumerUpdateCallback = null;
+
+    /**
+     * @param array<int, string> $filterValues Stream filtering values (protocol
+     *                            keys `filter.0`, `filter.1`, ... — broker-side,
+     *                            chunk-granular; see Producer::sendWithFilter()).
+     */
     public function __construct(
         private readonly StreamConnection $connection,
         private readonly string $stream,
@@ -65,15 +83,122 @@ class Consumer implements ConsumerInterface
         private readonly int $autoCommit = 0,
         private readonly int $initialCredit = 10,
         private readonly int $maxBufferSize = 1000,
+        private readonly array $filterValues = [],
+        private readonly bool $matchUnfiltered = false,
+        private readonly bool $singleActiveConsumer = false,
+        private readonly ?string $superStream = null,
     ) {
         if ($this->maxBufferSize <= 0) {
             throw new InvalidArgumentException('maxBufferSize must be greater than 0');
         }
+        if ($this->singleActiveConsumer && $this->name === null) {
+            throw new InvalidArgumentException(
+                'singleActiveConsumer requires a consumer name (the broker groups '
+                . 'single active consumers by reference/name)'
+            );
+        }
+        $this->active = !$this->singleActiveConsumer;
         $this->subscribe();
+    }
+
+    /**
+     * Override the default single-active-consumer resume logic.
+     *
+     * @param callable $callback Called with (bool $active, Consumer $this): ?OffsetSpec.
+     *                           Return null to keep the current position (offsetType 0).
+     */
+    public function onConsumerUpdate(callable $callback): void
+    {
+        $this->consumerUpdateCallback = \Closure::fromCallable($callback);
+    }
+
+    public function isActive(): bool
+    {
+        return $this->active;
+    }
+
+    /** @return array<string, string> */
+    private function buildSubscribeProperties(): array
+    {
+        $properties = [];
+        foreach ($this->filterValues as $index => $value) {
+            $properties["filter.{$index}"] = $value;
+        }
+        if ($this->filterValues !== []) {
+            $properties['match-unfiltered'] = $this->matchUnfiltered ? 'true' : 'false';
+        }
+        if ($this->singleActiveConsumer) {
+            // The broker groups single active consumers by this "name" property
+            // (the same reference used for StoreOffset/QueryOffset) — it rejects
+            // single-active-consumer=true without it.
+            $properties['single-active-consumer'] = 'true';
+            $properties['name'] = (string) $this->name;
+        }
+        if ($this->superStream !== null) {
+            $properties['super-stream'] = $this->superStream;
+        }
+        return $properties;
+    }
+
+    /**
+     * Default ConsumerUpdate resume logic for a single active consumer:
+     *  - activation (active=true): resume just after the stored offset, or at
+     *    the consumer's initial OffsetSpec when nothing is stored yet.
+     *  - deactivation (active=false): store the last processed offset (if
+     *    auto-commit is enabled and at least one message was processed) so the
+     *    successor resumes without gaps, then reply "none" (keep position,
+     *    irrelevant once inactive).
+     *
+     * CAVEAT (re-entrancy): this runs inside StreamConnection::readLoop()'s
+     * server-push dispatch. queryOffset() below performs its own
+     * sendMessage()+readMessage() round trip; readMessage() re-enters
+     * dispatchServerPush() for further push frames while waiting, but it does
+     * NOT match responses by correlation ID — it returns whatever non-push
+     * frame is read next. If this handler fires while an outer readMessage()
+     * call is itself waiting for a different response (e.g. the broker sends
+     * ConsumerUpdate before the SubscribeResponse), the inner queryOffset()
+     * can receive that unrelated response first and throw
+     * UnexpectedResponseException. This is a pre-existing limitation of the
+     * connection's non-correlated response dispatch, not something this
+     * change introduces or resolves.
+     */
+    private function defaultConsumerUpdateHandler(ConsumerUpdateResponseV1 $query): ?OffsetSpec
+    {
+        $this->active = $query->isActive();
+
+        if ($this->consumerUpdateCallback instanceof \Closure) {
+            return ($this->consumerUpdateCallback)($this->active, $this);
+        }
+
+        if (!$this->active) {
+            if ($this->autoCommit > 0 && $this->hasProcessedMessage) {
+                $this->storeOffset($this->lastOffset);
+            }
+            return null;
+        }
+
+        try {
+            $stored = $this->queryOffset();
+            return OffsetSpec::offset($stored + 1);
+        } catch (ProtocolException $e) {
+            if ($e->getResponseCode() === ResponseCodeEnum::NO_OFFSET) {
+                return $this->offset;
+            }
+            throw $e;
+        }
     }
 
     private function subscribe(): void
     {
+        if ($this->singleActiveConsumer) {
+            // Registered before the subscribe request is sent: the broker may push
+            // ConsumerUpdate before or immediately after the SubscribeResponse.
+            $this->connection->registerConsumerUpdateHandler(
+                $this->subscriptionId,
+                fn(ConsumerUpdateResponseV1 $query): ?OffsetSpec => $this->defaultConsumerUpdateHandler($query)
+            );
+        }
+
         $this->connection->registerSubscriber(
             $this->subscriptionId,
             function ($deliverResponse): void {
@@ -115,6 +240,7 @@ class Consumer implements ConsumerInterface
                 $this->stream,
                 $this->offset,
                 $this->initialCredit,
+                $this->buildSubscribeProperties(),
             )
         );
         $this->connection->readMessage();
@@ -146,6 +272,7 @@ class Consumer implements ConsumerInterface
         if ($messages !== []) {
             $lastMsg = end($messages);
             $this->lastOffset = $lastMsg->getOffset();
+            $this->hasProcessedMessage = true;
             $this->messagesProcessed += count($messages);
             $this->maybeAutoCommit();
         }
@@ -176,6 +303,7 @@ class Consumer implements ConsumerInterface
         }
 
         $this->lastOffset = $message->getOffset();
+        $this->hasProcessedMessage = true;
         $this->messagesProcessed++;
         $this->maybeAutoCommit();
         $this->sendPendingCredits();

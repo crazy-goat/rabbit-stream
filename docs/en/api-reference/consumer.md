@@ -19,6 +19,10 @@ class Consumer
         int $autoCommit = 0,
         int $initialCredit = 10,
         int $maxBufferSize = 1000,
+        array $filterValues = [],
+        bool $matchUnfiltered = false,
+        bool $singleActiveConsumer = false,
+        ?string $superStream = null,
     );
     
     // Reading methods
@@ -31,6 +35,10 @@ class Consumer
     // Offset management
     public function storeOffset(int $offset): void;
     public function queryOffset(): int;
+    
+    // Single active consumer
+    public function isActive(): bool;
+    public function onConsumerUpdate(callable $callback): void;
     
     // Lifecycle
     public function close(): void;
@@ -51,6 +59,10 @@ $consumer = $connection->createConsumer(
     int $autoCommit = 0,             // Optional: Auto-commit interval (messages)
     int $initialCredit = 10,          // Optional: Initial flow control credits (chunk-granular)
     int $maxBufferSize = 1000,        // Optional: Target buffer bound (message-granular)
+    array $filterValues = [],         // Optional: broker-side stream filtering values
+    bool $matchUnfiltered = false,    // Optional: also receive messages with no filter value
+    bool $singleActiveConsumer = false, // Optional: single active consumer (requires $name)
+    ?string $superStream = null,      // Optional: super-stream partition name
 ): Consumer
 ```
 
@@ -60,10 +72,14 @@ $consumer = $connection->createConsumer(
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification. Use `OffsetSpec::first()`, `OffsetSpec::last()`, `OffsetSpec::offset()`, etc. |
-| `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`. |
+| `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`, and for `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Number of messages between automatic offset commits. `0` disables auto-commit. |
 | `$initialCredit` | `int` | No | Initial number of flow control credits. **Chunk-granular**: 1 credit = 1 future chunk delivery, and outstanding (in-flight) credit is capped at this value — the server can never have more than `initialCredit` chunks in flight at once. Higher values increase throughput but allow more chunks (and therefore memory) in flight. |
 | `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — a chunk in flight when the buffer is already full is still accepted in full (messages are never dropped), so the buffer can transiently exceed this by up to one chunk's worth of messages. |
+| `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (sent as `filter.0`, `filter.1`, ... properties). Filtering is **chunk-granular** (bloom filter per chunk) — see [Stream Filtering](../guide/consuming.md#7-stream-filtering). |
+| `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver chunks containing messages published with no filter value. |
+| `$singleActiveConsumer` | `bool` | No | Enables single active consumer: the broker activates exactly one consumer per `$name` group at a time. Requires `$name`; throws `InvalidArgumentException` otherwise. See [Single Active Consumer](../guide/consuming.md#8-single-active-consumer). |
+| `$superStream` | `?string` | No | Name of the super stream this partition belongs to (sent as the `super-stream` property). |
 
 ### OffsetSpec Factory Methods
 
@@ -306,6 +322,50 @@ try {
 - Returns the offset last stored via `storeOffset()` or auto-commit
 - Useful for resuming consumption after restart
 - Makes a round-trip to the server
+
+---
+
+## Single Active Consumer Methods
+
+### isActive()
+
+```php
+public function isActive(): bool
+```
+
+Whether this consumer is currently allowed to receive messages. Always `true`
+for a consumer created without `singleActiveConsumer`. For a single active
+consumer, tracks the broker's most recent `ConsumerUpdate` activation state —
+starts `false` and flips to `true`/`false` as the broker activates/deactivates
+it.
+
+### onConsumerUpdate()
+
+```php
+public function onConsumerUpdate(callable $callback): void
+```
+
+Overrides the default single active consumer resume logic. The callback
+receives `(bool $active, Consumer $consumer): ?OffsetSpec` and its return
+value becomes the reply sent to the broker's `ConsumerUpdate` query
+(`null` means "keep current position").
+
+Default behavior (used when no callback is registered):
+- **Activation** (`$active === true`): calls `queryOffset()` for the
+  consumer's `name` and replies `OffsetSpec::offset($stored + 1)`; if nothing
+  is stored yet, replies with the consumer's initial `OffsetSpec`.
+- **Deactivation** (`$active === false`): if `autoCommit > 0` and at least one
+  message was processed, stores the last processed offset so the next active
+  consumer resumes without gaps; replies `null` (keep position).
+
+```php
+$consumer->onConsumerUpdate(function (bool $active, Consumer $consumer): ?OffsetSpec {
+    if (!$active) {
+        return null;
+    }
+    return OffsetSpec::first(); // always replay from the start on activation
+});
+```
 
 ---
 

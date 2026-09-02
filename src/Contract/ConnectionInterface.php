@@ -51,12 +51,21 @@ interface ConnectionInterface
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
     ): ProducerInterface;
 
+    /**
+     * @param array<int, string> $filterValues Stream filtering values, sent as
+     *                            `filter.0`, `filter.1`, ... properties (broker-side,
+     *                            chunk-granular filtering — see Consumer's docblock).
+     */
     public function createConsumer(
         string $stream,
         OffsetSpec $offset,
         ?string $name = null,
         int $autoCommit = 0,
         int $initialCredit = 10,
+        array $filterValues = [],
+        bool $matchUnfiltered = false,
+        bool $singleActiveConsumer = false,
+        ?string $superStream = null,
     ): ConsumerInterface;
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void;

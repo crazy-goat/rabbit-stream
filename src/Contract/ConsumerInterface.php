@@ -20,4 +20,19 @@ interface ConsumerInterface
     public function queryOffset(): int;
 
     public function close(): void;
+
+    /**
+     * Whether this consumer is currently allowed to receive messages. Always
+     * true unless created with singleActiveConsumer, in which case it tracks
+     * the broker's most recent ConsumerUpdate activation state.
+     */
+    public function isActive(): bool;
+
+    /**
+     * Override the default single-active-consumer resume logic.
+     *
+     * @param callable $callback Called with (bool $active, ConsumerInterface $this): ?OffsetSpec.
+     *                           Return null to keep the current position (offsetType 0).
+     */
+    public function onConsumerUpdate(callable $callback): void;
 }

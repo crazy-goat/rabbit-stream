@@ -48,6 +48,10 @@ class Connection
         ?string $name = null,
         int $autoCommit = 0,
         int $initialCredit = 10,
+        array $filterValues = [],
+        bool $matchUnfiltered = false,
+        bool $singleActiveConsumer = false,
+        ?string $superStream = null,
     ): Consumer;
     
     // Lifecycle
@@ -539,6 +543,10 @@ public function createConsumer(
     ?string $name = null,
     int $autoCommit = 0,
     int $initialCredit = 10,
+    array $filterValues = [],
+    bool $matchUnfiltered = false,
+    bool $singleActiveConsumer = false,
+    ?string $superStream = null,
 ): Consumer
 ```
 
@@ -548,9 +556,13 @@ public function createConsumer(
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification (see `OffsetSpec` factory methods) |
-| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`. |
+| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Auto-commit interval (number of messages). `0` disables auto-commit. |
 | `$initialCredit` | `int` | No | Initial flow control credits. Default: `10` |
+| `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (`filter.0`, `filter.1`, ... properties). Chunk-granular — see the [Consumer API reference](consumer.md). |
+| `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver messages published with no filter value. |
+| `$singleActiveConsumer` | `bool` | No | Enables single active consumer for this subscription. Requires `$name`. |
+| `$superStream` | `?string` | No | Name of the super stream this partition belongs to. |
 
 #### OffsetSpec Factory Methods
 

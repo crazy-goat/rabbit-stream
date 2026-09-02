@@ -373,12 +373,23 @@ class Connection implements ConnectionInterface
         return $producer;
     }
 
+    /**
+     * @param array<int, string> $filterValues Stream filtering values, sent as
+     *                            `filter.0`, `filter.1`, ... properties. Filtering
+     *                            is broker-side and chunk-granular (a bloom filter
+     *                            per chunk) — see Producer::sendWithFilter() and
+     *                            Consumer's class docblock for the caveats.
+     */
     public function createConsumer(
         string $stream,
         OffsetSpec $offset,
         ?string $name = null,
         int $autoCommit = 0,
         int $initialCredit = 10,
+        array $filterValues = [],
+        bool $matchUnfiltered = false,
+        bool $singleActiveConsumer = false,
+        ?string $superStream = null,
     ): ConsumerInterface {
         $subscriptionId = $this->subscriptionIdCounter++;
         $consumer = new Consumer(
@@ -388,7 +399,11 @@ class Connection implements ConnectionInterface
             $offset,
             $name,
             $autoCommit,
-            $initialCredit
+            $initialCredit,
+            filterValues: $filterValues,
+            matchUnfiltered: $matchUnfiltered,
+            singleActiveConsumer: $singleActiveConsumer,
+            superStream: $superStream,
         );
         $this->consumers[$subscriptionId] = $consumer;
         return $consumer;

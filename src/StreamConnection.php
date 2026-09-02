@@ -22,6 +22,7 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -37,6 +38,8 @@ class StreamConnection
     private array $publisherCallbacks = [];
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
+    /** @var array<int, callable> */
+    private array $consumerUpdateHandlers = [];
     private ?\Closure $metadataUpdateCallback = null;
     private ?\Closure $heartbeatCallback = null;
     private ?\Closure $consumerUpdateCallback = null;
@@ -294,6 +297,35 @@ class StreamConnection
     public function unregisterSubscriber(int $subscriptionId): void
     {
         unset($this->subscriberCallbacks[$subscriptionId]);
+        unset($this->consumerUpdateHandlers[$subscriptionId]);
+    }
+
+    /**
+     * Register a per-subscription handler for ConsumerUpdate queries (single
+     * active consumer activation/deactivation, super-stream rebalance).
+     *
+     * Dispatch order in handleConsumerUpdate(): a registered per-subscription
+     * handler takes priority over the global onConsumerUpdate() callback,
+     * which in turn takes priority over the "none" (keep current position)
+     * default.
+     *
+     * @param int      $subscriptionId Subscription ID as declared with the server
+     * @param callable $handler        Called with (ConsumerUpdateResponseV1 $update): ?OffsetSpec.
+     *                                 Returning null means "none" (offsetType 0).
+     */
+    public function registerConsumerUpdateHandler(int $subscriptionId, callable $handler): void
+    {
+        $this->consumerUpdateHandlers[$subscriptionId] = $handler;
+    }
+
+    /**
+     * Remove a previously registered per-subscription ConsumerUpdate handler.
+     *
+     * @param int $subscriptionId Subscription ID to unregister
+     */
+    public function unregisterConsumerUpdateHandler(int $subscriptionId): void
+    {
+        unset($this->consumerUpdateHandlers[$subscriptionId]);
     }
 
     /**
@@ -690,11 +722,25 @@ class StreamConnection
         if (!$query instanceof ConsumerUpdateResponseV1) {
             throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
         }
-        $offsetType = 1;
+        $offsetType = OffsetSpec::TYPE_NONE;
         $offset = 0;
-        if ($this->consumerUpdateCallback instanceof \Closure) {
+
+        $subscriptionHandler = $this->consumerUpdateHandlers[$query->getSubscriptionId()] ?? null;
+        if ($subscriptionHandler !== null) {
+            $offsetSpec = $subscriptionHandler($query);
+            if ($offsetSpec !== null) {
+                [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
+            }
+        } elseif ($this->consumerUpdateCallback instanceof \Closure) {
             [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
         }
+
+        if ($offsetType < 0 || $offsetType > 5) {
+            throw new InvalidArgumentException(
+                "Invalid ConsumerUpdate reply offset type: {$offsetType} (must be 0-5)"
+            );
+        }
+
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
             offsetType: $offsetType,
