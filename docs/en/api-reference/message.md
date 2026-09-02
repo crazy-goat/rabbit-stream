@@ -112,7 +112,7 @@ $message = $consumer->readOne();
 echo "Message offset: {$message->getOffset()}\n";
 
 // Store offset for resuming later
-$consumer->storeOffset($message->getOffset());
+$consumer->storeOffset($message->getOffset() + 1);
 ```
 
 #### Notes
@@ -148,7 +148,7 @@ echo $message->getStream(); // e.g. "my-stream"
 foreach ($superStreamConsumer->read(timeout: 5.0) as $message) {
     echo "[{$message->getStream()}] {$message->getBody()}\n";
     // Offset tracking is per-partition — pass the partition name through
-    $superStreamConsumer->storeOffset($message->getStream(), $message->getOffset());
+    $superStreamConsumer->storeOffset($message->getStream(), $message->getOffset() + 1);
 }
 ```
 
@@ -712,7 +712,7 @@ while ($message = $consumer->readOne()) {
     processEvent($data, $metadata);
     
     // Store offset for tracking
-    $consumer->storeOffset($message->getOffset());
+    $consumer->storeOffset($message->getOffset() + 1);
 }
 ```
 

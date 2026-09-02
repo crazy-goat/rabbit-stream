@@ -81,6 +81,27 @@ class StreamConnection
     public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
 
     /**
+     * Default SO_RCVTIMEO/SO_SNDTIMEO applied to the socket in connect().
+     *
+     * Without it every blocking socket_recv()/socket_write() waits forever, so a
+     * peer that stops mid-frame hangs the client and every documented timeout
+     * (Consumer::read(), readFrame(), readLoop()) silently becomes infinite
+     * (GitHub #402). This bounds a single socket call, not a whole operation:
+     * the per-call timeouts remain the ones the caller asks for.
+     */
+    public const DEFAULT_SOCKET_TIMEOUT = 30.0;
+
+    /**
+     * Socket-level errors that mean "nothing happened within SO_RCVTIMEO/
+     * SO_SNDTIMEO", as opposed to a broken connection. On Linux a timed-out
+     * blocking recv()/send() reports EAGAIN (== EWOULDBLOCK); ETIMEDOUT comes
+     * from the TCP stack itself.
+     *
+     * @var list<int>
+     */
+    private const TRANSIENT_SOCKET_ERRORS = [SOCKET_EAGAIN, SOCKET_EWOULDBLOCK, SOCKET_ETIMEDOUT];
+
+    /**
      * The broker does not enforce frame_max on Deliver frames (0x0008): a chunk is
      * sent whole regardless of the negotiated frame_max, so Deliver frames need a
      * separate, larger cap. 64MB comfortably exceeds chunks observed in practice
@@ -89,6 +110,7 @@ class StreamConnection
      */
     public const DEFAULT_MAX_DELIVER_FRAME_SIZE = 64 * 1024 * 1024;
 
+    private float $socketTimeout = self::DEFAULT_SOCKET_TIMEOUT;
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
     private int $maxDeliverFrameSize = self::DEFAULT_MAX_DELIVER_FRAME_SIZE;
     private int $outgoingMaxFrameSize = 0;
@@ -98,13 +120,19 @@ class StreamConnection
      * @param int                   $port     RabbitMQ stream server port
      * @param LoggerInterface       $logger   PSR-3 logger (defaults to NullLogger)
      * @param BinarySerializerInterface $serializer Serializer for request/response frames
+     * @param float                 $socketTimeout Per-socket-call receive/send timeout in
+     *                                        seconds (SO_RCVTIMEO/SO_SNDTIMEO), applied in
+     *                                        connect(); must be > 0
+     * @throws InvalidArgumentException If $socketTimeout is not positive
      */
     public function __construct(
         private readonly string $host = '127.0.0.1',
         private readonly int $port = 5552,
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
+        float $socketTimeout = self::DEFAULT_SOCKET_TIMEOUT,
     ) {
+        $this->setSocketTimeout($socketTimeout);
         // Resolve once at construction: avoids paying bin2hex() cost on every
         // frame when the logger won't emit debug records (NullLogger default).
         $this->debugLogging = !$logger instanceof NullLogger;
@@ -131,8 +159,62 @@ class StreamConnection
             );
         }
 
+        $this->applySocketTimeout($socket);
+
         $this->connected = true;
         $this->socket = $socket;
+    }
+
+    /**
+     * Set the per-socket-call receive/send timeout (SO_RCVTIMEO/SO_SNDTIMEO).
+     *
+     * Applies immediately when the socket is already open. This is not an
+     * operation timeout: it bounds how long one socket_recv()/socket_write()
+     * may block with no progress, which is what keeps a stalled peer from
+     * hanging the client forever (GitHub #402).
+     *
+     * @param float $socketTimeout Seconds; must be > 0
+     * @throws InvalidArgumentException If $socketTimeout is not positive
+     * @throws ConnectionException      If the option cannot be set on an open socket
+     */
+    public function setSocketTimeout(float $socketTimeout): void
+    {
+        if ($socketTimeout <= 0) {
+            throw new InvalidArgumentException('socketTimeout must be greater than 0');
+        }
+
+        $this->socketTimeout = $socketTimeout;
+
+        if ($this->socket instanceof \Socket) {
+            $this->applySocketTimeout($this->socket);
+        }
+    }
+
+    public function getSocketTimeout(): float
+    {
+        return $this->socketTimeout;
+    }
+
+    /**
+     * @throws ConnectionException If SO_RCVTIMEO/SO_SNDTIMEO cannot be set — without
+     *                             them no read or write is bounded, so the caller must
+     *                             not be told the connection is usable
+     */
+    private function applySocketTimeout(\Socket $socket): void
+    {
+        $seconds = (int) $this->socketTimeout;
+        $option = [
+            'sec' => $seconds,
+            'usec' => (int) round(($this->socketTimeout - $seconds) * 1_000_000),
+        ];
+
+        foreach ([SO_RCVTIMEO, SO_SNDTIMEO] as $name) {
+            if (!socket_set_option($socket, SOL_SOCKET, $name, $option)) {
+                throw new ConnectionException(
+                    'Cannot set socket timeout: ' . socket_strerror(socket_last_error($socket))
+                );
+            }
+        }
     }
 
     /**
@@ -163,7 +245,14 @@ class StreamConnection
     /**
      * Check whether the underlying TCP socket is currently connected and usable.
      *
-     * @return bool True if the socket is valid and has no error state
+     * socket_last_error() is sticky: it keeps returning the last error recorded
+     * on the socket until it is cleared. The code is therefore cleared right
+     * after it is read, and transient codes (a receive timeout, an interrupted
+     * call) are not treated as a disconnect — otherwise one timed-out read
+     * would report a perfectly healthy connection as dead for the rest of its
+     * life, and this method would force it closed (GitHub #391).
+     *
+     * @return bool True if the socket is valid and has no fatal error state
      */
     public function isConnected(): bool
     {
@@ -179,8 +268,9 @@ class StreamConnection
         // A closed socket will fail this operation
         try {
             $error = @socket_last_error($this->socket);
-            if ($error !== 0) {
-                // Socket has an error, mark as disconnected
+            @socket_clear_error($this->socket);
+            if ($error !== 0 && !in_array($error, self::TRANSIENT_SOCKET_ERRORS, true)) {
+                // Socket has a fatal error, mark as disconnected
                 $this->connected = false;
                 return false;
             }
@@ -508,20 +598,83 @@ class StreamConnection
             }
         }
 
-        try {
-            $written = socket_write($this->socket, $frame, strlen($frame));
-        } catch (\Error $e) {
-            $this->connected = false;
-            throw new ConnectionException("Failed to write to socket: " . $e->getMessage(), $e->getCode(), $e);
+        return $this->writeAll($frame);
+    }
+
+    /**
+     * Write every byte of $frame, looping over partial writes.
+     *
+     * socket_write() may accept fewer bytes than requested (SO_SNDBUF pressure,
+     * a large batch Publish frame, a signal). Sending the rest is not optional:
+     * the broker reads the next 4 bytes as a frame length, so a frame left
+     * half-written makes it parse payload bytes as framing — silent data loss
+     * for the publisher, protocol error or a multi-gigabyte length for the
+     * broker (GitHub #389).
+     *
+     * A frame that cannot be finished leaves the peer mid-frame, so there is no
+     * way back: the connection is closed rather than left desynchronised.
+     *
+     * @return int Number of bytes written (always strlen($frame) on success)
+     * @throws ConnectionException If the write fails or a partial frame cannot be completed
+     * @throws TimeoutException    If nothing at all could be written before SO_SNDTIMEO expired
+     */
+    private function writeAll(string $frame): int
+    {
+        if (!$this->socket instanceof \Socket) {
+            throw new ConnectionException("Cannot write: socket is not connected");
         }
 
-        if ($written === false) {
-            throw new ConnectionException(
-                "Failed to write to socket: " . socket_strerror(socket_last_error($this->socket))
-            );
+        $total = strlen($frame);
+        $sent = 0;
+
+        while ($sent < $total) {
+            try {
+                $written = socket_write(
+                    $this->socket,
+                    $sent === 0 ? $frame : substr($frame, $sent),
+                    $total - $sent
+                );
+            } catch (\Error $e) {
+                $this->connected = false;
+                throw new ConnectionException("Failed to write to socket: " . $e->getMessage(), $e->getCode(), $e);
+            }
+
+            if ($written === false || $written === 0) {
+                $error = $written === false ? socket_last_error($this->socket) : 0;
+                socket_clear_error($this->socket);
+
+                if ($error === SOCKET_EINTR) {
+                    continue;
+                }
+
+                if ($written === 0 || in_array($error, self::TRANSIENT_SOCKET_ERRORS, true)) {
+                    if ($sent === 0) {
+                        // Nothing left the client: the frame was never started,
+                        // so the caller can safely retry it.
+                        throw new TimeoutException(sprintf(
+                            'Write timed out after %.1fs: no bytes of a %d byte frame could be sent',
+                            $this->socketTimeout,
+                            $total
+                        ));
+                    }
+                    $this->close();
+                    throw new ConnectionException(sprintf(
+                        'Write timed out after %.1fs with a partial frame on the wire (%d of %d bytes); ' .
+                        'connection closed because the broker cannot resynchronise mid-frame',
+                        $this->socketTimeout,
+                        $sent,
+                        $total
+                    ));
+                }
+
+                $this->connected = false;
+                throw new ConnectionException("Failed to write to socket: " . socket_strerror($error));
+            }
+
+            $sent += $written;
         }
 
-        return $written;
+        return $sent;
     }
 
     /**
@@ -960,6 +1113,8 @@ class StreamConnection
             throw new ConnectionException("Cannot read: socket is not connected");
         }
 
+        // The only read allowed to come back empty-handed: at this point the
+        // socket is at a frame boundary, so "no data yet" is not a desync.
         $sizeData = $this->readBytes(4);
         if ($sizeData === null) {
             return null;
@@ -985,12 +1140,12 @@ class StreamConnection
             default => min($this->maxFrameSize, $this->maxDeliverFrameSize),
         };
         if ($fastCap <= 0 || $size <= $fastCap) {
-            $frameData = $this->readBytes($size);
+            $frameData = $this->readBytes($size, mustComplete: true);
             if ($frameData === null) {
                 throw new ConnectionException("Failed to read frame data");
             }
         } else {
-            $keyData = $this->readBytes(2);
+            $keyData = $this->readBytes(2, mustComplete: true);
             if ($keyData === null) {
                 throw new ConnectionException("Failed to read frame key");
             }
@@ -1007,7 +1162,7 @@ class StreamConnection
                 );
             }
 
-            $remainingData = $this->readBytes($size - 2);
+            $remainingData = $this->readBytes($size - 2, mustComplete: true);
             if ($remainingData === null) {
                 throw new ConnectionException("Failed to read frame data");
             }
@@ -1075,7 +1230,29 @@ class StreamConnection
      * peer closed the connection, and SOCKET_ETIMEDOUT still yields null,
      * matching the previous semantics exactly.
      */
-    private function readBytes(int $length): ?string
+    /**
+     * Read exactly $length bytes from the socket.
+     *
+     * On a receive timeout (SO_RCVTIMEO, see {@see self::DEFAULT_SOCKET_TIMEOUT})
+     * the outcome depends on how much of the read had already succeeded:
+     *
+     *  - nothing consumed yet and $mustComplete is false — the socket is at a
+     *    frame boundary, so null is returned and the caller may simply try again;
+     *  - anything already consumed, or $mustComplete — those bytes cannot be
+     *    pushed back onto the socket, so the frame can never be assembled. The
+     *    old code returned null here and dropped them, after which the next read
+     *    took mid-frame payload for a frame length and desynchronised the
+     *    connection permanently (GitHub #390). The connection is now closed with
+     *    an explicit error instead.
+     *
+     * @param int  $length       Number of bytes to read (0 returns '')
+     * @param bool $mustComplete True when the caller is already mid-frame, so a
+     *                           short read is unrecoverable rather than benign
+     * @return string|null The bytes read, or null if no byte arrived at a frame boundary
+     * @throws ConnectionException If the socket is not connected, the peer closed it,
+     *                             the read fails, or an incomplete frame timed out
+     */
+    private function readBytes(int $length, bool $mustComplete = false): ?string
     {
         if (!$this->socket instanceof \Socket) {
             throw new ConnectionException("Cannot read: socket is not connected");
@@ -1094,11 +1271,22 @@ class StreamConnection
 
             if ($read === false) {
                 $error = socket_last_error($this->socket);
+                socket_clear_error($this->socket);
                 if ($error === SOCKET_EINTR) {
                     continue;
                 }
-                if ($error === SOCKET_ETIMEDOUT) {
-                    return null;
+                if (in_array($error, self::TRANSIENT_SOCKET_ERRORS, true)) {
+                    if (!$mustComplete && $data === '') {
+                        return null;
+                    }
+                    $this->close();
+                    throw new ConnectionException(sprintf(
+                        'Read timed out after %.1fs with an incomplete frame (%d of %d bytes); ' .
+                        'connection closed because the byte stream can no longer be resynchronised',
+                        $this->socketTimeout,
+                        strlen($data),
+                        $length
+                    ));
                 }
                 $this->connected = false;
                 throw new ConnectionException("Failed to read from socket: " . socket_strerror($error));

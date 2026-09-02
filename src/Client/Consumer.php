@@ -108,6 +108,10 @@ class Consumer implements ConsumerInterface
     private const RESUBSCRIBE_INITIAL_BACKOFF = 0.05;
     private const RESUBSCRIBE_MAX_BACKOFF = 1.0;
 
+    /** Called with the subscription id once close() has run, so the owning Connection can reclaim it (#388). */
+    private readonly ?\Closure $onClose;
+    private bool $closed = false;
+
     /**
      * @param array<int, string> $filterValues Stream filtering values (protocol
      *                            keys `filter.0`, `filter.1`, ... — broker-side,
@@ -139,7 +143,9 @@ class Consumer implements ConsumerInterface
         private readonly bool $singleActiveConsumer = false,
         private readonly ?string $superStream = null,
         private readonly int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
+        ?callable $onClose = null,
     ) {
+        $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
         if ($this->maxBufferSize <= 0) {
             throw new InvalidArgumentException('maxBufferSize must be greater than 0');
         }
@@ -300,8 +306,9 @@ class Consumer implements ConsumerInterface
 
     /**
      * Default ConsumerUpdate resume logic for a single active consumer:
-     *  - activation (active=true): resume just after the stored offset, or at
-     *    the consumer's initial OffsetSpec when nothing is stored yet.
+     *  - activation (active=true): resume at the stored offset (which is the
+     *    next offset to consume, see storeOffset()), or at the consumer's
+     *    initial OffsetSpec when nothing is stored yet.
      *  - deactivation (active=false): store the last processed offset (if
      *    auto-commit is enabled and at least one message was processed) so the
      *    successor resumes without gaps, then reply "none" (keep position,
@@ -322,14 +329,15 @@ class Consumer implements ConsumerInterface
 
         if (!$this->active) {
             if ($this->autoCommit > 0 && $this->hasProcessedMessage) {
-                $this->storeOffset($this->lastOffset);
+                $this->storeOffset($this->lastOffset + 1);
             }
             return null;
         }
 
         try {
-            $stored = $this->queryOffset();
-            return OffsetSpec::offset($stored + 1);
+            // The stored value is the next offset to consume, so it is used as
+            // is — OffsetSpec::offset() is inclusive (#396).
+            return OffsetSpec::offset($this->queryOffset());
         } catch (ProtocolException $e) {
             if ($e->getResponseCode() === ResponseCodeEnum::NO_OFFSET) {
                 return $this->offset;
@@ -532,6 +540,18 @@ class Consumer implements ConsumerInterface
         return $message;
     }
 
+    /**
+     * Store an offset for this consumer's name on the broker.
+     *
+     * Convention: the stored value is the **next** offset to consume, i.e.
+     * `lastProcessedOffset + 1`, which is what auto-commit writes and what the
+     * Java, Go and .NET clients store — so a stored offset can be handed to
+     * `OffsetSpec::offset()` (inclusive) directly, and is portable across
+     * clients. Before #396 auto-commit stored the last *consumed* offset, which
+     * redelivered that message on every resume.
+     *
+     * @param int $offset Next offset to consume
+     */
     public function storeOffset(int $offset): void
     {
         if ($this->name === null) {
@@ -556,25 +576,50 @@ class Consumer implements ConsumerInterface
         return $response->getOffset();
     }
 
+    /**
+     * Unsubscribe on the broker and release the subscription id.
+     *
+     * Idempotent: a second call is a no-op, so the subscription id cannot be
+     * handed back twice (and then to two live consumers at once).
+     */
     public function close(): void
     {
+        if ($this->closed) {
+            return;
+        }
+        $this->closed = true;
+
         if ($this->autoCommit > 0 && $this->name !== null && $this->messagesProcessed > 0) {
-            $this->storeOffset($this->lastOffset);
+            $this->storeOffset($this->lastOffset + 1);
         }
 
         $this->connection->unregisterSubscriber($this->subscriptionId);
         $this->connection->unregisterMetadataUpdateHandler($this->stream, "subscription-{$this->subscriptionId}");
 
-        if (!$this->subscriptionLost) {
-            // A lost subscription is already gone on the broker; Unsubscribe
-            // would only earn SUBSCRIPTION_ID_NOT_EXIST.
-            $this->connection->request(
-                new UnsubscribeRequestV1($this->subscriptionId)
-            );
+        try {
+            if (!$this->subscriptionLost) {
+                // A lost subscription is already gone on the broker; Unsubscribe
+                // would only earn SUBSCRIPTION_ID_NOT_EXIST.
+                $this->connection->request(
+                    new UnsubscribeRequestV1($this->subscriptionId)
+                );
+            }
+        } finally {
+            $this->buffer = [];
+            $this->bufferHead = 0;
+            $this->unreadCount = 0;
+            // The id goes back to the pool even when Unsubscribe fails — this
+            // consumer will never use it again either way (#388).
+            if ($this->onClose instanceof \Closure) {
+                ($this->onClose)($this->subscriptionId);
+            }
         }
-        $this->buffer = [];
-        $this->bufferHead = 0;
-        $this->unreadCount = 0;
+    }
+
+    /** Whether close() has already run. */
+    public function isClosed(): bool
+    {
+        return $this->closed;
     }
 
     private function maybeAutoCommit(): void
@@ -583,7 +628,9 @@ class Consumer implements ConsumerInterface
             return;
         }
         if ($this->messagesProcessed >= $this->autoCommit) {
-            $this->storeOffset($this->lastOffset);
+            // lastOffset + 1: the stored value is the next offset to consume,
+            // otherwise resuming redelivers the last processed message (#396).
+            $this->storeOffset($this->lastOffset + 1);
             $this->messagesProcessed = 0;
         }
     }

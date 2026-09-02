@@ -207,7 +207,7 @@ First time consuming?          →  OffsetSpec::first()
                               →  OffsetSpec::last() (for new data only)
 
 Resuming after restart?        →  Query stored offset
-                              →  OffsetSpec::offset($storedOffset + 1)
+                              →  OffsetSpec::offset($storedOffset)
 
 Processing recent data only?   →  OffsetSpec::timestamp(time() - 3600)
                               →  OffsetSpec::interval(3600)
@@ -310,7 +310,7 @@ foreach ($messages as $message) {
     processEvent($message);
     
     // Store offset after successful processing
-    $consumer->storeOffset($message->getOffset());
+    $consumer->storeOffset($message->getOffset() + 1);
 }
 ```
 
@@ -335,7 +335,7 @@ try {
     
     $consumer = $connection->createConsumer(
         'events',
-        OffsetSpec::offset($lastOffset + 1),
+        OffsetSpec::offset($lastOffset),
         name: 'event-processor-v1'
     );
 } catch (\Exception $e) {
@@ -379,7 +379,7 @@ function createResumingConsumer(
         // Resume from next offset
         return $connection->createConsumer(
             $stream,
-            OffsetSpec::offset($lastOffset + 1),
+            OffsetSpec::offset($lastOffset),
             name: $consumerName
         );
     } catch (\Exception $e) {
@@ -401,7 +401,7 @@ $consumer = createResumingConsumer($connection, 'events', 'processor-v1');
 try {
     while ($message = $consumer->readOne()) {
         processEvent($message);
-        $consumer->storeOffset($message->getOffset());
+        $consumer->storeOffset($message->getOffset() + 1);
     }
 } finally {
     $consumer->close();
@@ -432,6 +432,22 @@ $consumer = $connection->createConsumer(
 1. **Counter-based**: The consumer counts messages and stores the offset every N messages
 2. **Final commit on close**: When `close()` is called, the final offset is stored
 3. **Requires named consumer**: Auto-commit only works with named consumers
+
+### What Gets Stored
+
+The stored value is the **next** offset to consume — `lastProcessedOffset + 1`
+— which is what the Java, Go and .NET clients store too. Resume by handing it
+straight to `OffsetSpec::offset()` (which is inclusive), with no arithmetic:
+
+```php
+$stored = $connection->queryOffset('auto-consumer', 'events');
+$consumer = $connection->createConsumer('events', OffsetSpec::offset($stored), name: 'auto-consumer');
+```
+
+> **Changed in v1.3.0.** Auto-commit used to store the last *consumed* offset,
+> so every resume redelivered that message (#396). Offsets written by an older
+> version are one too low: resume those consumers once with
+> `OffsetSpec::offset($stored + 1)`, or accept a single duplicate.
 
 ### Trade-offs
 
@@ -791,7 +807,7 @@ $queryResponse = $stream->readMessage();
 $startOffset = OffsetSpec::first();
 if ($queryResponse instanceof QueryOffsetResponseV1) {
     $storedOffset = $queryResponse->getOffset();
-    $startOffset = OffsetSpec::offset($storedOffset + 1);
+    $startOffset = OffsetSpec::offset($storedOffset);
     echo "Resuming from offset: {$storedOffset}\n";
 }
 
@@ -866,7 +882,7 @@ try {
         foreach ($messages as $message) {
             try {
                 processMessage($message);
-                $consumer->storeOffset($message->getOffset());
+                $consumer->storeOffset($message->getOffset() + 1);
             } catch (\Exception $e) {
                 echo "Failed to process message: {$e->getMessage()}\n";
                 // Decide whether to continue or stop
@@ -903,7 +919,7 @@ function consumeWithRetry(
                 $tempConsumer = $connection->createConsumer($stream, $offset, name: $consumerName);
                 $lastOffset = $tempConsumer->queryOffset();
                 $tempConsumer->close();
-                $offset = OffsetSpec::offset($lastOffset + 1);
+                $offset = OffsetSpec::offset($lastOffset);
                 echo "Resuming from offset: {$lastOffset}\n";
             } catch (\Exception $e) {
                 echo "Starting from beginning\n";
@@ -913,7 +929,7 @@ function consumeWithRetry(
             
             while ($message = $consumer->readOne()) {
                 $processor($message);
-                $consumer->storeOffset($message->getOffset());
+                $consumer->storeOffset($message->getOffset() + 1);
             }
             
             $consumer->close();

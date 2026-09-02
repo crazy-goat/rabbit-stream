@@ -8,6 +8,7 @@ use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
@@ -631,6 +632,136 @@ class ProducerTest extends TestCase
         $this->assertNotNull($capturedRequest, 'QueryPublisherSequenceRequestV1 should have been sent');
     }
 
+
+    // ---------------------------------------------------------------------
+    // A failed write must not leave pendingConfirms raised forever (#395).
+    // ---------------------------------------------------------------------
+
+    public function testFailedSendDoesNotLeavePendingConfirmsBehind(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request): void {
+                if ($request instanceof PublishRequestV1) {
+                    throw new ConnectionException('short write');
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+
+        try {
+            $producer->send('never-reaches-the-broker');
+            $this->fail('The write failure must surface');
+        } catch (ConnectionException) {
+            // expected
+        }
+
+        $this->assertSame(0, $producer->getPendingConfirms(), 'A message the broker never saw is not pending');
+        $this->assertNull($producer->getLastPublishingId(), 'No publishing id is consumed by a failed write');
+        // Previously this blocked for the whole timeout and then threw, because
+        // the counter had been raised before the write.
+        $start = microtime(true);
+        $producer->waitForConfirms(timeout: 1.0);
+        $this->assertLessThan(0.5, microtime(true) - $start);
+    }
+
+    public function testFailedBatchSendDoesNotLeavePendingConfirmsBehind(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request): void {
+                if ($request instanceof PublishRequestV1) {
+                    throw new ConnectionException('short write');
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+
+        try {
+            $producer->sendBatch(['a', 'b', 'c']);
+            $this->fail('The write failure must surface');
+        } catch (ConnectionException) {
+            // expected
+        }
+
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertNull($producer->getLastPublishingId());
+    }
+
+    public function testSuccessfulSendStillCountsTowardsPendingConfirms(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('one');
+        $producer->sendBatch(['two', 'three']);
+        $producer->sendWithFilter('four', 'f');
+
+        $this->assertSame(4, $producer->getPendingConfirms());
+        $this->assertSame(3, $producer->getLastPublishingId(), 'Publishing ids stay contiguous: 0..3');
+    }
+
+    public function testCloseIsIdempotentAndReleasesThePublisherIdOnce(): void
+    {
+        $deletes = 0;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$deletes): void {
+                if ($request instanceof DeletePublisherRequestV1) {
+                    $deletes++;
+                }
+            });
+
+        $released = [];
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            3,
+            onClose: function (int $id) use (&$released): void {
+                $released[] = $id;
+            },
+        );
+        $producer->close();
+        $producer->close();
+
+        $this->assertSame(1, $deletes, 'DeletePublisher must be sent once, however often close() is called');
+        $this->assertSame([3], $released, 'The id is released exactly once');
+        $this->assertTrue($producer->isClosed());
+    }
+
+    public function testStalePublisherStillReleasesItsIdOnClose(): void
+    {
+        [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('sendMessage');
+        $released = [];
+
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onClose: function (int $id) use (&$released): void {
+                $released[] = $id;
+            },
+        );
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+        $producer->close();
+
+        $this->assertSame([1], $released, 'A stale publisher skips DeletePublisher but still frees its id');
+    }
 
     /**
      * Producer wired to a mock connection that captures the per-stream

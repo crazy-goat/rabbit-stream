@@ -20,6 +20,7 @@ public function __construct(
     private readonly int $port = 5552,
     private readonly LoggerInterface $logger = new NullLogger(),
     private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
+    float $socketTimeout = self::DEFAULT_SOCKET_TIMEOUT,
 )
 ```
 
@@ -31,6 +32,10 @@ public function __construct(
 | `$port` | `int` | `5552` | RabbitMQ Stream protocol port |
 | `$logger` | `LoggerInterface` | `NullLogger` | PSR-3 logger for debug output |
 | `$serializer` | `BinarySerializerInterface` | `PhpBinarySerializer` | Binary serializer for frame encoding |
+| `$socketTimeout` | `float` | `30.0` | `SO_RCVTIMEO`/`SO_SNDTIMEO` in seconds, applied in `connect()`. Must be > 0 |
+
+**Throws:**
+- `InvalidArgumentException` - If `$socketTimeout` is not positive
 
 ## Connection Lifecycle Methods
 
@@ -43,13 +48,18 @@ public function connect(): void
 ```
 
 **Throws:**
-- `ConnectionException` - If socket creation or connection fails
+- `ConnectionException` - If socket creation or connection fails, or if the socket timeout cannot be set
 
 **Example:**
 ```php
 $connection = new StreamConnection('localhost', 5552);
 $connection->connect();
 ```
+
+`connect()` sets `SO_RCVTIMEO` and `SO_SNDTIMEO` to `$socketTimeout`. Without
+them a peer that stops mid-frame blocks the client forever and every documented
+timeout (`Consumer::read()`, `readFrame()`, `readLoop()`) silently becomes
+infinite.
 
 ### close()
 
@@ -70,6 +80,10 @@ public function isConnected(): bool
 ```
 
 **Returns:** `true` if connected, `false` otherwise
+
+`socket_last_error()` is sticky, so the error code is cleared after it is read
+and transient codes (a receive timeout, an interrupted call) are not treated as
+a disconnect — one timed-out read must not condemn a healthy connection.
 
 ## Frame I/O Methods
 
@@ -107,11 +121,15 @@ public function sendFrame(string $frame, ?float $timeout = null): int
 - `$frame` - Raw frame data (binary string)
 - `$timeout` - Optional timeout in seconds
 
-**Returns:** Number of bytes written
+**Returns:** Number of bytes written — always `strlen($frame)` on success
 
 **Throws:**
-- `ConnectionException` - If socket is not connected or write fails
-- `TimeoutException` - If write timeout expires
+- `ConnectionException` - If socket is not connected, the write fails, or a partial frame could not be completed (the connection is closed in that case: the broker cannot resynchronise mid-frame)
+- `TimeoutException` - If the `$timeout` select expires, or `SO_SNDTIMEO` expires before *any* byte was written (the frame never started, so it is safe to retry)
+
+The whole frame is written, looping over partial writes: `socket_write()` may
+accept fewer bytes than requested under send-buffer pressure, and a frame left
+half-written makes the broker read payload bytes as the next frame length.
 
 ### readMessage()
 
@@ -150,11 +168,13 @@ public function readFrame(float $timeout = 30.0): ?ReadBuffer
 **Parameters:**
 - `$timeout` - Timeout in seconds (default: 30.0, 0 = non-blocking)
 
-**Returns:** `ReadBuffer` with frame data, or `null` on timeout
+**Returns:** `ReadBuffer` with frame data, or `null` when no frame arrived — the
+socket is then still at a frame boundary, so calling again is safe
 
 **Throws:**
 - `ConnectionException` - If socket error occurs
 - `ConnectionException` - If frame size exceeds `maxFrameSize`
+- `ConnectionException` - If the peer stopped mid-frame (`SO_RCVTIMEO` expired with part of a frame consumed). The connection is closed: the consumed bytes cannot be pushed back, so a retry would read payload as framing
 
 ## Server-Push Registration Methods
 
@@ -353,6 +373,33 @@ public function getMaxFrameSize(): int
 
 **Returns:** Maximum frame size in bytes (0 = unlimited)
 
+### setSocketTimeout()
+
+Sets `SO_RCVTIMEO`/`SO_SNDTIMEO`, applied immediately when the socket is open.
+
+```php
+public function setSocketTimeout(float $socketTimeout): void
+```
+
+**Parameters:**
+- `$socketTimeout` - Seconds; must be > 0
+
+**Throws:**
+- `InvalidArgumentException` - If the value is not positive
+- `ConnectionException` - If the option cannot be set on an open socket
+
+**Note:** This is not an operation timeout. It bounds how long a single
+`socket_recv()`/`socket_write()` may block with no progress; per-call timeouts
+stay the ones the caller passes to `readFrame()`, `readLoop()` and friends.
+
+### getSocketTimeout()
+
+```php
+public function getSocketTimeout(): float
+```
+
+**Returns:** The current socket timeout in seconds
+
 ## Constants
 
 ### DEFAULT_MAX_FRAME_SIZE
@@ -361,6 +408,14 @@ Default maximum frame size: 8MB (8 * 1024 * 1024 bytes)
 
 ```php
 public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024;
+```
+
+### DEFAULT_SOCKET_TIMEOUT
+
+Default `SO_RCVTIMEO`/`SO_SNDTIMEO`: 30 seconds.
+
+```php
+public const DEFAULT_SOCKET_TIMEOUT = 30.0;
 ```
 
 ### SERVER_PUSH_KEYS
@@ -385,6 +440,7 @@ Thrown for socket-level errors:
 - Connection refused
 - Socket read/write failures
 - Frame size exceeded
+- A frame that could not be finished in either direction (peer stopped mid-frame, or a partial write could not be completed) — the connection is closed, because framing can no longer be trusted
 
 ### TimeoutException
 

@@ -189,6 +189,27 @@ if ($response instanceof ResolveOffsetSpecResponseV1) {
 
 ## Offset Storage
 
+### What a Stored Offset Means
+
+A stored offset is the **next** offset to consume — `lastProcessedOffset + 1`,
+not the offset of the last processed message. That is what auto-commit writes,
+what `storeOffset()` expects, and what the Java, Go and .NET clients store, so
+offsets are portable between clients and resuming needs no arithmetic:
+
+```php
+$stored = $consumer->queryOffset();               // e.g. 42
+$consumer = $connection->createConsumer(
+    'events',
+    OffsetSpec::offset($stored),                  // inclusive: starts AT 42
+    name: 'payment-processor-v1'
+);
+```
+
+> **Changed in v1.3.0.** Auto-commit used to store the last *consumed* offset,
+> which redelivered that message on every resume (#396). Offsets written by an
+> older version are one too low: resume those consumers once with
+> `OffsetSpec::offset($stored + 1)`, or accept a single duplicate.
+
 ### Manual Storage
 
 Store offsets explicitly after successful message processing:
@@ -202,7 +223,7 @@ foreach ($messages as $message) {
     
     if ($success) {
         // Store offset only after successful processing
-        $consumer->storeOffset($message->getOffset());
+        $consumer->storeOffset($message->getOffset() + 1);
     } else {
         // Handle failure - don't store offset
         handleFailure($message);
@@ -266,7 +287,7 @@ try {
 
 **Important Notes:**
 - Requires a named consumer
-- Returns the offset last stored via `storeOffset()` or auto-commit
+- Returns the offset last stored via `storeOffset()` or auto-commit — the **next** offset to consume, so it can be passed straight to `OffsetSpec::offset()`
 - Throws exception if no offset has been stored
 - Makes a round-trip to the server
 
@@ -303,7 +324,7 @@ function createResumingConsumer(
         // Resume from next offset
         return $connection->createConsumer(
             $stream,
-            OffsetSpec::offset($lastOffset + 1),
+            OffsetSpec::offset($lastOffset),
             name: $consumerName
         );
     } catch (\Exception $e) {
@@ -325,7 +346,7 @@ $consumer = createResumingConsumer($connection, 'events', 'processor-v1');
 try {
     while ($message = $consumer->readOne()) {
         processEvent($message);
-        $consumer->storeOffset($message->getOffset());
+        $consumer->storeOffset($message->getOffset() + 1);
     }
 } finally {
     $consumer->close();
@@ -357,7 +378,7 @@ $consumer = $connection->createConsumer(
 try {
     while ($message = $consumer->readOne()) {
         processEvent($message);
-        $consumer->storeOffset($message->getOffset());
+        $consumer->storeOffset($message->getOffset() + 1);
     }
 } finally {
     $consumer->close();
@@ -390,7 +411,7 @@ $tempConsumer = $connection->createConsumer(
 $startOffset = OffsetSpec::first();
 try {
     $lastOffset = $tempConsumer->queryOffset();
-    $startOffset = OffsetSpec::offset($lastOffset + 1);
+    $startOffset = OffsetSpec::offset($lastOffset);
     echo "Resuming from offset: {$lastOffset}\n";
 } catch (\Exception $e) {
     echo "Starting from beginning\n";
@@ -443,7 +464,7 @@ $tempConsumer = $connection->createConsumer(
 $startOffset = OffsetSpec::first();
 try {
     $lastOffset = $tempConsumer->queryOffset();
-    $startOffset = OffsetSpec::offset($lastOffset + 1);
+    $startOffset = OffsetSpec::offset($lastOffset);
 } catch (\Exception $e) {
     // No stored offset
 } finally {
@@ -474,7 +495,7 @@ try {
                 processBatch($batch);
                 
                 // Store offset after successful batch processing
-                $consumer->storeOffset($lastOffset);
+                $consumer->storeOffset($lastOffset + 1);
                 
                 $batch = [];
             }
@@ -483,7 +504,7 @@ try {
         // Process remaining messages
         if (!empty($batch)) {
             processBatch($batch);
-            $consumer->storeOffset($lastOffset);
+            $consumer->storeOffset($lastOffset + 1);
             $batch = [];
         }
     }
@@ -504,7 +525,7 @@ OffsetSpec::first()
 OffsetSpec::last()
 
 // For resume after restart
-OffsetSpec::next()  // or OffsetSpec::offset($storedOffset + 1)
+OffsetSpec::next()  // or OffsetSpec::offset($storedOffset)
 
 // For time-based replay
 OffsetSpec::timestamp($timestamp)
@@ -532,7 +553,7 @@ foreach ($messages as $message) {
         processMessage($message);
         
         // Store offset only after success
-        $consumer->storeOffset($message->getOffset());
+        $consumer->storeOffset($message->getOffset() + 1);
     } catch (\Exception $e) {
         // Don't store offset on failure
         // Message will be reprocessed on restart
@@ -547,7 +568,7 @@ foreach ($messages as $message) {
 ```php
 try {
     $lastOffset = $consumer->queryOffset();
-    $startOffset = OffsetSpec::offset($lastOffset + 1);
+    $startOffset = OffsetSpec::offset($lastOffset);
 } catch (\Exception $e) {
     // No stored offset - this is normal for first run
     $startOffset = OffsetSpec::first();
@@ -632,14 +653,14 @@ $consumer->storeOffset(100);  // Works!
 ```php
 // Wrong: may lose messages on crash
 foreach ($messages as $message) {
-    $consumer->storeOffset($message->getOffset());  // Stored before processing!
+    $consumer->storeOffset($message->getOffset() + 1);  // Stored before processing!
     processMessage($message);  // If crash here, message is lost
 }
 
 // Right: store after successful processing
 foreach ($messages as $message) {
     processMessage($message);
-    $consumer->storeOffset($message->getOffset());  // Stored after success
+    $consumer->storeOffset($message->getOffset() + 1);  // Stored after success
 }
 ```
 

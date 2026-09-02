@@ -22,6 +22,7 @@ class Connection
         ?int $requestedHeartbeat = null,
         ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
+        ?float $socketTimeout = null,
     ): self;
     
     // Stream management
@@ -110,6 +111,7 @@ public static function create(
     ?int $requestedHeartbeat = null,
     ?int $maxDeliverFrameSize = null,
     ?StreamConnection $streamConnection = null,
+    ?float $socketTimeout = null,
 ): self
 ```
 
@@ -128,6 +130,7 @@ public static function create(
 | `$requestedHeartbeat` | `?int` | No | Requested heartbeat interval in seconds. `0` disables heartbeats. Default: `null` (use server value) |
 | `$maxDeliverFrameSize` | `?int` | No | Max size in bytes for incoming **Deliver** frames (key `0x0008`), which the broker does not bound by the negotiated `frame_max` — see [Deliver frames need their own cap](#deliver-frames-need-their-own-cap) below. Default: `null` (`StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE`, 64MB) |
 | `$streamConnection` | `?StreamConnection` | No | Pre-configured stream connection (advanced use). Default: `null` |
+| `$socketTimeout` | `?float` | No | `SO_RCVTIMEO`/`SO_SNDTIMEO` in seconds — bounds a single blocking socket call so a stalled peer cannot hang the client. Must be > 0. Ignored when `$streamConnection` is supplied (configure it there). Default: `null` (`StreamConnection::DEFAULT_SOCKET_TIMEOUT`, 30 s) |
 
 ### Return Value
 
@@ -135,7 +138,7 @@ public static function create(
 
 ### Exceptions
 
-- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, or `maxDeliverFrameSize` is negative
+- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, or `maxDeliverFrameSize` is negative, or if `socketTimeout` is not positive
 - `AuthenticationException` - If PLAIN SASL mechanism is not supported or credentials are invalid
 - `UnexpectedResponseException` - If the server returns an unexpected response during handshake
 - `ConnectionException` - If the TCP connection cannot be established
@@ -650,7 +653,7 @@ public function storeOffset(string $reference, string $stream, int $offset): voi
 |-----------|------|----------|-------------|
 | `$reference` | `string` | Yes | Consumer name (reference) |
 | `$stream` | `string` | Yes | Stream name |
-| `$offset` | `int` | Yes | Offset value to store |
+| `$offset` | `int` | Yes | The **next** offset to consume, i.e. `lastProcessedOffset + 1` (see `Consumer::storeOffset()`) |
 
 #### Return Value
 
@@ -670,6 +673,32 @@ $connection->storeOffset('my-consumer', 'my-stream', 12345);
 ---
 
 ## Factory Methods
+
+### Publisher and subscription ids are a per-connection resource
+
+`DeclarePublisher` and `Subscribe` encode their id as a **uint8**, so one
+connection holds at most 256 producers and 256 consumers at a time
+(`Connection::MAX_CONCURRENT_PUBLISHERS` / `MAX_CONCURRENT_SUBSCRIPTIONS`).
+
+`close()` on a producer or consumer hands its id back and drops the
+connection's reference to it, so a long-lived worker that creates and closes
+one producer per work unit runs indefinitely. Ids are handed out round-robin,
+so a freed id is only reused after the whole range has been used once — that
+keeps a late `PublishConfirm`/`Deliver` for a closed publisher/subscription
+from landing on a fresh one that shares its id.
+
+Creating a 257th *simultaneous* producer (or consumer) throws
+`ConnectionException` naming the exhausted pool: close what you no longer need,
+or open another connection.
+
+```php
+foreach ($workUnits as $unit) {
+    $producer = $connection->createProducer($unit->stream);
+    $producer->send($unit->payload);
+    $producer->waitForConfirms();
+    $producer->close();   // <- frees the publisher id
+}
+```
 
 ### createProducer()
 
@@ -702,6 +731,7 @@ public function createProducer(
 #### Exceptions
 
 - `ProtocolException` - If the stream does not exist
+- `ConnectionException` - If all 256 publisher ids of this connection are in use
 
 #### Example
 
@@ -778,6 +808,7 @@ public function createConsumer(
 #### Exceptions
 
 - `ProtocolException` - If the stream does not exist or offset is invalid
+- `ConnectionException` - If all 256 subscription ids of this connection are in use
 
 #### Example
 
@@ -916,7 +947,7 @@ $consumer = $connection->createSuperStreamConsumer('orders', OffsetSpec::first()
 
 foreach ($consumer->read(timeout: 5.0) as $message) {
     echo "[{$message->getStream()}] {$message->getBody()}\n";
-    $consumer->storeOffset($message->getStream(), $message->getOffset());
+    $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
 }
 ```
 

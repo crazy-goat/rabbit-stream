@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Contract\SuperStreamConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\SuperStreamProducerInterface;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
@@ -55,14 +56,28 @@ use Psr\Log\NullLogger;
 
 class Connection implements ConnectionInterface
 {
-    private int $publisherIdCounter = 0;
-    private int $subscriptionIdCounter = 0;
+    /**
+     * DeclarePublisher and Subscribe encode their id as a uint8, so a connection
+     * can hold at most 256 publishers and 256 subscriptions at a time. Ids of
+     * closed producers/consumers are handed back (GitHub #388).
+     */
+    public const MAX_CONCURRENT_PUBLISHERS = 256;
+    public const MAX_CONCURRENT_SUBSCRIPTIONS = 256;
+
+    /**
+     * Next id to try. Allocation walks forward from here and wraps, so a freed
+     * id is only reused after the whole range has been handed out once — that
+     * keeps a late PublishConfirm/Deliver for a closed publisher/subscription
+     * from landing on a fresh one that happens to share its id.
+     */
+    private int $publisherIdCursor = 0;
+    private int $subscriptionIdCursor = 0;
     private bool $closed = false;
 
-    /** @var array<int, Producer> */
+    /** @var array<int, Producer> Live producers, keyed by publisher id — also the id allocation map */
     private array $producers = [];
 
-    /** @var array<int, Consumer> */
+    /** @var array<int, Consumer> Live consumers, keyed by subscription id — also the id allocation map */
     private array $consumers = [];
 
     private function __construct(
@@ -83,6 +98,7 @@ class Connection implements ConnectionInterface
         ?int $requestedHeartbeat = null,
         ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
+        ?float $socketTimeout = null,
     ): self {
         if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
             throw new \InvalidArgumentException('requestedFrameMax must not be negative');
@@ -93,12 +109,21 @@ class Connection implements ConnectionInterface
         if ($maxDeliverFrameSize !== null && $maxDeliverFrameSize < 0) {
             throw new \InvalidArgumentException('maxDeliverFrameSize must not be negative');
         }
+        if ($socketTimeout !== null && $socketTimeout <= 0) {
+            throw new \InvalidArgumentException('socketTimeout must be greater than 0');
+        }
 
         $logger ??= new NullLogger();
         $serializer ??= new PhpBinarySerializer();
 
         if (!$streamConnection instanceof \CrazyGoat\RabbitStream\StreamConnection) {
-            $streamConnection = new StreamConnection($host, $port, $logger, $serializer);
+            $streamConnection = new StreamConnection(
+                $host,
+                $port,
+                $logger,
+                $serializer,
+                $socketTimeout ?? StreamConnection::DEFAULT_SOCKET_TIMEOUT
+            );
             $streamConnection->connect();
         }
 
@@ -391,7 +416,28 @@ class Connection implements ConnectionInterface
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
         float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
     ): ProducerInterface {
-        $publisherId = $this->publisherIdCounter++;
+        return $this->newProducer($stream, $name, $onConfirm, $maxPendingConfirms, $redeclareTimeout);
+    }
+
+    /**
+     * Allocate a publisher id, build the Producer and keep it in $producers
+     * until it is closed (which frees both the id and the reference).
+     *
+     * @throws ConnectionException If all publisher ids are in use
+     */
+    private function newProducer(
+        string $stream,
+        ?string $name,
+        ?callable $onConfirm,
+        int $maxPendingConfirms,
+        float $redeclareTimeout,
+    ): Producer {
+        $publisherId = $this->allocateId(
+            $this->publisherIdCursor,
+            $this->producers,
+            self::MAX_CONCURRENT_PUBLISHERS,
+            'publisher'
+        );
         $producer = new Producer(
             $this->streamConnection,
             $stream,
@@ -400,9 +446,43 @@ class Connection implements ConnectionInterface
             $onConfirm,
             $maxPendingConfirms,
             $redeclareTimeout,
+            onClose: function (int $id): void {
+                unset($this->producers[$id]);
+            },
         );
         $this->producers[$publisherId] = $producer;
         return $producer;
+    }
+
+    /**
+     * Find a free id in [0, $limit), starting at $cursor and wrapping.
+     *
+     * The live-object map doubles as the allocation map, so the two can never
+     * drift apart: an id is free exactly while no object holds it.
+     *
+     * @param int              $cursor Advanced past the returned id (by reference)
+     * @param array<int, object> $inUse  Live objects keyed by id
+     * @param int              $limit  Number of ids the protocol allows (uint8: 256)
+     * @param string           $what   Noun used in the exhaustion message
+     * @throws ConnectionException If every id is taken
+     */
+    private function allocateId(int &$cursor, array $inUse, int $limit, string $what): int
+    {
+        for ($i = 0; $i < $limit; $i++) {
+            $id = ($cursor + $i) % $limit;
+            if (!isset($inUse[$id])) {
+                $cursor = ($id + 1) % $limit;
+                return $id;
+            }
+        }
+
+        throw new ConnectionException(sprintf(
+            'Cannot allocate a %s id: all %d ids of this connection are in use. '
+            . 'Close the %ss you no longer need, or open another connection.',
+            $what,
+            $limit,
+            $what
+        ));
     }
 
     /**
@@ -424,7 +504,12 @@ class Connection implements ConnectionInterface
         ?string $superStream = null,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): ConsumerInterface {
-        $subscriptionId = $this->subscriptionIdCounter++;
+        $subscriptionId = $this->allocateId(
+            $this->subscriptionIdCursor,
+            $this->consumers,
+            self::MAX_CONCURRENT_SUBSCRIPTIONS,
+            'subscription'
+        );
         $consumer = new Consumer(
             $this->streamConnection,
             $stream,
@@ -438,6 +523,9 @@ class Connection implements ConnectionInterface
             singleActiveConsumer: $singleActiveConsumer,
             superStream: $superStream,
             creditWindowBytes: $creditWindowBytes,
+            onClose: function (int $id): void {
+                unset($this->consumers[$id]);
+            },
         );
         $this->consumers[$subscriptionId] = $consumer;
         return $consumer;
@@ -463,18 +551,13 @@ class Connection implements ConnectionInterface
             // Per-partition publisher name so name-based dedup/sequence-query
             // (Producer::querySequence()) still works per partition.
             $partitionName = $name !== null ? "{$name}-{$partition}" : null;
-            $publisherId = $this->publisherIdCounter++;
-            $producer = new Producer(
-                $this->streamConnection,
+            return $this->newProducer(
                 $partition,
-                $publisherId,
                 $partitionName,
                 $onConfirm,
                 $maxPendingConfirms,
-                $redeclareTimeout,
+                $redeclareTimeout
             );
-            $this->producers[$publisherId] = $producer;
-            return $producer;
         };
 
         $producer = new SuperStreamProducer(

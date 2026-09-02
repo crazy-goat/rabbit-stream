@@ -284,7 +284,7 @@ public function storeOffset(int $offset): void
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `$offset` | `int` | Yes | The offset value to store |
+| `$offset` | `int` | Yes | The **next** offset to consume, i.e. `lastProcessedOffset + 1` — the same convention auto-commit and the Java/Go/.NET clients use, so the value can be passed straight to `OffsetSpec::offset()` when resuming |
 
 #### Return Value
 
@@ -310,7 +310,7 @@ foreach ($messages as $message) {
     processMessage($message);
     
     // Store offset after successful processing
-    $consumer->storeOffset($message->getOffset());
+    $consumer->storeOffset($message->getOffset() + 1);
 }
 ```
 
@@ -319,7 +319,7 @@ foreach ($messages as $message) {
 - Requires a named consumer (name parameter in constructor)
 - Stores offset on the server for durability
 - Can be retrieved later with `queryOffset()`
-- Automatically called on `close()` if auto-commit is enabled
+- Automatically called on `close()` if auto-commit is enabled, storing `lastProcessedOffset + 1`
 
 ---
 
@@ -365,7 +365,7 @@ try {
 #### Notes
 
 - Requires a named consumer (name parameter in constructor)
-- Returns the offset last stored via `storeOffset()` or auto-commit
+- Returns the offset last stored via `storeOffset()` or auto-commit — the **next** offset to consume, so it can be passed straight to `OffsetSpec::offset()`
 - Useful for resuming consumption after restart
 - Makes a round-trip to the server
 
@@ -398,11 +398,12 @@ value becomes the reply sent to the broker's `ConsumerUpdate` query
 
 Default behavior (used when no callback is registered):
 - **Activation** (`$active === true`): calls `queryOffset()` for the
-  consumer's `name` and replies `OffsetSpec::offset($stored + 1)`; if nothing
+  consumer's `name` and replies `OffsetSpec::offset($stored)`; if nothing
   is stored yet, replies with the consumer's initial `OffsetSpec`.
 - **Deactivation** (`$active === false`): if `autoCommit > 0` and at least one
-  message was processed, stores the last processed offset so the next active
-  consumer resumes without gaps; replies `null` (keep position).
+  message was processed, stores `lastProcessedOffset + 1` so the next active
+  consumer resumes without gaps and without a duplicate; replies `null` (keep
+  position).
 
 ```php
 $consumer->onConsumerUpdate(function (bool $active, Consumer $consumer): ?OffsetSpec {
@@ -495,7 +496,7 @@ try {
 #### Notes
 
 - Sends `Unsubscribe` command to the server
-- Stores final offset if auto-commit is enabled
+- Stores the final offset (`lastProcessedOffset + 1`) if auto-commit is enabled
 - Clears the internal message buffer
 - Frees the subscription ID for reuse
 - Does not close the underlying connection
@@ -558,7 +559,7 @@ try {
     echo "Resuming from offset: {$lastOffset}\n";
     
     // Note: In a real implementation, you'd recreate the consumer
-    // with OffsetSpec::offset($lastOffset + 1) here
+    // with OffsetSpec::offset($lastOffset) here
 } catch (\Exception $e) {
     echo "Starting from beginning\n";
 }
@@ -568,7 +569,7 @@ while ($message = $consumer->readOne()) {
     processEvent($message->getBody());
     
     // Store offset after successful processing
-    $consumer->storeOffset($message->getOffset());
+    $consumer->storeOffset($message->getOffset() + 1);
 }
 
 $consumer->close();
@@ -649,7 +650,7 @@ try {
                 processBatch($batch);
                 
                 // Store offset after successful batch processing
-                $consumer->storeOffset($lastOffset);
+                $consumer->storeOffset($lastOffset + 1);
                 
                 $batch = [];
             }
@@ -658,7 +659,7 @@ try {
         // Process remaining messages in partial batch
         if (!empty($batch)) {
             processBatch($batch);
-            $consumer->storeOffset($lastOffset);
+            $consumer->storeOffset($lastOffset + 1);
             $batch = [];
         }
     }
@@ -774,7 +775,7 @@ try {
         foreach ($messages as $message) {
             try {
                 processMessage($message);
-                $consumer->storeOffset($message->getOffset());
+                $consumer->storeOffset($message->getOffset() + 1);
             } catch (\Exception $e) {
                 echo "Failed to process message: {$e->getMessage()}\n";
                 // Decide whether to continue or stop
@@ -812,7 +813,7 @@ function consumeWithRetry(
                 $tempConsumer = $connection->createConsumer($stream, $offset, name: $consumerName);
                 $lastOffset = $tempConsumer->queryOffset();
                 $tempConsumer->close();
-                $offset = OffsetSpec::offset($lastOffset + 1);
+                $offset = OffsetSpec::offset($lastOffset);
                 echo "Resuming from offset: {$lastOffset}\n";
             } catch (\Exception $e) {
                 echo "Starting from beginning\n";
@@ -822,7 +823,7 @@ function consumeWithRetry(
             
             while ($message = $consumer->readOne()) {
                 $processor($message);
-                $consumer->storeOffset($message->getOffset());
+                $consumer->storeOffset($message->getOffset() + 1);
             }
             
             $consumer->close();

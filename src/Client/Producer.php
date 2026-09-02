@@ -57,6 +57,10 @@ class Producer implements ProducerInterface
 
     private readonly ?\Closure $onConfirm;
 
+    /** Called with the publisher id once close() has run, so the owning Connection can reclaim it (#388). */
+    private readonly ?\Closure $onClose;
+    private bool $closed = false;
+
     /** Set by a MetadataUpdate for our stream (or a fatal PublishError): the broker no longer knows this publisher. */
     private bool $stale = false;
     private ?int $staleCode = null;
@@ -70,11 +74,13 @@ class Producer implements ProducerInterface
         ?callable $onConfirm = null,
         private readonly int $maxPendingConfirms = self::DEFAULT_MAX_PENDING_CONFIRMS,
         private readonly float $redeclareTimeout = self::DEFAULT_REDECLARE_TIMEOUT,
+        ?callable $onClose = null,
     ) {
         if ($this->redeclareTimeout < 0) {
             throw new InvalidArgumentException('redeclareTimeout must be >= 0');
         }
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
+        $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
         $this->declare();
         $this->initializePublishingId();
     }
@@ -246,11 +252,16 @@ class Producer implements ProducerInterface
     {
         $this->ensureDeclared();
         $this->applyBackpressure($timeout);
-        $this->pendingConfirms++;
+        // Both counters are advanced only after a successful write: a throwing
+        // send() used to leave pendingConfirms raised forever, so every later
+        // waitForConfirms() blocked for its full timeout and then threw, for a
+        // message the broker had never seen (GitHub #395).
         $this->connection->sendMessage(new PublishRequestV1(
             $this->publisherId,
-            new PublishedMessage($this->publishingId++, AmqpMessageEncoder::encodeDataSection($message))
+            new PublishedMessage($this->publishingId, AmqpMessageEncoder::encodeDataSection($message))
         ), $timeout);
+        $this->publishingId++;
+        $this->pendingConfirms++;
     }
 
     /**
@@ -276,15 +287,17 @@ class Producer implements ProducerInterface
     {
         $this->ensureDeclared();
         $this->applyBackpressure($timeout);
-        $this->pendingConfirms++;
+        // Counters advance only after a successful write — see send() (#395).
         $this->connection->sendMessage(new PublishRequestV2(
             $this->publisherId,
             new PublishedMessageV2(
-                $this->publishingId++,
+                $this->publishingId,
                 $filterValue ?? '',
                 AmqpMessageEncoder::encodeDataSection($message)
             )
         ), $timeout);
+        $this->publishingId++;
+        $this->pendingConfirms++;
     }
 
     /**
@@ -302,11 +315,14 @@ class Producer implements ProducerInterface
         $this->ensureDeclared();
         $this->applyBackpressure($timeout);
         $published = [];
+        $publishingId = $this->publishingId;
         foreach ($messages as $message) {
-            $published[] = new PublishedMessage($this->publishingId++, AmqpMessageEncoder::encodeDataSection($message));
-            $this->pendingConfirms++;
+            $published[] = new PublishedMessage($publishingId++, AmqpMessageEncoder::encodeDataSection($message));
         }
+        // Counters advance only after a successful write — see send() (#395).
         $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published), $timeout);
+        $this->publishingId = $publishingId;
+        $this->pendingConfirms += count($published);
     }
 
     /**
@@ -335,17 +351,42 @@ class Producer implements ProducerInterface
         }
     }
 
+    /**
+     * Delete the publisher on the broker and release its id.
+     *
+     * Idempotent: a second call is a no-op, so the publisher id cannot be
+     * handed back twice (and then to two live producers at once).
+     */
     public function close(): void
     {
-        $this->connection->unregisterPublisher($this->publisherId);
-        $this->connection->unregisterMetadataUpdateHandler($this->stream, "publisher-{$this->publisherId}");
-        if ($this->stale) {
-            // The broker already dropped the publisher; DeletePublisher would
-            // only earn a PUBLISHER_NOT_EXIST error.
+        if ($this->closed) {
             return;
         }
-        $this->connection->sendMessage(new DeletePublisherRequestV1($this->publisherId));
-        $this->connection->readMessage();
+        $this->closed = true;
+
+        $this->connection->unregisterPublisher($this->publisherId);
+        $this->connection->unregisterMetadataUpdateHandler($this->stream, "publisher-{$this->publisherId}");
+
+        try {
+            if (!$this->stale) {
+                // A stale publisher is already gone on the broker;
+                // DeletePublisher would only earn a PUBLISHER_NOT_EXIST error.
+                $this->connection->sendMessage(new DeletePublisherRequestV1($this->publisherId));
+                $this->connection->readMessage();
+            }
+        } finally {
+            // The id goes back to the pool even when DeletePublisher fails —
+            // this producer will never use it again either way (#388).
+            if ($this->onClose instanceof \Closure) {
+                ($this->onClose)($this->publisherId);
+            }
+        }
+    }
+
+    /** Whether close() has already run. */
+    public function isClosed(): bool
+    {
+        return $this->closed;
     }
 
     public function waitForConfirms(float $timeout = 5.0): void
