@@ -908,4 +908,4 @@ try {
 - [Stream Management Guide](./stream-management.md) - Managing individual streams
 - [Publishing Guide](./publishing.md) - Publishing messages
 - [Consuming Guide](./consuming.md) - Consuming messages
-- [Protocol Reference](../../protocol/stream-management-commands.md) - Low-level protocol details
+- [Protocol Reference](../protocol/super-stream-commands.md) - Low-level protocol details

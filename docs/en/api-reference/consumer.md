@@ -676,4 +676,4 @@ function consumeWithRetry(
 - [Producer API Reference](producer.md)
 - [Message API Reference](message.md)
 - [Consuming Guide](../guide/consuming.md)
-- [OffsetSpec Reference](../../src/VO/OffsetSpec.php)
+- [OffsetSpec Reference](../../../src/VO/OffsetSpec.php)

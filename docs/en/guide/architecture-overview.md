@@ -179,4 +179,4 @@ For more information on specific components:
 - **[Consumer](../api-reference/consumer.md)** — Subscribing and receiving messages
 - **[Message](../api-reference/message.md)** — AMQP message structure and properties
 - **[Protocol](../protocol/frame-structure.md)** — Binary protocol details
-- **[Examples](../../examples/)** — Working code examples
+- **[Examples](../../../examples/)** — Working code examples
