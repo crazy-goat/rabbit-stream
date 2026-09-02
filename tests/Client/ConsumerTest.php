@@ -10,9 +10,11 @@ use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
+use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
+use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -952,6 +954,205 @@ class ConsumerTest extends TestCase
         $this->assertSame(0, $this->getPendingCredits($consumer));
     }
 
+
+    // ---------------------------------------------------------------------
+    // A stored offset is the NEXT offset to consume, not the last consumed
+    // one — otherwise every resume redelivers one message (#396).
+    // ---------------------------------------------------------------------
+
+    public function testAutoCommitStoresTheNextOffsetToConsume(): void
+    {
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets();
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 1,
+        );
+        $this->setBuffer($consumer, [new Message(41, 0, 'payload')]);
+        $consumer->read(0.0);
+
+        $this->assertSame(
+            [42],
+            $this->storedOffsetValues($stored),
+            'Offset 41 was processed, so the resume point is 42'
+        );
+    }
+
+    public function testAutoCommitOnReadOneStoresTheNextOffsetToConsume(): void
+    {
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets();
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 1,
+        );
+        $this->setBuffer($consumer, [new Message(7, 0, 'payload')]);
+        $consumer->readOne(0.0);
+
+        $this->assertSame([8], $this->storedOffsetValues($stored));
+    }
+
+    public function testCloseStoresTheNextOffsetToConsume(): void
+    {
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets();
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 5,
+        );
+        $this->setBuffer($consumer, [new Message(100, 0, 'payload')]);
+        $consumer->read(0.0);
+        $this->assertSame(
+            [],
+            $this->storedOffsetValues($stored),
+            'Below the auto-commit threshold, nothing is stored yet'
+        );
+
+        $consumer->close();
+
+        $this->assertSame([101], $this->storedOffsetValues($stored));
+    }
+
+    public function testSingleActiveConsumerResumesAtTheStoredOffsetWithoutSkipping(): void
+    {
+        $requests = new CapturedObjects();
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request) use ($requests): object {
+                $requests->add($request);
+                if ($request instanceof QueryOffsetRequestV1) {
+                    return QueryOffsetResponseV1::fromArray(['correlationId' => 1, 'offset' => 42]);
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            singleActiveConsumer: true,
+        );
+
+        $resume = $this->invokeConsumerUpdate($consumer, true);
+
+        // The stored 42 IS the next offset: adding 1 to it (the old behaviour,
+        // which paired with storing the last consumed offset) would skip a
+        // message now that auto-commit stores lastOffset + 1.
+        $this->assertInstanceOf(OffsetSpec::class, $resume);
+        $this->assertSame(42, $resume->getValue());
+    }
+
+    public function testCloseIsIdempotent(): void
+    {
+        $unsubscribes = 0;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request) use (&$unsubscribes): object {
+                if ($request instanceof UnsubscribeRequestV1) {
+                    $unsubscribes++;
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $consumer->close();
+        $consumer->close();
+
+        $this->assertSame(1, $unsubscribes, 'Unsubscribe must be sent once, however often close() is called');
+        $this->assertTrue($consumer->isClosed());
+    }
+
+    public function testCloseInvokesTheOnCloseCallbackWithTheSubscriptionId(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $released = [];
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            7,
+            OffsetSpec::first(),
+            onClose: function (int $id) use (&$released): void {
+                $released[] = $id;
+            },
+        );
+        $consumer->close();
+        $consumer->close();
+
+        $this->assertSame([7], $released, 'The id is released exactly once');
+    }
+
+    /**
+     * @return array{StreamConnection, CapturedObjects<StoreOffsetRequestV1>}
+     */
+    private function connectionCapturingStoredOffsets(): array
+    {
+        /** @var CapturedObjects<StoreOffsetRequestV1> $stored */
+        $stored = new CapturedObjects();
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use ($stored): void {
+                if ($request instanceof StoreOffsetRequestV1) {
+                    $stored->add($request);
+                }
+            });
+
+        return [$connection, $stored];
+    }
+
+    /**
+     * @param CapturedObjects<StoreOffsetRequestV1> $stored
+     * @return list<int>
+     */
+    private function storedOffsetValues(CapturedObjects $stored): array
+    {
+        $offsets = [];
+        foreach ($stored->all() as $request) {
+            $offset = $request->toArray()['offset'];
+            $this->assertIsInt($offset);
+            $offsets[] = $offset;
+        }
+
+        return $offsets;
+    }
+
+    private function invokeConsumerUpdate(Consumer $consumer, bool $active): ?OffsetSpec
+    {
+        $method = new \ReflectionMethod($consumer, 'defaultConsumerUpdateHandler');
+        $result = $method->invoke($consumer, new ConsumerUpdateResponseV1(1, $active));
+
+        return $result instanceof OffsetSpec ? $result : null;
+    }
 
     /**
      * @return array{

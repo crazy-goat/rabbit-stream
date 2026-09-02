@@ -316,7 +316,7 @@ $tempConsumer = $connection->createConsumer(
 $startOffset = OffsetSpec::first();
 try {
     $lastOffset = $tempConsumer->queryOffset();
-    $startOffset = OffsetSpec::offset($lastOffset + 1);
+    $startOffset = OffsetSpec::offset($lastOffset);
     echo "Resuming from offset: {$lastOffset}\n";
 } catch (\Exception $e) {
     echo "Starting from beginning\n";

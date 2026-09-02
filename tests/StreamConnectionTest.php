@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests;
 
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
@@ -1104,6 +1105,179 @@ class StreamConnectionTest extends TestCase
         $this->assertGreaterThan(2.3, $elapsed, 'readLoop should block for approximately the timeout duration');
         $this->assertLessThan(3.5, $elapsed, 'readLoop should not block significantly longer than the timeout');
         $this->assertTrue($connection->isConnected(), 'connection should remain usable after the timeout');
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    // ---------------------------------------------------------------------
+    // Socket timeouts (#402), mid-frame desync (#390), partial writes (#389),
+    // sticky socket errors (#391).
+    // ---------------------------------------------------------------------
+
+    public function testSocketTimeoutDefaultsToTheDocumentedValue(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertSame(StreamConnection::DEFAULT_SOCKET_TIMEOUT, $connection->getSocketTimeout());
+    }
+
+    public function testSocketTimeoutMustBePositive(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new StreamConnection('127.0.0.1', 5552, socketTimeout: 0.0);
+    }
+
+    public function testSetSocketTimeoutRejectsNonPositiveValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(InvalidArgumentException::class);
+        $connection->setSocketTimeout(-1.0);
+    }
+
+    public function testReadFrameGivesUpWhenThePeerStopsMidFrame(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.2);
+
+        // A frame that announces 64 bytes and then delivers 2: without a receive
+        // timeout readBytes() blocks here forever (#402), and the version that
+        // returned null dropped the 6 bytes already consumed and desynchronised
+        // the connection for good (#390).
+        socket_write($serverSocket, pack('N', 64) . pack('n', 0x0003));
+
+        $start = microtime(true);
+        try {
+            $connection->readFrame(2.0);
+            $this->fail('An incomplete frame must not be reported as a successful or empty read');
+        } catch (ConnectionException $e) {
+            $this->assertStringContainsString('incomplete frame', $e->getMessage());
+            // How many of the 64 payload bytes were consumed before the timeout
+            // is platform-dependent: with MSG_WAITALL, Linux hands back the
+            // partial read while BSD/macOS leaves the bytes queued and reports
+            // EAGAIN. Either way the 4-byte length prefix is already gone, so
+            // the frame cannot be reassembled.
+            $this->assertMatchesRegularExpression('/\d+ of 64 bytes/', $e->getMessage());
+        }
+
+        $this->assertLessThan(2.0, microtime(true) - $start, 'The read must be bounded by the socket timeout');
+        $this->assertFalse(
+            $connection->isConnected(),
+            'A connection stuck mid-frame must be closed, not offered for a retry that would read payload as framing'
+        );
+
+        socket_close($serverSocket);
+    }
+
+    public function testReadFrameReturnsNullAtAFrameBoundaryWithNoData(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.2);
+
+        $this->assertNull($connection->readFrame(0.05));
+        $this->assertTrue($connection->isConnected(), 'No data yet is not a broken connection');
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testTransientSocketErrorDoesNotMarkTheConnectionDead(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.05);
+
+        // Record a transient error on the socket the way a timed-out read does.
+        // socket_last_error() is sticky, so before #391 this single EAGAIN made
+        // isConnected() report false for the rest of the connection's life —
+        // and isConnected() itself then forced it closed.
+        $buffer = '';
+        @socket_recv($clientSocket, $buffer, 1, MSG_WAITALL);
+
+        $this->assertTrue($connection->isConnected());
+
+        // Still usable: a real frame arriving afterwards is read normally.
+        socket_write($serverSocket, $this->buildFrame(0x0011, 1));
+        $frame = $connection->readFrame(1.0);
+
+        $this->assertNotNull($frame);
+        $this->assertSame(0x0011, $frame->peekUint16());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testFatalSocketErrorStillMarksTheConnectionDead(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+
+        $this->assertFalse($connection->isConnected());
+    }
+
+    public function testFrameThatCannotBeFullyWrittenClosesTheConnection(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.2);
+        // Small send buffer + a peer that never reads: the kernel accepts part
+        // of the frame and then stalls, which is exactly the short write the
+        // single unchecked socket_write() used to ignore (#389).
+        socket_set_option($clientSocket, SOL_SOCKET, SO_SNDBUF, 4096);
+
+        $frame = pack('N', 1_048_576) . str_repeat("\x00", 1_048_576);
+
+        $start = microtime(true);
+        try {
+            $connection->sendFrame($frame);
+            $this->fail('A frame that could not be fully written must not be reported as sent');
+        } catch (TimeoutException $e) {
+            // The kernel took nothing at all: the frame never started, so the
+            // caller may retry it and the connection stays usable. (TimeoutException
+            // extends ConnectionException, hence this catch comes first.)
+            $this->assertStringContainsString('no bytes', $e->getMessage());
+        } catch (ConnectionException $e) {
+            $this->assertStringContainsString('partial frame', $e->getMessage());
+            $this->assertFalse(
+                $connection->isConnected(),
+                'The broker cannot resynchronise mid-frame, so the connection must be closed'
+            );
+        }
+
+        $this->assertLessThan(3.0, microtime(true) - $start, 'The write must be bounded by the socket timeout');
+
+        socket_close($serverSocket);
+    }
+
+    public function testSendFrameReportsEveryByteWritten(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(1.0);
+
+        $frame = $this->buildFrame(0x0003, 1, str_repeat('x', 2048));
+        $written = $connection->sendFrame($frame);
+
+        $this->assertSame(strlen($frame), $written);
+        $this->assertSame(strlen($frame), strlen((string) $this->readBytesFromSocket($serverSocket, strlen($frame))));
 
         socket_close($serverSocket);
         socket_close($clientSocket);

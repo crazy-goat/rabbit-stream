@@ -168,6 +168,35 @@ try {
 }
 ```
 
+#### A connection closed mid-frame cannot be retried
+
+Every socket call is bounded by `SO_RCVTIMEO`/`SO_SNDTIMEO` (the
+`socketTimeout` of `Connection::create()`, 30 s by default). When one of them
+expires with **part of a frame** already read or written, the client closes the
+connection and throws `ConnectionException` — the consumed bytes cannot be put
+back on the socket, and the peer cannot resynchronise mid-frame, so continuing
+would mean parsing payload as framing.
+
+```php
+try {
+    $messages = $consumer->read(timeout: 5.0);
+} catch (TimeoutException $e) {
+    // Nothing was in flight: the connection is still usable, just retry.
+} catch (ConnectionException $e) {
+    // Framing was lost (or the peer went away): re-establish the connection
+    // with Connection::create() and re-create producers/consumers.
+}
+```
+
+Catch order matters: `TimeoutException` extends `ConnectionException`.
+
+#### Publisher/subscription id exhaustion
+
+`ConnectionException` is also thrown when all 256 publisher (or subscription)
+ids of a connection are taken — the ids are a uint8 on the wire. Closing a
+producer or consumer hands its id back, so this only happens with 256 of them
+alive at once. See [Connection](../api-reference/connection.md#publisher-and-subscription-ids-are-a-per-connection-resource).
+
 #### TimeoutException
 
 Specialized `ConnectionException` for timeout scenarios:
@@ -183,6 +212,9 @@ $response = $stream->readMessage(timeout: 5.0);
 > The high-level API surfaces timeouts through `Producer::waitForConfirms()`
 > — it throws `TimeoutException` when confirmations do not arrive within
 > the given timeout (see [Publishing Guide](publishing.md)).
+
+A `send()` that throws does **not** count the message as pending, so a later
+`waitForConfirms()` is not blocked by a message the broker never received.
 
 ### DeserializationException
 

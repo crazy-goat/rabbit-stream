@@ -129,7 +129,7 @@ public function read(float $timeout = 5.0): array
 ```php
 foreach ($consumer->read(timeout: 5.0) as $message) {
     echo "[{$message->getStream()}] offset={$message->getOffset()} {$message->getBody()}\n";
-    $consumer->storeOffset($message->getStream(), $message->getOffset());
+    $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
 }
 ```
 
@@ -165,7 +165,7 @@ public function readOne(float $timeout = 5.0): ?Message
 ```php
 while (($message = $consumer->readOne(timeout: 1.0)) !== null) {
     process($message);
-    $consumer->storeOffset($message->getStream(), $message->getOffset());
+    $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
 }
 ```
 
@@ -191,7 +191,7 @@ public function storeOffset(string $partition, int $offset): void
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `$partition` | `string` | Yes | Partition (physical stream) name — from `Message::getStream()` or `getPartitions()` |
-| `$offset` | `int` | Yes | The offset value to store |
+| `$offset` | `int` | Yes | The **next** offset to consume, i.e. `lastProcessedOffset + 1` — the same convention auto-commit and the Java/Go/.NET clients use, so the value can be passed straight to `OffsetSpec::offset()` when resuming |
 
 #### Exceptions
 
@@ -201,7 +201,7 @@ public function storeOffset(string $partition, int $offset): void
 #### Example
 
 ```php
-$consumer->storeOffset($message->getStream(), $message->getOffset());
+$consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
 ```
 
 ---
@@ -343,7 +343,7 @@ try {
     while (true) {
         foreach ($consumer->read(timeout: 5.0) as $message) {
             processOrder($message->getBody());
-            $consumer->storeOffset($message->getStream(), $message->getOffset());
+            $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
         }
     }
 } finally {
@@ -375,7 +375,7 @@ while (true) {
     }
     foreach ($consumer->read(timeout: 1.0) as $message) {
         processOrder($message->getBody());
-        $consumer->storeOffset($message->getStream(), $message->getOffset());
+        $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
     }
 }
 ```

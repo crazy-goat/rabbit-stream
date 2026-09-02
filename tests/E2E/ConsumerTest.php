@@ -31,6 +31,49 @@ class ConsumerTest extends E2ETestCase
         }
     }
 
+    public function testResumingFromTheStoredOffsetDoesNotRedeliverTheLastMessage(): void
+    {
+        $connection = $this->connection;
+        $this->assertInstanceOf(Connection::class, $connection);
+
+        $producer = $connection->createProducer($this->streamName);
+        $producer->sendBatch(['first', 'second', 'third']);
+        $producer->waitForConfirms(timeout: 5);
+        $producer->close();
+
+        $consumerName = 'resume-test-' . uniqid();
+        $first = $connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::first(),
+            name: $consumerName,
+            autoCommit: 3
+        );
+
+        $received = [];
+        $deadline = microtime(true) + 5.0;
+        while (count($received) < 3 && microtime(true) < $deadline) {
+            foreach ($first->read(timeout: 0.5) as $message) {
+                $received[] = $message;
+            }
+        }
+        $first->close();
+        $this->assertCount(3, $received);
+
+        // The stored offset is the resume point, so it goes straight into
+        // OffsetSpec::offset() — which is inclusive. Storing the last consumed
+        // offset instead handed the third message out a second time (#396).
+        $stored = $connection->queryOffset($consumerName, $this->streamName);
+        $second = $connection->createConsumer(
+            $this->streamName,
+            OffsetSpec::offset($stored),
+            name: $consumerName
+        );
+        $redelivered = $second->read(timeout: 1.0);
+        $second->close();
+
+        $this->assertSame([], $redelivered, 'Everything up to the stored offset was already processed');
+    }
+
     public function testReadReturnsEmptyOnTimeout(): void
     {
         $this->assertNotNull($this->connection);
@@ -159,12 +202,14 @@ class ConsumerTest extends E2ETestCase
         $this->assertCount(5, $received, 'Should receive all 5 messages');
         $lastOffset = $received[4]->getOffset();
 
-        // Close should store the last offset
+        // Close should store the resume point
         $consumer->close();
 
-        // Query offset - should be the last message's offset
+        // Query offset — the stored value is the NEXT offset to consume, so a
+        // consumer resuming with OffsetSpec::offset() (inclusive) does not get
+        // the last processed message again (#396).
         $storedOffset = $this->connection->queryOffset($consumerName, $this->streamName);
-        $this->assertSame($lastOffset, $storedOffset, 'Stored offset should match last consumed message');
+        $this->assertSame($lastOffset + 1, $storedOffset, 'Stored offset must be lastConsumed + 1');
     }
 
     public function testNoAutoCommitOnCloseDoesNotStoreOffset(): void

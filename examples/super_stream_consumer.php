@@ -42,7 +42,7 @@ while ($running) {
         // message was delivered from; offset tracking is per-partition, so
         // it must be stored against that same partition name.
         echo "partition={$msg->getStream()} offset={$msg->getOffset()} body={$msg->getBody()}\n";
-        $consumer->storeOffset($msg->getStream(), $msg->getOffset());
+        $consumer->storeOffset($msg->getStream(), $msg->getOffset() + 1);
         $count++;
     }
 }

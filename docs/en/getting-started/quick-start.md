@@ -97,7 +97,7 @@ foreach ($messages as $msg) {
 
 // Store offset for potential resume
 if (isset($msg)) {
-    $consumer->storeOffset($msg->getOffset());
+    $consumer->storeOffset($msg->getOffset() + 1);
     echo "\nOffset stored: {$msg->getOffset()}\n";
 }
 

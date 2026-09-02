@@ -387,7 +387,7 @@ partition name explicitly:
 ```php
 foreach ($consumer->read(timeout: 5.0) as $message) {
     process($message);
-    $consumer->storeOffset($message->getStream(), $message->getOffset());
+    $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
 }
 ```
 

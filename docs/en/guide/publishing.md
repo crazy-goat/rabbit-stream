@@ -424,6 +424,25 @@ When publishing fails, you may receive these error codes:
 | 0x10 | ACCESS_REFUSED | No write permission |
 | 0x11 | PRECONDITION_FAILED | Stream precondition failed |
 
+### A Failed send() Publishes Nothing
+
+`send()`, `sendWithFilter()` and `sendBatch()` count a message as pending —
+and consume its publishing ID — only after the frame has been written. If the
+write throws (`ConnectionException`, `TimeoutException`), nothing is pending
+and the IDs stay contiguous, so the message can simply be sent again:
+
+```php
+try {
+    $producer->send($payload);
+} catch (ConnectionException $e) {
+    // Nothing was published: reconnect, re-create the producer, resend.
+}
+```
+
+Before v1.3.0 the counter was raised before the write, so one failed `send()`
+made every later `waitForConfirms()` block for its full timeout and then throw
+(#395).
+
 ### Timeout Handling
 
 Handle timeouts when waiting for confirms:
