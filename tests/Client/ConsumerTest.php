@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
+use CrazyGoat\RabbitStream\Client\AmqpDecoder;
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
@@ -18,6 +20,7 @@ use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedClosures;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedObjects;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
@@ -1305,5 +1308,86 @@ class ConsumerTest extends TestCase
                 'The broker already dropped the subscription'
             );
         }
+    }
+
+    public function testMaxDecodeDepthMustBePositive(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxDecodeDepth must be greater than 0');
+
+        new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxDecodeDepth: 0);
+    }
+
+    public function testMaxDecodeDepthReachesTheLazyDecodeOfADeliveredMessage(): void
+    {
+        // #450: the AMQP depth limit is chosen on the Consumer but applied inside
+        // Message, on the first accessor call — long after read() returned. The
+        // limit therefore has to travel with each Message; this checks it arrives.
+        // An AmqpValue body (0x76) nested 4 lists deep decodes under the default
+        // limit of 32 and must be rejected by a consumer that allows only 2.
+        $entry = AmqpFixtures::messageWithNestedBody(4);
+
+        $shallow = $this->consumerReceiving($entry, maxDecodeDepth: 2);
+        $message = $shallow->readOne(timeout: 0.5);
+        $this->assertInstanceOf(Message::class, $message);
+        try {
+            $message->getBody();
+            $this->fail('Expected the consumer maxDecodeDepth to reject a 4-deep body');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('recursion depth limit exceeded (max 2)', $e->getMessage());
+        }
+
+        // Same bytes, default limit: decodes.
+        $deep = $this->consumerReceiving($entry);
+        $decoded = $deep->readOne(timeout: 0.5);
+        $this->assertInstanceOf(Message::class, $decoded);
+        $this->assertSame([[[[null]]]], $decoded->getBody());
+    }
+
+    /**
+     * A Consumer that has already been handed one chunk holding $entryData as its
+     * single entry.
+     */
+    private function consumerReceiving(
+        string $entryData,
+        int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH
+    ): Consumer {
+        $registeredCallback = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$registeredCallback): void {
+                $registeredCallback = $cb;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            maxDecodeDepth: $maxDecodeDepth
+        );
+        $this->assertIsCallable($registeredCallback);
+
+        $chunkBytes = $this->buildOneEntryChunk($entryData);
+        $registeredCallback(new class ($chunkBytes) {
+            public function __construct(private readonly string $bytes)
+            {
+            }
+
+            /** @return array{0: string, 1: int, 2: int} */
+            public function getChunkView(): array
+            {
+                return [$this->bytes, 0, strlen($this->bytes)];
+            }
+        });
+
+        return $consumer;
     }
 }

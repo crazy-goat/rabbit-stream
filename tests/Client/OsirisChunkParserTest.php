@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
 use PHPUnit\Framework\TestCase;
 
 class OsirisChunkParserTest extends TestCase
@@ -794,5 +795,31 @@ class OsirisChunkParserTest extends TestCase
         foreach ($generator as $message) {
             // trigger iteration
         }
+    }
+
+    public function testParseMessagesPassesMaxDepthToEachMessage(): void
+    {
+        // #450: parseMessages() is the Consumer hot path and builds every Message
+        // itself, so the operator's depth limit has to be forwarded here too.
+        $entry = AmqpFixtures::messageWithNestedBody(4);
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: [['type' => 'simple', 'data' => $entry]]
+        );
+
+        $shallow = iterator_to_array(OsirisChunkParser::parseMessages($chunk, maxDepth: 2), false);
+        $this->assertCount(1, $shallow);
+        try {
+            $shallow[0]->getBody();
+            $this->fail('Expected a depth limit of 2 to reject a 4-deep body');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('recursion depth limit exceeded (max 2)', $e->getMessage());
+        }
+
+        $default = iterator_to_array(OsirisChunkParser::parseMessages($chunk), false);
+        $this->assertSame([[[[null]]]], $default[0]->getBody());
     }
 }

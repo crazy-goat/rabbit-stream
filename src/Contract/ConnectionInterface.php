@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Contract;
 
+use CrazyGoat\RabbitStream\Client\AmqpDecoder;
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
@@ -65,6 +66,8 @@ interface ConnectionInterface
      * @param array<int, string> $filterValues Stream filtering values, sent as
      *                            `filter.0`, `filter.1`, ... properties (broker-side,
      *                            chunk-granular filtering — see Consumer's docblock).
+     * @param int $maxDecodeDepth Maximum AMQP nesting depth accepted when a delivered
+     *                            message is decoded — see Consumer's constructor (#450).
      */
     public function createConsumer(
         string $stream,
@@ -77,6 +80,7 @@ interface ConnectionInterface
         bool $singleActiveConsumer = false,
         ?string $superStream = null,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
+        int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     ): ConsumerInterface;
 
     /**
@@ -106,6 +110,7 @@ interface ConnectionInterface
         int $initialCredit = 10,
         bool $singleActiveConsumer = false,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
+        int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     ): SuperStreamConsumerInterface;
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;

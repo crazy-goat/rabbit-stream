@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Buffer;
 
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Platform;
 
 /**
  * Reads scalars, strings and byte arrays out of a binary buffer with an
@@ -35,6 +36,9 @@ class ReadBuffer
         private readonly int $offset = 0,
         ?int $length = null
     ) {
+        // getUint32()/getUint64()/getInt64() would return floats instead of ints
+        // on a 32-bit build, silently corrupting offsets (#458).
+        Platform::assertSixtyFourBitIntegers();
         $this->windowLength = $length ?? (strlen($buffer) - $this->offset);
     }
 
@@ -77,6 +81,11 @@ class ReadBuffer
         $this->position = 0;
     }
 
+    /**
+     * A full uint32 fits a 64-bit PHP int, so the value is always exact here;
+     * on a 32-bit build unpack('N') would return a float above PHP_INT_MAX,
+     * which is why the constructor rejects that platform outright (#458).
+     */
     public function getUint32(): int
     {
         $this->ensureAvailable(4);
@@ -88,6 +97,12 @@ class ReadBuffer
         return $data[1];
     }
 
+    /**
+     * uint64 is read as a native 64-bit PHP int, so values above PHP_INT_MAX wrap
+     * to negative (tracked separately as #393); on a 32-bit build unpack('J')
+     * would instead return a float for most values, which is why the constructor
+     * rejects that platform outright (#458).
+     */
     public function getUint64(): int
     {
         $this->ensureAvailable(8);

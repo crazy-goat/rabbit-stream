@@ -24,6 +24,7 @@ class Consumer
         bool $singleActiveConsumer = false,
         ?string $superStream = null,
         int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
+        int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     );
     
     // Reading methods
@@ -68,6 +69,7 @@ $consumer = $connection->createConsumer(
     bool $singleActiveConsumer = false, // Optional: single active consumer (requires $name)
     ?string $superStream = null,      // Optional: super-stream partition name
     int $creditWindowBytes = 8 * 1024 * 1024, // Optional: adaptive credit window in bytes (0 = fixed initialCredit)
+    int $maxDecodeDepth = 32,         // Optional: max AMQP nesting depth accepted when decoding
 ): Consumer
 ```
 
@@ -86,6 +88,28 @@ $consumer = $connection->createConsumer(
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer: the broker activates exactly one consumer per `$name` group at a time. Requires `$name`; throws `InvalidArgumentException` otherwise. See [Single Active Consumer](../guide/consuming.md#8-single-active-consumer). |
 | `$superStream` | `?string` | No | Name of the super stream this partition belongs to (sent as the `super-stream` property). |
 | `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
+| `$maxDecodeDepth` | `int` | No | Maximum AMQP nesting depth accepted when a delivered message is decoded (default `32`). Must be at least 1. A deeper frame is rejected with `DeserializationException` — the guard that stops a small malicious frame from exhausting the PHP stack. |
+
+### Where the Decode Limit Applies
+
+Message decoding is **lazy**: `read()` hands back `Message` objects that still
+hold their raw bytes, and the AMQP sections are decoded on the first accessor
+call that needs them. `$maxDecodeDepth` therefore travels with each `Message`
+and is enforced by `getBody()` / `getApplicationProperties()` / ..., not by
+`read()`:
+
+```php
+$consumer = $connection->createConsumer('my-stream', OffsetSpec::first(), maxDecodeDepth: 8);
+
+foreach ($consumer->read() as $message) {
+    try {
+        $body = $message->getBody();   // <- the limit is enforced here
+    } catch (DeserializationException $e) {
+        // Nesting deeper than 8, or otherwise malformed AMQP: skip this message.
+        continue;
+    }
+}
+```
 
 ### OffsetSpec Factory Methods
 

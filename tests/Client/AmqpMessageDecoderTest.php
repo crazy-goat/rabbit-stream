@@ -7,6 +7,8 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
 use CrazyGoat\RabbitStream\Client\ChunkEntry;
 use CrazyGoat\RabbitStream\Client\Message;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
 use PHPUnit\Framework\TestCase;
 
 class AmqpMessageDecoderTest extends TestCase
@@ -421,5 +423,24 @@ class AmqpMessageDecoderTest extends TestCase
         $message = AmqpMessageDecoder::decode($entry);
 
         $this->assertNull($message->getBody());
+    }
+
+    public function testMaxDepthIsPassedThroughToTheDecodedMessages(): void
+    {
+        // #450: decode()/decodeAll() only wrap the entry — the AMQP decode happens
+        // later, inside Message — so the limit has to be handed to the Message.
+        $entry = new ChunkEntry(1, AmqpFixtures::messageWithNestedBody(4), 1000);
+
+        try {
+            AmqpMessageDecoder::decode($entry, maxDepth: 2)->getBody();
+            $this->fail('Expected a depth limit of 2 to reject a 4-deep body');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('recursion depth limit exceeded (max 2)', $e->getMessage());
+        }
+
+        $all = AmqpMessageDecoder::decodeAll([$entry], maxDepth: 2);
+        $this->assertCount(1, $all);
+        $this->expectException(DeserializationException::class);
+        $all[0]->getBody();
     }
 }

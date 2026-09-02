@@ -28,6 +28,11 @@ class Message
      * @param string|null $stream The name of the stream this message was delivered from — set
      *                            once at construction (see {@see self::getStream()}); null when
      *                            unknown (e.g. constructed outside a Consumer's deliver path).
+     * @param int $maxDepth Maximum AMQP nesting depth accepted when this message is decoded
+     *                            (#450). Carried on the message rather than passed to a getter
+     *                            because decoding is lazy: it happens on the first accessor
+     *                            call, long after the Consumer that chose the limit handed the
+     *                            message over. Ignored for an eagerly-constructed message.
      */
     public function __construct(
         private readonly int $offset,
@@ -41,6 +46,7 @@ class Message
         private readonly int $chunkStart = 0,
         private readonly int $chunkLength = 0,
         private readonly ?string $stream = null,
+        private readonly int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     ) {
         $this->decoded = $this->rawData === null && $this->chunk === null;
     }
@@ -54,9 +60,20 @@ class Message
      * when the entry's bytes are a contiguous range inside a chunk string the caller
      * still holds, to avoid that copy entirely.
      */
-    public static function fromRawEntry(int $offset, int $timestamp, string $rawData, ?string $stream = null): self
-    {
-        return new self(offset: $offset, timestamp: $timestamp, rawData: $rawData, stream: $stream);
+    public static function fromRawEntry(
+        int $offset,
+        int $timestamp,
+        string $rawData,
+        ?string $stream = null,
+        int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+    ): self {
+        return new self(
+            offset: $offset,
+            timestamp: $timestamp,
+            rawData: $rawData,
+            stream: $stream,
+            maxDepth: $maxDepth,
+        );
     }
 
     /**
@@ -78,6 +95,7 @@ class Message
         int $start,
         int $length,
         ?string $stream = null,
+        int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     ): self {
         return new self(
             offset: $offset,
@@ -86,6 +104,7 @@ class Message
             chunkStart: $start,
             chunkLength: $length,
             stream: $stream,
+            maxDepth: $maxDepth,
         );
     }
 
@@ -135,7 +154,7 @@ class Message
             }
         }
 
-        $this->applyDecodedSections(AmqpDecoder::decodeMessage($rawData));
+        $this->applyDecodedSections(AmqpDecoder::decodeMessage($rawData, $this->maxDepth));
     }
 
     /**
@@ -178,7 +197,9 @@ class Message
             }
         }
 
-        $this->applyDecodedSections(AmqpDecoder::decodeMessage(substr($chunk, $start, $length)));
+        $this->applyDecodedSections(
+            AmqpDecoder::decodeMessage(substr($chunk, $start, $length), $this->maxDepth)
+        );
     }
 
     /**
