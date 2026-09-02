@@ -11,10 +11,12 @@ use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\PublishRequestV2;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 
 class Producer implements ProducerInterface
 {
@@ -98,6 +100,39 @@ class Producer implements ProducerInterface
         $this->connection->sendMessage(new PublishRequestV1(
             $this->publisherId,
             new PublishedMessage($this->publishingId++, AmqpMessageEncoder::encodeDataSection($message))
+        ), $timeout);
+    }
+
+    /**
+     * Publish a single message tagged with a stream-filtering value.
+     *
+     * Uses the Publish v2 frame (`PublishRequestV2`/`PublishedMessageV2`) which carries
+     * a per-message `filterValue` the broker hashes into a per-chunk bloom filter.
+     * A consumer subscribing with matching `filterValues` (see
+     * `Connection::createConsumer()`) asks the broker to only deliver chunks whose
+     * bloom filter may contain that value — filtering is CHUNK-granular, not
+     * message-granular: a delivered chunk can still contain non-matching messages,
+     * so callers that need exact filtering must also post-filter on the consume
+     * side using the same filter value convention.
+     *
+     * @param string      $message    plain payload (see send())
+     * @param string|null $filterValue value hashed into the chunk's bloom filter;
+     *                                 null publishes without a filter value (never
+     *                                 matches an active filter, always delivered
+     *                                 when `matchUnfiltered` is enabled)
+     * @param ?float      $timeout    socket write timeout in seconds; null uses connection default
+     */
+    public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void
+    {
+        $this->applyBackpressure($timeout);
+        $this->pendingConfirms++;
+        $this->connection->sendMessage(new PublishRequestV2(
+            $this->publisherId,
+            new PublishedMessageV2(
+                $this->publishingId++,
+                $filterValue ?? '',
+                AmqpMessageEncoder::encodeDataSection($message)
+            )
         ), $timeout);
     }
 

@@ -534,7 +534,80 @@ $consumer = $connection->createConsumer(
 
 For detailed flow control documentation, see [Flow Control Guide](flow-control.md).
 
-## 7. Low-Level Consuming
+## 7. Stream Filtering
+
+The broker can filter a stream by a per-message filter value tagged at publish
+time, so a consumer only receives chunks that may contain matching messages.
+
+> **Caveat — chunk granularity.** Filtering happens on whole chunks via a
+> bloom filter, not per message: a chunk is delivered as soon as its bloom
+> filter *may* contain a subscribed value, and every message in a delivered
+> chunk arrives, matching or not. A chunk containing *only* non-matching
+> values is never delivered, but a delivered chunk can still contain
+> non-matching messages if they share a chunk with a matching one. Exact,
+> message-granular filtering requires the application to post-filter using
+> the message's own filter value.
+
+**Publishing with a filter value:**
+```php
+$producer = $connection->createProducer('events');
+$producer->sendWithFilter('order created', filterValue: 'region-eu');
+$producer->sendWithFilter('order created', filterValue: 'region-us');
+```
+
+**Subscribing with matching filter values:**
+```php
+$consumer = $connection->createConsumer(
+    'events',
+    OffsetSpec::first(),
+    filterValues: ['region-eu'],
+    matchUnfiltered: false, // set true to also receive messages with no filter value
+);
+```
+
+## 8. Single Active Consumer
+
+Single active consumer (SAC) lets several consumers share one logical
+subscription (identified by `name`): the broker activates exactly one at a
+time and hands over activation to another when the active one disconnects —
+useful for HA consumer groups without duplicate processing.
+
+```php
+$consumer = $connection->createConsumer(
+    'events',
+    OffsetSpec::first(),
+    name: 'order-processor',    // required: the broker groups SAC consumers by this reference
+    autoCommit: 1,               // store progress so a successor can resume without gaps
+    singleActiveConsumer: true,
+);
+
+if ($consumer->isActive()) {
+    $messages = $consumer->read(timeout: 5.0);
+}
+```
+
+By default, when this consumer is activated it resumes right after its
+stored offset (or its initial `OffsetSpec` if nothing was stored yet); when
+deactivated, it stores its last processed offset (if `autoCommit` is on) so
+the next active consumer picks up from there. Override this with
+`onConsumerUpdate()`:
+
+```php
+$consumer->onConsumerUpdate(function (bool $active, $consumer): ?OffsetSpec {
+    if (!$active) {
+        return null; // keep current position, nothing else to do
+    }
+    // custom resume logic, e.g. always replay from the start
+    return OffsetSpec::first();
+});
+```
+
+Grouping is by `name` **across connections** — two consumers on the same
+stream with the same `name` on different connections join the same SAC
+group; on the same connection they would not (each subscription is
+independent per connection).
+
+## 9. Low-Level Consuming
 
 For advanced use cases, you can use the protocol-level commands directly.
 The snippets below use a raw `StreamConnection` (`$stream`) — the low-level

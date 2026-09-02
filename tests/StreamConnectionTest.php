@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests;
 
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
@@ -12,10 +13,12 @@ use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -492,6 +495,64 @@ class StreamConnectionTest extends TestCase
         socket_close($clientSocket);
     }
 
+    public function testRequestParksResponsesOfOtherCorrelationIds(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Server answers out of order: correlation 2 first, then correlation 1
+        // (the one request() below is waiting for).
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('a'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertSame(1, $response->getCorrelationId());
+
+        // The parked correlation-2 response is handed to the next plain readMessage().
+        $parked = $connection->readMessage(1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $parked);
+        $this->assertSame(2, $parked->getCorrelationId());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testNestedRequestFromConsumerUpdateHandlerDoesNotStealOuterResponse(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Single-active-consumer scenario (#496): while the outer request() waits
+        // for its SubscribeResponse (correlation 1), the broker pushes a
+        // ConsumerUpdate, whose handler issues its own request() (correlation 2).
+        // The server then answers 1 before 2.
+        socket_write($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $inner = null;
+        $connection->registerConsumerUpdateHandler(1, function () use ($connection, &$inner): OffsetSpec {
+            $inner = $connection->request(new CreateRequestV1('inner'), 1.0);
+            return OffsetSpec::offset(42);
+        });
+
+        $outer = $connection->request(new CreateRequestV1('outer'), 1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $outer);
+        $this->assertSame(1, $outer->getCorrelationId());
+        $this->assertInstanceOf(CreateResponseV1::class, $inner);
+        $this->assertSame(2, $inner->getCorrelationId());
+
+        // Nothing left parked.
+        $this->expectException(TimeoutException::class);
+        $connection->readMessage(0.05);
+    }
+
     public function testDispatchHeartbeatEchoesBackAndInvokesCallback(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
@@ -866,6 +927,138 @@ class StreamConnectionTest extends TestCase
         $unpacked = unpack('n', substr($response, 0, 2));
         $this->assertIsArray($unpacked);
         $this->assertEquals(0x801a, $unpacked[1]);
+
+        // GitHub #460: with no callback registered the reply must default to
+        // offsetType 0 (none / keep current position) + offset 0, not "first".
+        $unpackedCorr = unpack('N', substr($response, 4, 4));
+        $this->assertIsArray($unpackedCorr);
+        $this->assertEquals($correlationId, $unpackedCorr[1]);
+
+        $unpackedResponseCode = unpack('n', substr($response, 8, 2));
+        $this->assertIsArray($unpackedResponseCode);
+        $this->assertEquals(1, $unpackedResponseCode[1]);
+
+        $unpackedOffsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($unpackedOffsetType);
+        $this->assertEquals(0, $unpackedOffsetType[1]);
+
+        $unpackedOffset = unpack('J', substr($response, 12, 8));
+        $this->assertIsArray($unpackedOffset);
+        $this->assertEquals(0, $unpackedOffset[1]);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testDispatchConsumerUpdateRejectsInvalidOffsetTypeFromCallback(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->onConsumerUpdate(fn(ConsumerUpdateResponseV1 $query): array => [6, 0]);
+
+        $correlationId = 1;
+        $subscriptionId = 1;
+        $active = 1;
+        $content = pack('N', $correlationId)
+            . pack('C', $subscriptionId)
+            . pack('C', $active);
+        $frame = $this->buildFrame(0x001a, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testPerSubscriptionConsumerUpdateHandlerTakesPriorityOverGlobalCallback(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $globalInvoked = false;
+        $connection->onConsumerUpdate(function () use (&$globalInvoked): array {
+            $globalInvoked = true;
+            return [1, 0];
+        });
+
+        $subscriptionInvoked = false;
+        $connection->registerConsumerUpdateHandler(
+            3,
+            function (ConsumerUpdateResponseV1 $query) use (&$subscriptionInvoked): OffsetSpec {
+                $subscriptionInvoked = true;
+                return OffsetSpec::offset(777);
+            }
+        );
+
+        $correlationId = 9;
+        $subscriptionId = 3;
+        $active = 1;
+        $content = pack('N', $correlationId)
+            . pack('C', $subscriptionId)
+            . pack('C', $active);
+        $frame = $this->buildFrame(0x001a, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertTrue($subscriptionInvoked);
+        $this->assertFalse($globalInvoked);
+
+        $response = $this->readResponse($serverSocket);
+        $this->assertNotNull($response);
+        $unpackedOffsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($unpackedOffsetType);
+        $this->assertEquals(OffsetSpec::TYPE_OFFSET, $unpackedOffsetType[1]);
+        $unpackedOffset = unpack('J', substr($response, 12, 8));
+        $this->assertIsArray($unpackedOffset);
+        $this->assertEquals(777, $unpackedOffset[1]);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testUnregisterSubscriberDropsConsumerUpdateHandler(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $subscriptionInvoked = false;
+        $connection->registerConsumerUpdateHandler(
+            3,
+            function () use (&$subscriptionInvoked): OffsetSpec {
+                $subscriptionInvoked = true;
+                return OffsetSpec::offset(777);
+            }
+        );
+        $connection->unregisterSubscriber(3);
+
+        $correlationId = 9;
+        $subscriptionId = 3;
+        $active = 1;
+        $content = pack('N', $correlationId)
+            . pack('C', $subscriptionId)
+            . pack('C', $active);
+        $frame = $this->buildFrame(0x001a, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertFalse($subscriptionInvoked);
+
+        $response = $this->readResponse($serverSocket);
+        $this->assertNotNull($response);
+        $unpackedOffsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($unpackedOffsetType);
+        $this->assertEquals(OffsetSpec::TYPE_NONE, $unpackedOffsetType[1]);
 
         socket_close($serverSocket);
         socket_close($clientSocket);

@@ -22,6 +22,7 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -30,6 +31,15 @@ class StreamConnection
     private bool $connected = false;
     private ?\Socket $socket = null;
     private int $correlationId = 0;
+    /**
+     * Correlated responses read by request() while it was waiting for a different
+     * correlation ID (e.g. a nested request() issued from a server-push handler
+     * such as a ConsumerUpdate query). Consumed FIFO by readMessage() and by
+     * correlation ID by request().
+     *
+     * @var list<object>
+     */
+    private array $pendingResponses = [];
     private bool $running = false;
     private readonly bool $debugLogging;
 
@@ -37,6 +47,8 @@ class StreamConnection
     private array $publisherCallbacks = [];
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
+    /** @var array<int, callable> */
+    private array $consumerUpdateHandlers = [];
     private ?\Closure $metadataUpdateCallback = null;
     private ?\Closure $heartbeatCallback = null;
     private ?\Closure $consumerUpdateCallback = null;
@@ -294,6 +306,35 @@ class StreamConnection
     public function unregisterSubscriber(int $subscriptionId): void
     {
         unset($this->subscriberCallbacks[$subscriptionId]);
+        unset($this->consumerUpdateHandlers[$subscriptionId]);
+    }
+
+    /**
+     * Register a per-subscription handler for ConsumerUpdate queries (single
+     * active consumer activation/deactivation, super-stream rebalance).
+     *
+     * Dispatch order in handleConsumerUpdate(): a registered per-subscription
+     * handler takes priority over the global onConsumerUpdate() callback,
+     * which in turn takes priority over the "none" (keep current position)
+     * default.
+     *
+     * @param int      $subscriptionId Subscription ID as declared with the server
+     * @param callable $handler        Called with (ConsumerUpdateResponseV1 $update): ?OffsetSpec.
+     *                                 Returning null means "none" (offsetType 0).
+     */
+    public function registerConsumerUpdateHandler(int $subscriptionId, callable $handler): void
+    {
+        $this->consumerUpdateHandlers[$subscriptionId] = $handler;
+    }
+
+    /**
+     * Remove a previously registered per-subscription ConsumerUpdate handler.
+     *
+     * @param int $subscriptionId Subscription ID to unregister
+     */
+    public function unregisterConsumerUpdateHandler(int $subscriptionId): void
+    {
+        unset($this->consumerUpdateHandlers[$subscriptionId]);
     }
 
     /**
@@ -458,11 +499,54 @@ class StreamConnection
      */
     public function readMessage(float $timeout = 30.0): object
     {
+        if ($this->pendingResponses !== []) {
+            return array_shift($this->pendingResponses);
+        }
+
+        return $this->readResponse($timeout, null);
+    }
+
+    /**
+     * Send a correlated request and return its matching response.
+     *
+     * Unlike sendMessage()+readMessage(), this matches the reply by correlation
+     * ID, so it is safe to call re-entrantly from a server-push handler (for
+     * example a ConsumerUpdate handler querying the stored offset while an outer
+     * request() is still waiting for its own SubscribeResponse). Responses that
+     * belong to another in-flight request are parked and handed to that
+     * request (or to the next readMessage()) instead of being misattributed.
+     *
+     * @param object $request Request object implementing ToStreamBufferInterface and CorrelationInterface
+     * @param float  $timeout Seconds to wait for the response
+     * @throws InvalidArgumentException If the request carries no correlation ID
+     * @throws ConnectionException|DeserializationException|ProtocolException|TimeoutException See readMessage()
+     */
+    public function request(object $request, float $timeout = 30.0): object
+    {
+        if (!$request instanceof CorrelationInterface) {
+            throw new InvalidArgumentException('request() requires a correlated request; use sendMessage()');
+        }
+        $this->sendMessage($request, $timeout);
+
+        return $this->readResponse($timeout, $request->getCorrelationId());
+    }
+
+    private function readResponse(float $timeout, ?int $expectedCorrelationId): object
+    {
         $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
 
         while (true) {
             if (!$this->connected) {
                 throw new ConnectionException("Connection closed");
+            }
+
+            // A nested request() (issued from a server-push handler dispatched
+            // below) may already have parked the response we are waiting for.
+            if ($expectedCorrelationId !== null) {
+                $parked = $this->takePendingResponse($expectedCorrelationId);
+                if ($parked !== null) {
+                    return $parked;
+                }
             }
 
             $remainingTimeout = $timeout;
@@ -491,8 +575,30 @@ class StreamConnection
                 continue;
             }
 
-            return $this->serializer->deserialize($frame->getRemainingBytes());
+            $response = $this->serializer->deserialize($frame->getRemainingBytes());
+            if (
+                $expectedCorrelationId !== null
+                && $response instanceof CorrelationInterface
+                && $response->getCorrelationId() !== $expectedCorrelationId
+            ) {
+                // Belongs to another in-flight request (outer or nested) — park it.
+                $this->pendingResponses[] = $response;
+                continue;
+            }
+
+            return $response;
         }
+    }
+
+    private function takePendingResponse(int $correlationId): ?object
+    {
+        foreach ($this->pendingResponses as $index => $pending) {
+            if ($pending instanceof CorrelationInterface && $pending->getCorrelationId() === $correlationId) {
+                array_splice($this->pendingResponses, $index, 1);
+                return $pending;
+            }
+        }
+        return null;
     }
 
     /**
@@ -690,11 +796,25 @@ class StreamConnection
         if (!$query instanceof ConsumerUpdateResponseV1) {
             throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
         }
-        $offsetType = 1;
+        $offsetType = OffsetSpec::TYPE_NONE;
         $offset = 0;
-        if ($this->consumerUpdateCallback instanceof \Closure) {
+
+        $subscriptionHandler = $this->consumerUpdateHandlers[$query->getSubscriptionId()] ?? null;
+        if ($subscriptionHandler !== null) {
+            $offsetSpec = $subscriptionHandler($query);
+            if ($offsetSpec !== null) {
+                [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
+            }
+        } elseif ($this->consumerUpdateCallback instanceof \Closure) {
             [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
         }
+
+        if ($offsetType < 0 || $offsetType > 5) {
+            throw new InvalidArgumentException(
+                "Invalid ConsumerUpdate reply offset type: {$offsetType} (must be 0-5)"
+            );
+        }
+
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
             offsetType: $offsetType,

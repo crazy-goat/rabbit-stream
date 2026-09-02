@@ -35,6 +35,17 @@ class Connection
     public function queryOffset(string $reference, string $stream): int;
     public function storeOffset(string $reference, string $stream, int $offset): void;
     
+    // Super streams
+    public function createSuperStream(
+        string $name,
+        array $partitions = [],
+        array $bindingKeys = [],
+        array $arguments = []
+    ): void;
+    public function deleteSuperStream(string $name): void;
+    public function route(string $routingKey, string $superStream): array;
+    public function partitions(string $superStream): array;
+    
     // Factory methods
     public function createProducer(
         string $stream,
@@ -48,7 +59,27 @@ class Connection
         ?string $name = null,
         int $autoCommit = 0,
         int $initialCredit = 10,
+        array $filterValues = [],
+        bool $matchUnfiltered = false,
+        bool $singleActiveConsumer = false,
+        ?string $superStream = null,
     ): Consumer;
+    
+    public function createSuperStreamProducer(
+        string $superStream,
+        ?RoutingStrategy $strategy = null,
+        ?string $name = null,
+        ?callable $onConfirm = null,
+    ): SuperStreamProducerInterface;
+    
+    public function createSuperStreamConsumer(
+        string $superStream,
+        OffsetSpec $offset,
+        ?string $name = null,
+        int $autoCommit = 0,
+        int $initialCredit = 10,
+        bool $singleActiveConsumer = false,
+    ): SuperStreamConsumerInterface;
     
     // Lifecycle
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void;
@@ -404,6 +435,166 @@ foreach ($metadata->getStreamMetadata() as $streamMeta) {
 
 ---
 
+## Super Stream Methods
+
+See the [Super Streams Guide](../guide/super-streams.md) for a full walkthrough; this section is the reference for the four `Connection` methods it uses.
+
+### createSuperStream()
+
+Create a super stream: a logical stream backed by several physical partition streams, with broker-side exchange bindings between them.
+
+```php
+/**
+ * @param string[] $partitions
+ * @param string[] $bindingKeys
+ * @param array<string, string> $arguments
+ */
+public function createSuperStream(
+    string $name,
+    array $partitions = [],
+    array $bindingKeys = [],
+    array $arguments = []
+): void
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$name` | `string` | Yes | Name of the super stream |
+| `$partitions` | `string[]` | No | Names of the physical partition streams to create (e.g. `['orders-0', 'orders-1']`) |
+| `$bindingKeys` | `string[]` | No | Exchange binding key per partition, same order as `$partitions` — matched by `route()` |
+| `$arguments` | `array<string, string>` | No | Per-partition stream arguments, same keys as `createStream()` (e.g. `max-length-bytes`, `max-age`) |
+
+#### Return Value
+
+`void`
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ProtocolException` - If the super stream already exists or arguments are invalid
+
+#### Example
+
+```php
+$connection->createSuperStream(
+    'orders',
+    ['orders-0', 'orders-1', 'orders-2'],
+    ['0', '1', '2'],
+    ['max-age' => '24h']
+);
+```
+
+---
+
+### deleteSuperStream()
+
+Delete a super stream and all of its partitions.
+
+```php
+public function deleteSuperStream(string $name): void
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$name` | `string` | Yes | Name of the super stream to delete |
+
+#### Return Value
+
+`void`
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ProtocolException` - If the super stream does not exist
+
+#### Example
+
+```php
+$connection->deleteSuperStream('orders');
+```
+
+---
+
+### route()
+
+Ask the broker which partition(s) a routing key maps to, via the exchange bindings created with `createSuperStream()`'s `$bindingKeys`.
+
+```php
+/** @return string[] */
+public function route(string $routingKey, string $superStream): array
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$routingKey` | `string` | Yes | The key to route |
+| `$superStream` | `string` | Yes | Name of the super stream |
+
+#### Return Value
+
+`string[]` - The partition stream name(s) matching this routing key. Like the Java client, more than one partition can legitimately be returned for a single key (overlapping binding keys).
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+
+#### Example
+
+```php
+$streams = $connection->route('customer-123', 'orders');
+echo implode(', ', $streams); // e.g. "orders-1"
+```
+
+#### Notes
+
+- One broker round trip per call. `KeyRoutingStrategy` (used by `createSuperStreamProducer()`) wraps this with an in-memory per-key cache.
+
+---
+
+### partitions()
+
+Resolve a super stream's partition (physical stream) names.
+
+```php
+/** @return list<string> */
+public function partitions(string $superStream): array
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$superStream` | `string` | Yes | Name of the super stream |
+
+#### Return Value
+
+`list<string>` - The partition stream names, e.g. `['orders-0', 'orders-1', 'orders-2']`
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ProtocolException` - If the super stream does not exist, or exists but currently has zero partitions
+
+#### Example
+
+```php
+$partitions = $connection->partitions('orders');
+foreach ($partitions as $partition) {
+    echo "Partition: {$partition}\n";
+}
+```
+
+#### Notes
+
+- `createSuperStreamProducer()` and `createSuperStreamConsumer()` call this internally to resolve partitions
+
+---
+
 ## Offset Management Methods
 
 ### queryOffset()
@@ -539,6 +730,10 @@ public function createConsumer(
     ?string $name = null,
     int $autoCommit = 0,
     int $initialCredit = 10,
+    array $filterValues = [],
+    bool $matchUnfiltered = false,
+    bool $singleActiveConsumer = false,
+    ?string $superStream = null,
 ): Consumer
 ```
 
@@ -548,9 +743,13 @@ public function createConsumer(
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification (see `OffsetSpec` factory methods) |
-| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`. |
+| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Auto-commit interval (number of messages). `0` disables auto-commit. |
 | `$initialCredit` | `int` | No | Initial flow control credits. Default: `10` |
+| `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (`filter.0`, `filter.1`, ... properties). Chunk-granular — see the [Consumer API reference](consumer.md). |
+| `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver messages published with no filter value. |
+| `$singleActiveConsumer` | `bool` | No | Enables single active consumer for this subscription. Requires `$name`. |
+| `$superStream` | `?string` | No | Name of the super stream this partition belongs to. |
 
 #### OffsetSpec Factory Methods
 
@@ -596,6 +795,120 @@ $consumer = $connection->createConsumer(
 ```
 
 **See Also:** [Consumer API Reference](consumer.md)
+
+---
+
+### createSuperStreamProducer()
+
+Create a producer that publishes to a super stream's partitions, routing each message via a `RoutingStrategy`.
+
+```php
+use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
+
+public function createSuperStreamProducer(
+    string $superStream,
+    ?RoutingStrategy $strategy = null,
+    ?string $name = null,
+    ?callable $onConfirm = null,
+    int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+): SuperStreamProducerInterface
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$superStream` | `string` | Yes | Name of the super stream to publish to |
+| `$strategy` | `?RoutingStrategy` | No | Routing strategy. Default: `HashRoutingStrategy` — MurmurHash3 x86_32, seed `104729`, matching the Java/.NET clients exactly, so a routing key lands on the same partition regardless of which client language published it. See `KeyRoutingStrategy` for broker-resolved (exchange binding) routing instead. |
+| `$name` | `?string` | No | Base producer name. Each partition's underlying `Producer` gets the derived name `"{$name}-{$partition}"`, so per-partition sequence dedup still works. |
+| `$onConfirm` | `?callable` | No | Confirmation callback, passed through to every partition's `Producer`. |
+| `$maxPendingConfirms` | `int` | No | Back-pressure cap, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
+
+#### Return Value
+
+`SuperStreamProducerInterface` - resolves the super stream's partitions immediately (one `partitions()` round trip), but opens each partition's `Producer` lazily on first publish to that partition
+
+#### Exceptions
+
+- `ProtocolException` - If the super stream does not exist or has zero partitions
+
+#### Example
+
+```php
+use CrazyGoat\RabbitStream\Client\Routing\KeyRoutingStrategy;
+
+// Default hash routing
+$producer = $connection->createSuperStreamProducer('orders');
+$producer->send('Order payload', routingKey: 'customer-123');
+
+// Broker-resolved key routing instead
+$producer = $connection->createSuperStreamProducer(
+    'orders',
+    new KeyRoutingStrategy($connection, 'orders'),
+    name: 'order-service',
+);
+```
+
+#### Notes
+
+- Partition membership is resolved once, at creation time — a topology change (partition leader change, or the super stream's partition set itself changing) is **not** automatically detected; recreate the `SuperStreamProducer` if you need to react to that.
+
+**See Also:** [SuperStreamProducer API Reference](super-stream-producer.md)
+
+---
+
+### createSuperStreamConsumer()
+
+Create a consumer that subscribes to every partition of a super stream, all sharing the same consumer `$name`.
+
+```php
+public function createSuperStreamConsumer(
+    string $superStream,
+    OffsetSpec $offset,
+    ?string $name = null,
+    int $autoCommit = 0,
+    int $initialCredit = 10,
+    bool $singleActiveConsumer = false,
+): SuperStreamConsumerInterface
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$superStream` | `string` | Yes | Name of the super stream to consume from |
+| `$offset` | `OffsetSpec` | Yes | Starting offset specification, applied to every partition |
+| `$name` | `?string` | No | Consumer name, shared by every partition's subscription. Required for `singleActiveConsumer` — the broker groups the per-partition subscriptions into one single-active-consumer group *per partition* using this shared name. |
+| `$autoCommit` | `int` | No | Auto-commit interval (messages), passed through to every partition's `Consumer` |
+| `$initialCredit` | `int` | No | Initial flow control credits, passed through to every partition's `Consumer` |
+| `$singleActiveConsumer` | `bool` | No | Enables single active consumer per partition. Requires `$name`. |
+
+#### Return Value
+
+`SuperStreamConsumerInterface` - one plain `Consumer` per partition, aggregated
+
+#### Exceptions
+
+- `ProtocolException` - If the super stream does not exist or has zero partitions
+
+#### Example
+
+```php
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
+$consumer = $connection->createSuperStreamConsumer('orders', OffsetSpec::first(), name: 'order-processor');
+
+foreach ($consumer->read(timeout: 5.0) as $message) {
+    echo "[{$message->getStream()}] {$message->getBody()}\n";
+    $consumer->storeOffset($message->getStream(), $message->getOffset());
+}
+```
+
+#### Notes
+
+- Offset tracking is entirely per-partition — there is no aggregate, super-stream-wide offset. `storeOffset()`/`queryOffset()` on the returned consumer always take the partition name explicitly (`Message::getStream()` names it).
+
+**See Also:** [SuperStreamConsumer API Reference](super-stream-consumer.md)
 
 ---
 
@@ -887,5 +1200,8 @@ $connection = getConnectionWithRetry('rabbitmq.example.com');
 - [Consumer API Reference](consumer.md)
 - [Producer API Reference](producer.md)
 - [Message API Reference](message.md)
+- [SuperStreamProducer API Reference](super-stream-producer.md)
+- [SuperStreamConsumer API Reference](super-stream-consumer.md)
 - [Publishing Guide](../guide/publishing.md)
 - [Consuming Guide](../guide/consuming.md)
+- [Super Streams Guide](../guide/super-streams.md)
