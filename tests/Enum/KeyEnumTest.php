@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Enum;
 
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 use PHPUnit\Framework\TestCase;
 
 class KeyEnumTest extends TestCase
@@ -31,7 +33,7 @@ class KeyEnumTest extends TestCase
 
     public function testFromStreamCodeThrowsForUnknownRequestCode(): void
     {
-        $this->expectException(\ValueError::class);
+        $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('Unknown stream protocol command code: 0x0099');
 
         KeyEnum::fromStreamCode(0x0099);
@@ -39,7 +41,7 @@ class KeyEnumTest extends TestCase
 
     public function testFromStreamCodeThrowsForUnknownResponseCode(): void
     {
-        $this->expectException(\ValueError::class);
+        $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('Unknown stream protocol command code: 0x8099');
 
         KeyEnum::fromStreamCode(0x8099);
@@ -49,7 +51,7 @@ class KeyEnumTest extends TestCase
     {
         // 0x8002 has no _RESPONSE case but 0x0002 is PUBLISH.
         // Without the fallback fix, this would silently return PUBLISH instead of throwing.
-        $this->expectException(\ValueError::class);
+        $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('Unknown stream protocol command code: 0x8002');
 
         KeyEnum::fromStreamCode(0x8002);
@@ -59,10 +61,25 @@ class KeyEnumTest extends TestCase
     {
         // Code less than 0x8000 but not a valid enum value
         // Should throw with the original code, not a negative number
-        $this->expectException(\ValueError::class);
+        $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('Unknown stream protocol command code: 0x00ff');
 
         KeyEnum::fromStreamCode(0x00ff);
+    }
+
+    public function testUnknownCodeIsCaughtByTheLibraryExceptionHierarchy(): void
+    {
+        // ResponseBuilder::fromResponseBuffer() calls this for every inbound frame, so
+        // an application wrapping its consume loop in catch (RabbitStreamExceptionInterface)
+        // must see an unknown command code — before #394 it escaped as a bare \ValueError.
+        try {
+            KeyEnum::fromStreamCode(0x8099);
+            $this->fail('Expected an exception for an unknown command code');
+        } catch (RabbitStreamExceptionInterface $e) {
+            $this->assertInstanceOf(ProtocolException::class, $e);
+            $this->assertSame('Unknown stream protocol command code: 0x8099', $e->getMessage());
+            $this->assertNull($e->getResponseCode());
+        }
     }
 
     public function testFromStreamCodeHandlesAllValidRequestCodes(): void

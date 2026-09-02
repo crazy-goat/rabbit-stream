@@ -35,6 +35,7 @@ public static function fromResponseBuffer(ReadBuffer $responseBuffer): object
 6. Returns deserialized response object
 
 **Throws:**
+- `ProtocolException` - If the command code matches no known command (step 2)
 - `ProtocolException` - If protocol version is unexpected (not 1 or 2)
 - `ProtocolException` - If command is unexpected for the version
 - `DeserializationException` - If response deserialization fails
@@ -200,11 +201,14 @@ Create tests in `tests/Response/NewCommandResponseV1Test.php` following the exis
 
 Thrown for the following conditions:
 
+- **Unknown command code:** The 2-byte key matches no `KeyEnum` case — junk on
+  the wire, or a command added by a newer RabbitMQ
 - **Unexpected version:** Protocol version is not 1 or 2
 - **Unexpected command:** Command not supported for the version
 
 **Error Message Format:**
 ```
+Unknown stream protocol command code: 0x{hexCode}
 Unexpected protocol version: {version}
 Unexpected command: {commandName} (0x{hexCode})
 Unexpected command in V2: {commandName}

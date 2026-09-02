@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
@@ -99,6 +100,27 @@ class ResponseBuilderTest extends TestCase
         $this->expectException(ProtocolException::class);
         $this->expectExceptionMessage('Unexpected protocol version: 3');
         ResponseBuilder::fromResponseBuffer($buffer);
+    }
+
+    public function testUnknownCommandKeyStaysInsideTheLibraryExceptionHierarchy(): void
+    {
+        // This is the #394 scenario end to end: a frame whose 2-byte key matches no
+        // command — junk on the wire, or a command added by a future RabbitMQ — used
+        // to leave fromResponseBuffer() as a bare \ValueError and take down a read
+        // loop wrapped in catch (RabbitStreamExceptionInterface).
+        $raw = pack('n', 0x8099)    // key: no such command
+            . pack('n', 1)          // version: 1
+            . pack('N', 1);         // correlationId
+
+        $buffer = new ReadBuffer($raw);
+
+        try {
+            ResponseBuilder::fromResponseBuffer($buffer);
+            $this->fail('Expected an exception for an unknown command key');
+        } catch (RabbitStreamExceptionInterface $e) {
+            $this->assertInstanceOf(ProtocolException::class, $e);
+            $this->assertSame('Unknown stream protocol command code: 0x8099', $e->getMessage());
+        }
     }
 
     public function testKeyEnumFromStreamCodeWithMappedCode(): void
