@@ -145,8 +145,13 @@ class ReadLoopTimeoutTest extends E2ETestCase
             new PublishedMessage(2, 'message-2'),
         ));
 
-        // Wait for publish confirms
-        $connection->readLoop(maxFrames: 1, timeout: 5.0);
+        // Wait for publish confirms. The broker may split the 3 confirms across
+        // several PublishConfirm frames, so keep reading one frame at a time
+        // until all of them arrived (or the deadline passes).
+        $deadline = microtime(true) + 5.0;
+        while ($confirmCount < 3 && microtime(true) < $deadline) {
+            $connection->readLoop(maxFrames: 1, timeout: $deadline - microtime(true));
+        }
         $this->assertSame(3, $confirmCount, 'All 3 published messages should be confirmed');
 
         // Register subscriber callback and count deliver frames

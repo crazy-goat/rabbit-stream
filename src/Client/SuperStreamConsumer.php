@@ -28,7 +28,7 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
     /**
      * @param list<string> $partitions
      * @param array<string, ConsumerInterface> $consumers partition stream name => Consumer
-     * @param \Closure(float): void $readLoop runs exactly one bounded readLoop() pass
+     * @param \Closure(float): int $readLoop runs exactly one bounded readLoop() pass
      *                                        on the underlying connection
      */
     public function __construct(
@@ -57,13 +57,29 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
     }
 
     /**
+     * Block until some partition has a buffered message or $timeout elapses.
+     * Non-Deliver frames (ConsumerUpdate handovers, heartbeats, confirms) are
+     * dispatched but do not end the wait, so an empty read() means "nothing
+     * within $timeout" — see Consumer::waitForMessages().
+     */
+    private function waitForMessages(float $timeout): void
+    {
+        $deadline = microtime(true) + $timeout;
+        while (!$this->anyHasUnread() && $timeout > 0) {
+            // 0 dispatched frames = timeout, stop() or disconnect: nothing more to wait for.
+            if (($this->readLoop)($timeout) === 0) {
+                return;
+            }
+            $timeout = $deadline - microtime(true);
+        }
+    }
+
+    /**
      * @return Message[]
      */
     public function read(float $timeout = 5.0): array
     {
-        if (!$this->anyHasUnread()) {
-            ($this->readLoop)($timeout);
-        }
+        $this->waitForMessages($timeout);
 
         $messages = [];
         foreach ($this->consumers as $consumer) {
@@ -76,9 +92,7 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
 
     public function readOne(float $timeout = 5.0): ?Message
     {
-        if (!$this->anyHasUnread()) {
-            ($this->readLoop)($timeout);
-        }
+        $this->waitForMessages($timeout);
 
         $count = count($this->partitions);
         for ($i = 0; $i < $count; $i++) {

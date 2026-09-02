@@ -264,7 +264,7 @@ public function onConsumerUpdate(callable $callback): void
 Runs an event loop processing server-push frames.
 
 ```php
-public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
+public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 ```
 
 **Parameters:**

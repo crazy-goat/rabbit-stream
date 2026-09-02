@@ -27,8 +27,9 @@ class SuperStreamConsumerTest extends TestCase
         $p1->expects($this->once())->method('drain')->willReturn([]);
 
         $readLoopCalled = false;
-        $readLoop = function () use (&$readLoopCalled): void {
+        $readLoop = function () use (&$readLoopCalled): int {
             $readLoopCalled = true;
+            return 0;
         };
 
         $consumer = new SuperStreamConsumer(
@@ -51,9 +52,10 @@ class SuperStreamConsumerTest extends TestCase
 
         $readLoopCallCount = 0;
         $capturedTimeout = null;
-        $readLoop = function (float $timeout) use (&$readLoopCallCount, &$capturedTimeout): void {
+        $readLoop = function (float $timeout) use (&$readLoopCallCount, &$capturedTimeout): int {
             $readLoopCallCount++;
             $capturedTimeout = $timeout;
+            return 0;
         };
 
         $consumer = new SuperStreamConsumer(['p0'], ['p0' => $p0], \Closure::fromCallable($readLoop));
@@ -75,8 +77,7 @@ class SuperStreamConsumerTest extends TestCase
         $p1->method('hasUnread')->willReturn(true);
         $p1->method('readOne')->willReturn($this->message(2, 'p1'));
 
-        $readLoop = function (): void {
-        };
+        $readLoop = (fn(): int => 0);
 
         $consumer = new SuperStreamConsumer(
             ['p0', 'p1'],
@@ -96,8 +97,7 @@ class SuperStreamConsumerTest extends TestCase
         $p0 = $this->createMock(ConsumerInterface::class);
         $p0->method('hasUnread')->willReturn(false);
 
-        $readLoop = function (): void {
-        };
+        $readLoop = (fn(): int => 0);
 
         $consumer = new SuperStreamConsumer(['p0'], ['p0' => $p0], \Closure::fromCallable($readLoop));
 
@@ -112,8 +112,7 @@ class SuperStreamConsumerTest extends TestCase
         $p1 = $this->createMock(ConsumerInterface::class);
         $p1->expects($this->once())->method('storeOffset')->with(42);
 
-        $readLoop = function (): void {
-        };
+        $readLoop = (fn(): int => 0);
         $consumer = new SuperStreamConsumer(
             ['p0', 'p1'],
             ['p0' => $p0, 'p1' => $p1],
@@ -131,8 +130,7 @@ class SuperStreamConsumerTest extends TestCase
         $p1 = $this->createMock(ConsumerInterface::class);
         $p1->expects($this->once())->method('queryOffset')->willReturn(7);
 
-        $readLoop = function (): void {
-        };
+        $readLoop = (fn(): int => 0);
         $consumer = new SuperStreamConsumer(
             ['p0', 'p1'],
             ['p0' => $p0, 'p1' => $p1],
@@ -150,8 +148,7 @@ class SuperStreamConsumerTest extends TestCase
         $p1 = $this->createMock(ConsumerInterface::class);
         $p1->method('isActive')->willReturn(false);
 
-        $readLoop = function (): void {
-        };
+        $readLoop = (fn(): int => 0);
         $consumer = new SuperStreamConsumer(
             ['p0', 'p1'],
             ['p0' => $p0, 'p1' => $p1],
@@ -170,8 +167,7 @@ class SuperStreamConsumerTest extends TestCase
         $p1 = $this->createMock(ConsumerInterface::class);
         $p1->expects($this->once())->method('close');
 
-        $readLoop = function (): void {
-        };
+        $readLoop = (fn(): int => 0);
         $consumer = new SuperStreamConsumer(
             ['p0', 'p1'],
             ['p0' => $p0, 'p1' => $p1],
@@ -186,8 +182,7 @@ class SuperStreamConsumerTest extends TestCase
         $p0 = $this->createMock(ConsumerInterface::class);
         $p1 = $this->createMock(ConsumerInterface::class);
 
-        $readLoop = function (): void {
-        };
+        $readLoop = (fn(): int => 0);
         $consumer = new SuperStreamConsumer(
             ['p0', 'p1'],
             ['p0' => $p0, 'p1' => $p1],

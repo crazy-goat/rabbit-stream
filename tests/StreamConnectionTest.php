@@ -520,6 +520,27 @@ class StreamConnectionTest extends TestCase
         socket_close($clientSocket);
     }
 
+    public function testRequestSkipsUnsolicitedCreditErrorResponse(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // A Credit error (0x8009: response code + subscription id, no correlation
+        // ID) arrives while request() waits for correlation 1: it is not our
+        // reply and must be skipped, not returned as the response.
+        socket_write($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('a'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertSame(1, $response->getCorrelationId());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
     public function testNestedRequestFromConsumerUpdateHandlerDoesNotStealOuterResponse(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();

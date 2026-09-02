@@ -493,16 +493,14 @@ class Connection implements ConnectionInterface
             );
         }
 
-        $readLoop = function (float $timeout): void {
-            $this->streamConnection->readLoop(maxFrames: 1, timeout: $timeout);
-        };
+        $readLoop = fn(float $timeout): int => $this->streamConnection->readLoop(maxFrames: 1, timeout: $timeout);
 
         return new SuperStreamConsumer($partitions, $consumers, \Closure::fromCallable($readLoop));
     }
 
-    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
-        $this->streamConnection->readLoop($maxFrames, $timeout);
+        return $this->streamConnection->readLoop($maxFrames, $timeout);
     }
 
     public function storeOffset(string $reference, string $stream, int $offset): void

@@ -16,6 +16,7 @@ use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
@@ -576,11 +577,28 @@ class StreamConnection
             }
 
             $response = $this->serializer->deserialize($frame->getRemainingBytes());
-            if (
-                $expectedCorrelationId !== null
-                && $response instanceof CorrelationInterface
-                && $response->getCorrelationId() !== $expectedCorrelationId
-            ) {
+            if ($expectedCorrelationId === null) {
+                return $response;
+            }
+
+            if (!$response instanceof CorrelationInterface) {
+                // A response frame without a correlation ID (in practice a Credit
+                // error, which the broker only sends for a rejected Credit request,
+                // e.g. after a single-active-consumer handover) cannot be the reply
+                // we are waiting for. Log and keep reading.
+                $this->logger->warning('Unsolicited response received while awaiting correlated reply', [
+                    'response' => $response::class,
+                    'details' => $response instanceof CreditResponseV1
+                        ? [
+                            'subscriptionId' => $response->getSubscriptionId(),
+                            'responseCode' => $response->getResponseCode(),
+                        ]
+                        : [],
+                ]);
+                continue;
+            }
+
+            if ($response->getCorrelationId() !== $expectedCorrelationId) {
                 // Belongs to another in-flight request (outer or nested) — park it.
                 $this->pendingResponses[] = $response;
                 continue;
@@ -614,9 +632,11 @@ class StreamConnection
      *
      * @param int|null   $maxFrames Maximum number of frames to dispatch (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
+     * @return int Number of server-push frames dispatched; 0 means the loop ended
+     *             on timeout, stop() or disconnect without handling any frame
      * @throws ConnectionException If the socket is not connected
      */
-    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
         if (!$this->socket instanceof \Socket) {
             throw new ConnectionException("Cannot read: socket is not connected");
@@ -694,6 +714,8 @@ class StreamConnection
         }
 
         $this->running = false;
+
+        return $dispatched;
     }
 
     private function dispatchServerPush(ReadBuffer $frame): void

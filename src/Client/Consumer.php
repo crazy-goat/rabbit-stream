@@ -246,11 +246,30 @@ class Consumer implements ConsumerInterface
      */
     public function read(float $timeout = 5.0): array
     {
-        if ($this->unreadCount === 0) {
-            $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
-        }
+        $this->waitForMessages($timeout);
 
         return $this->drain();
+    }
+
+    /**
+     * Block until at least one message is buffered or $timeout elapses.
+     *
+     * Frames other than Deliver (heartbeats, publish confirms of a producer on
+     * the same connection, ConsumerUpdate of a single-active-consumer handover)
+     * are dispatched to their handlers and do NOT end the wait: an empty result
+     * from read()/readOne() therefore means "no message within $timeout", not
+     * "some other frame arrived first".
+     */
+    private function waitForMessages(float $timeout): void
+    {
+        $deadline = microtime(true) + $timeout;
+        while (!$this->hasUnread() && $timeout > 0) {
+            // 0 dispatched frames = timeout, stop() or disconnect: nothing more to wait for.
+            if ($this->connection->readLoop(maxFrames: 1, timeout: $timeout) === 0) {
+                return;
+            }
+            $timeout = $deadline - microtime(true);
+        }
     }
 
     /**
@@ -299,9 +318,7 @@ class Consumer implements ConsumerInterface
 
     public function readOne(float $timeout = 5.0): ?Message
     {
-        if ($this->unreadCount === 0) {
-            $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
-        }
+        $this->waitForMessages($timeout);
 
         if ($this->unreadCount === 0) {
             return null;

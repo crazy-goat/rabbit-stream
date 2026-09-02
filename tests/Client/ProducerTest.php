@@ -124,9 +124,9 @@ class ProducerTest extends TestCase
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('readLoop')
-            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout) {
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout): int {
                 $capturedTimeout = $timeout;
-                return null;
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -175,9 +175,10 @@ class ProducerTest extends TestCase
 
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks): int {
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -297,10 +298,11 @@ class ProducerTest extends TestCase
         $readLoopCalled = false;
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled): int {
                 $readLoopCalled = true;
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0, 1, 2]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -364,11 +366,12 @@ class ProducerTest extends TestCase
         $captured = ['maxFrames' => null, 'timeout' => null];
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function ($maxFrames, $timeout) use (&$registeredCallbacks, &$captured): void {
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$registeredCallbacks, &$captured): int {
                 $captured['maxFrames'] = $maxFrames;
                 $captured['timeout'] = $timeout;
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -402,11 +405,12 @@ class ProducerTest extends TestCase
         $readLoopCallCount = 0;
         $connection->expects($this->exactly(3))
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): int {
                 $readLoopCallCount++;
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 // One confirm frame per readLoop() call, as with maxFrames: 1.
                 ($registeredCallbacks['onConfirm'])([$readLoopCallCount - 1]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -507,10 +511,11 @@ class ProducerTest extends TestCase
         $readLoopCallCount = 0;
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): int {
                 $readLoopCallCount++;
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 2);
@@ -544,9 +549,10 @@ class ProducerTest extends TestCase
 
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks): int {
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0, 1]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 2);
