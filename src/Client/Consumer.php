@@ -149,18 +149,10 @@ class Consumer implements ConsumerInterface
      *    successor resumes without gaps, then reply "none" (keep position,
      *    irrelevant once inactive).
      *
-     * CAVEAT (re-entrancy): this runs inside StreamConnection::readLoop()'s
-     * server-push dispatch. queryOffset() below performs its own
-     * sendMessage()+readMessage() round trip; readMessage() re-enters
-     * dispatchServerPush() for further push frames while waiting, but it does
-     * NOT match responses by correlation ID — it returns whatever non-push
-     * frame is read next. If this handler fires while an outer readMessage()
-     * call is itself waiting for a different response (e.g. the broker sends
-     * ConsumerUpdate before the SubscribeResponse), the inner queryOffset()
-     * can receive that unrelated response first and throw
-     * UnexpectedResponseException. This is a pre-existing limitation of the
-     * connection's non-correlated response dispatch, not something this
-     * change introduces or resolves.
+     * Re-entrancy: this runs inside StreamConnection::readLoop()'s server-push
+     * dispatch and queryOffset() performs a nested round trip. That is safe
+     * because Consumer uses StreamConnection::request(), which matches replies
+     * by correlation ID and parks responses that belong to an outer request.
      */
     private function defaultConsumerUpdateHandler(ConsumerUpdateResponseV1 $query): ?OffsetSpec
     {
@@ -214,7 +206,8 @@ class Consumer implements ConsumerInterface
                 $messages = OsirisChunkParser::parseMessages(
                     $frameBuffer,
                     offset: $chunkOffset,
-                    length: $chunkLength
+                    length: $chunkLength,
+                    stream: $this->stream,
                 );
                 foreach ($messages as $message) {
                     $this->buffer[] = $message;
@@ -234,7 +227,10 @@ class Consumer implements ConsumerInterface
         // still waiting for the SubscribeResponse below.
         $this->creditsInFlight = $this->initialCredit;
 
-        $this->connection->sendMessage(
+        // request() correlates the reply: with single-active-consumer the broker
+        // may push ConsumerUpdate before the SubscribeResponse, and the handler's
+        // nested queryOffset() must not swallow our response.
+        $this->connection->request(
             new SubscribeRequestV1(
                 $this->subscriptionId,
                 $this->stream,
@@ -243,7 +239,6 @@ class Consumer implements ConsumerInterface
                 $this->buildSubscribeProperties(),
             )
         );
-        $this->connection->readMessage();
     }
 
     /**
@@ -255,6 +250,28 @@ class Consumer implements ConsumerInterface
             $this->connection->readLoop(maxFrames: 1, timeout: $timeout);
         }
 
+        return $this->drain();
+    }
+
+    /**
+     * Whether at least one already-buffered, not-yet-read message is currently
+     * held in memory (no I/O — purely a check against the in-process buffer).
+     */
+    public function hasUnread(): bool
+    {
+        return $this->unreadCount > 0;
+    }
+
+    /**
+     * Non-blocking drain of whatever messages are already buffered, without
+     * performing any connection I/O (no readLoop() call). Returns an empty
+     * array if nothing is buffered — mirrors the tail of read() exactly, so
+     * read() itself is defined in terms of this method.
+     *
+     * @return Message[]
+     */
+    public function drain(): array
+    {
         if ($this->unreadCount === 0) {
             return [];
         }
@@ -326,10 +343,9 @@ class Consumer implements ConsumerInterface
         if ($this->name === null) {
             throw new ProtocolException('Cannot query offset for unnamed consumer');
         }
-        $this->connection->sendMessage(
+        $response = $this->connection->request(
             new QueryOffsetRequestV1($this->name, $this->stream)
         );
-        $response = $this->connection->readMessage();
         if (!$response instanceof QueryOffsetResponseV1) {
             throw UnexpectedResponseException::create(QueryOffsetResponseV1::class, $response);
         }
@@ -344,10 +360,9 @@ class Consumer implements ConsumerInterface
 
         $this->connection->unregisterSubscriber($this->subscriptionId);
 
-        $this->connection->sendMessage(
+        $this->connection->request(
             new UnsubscribeRequestV1($this->subscriptionId)
         );
-        $this->connection->readMessage();
         $this->buffer = [];
         $this->bufferHead = 0;
         $this->unreadCount = 0;

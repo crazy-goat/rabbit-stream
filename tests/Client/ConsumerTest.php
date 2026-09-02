@@ -182,8 +182,9 @@ class ConsumerTest extends TestCase
         $mockResponse = $this->createMock(QueryOffsetResponseV1::class);
         $mockResponse->method('getOffset')->willReturn(77);
 
+        // subscribe() and queryOffset() both go through the correlated request()
         $connection->expects($this->any())
-            ->method('readMessage')
+            ->method('request')
             ->willReturnOnConsecutiveCalls(
                 new \stdClass(),
                 $mockResponse
@@ -203,11 +204,12 @@ class ConsumerTest extends TestCase
 
         $capturedRequest = null;
         $connection->expects($this->any())
-            ->method('sendMessage')
-            ->willReturnCallback(function ($request) use (&$capturedRequest): void {
+            ->method('request')
+            ->willReturnCallback(function ($request) use (&$capturedRequest): object {
                 if ($request instanceof UnsubscribeRequestV1) {
                     $capturedRequest = $request;
                 }
+                return new \stdClass();
             });
 
         $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());

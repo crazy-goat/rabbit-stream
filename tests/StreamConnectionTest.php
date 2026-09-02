@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests;
 
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
@@ -12,6 +13,7 @@ use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -491,6 +493,64 @@ class StreamConnectionTest extends TestCase
 
         socket_close($serverSocket);
         socket_close($clientSocket);
+    }
+
+    public function testRequestParksResponsesOfOtherCorrelationIds(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Server answers out of order: correlation 2 first, then correlation 1
+        // (the one request() below is waiting for).
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('a'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertSame(1, $response->getCorrelationId());
+
+        // The parked correlation-2 response is handed to the next plain readMessage().
+        $parked = $connection->readMessage(1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $parked);
+        $this->assertSame(2, $parked->getCorrelationId());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testNestedRequestFromConsumerUpdateHandlerDoesNotStealOuterResponse(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Single-active-consumer scenario (#496): while the outer request() waits
+        // for its SubscribeResponse (correlation 1), the broker pushes a
+        // ConsumerUpdate, whose handler issues its own request() (correlation 2).
+        // The server then answers 1 before 2.
+        socket_write($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $inner = null;
+        $connection->registerConsumerUpdateHandler(1, function () use ($connection, &$inner): OffsetSpec {
+            $inner = $connection->request(new CreateRequestV1('inner'), 1.0);
+            return OffsetSpec::offset(42);
+        });
+
+        $outer = $connection->request(new CreateRequestV1('outer'), 1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $outer);
+        $this->assertSame(1, $outer->getCorrelationId());
+        $this->assertInstanceOf(CreateResponseV1::class, $inner);
+        $this->assertSame(2, $inner->getCorrelationId());
+
+        // Nothing left parked.
+        $this->expectException(TimeoutException::class);
+        $connection->readMessage(0.05);
     }
 
     public function testDispatchHeartbeatEchoesBackAndInvokesCallback(): void

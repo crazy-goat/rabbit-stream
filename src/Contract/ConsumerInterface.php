@@ -15,6 +15,21 @@ interface ConsumerInterface
 
     public function readOne(float $timeout = 5.0): ?Message;
 
+    /**
+     * Whether at least one already-buffered, not-yet-read message is currently
+     * held in memory (no I/O — purely a check against the in-process buffer).
+     */
+    public function hasUnread(): bool;
+
+    /**
+     * Non-blocking drain of whatever messages are already buffered, without
+     * performing any connection I/O. Returns an empty array if nothing is
+     * buffered.
+     *
+     * @return Message[]
+     */
+    public function drain(): array;
+
     public function storeOffset(int $offset): void;
 
     public function queryOffset(): int;

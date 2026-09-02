@@ -31,6 +31,9 @@ class Consumer
      */
     public function read(float $timeout = 5.0): array;
     public function readOne(float $timeout = 5.0): ?Message;
+    public function hasUnread(): bool;
+    /** @return Message[] */
+    public function drain(): array;
     
     // Offset management
     public function storeOffset(int $offset): void;
@@ -174,6 +177,7 @@ $messages = $consumer->read(timeout: 10.0);
 - Automatically manages flow control credits
 - Triggers auto-commit if enabled and threshold reached
 - May return an empty array if timeout expires with no messages
+- Every `Message` returned carries this consumer's stream name — see [`Message::getStream()`](message.md#getstream)
 
 ---
 
@@ -221,6 +225,45 @@ $message = $consumer->readOne(timeout: 1.0);
 - Automatically manages flow control credits
 - Triggers auto-commit if enabled and threshold reached
 - Returns `null` on timeout, not an exception
+
+---
+
+### hasUnread()
+
+Whether at least one already-buffered, not-yet-read message is currently held in memory.
+
+```php
+public function hasUnread(): bool
+```
+
+#### Return Value
+
+`bool` - `true` if the in-process buffer holds an unread message
+
+#### Notes
+
+- Purely a check against the in-process buffer — performs **no connection I/O**
+- Used internally by `SuperStreamConsumer::read()`/`readOne()` to decide whether a bounded `readLoop()` pass is needed before aggregating across partitions
+
+---
+
+### drain()
+
+Non-blocking drain of whatever messages are already buffered.
+
+```php
+/** @return Message[] */
+public function drain(): array
+```
+
+#### Return Value
+
+`Message[]` - every currently-buffered message, or an empty array if none are buffered
+
+#### Notes
+
+- Performs **no connection I/O** (no `readLoop()` call) — mirrors the tail of `read()` exactly
+- Used internally by `SuperStreamConsumer::read()` to collect each partition's buffered messages after one shared bounded read pass
 
 ---
 

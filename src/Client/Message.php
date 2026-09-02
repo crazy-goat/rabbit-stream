@@ -25,6 +25,9 @@ class Message
      *                           lazily as a zero-copy VIEW into $chunk: the entry's bytes are
      *                           $chunk[$chunkStart..$chunkStart+$chunkLength), decoded on first
      *                           access without ever substr()-copying them out until then.
+     * @param string|null $stream The name of the stream this message was delivered from — set
+     *                            once at construction (see {@see self::getStream()}); null when
+     *                            unknown (e.g. constructed outside a Consumer's deliver path).
      */
     public function __construct(
         private readonly int $offset,
@@ -37,6 +40,7 @@ class Message
         private ?string $chunk = null,
         private readonly int $chunkStart = 0,
         private readonly int $chunkLength = 0,
+        private readonly ?string $stream = null,
     ) {
         $this->decoded = $this->rawData === null && $this->chunk === null;
     }
@@ -50,9 +54,9 @@ class Message
      * when the entry's bytes are a contiguous range inside a chunk string the caller
      * still holds, to avoid that copy entirely.
      */
-    public static function fromRawEntry(int $offset, int $timestamp, string $rawData): self
+    public static function fromRawEntry(int $offset, int $timestamp, string $rawData, ?string $stream = null): self
     {
-        return new self(offset: $offset, timestamp: $timestamp, rawData: $rawData);
+        return new self(offset: $offset, timestamp: $timestamp, rawData: $rawData, stream: $stream);
     }
 
     /**
@@ -67,14 +71,21 @@ class Message
      * entry's own range ($chunkStart..$chunkStart+$chunkLength) and releases the chunk
      * reference afterwards.
      */
-    public static function fromChunkView(int $offset, int $timestamp, string $chunk, int $start, int $length): self
-    {
+    public static function fromChunkView(
+        int $offset,
+        int $timestamp,
+        string $chunk,
+        int $start,
+        int $length,
+        ?string $stream = null,
+    ): self {
         return new self(
             offset: $offset,
             timestamp: $timestamp,
             chunk: $chunk,
             chunkStart: $start,
             chunkLength: $length,
+            stream: $stream,
         );
     }
 
@@ -213,6 +224,16 @@ class Message
     public function getOffset(): int
     {
         return $this->offset;
+    }
+
+    /**
+     * The name of the stream this message was delivered from (the stream a
+     * Consumer subscribed to), or null when unknown/not set — e.g. a Message
+     * constructed outside a Consumer's deliver path.
+     */
+    public function getStream(): ?string
+    {
+        return $this->stream;
     }
 
     public function getTimestamp(): int

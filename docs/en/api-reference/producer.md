@@ -12,6 +12,7 @@ class Producer
     // Constructor and internal methods...
     
     public function send(string $message, ?float $timeout = null): void;
+    public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void;
     public function sendBatch(array $messages, ?float $timeout = null): void;
     public function close(): void;
     public function waitForConfirms(float $timeout = 5.0): void;
@@ -155,6 +156,45 @@ $producer->sendBatch($messages);
 - Each message is a plain payload string, automatically wrapped in an AMQP 1.0 Data section (same encoding as `send()`)
 - Each message still gets its own publishing ID and confirmation
 - Empty arrays are silently ignored (no-op)
+
+---
+
+### sendWithFilter()
+
+Publish a single message tagged with a stream filtering value.
+
+```php
+public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$message` | `string` | Yes | Message body as string, same encoding as `send()` (wrapped in an AMQP 1.0 Data section on the wire) |
+| `$filterValue` | `?string` | Yes | Stream filtering value attached to the message. `null` publishes an unfiltered message (still contributes to the chunk's bloom filter as "no value") |
+| `$timeout` | `?float` | No | Socket write timeout in seconds; null uses connection default |
+
+#### Return Value
+
+`void`
+
+#### Exceptions
+
+- `ConnectionException` - If the connection is lost
+
+#### Example
+
+```php
+$producer->sendWithFilter(json_encode(['region' => 'eu', 'order_id' => 1]), filterValue: 'eu');
+$producer->sendWithFilter(json_encode(['region' => 'us', 'order_id' => 2]), filterValue: 'us');
+```
+
+#### Notes
+
+- Sent via the same `PublishRequestV2`/`PublishedMessageV2` frame as a normal publish, just with a non-empty filter value attached per message
+- Filtering is **broker-side and chunk-granular**: the broker maintains a bloom filter per chunk and delivers the whole chunk once its filter *may* contain a matching value — every message in a delivered chunk arrives, matching or not. A consumer must still filter application-side for exact matching; see [`$filterValues`/`$matchUnfiltered` on `Consumer`](consumer.md) and the [Stream Filtering guide](../guide/consuming.md#7-stream-filtering)
+- Each message still gets its own publishing ID and confirmation, exactly like `send()`
 
 ---
 

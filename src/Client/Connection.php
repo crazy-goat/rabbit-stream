@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use CrazyGoat\RabbitStream\Client\Routing\HashRoutingStrategy;
+use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
 use CrazyGoat\RabbitStream\Contract\ConnectionInterface;
 use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
+use CrazyGoat\RabbitStream\Contract\SuperStreamConsumerInterface;
+use CrazyGoat\RabbitStream\Contract\SuperStreamProducerInterface;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -17,6 +22,7 @@ use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
+use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\RouteRequestV1;
@@ -32,6 +38,7 @@ use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\RouteResponseV1;
@@ -243,6 +250,29 @@ class Connection implements ConnectionInterface
         return $response->getStreams();
     }
 
+    /**
+     * Resolve a super stream's partition (physical stream) names.
+     *
+     * @return list<string>
+     * @throws ProtocolException if the super stream does not exist (the broker's
+     *                           Partitions response code is asserted OK before this
+     *                           method is ever reached — see PartitionsResponseV1)
+     *                           or exists but currently has zero partitions.
+     */
+    public function partitions(string $superStream): array
+    {
+        $this->streamConnection->sendMessage(new PartitionsRequestV1($superStream));
+        $response = $this->streamConnection->readMessage();
+        if (!$response instanceof PartitionsResponseV1) {
+            throw UnexpectedResponseException::create(PartitionsResponseV1::class, $response);
+        }
+        $streams = $response->getStreams();
+        if ($streams === []) {
+            throw new ProtocolException("Super stream \"{$superStream}\" has no partitions");
+        }
+        return array_values($streams);
+    }
+
     public function streamExists(string $name): bool
     {
         $this->streamConnection->sendMessage(new MetadataRequestV1([$name]));
@@ -407,6 +437,67 @@ class Connection implements ConnectionInterface
         );
         $this->consumers[$subscriptionId] = $consumer;
         return $consumer;
+    }
+
+    public function createSuperStreamProducer(
+        string $superStream,
+        ?RoutingStrategy $strategy = null,
+        ?string $name = null,
+        ?callable $onConfirm = null,
+        int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+    ): SuperStreamProducerInterface {
+        $partitions = $this->partitions($superStream);
+        $strategy ??= new HashRoutingStrategy();
+
+        $factory = function (string $partition) use ($name, $onConfirm, $maxPendingConfirms): ProducerInterface {
+            // Per-partition publisher name so name-based dedup/sequence-query
+            // (Producer::querySequence()) still works per partition.
+            $partitionName = $name !== null ? "{$name}-{$partition}" : null;
+            $publisherId = $this->publisherIdCounter++;
+            $producer = new Producer(
+                $this->streamConnection,
+                $partition,
+                $publisherId,
+                $partitionName,
+                $onConfirm,
+                $maxPendingConfirms
+            );
+            $this->producers[$publisherId] = $producer;
+            return $producer;
+        };
+
+        return new SuperStreamProducer($partitions, $strategy, \Closure::fromCallable($factory));
+    }
+
+    public function createSuperStreamConsumer(
+        string $superStream,
+        OffsetSpec $offset,
+        ?string $name = null,
+        int $autoCommit = 0,
+        int $initialCredit = 10,
+        bool $singleActiveConsumer = false,
+    ): SuperStreamConsumerInterface {
+        $partitions = $this->partitions($superStream);
+
+        /** @var array<string, ConsumerInterface> $consumers partition stream name => Consumer */
+        $consumers = [];
+        foreach ($partitions as $partition) {
+            $consumers[$partition] = $this->createConsumer(
+                $partition,
+                $offset,
+                $name,
+                $autoCommit,
+                $initialCredit,
+                singleActiveConsumer: $singleActiveConsumer,
+                superStream: $superStream,
+            );
+        }
+
+        $readLoop = function (float $timeout): void {
+            $this->streamConnection->readLoop(maxFrames: 1, timeout: $timeout);
+        };
+
+        return new SuperStreamConsumer($partitions, $consumers, \Closure::fromCallable($readLoop));
     }
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): void

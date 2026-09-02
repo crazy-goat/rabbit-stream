@@ -130,6 +130,8 @@ class OsirisChunkParser
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
      * @param ?int $length See parse().
+     * @param ?string $stream Name of the stream the chunk was delivered from, set once per
+     *                        yielded Message (see {@see Message::getStream()}); null when unknown.
      * @return \Generator<int, Message>
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
@@ -138,11 +140,12 @@ class OsirisChunkParser
         string $chunkBytes,
         int $maxEntriesPerChunk = self::DEFAULT_MAX_ENTRIES_PER_CHUNK,
         int $offset = 0,
-        ?int $length = null
+        ?int $length = null,
+        ?string $stream = null,
     ): \Generator {
         $views = self::parseRawViews($chunkBytes, $maxEntriesPerChunk, $offset, $length);
         foreach ($views as [$entryOffset, $timestamp, $start, $len]) {
-            yield Message::fromChunkView($entryOffset, $timestamp, $chunkBytes, $start, $len);
+            yield Message::fromChunkView($entryOffset, $timestamp, $chunkBytes, $start, $len, $stream);
         }
     }
 
