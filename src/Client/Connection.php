@@ -14,6 +14,7 @@ use CrazyGoat\RabbitStream\Contract\SuperStreamProducerInterface;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
@@ -101,16 +102,16 @@ class Connection implements ConnectionInterface
         ?float $socketTimeout = null,
     ): self {
         if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
-            throw new \InvalidArgumentException('requestedFrameMax must not be negative');
+            throw new InvalidArgumentException('requestedFrameMax must not be negative');
         }
         if ($requestedHeartbeat !== null && $requestedHeartbeat < 0) {
-            throw new \InvalidArgumentException('requestedHeartbeat must not be negative');
+            throw new InvalidArgumentException('requestedHeartbeat must not be negative');
         }
         if ($maxDeliverFrameSize !== null && $maxDeliverFrameSize < 0) {
-            throw new \InvalidArgumentException('maxDeliverFrameSize must not be negative');
+            throw new InvalidArgumentException('maxDeliverFrameSize must not be negative');
         }
         if ($socketTimeout !== null && $socketTimeout <= 0) {
-            throw new \InvalidArgumentException('socketTimeout must be greater than 0');
+            throw new InvalidArgumentException('socketTimeout must be greater than 0');
         }
 
         $logger ??= new NullLogger();

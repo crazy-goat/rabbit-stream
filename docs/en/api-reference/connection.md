@@ -140,7 +140,7 @@ public static function create(
 
 ### Exceptions
 
-- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, or `maxDeliverFrameSize` is negative, or if `socketTimeout` is not positive
+- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, or `maxDeliverFrameSize` is negative, or if `socketTimeout` is not positive. This is `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`, which implements `RabbitStreamExceptionInterface` while still extending the native `\InvalidArgumentException`
 - `AuthenticationException` - If PLAIN SASL mechanism is not supported or credentials are invalid
 - `UnexpectedResponseException` - If the server returns an unexpected response during handshake
 - `ConnectionException` - If the TCP connection cannot be established

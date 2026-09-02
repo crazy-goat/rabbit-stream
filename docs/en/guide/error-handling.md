@@ -72,9 +72,21 @@ RabbitStreamExceptionInterface (interface)
     ├── ConnectionException
     │   └── TimeoutException
     ├── DeserializationException
+    ├── NoRouteForKeyException
     ├── UnsupportedPlatformException
-    └── InvalidArgumentException (extends \InvalidArgumentException)
+    ├── InvalidArgumentException (extends \InvalidArgumentException)
+    └── LengthException (extends \LengthException)
 ```
+
+Every throwable the library raises implements `RabbitStreamExceptionInterface`,
+so a single `catch (RabbitStreamExceptionInterface $e)` around a publish or
+consume loop is enough — no native `\Exception`, `\ValueError` or
+`\LengthException` escapes from `src/`, and a unit test enforces that
+(`tests/Exception/ExceptionHierarchyTest.php`).
+
+`InvalidArgumentException` and `LengthException` extend their native namesakes
+on purpose: joining the hierarchy is not a BC break, so code that already
+catches `\InvalidArgumentException` (or `\LogicException`) keeps working.
 
 ### Base Exception: `RabbitStreamException`
 
@@ -111,6 +123,24 @@ try {
     } elseif ($code === ResponseCodeEnum::ACCESS_REFUSED) {
         // Log permission error
         error_log("Permission denied for stream");
+    }
+}
+```
+
+`ProtocolException` is also raised for a frame whose 2-byte command key matches
+no known command — junk on the wire, or a command introduced by a newer
+RabbitMQ. `getResponseCode()` returns `null` in that case, because the frame was
+never decoded far enough to have one:
+
+```php
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+
+try {
+    $consumer->read();
+} catch (ProtocolException $e) {
+    // e.g. "Unknown stream protocol command code: 0x8099"
+    if ($e->getResponseCode() === null) {
+        error_log('Undecodable frame: ' . $e->getMessage());
     }
 }
 ```
@@ -272,6 +302,25 @@ try {
     echo "Invalid argument: " . $e->getMessage();
 }
 ```
+
+### LengthException
+
+Thrown when a value is too long to be represented on the wire. Today that is a
+single case: a payload larger than the AMQP 1.0 `vbin32` limit of 4294967295
+bytes, whose 32-bit length prefix would wrap modulo 2^32 and corrupt framing.
+
+```php
+use CrazyGoat\RabbitStream\Exception\LengthException;
+
+try {
+    $producer->send($hugePayload);
+} catch (LengthException $e) {
+    // "AMQP 1.0 Data section payload exceeds the 4294967295-byte vbin32 limit"
+}
+```
+
+Practical payloads hit the broker's frame-size limit long before this one; the
+guard exists so oversize data fails loudly instead of silently.
 
 ## Common Error Scenarios
 

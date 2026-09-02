@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\Util\TypeCast;
@@ -47,8 +48,19 @@ class PublishErrorResponseV1 implements KeyVersionInterface, FromStreamBufferInt
         $errors = [];
         for ($i = 0; $i < $count; $i++) {
             $error = PublishingError::fromStreamBuffer($buffer);
-            if (!$error instanceof \CrazyGoat\RabbitStream\VO\PublishingError) {
-                throw new \Exception('Failed to parse PublishingError from buffer');
+            // Unreachable while PublishingError::fromStreamBuffer() always returns an
+            // instance, but the interface lets it return null, so the guard stays —
+            // typed, so a future graceful-null there cannot escape
+            // catch (RabbitStreamExceptionInterface) as a bare \Exception (#466).
+            if (!$error instanceof PublishingError) {
+                throw new DeserializationException(sprintf(
+                    'Failed to parse PublishingError %d of %d for publisher %d '
+                    . 'at buffer offset %d',
+                    $i + 1,
+                    $count,
+                    $publisherId,
+                    $buffer->getPosition()
+                ));
             }
             $errors[] = $error;
         }

@@ -6,6 +6,8 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
@@ -341,6 +343,62 @@ class ConnectionHandshakeTest extends TestCase
         $this->expectExceptionMessage('maxDeliverFrameSize must not be negative');
 
         Connection::create(maxDeliverFrameSize: -1, streamConnection: $streamConnection);
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function invalidCreateArguments(): array
+    {
+        return [
+            'requestedFrameMax' => ['requestedFrameMax', 'requestedFrameMax must not be negative'],
+            'requestedHeartbeat' => ['requestedHeartbeat', 'requestedHeartbeat must not be negative'],
+            'maxDeliverFrameSize' => ['maxDeliverFrameSize', 'maxDeliverFrameSize must not be negative'],
+            'socketTimeout' => ['socketTimeout', 'socketTimeout must be greater than 0'],
+        ];
+    }
+
+    /**
+     * Connection::create() is the library's main entry point; before #465 its four
+     * argument checks threw the *global* InvalidArgumentException, so the one catch
+     * the #242 hierarchy exists for missed them. The library class extends the native
+     * one, so catch (\InvalidArgumentException) callers are unaffected — asserted here
+     * alongside the interface.
+     *
+     * @dataProvider invalidCreateArguments
+     */
+    public function testCreateRejectsInvalidArgumentsInsideTheLibraryHierarchy(
+        string $argument,
+        string $expectedMessage
+    ): void {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        try {
+            match ($argument) {
+                'requestedFrameMax' => Connection::create(
+                    requestedFrameMax: -1,
+                    streamConnection: $streamConnection,
+                ),
+                'requestedHeartbeat' => Connection::create(
+                    requestedHeartbeat: -1,
+                    streamConnection: $streamConnection,
+                ),
+                'maxDeliverFrameSize' => Connection::create(
+                    maxDeliverFrameSize: -1,
+                    streamConnection: $streamConnection,
+                ),
+                'socketTimeout' => Connection::create(
+                    streamConnection: $streamConnection,
+                    socketTimeout: 0.0,
+                ),
+                default => $this->fail('Unhandled argument name: ' . $argument),
+            };
+            $this->fail('Expected Connection::create() to reject ' . $argument);
+        } catch (RabbitStreamExceptionInterface $e) {
+            $this->assertInstanceOf(InvalidArgumentException::class, $e);
+            $this->assertInstanceOf(\InvalidArgumentException::class, $e);
+            $this->assertSame($expectedMessage, $e->getMessage());
+        }
     }
 
     public function testCreateSetsOutgoingMaxFrameSizeToNegotiatedValue(): void

@@ -112,7 +112,11 @@ public static function fromStreamCode(int $code): KeyEnum
 
 **Throws:**
 
-- `\ValueError` - If the code is not recognized
+- `ProtocolException` - If the code matches no defined command. This is reached
+  from `ResponseBuilder::fromResponseBuffer()` for every inbound frame, so it
+  stays inside the library's exception hierarchy: a `catch
+  (RabbitStreamExceptionInterface)` around a read loop sees it. `getResponseCode()`
+  returns `null`.
 
 **Example:**
 
@@ -129,8 +133,10 @@ $key = KeyEnum::fromStreamCode(0x8001); // KeyEnum::DECLARE_PUBLISHER_RESPONSE
 **Notes:**
 
 - Handles both request codes (0x0001-0x001f) and response codes (0x8001-0x801f)
-- For response codes, automatically subtracts 0x8000 to find the matching request key
-- Throws `\ValueError` for unknown codes
+- Every valid code is an explicit enum case; there is no 0x8000 fallback. An
+  unknown response code such as `0x8002` therefore throws, rather than
+  stripping the high bit and silently returning the `0x0002` request key
+- Throws `ProtocolException` for unknown codes
 
 ---
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use CrazyGoat\RabbitStream\Exception\LengthException;
+
 /**
  * Encodes message payloads as AMQP 1.0 sections for publishing.
  *
@@ -23,15 +25,15 @@ class AmqpMessageEncoder
      * length + payload. The payload is length-prefixed, so it is
      * binary-safe (null bytes and arbitrary bytes are preserved).
      *
-     * @throws \LengthException when the payload exceeds the AMQP vbin32
-     *                           maximum of 4294967295 bytes, since the
-     *                           32-bit length prefix could not represent it
-     *                           and silent truncation would corrupt framing.
+     * @throws LengthException when the payload exceeds the AMQP vbin32
+     *                          maximum of 4294967295 bytes, since the
+     *                          32-bit length prefix could not represent it
+     *                          and silent truncation would corrupt framing.
      */
     public static function encodeDataSection(string $body): string
     {
         if (strlen($body) > 0xFFFFFFFF) {
-            throw new \LengthException(
+            throw new LengthException(
                 'AMQP 1.0 Data section payload exceeds the 4294967295-byte vbin32 limit'
             );
         }
