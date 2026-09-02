@@ -103,7 +103,7 @@ interface ConnectionInterface
         bool $singleActiveConsumer = false,
     ): SuperStreamConsumerInterface;
 
-    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void;
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
 
     public function storeOffset(string $reference, string $stream, int $offset): void;
 }

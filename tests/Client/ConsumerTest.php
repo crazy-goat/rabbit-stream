@@ -120,6 +120,44 @@ class ConsumerTest extends TestCase
         $this->assertSame([], $result);
     }
 
+    public function testReadKeepsWaitingWhileNonDeliverFramesArrive(): void
+    {
+        // readLoop() reporting 1 dispatched frame but buffering no message models a
+        // heartbeat / publish confirm / ConsumerUpdate arriving first: read() must
+        // not treat that as "nothing within timeout" and keep waiting until the
+        // deadline.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $calls = 0;
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(function () use (&$calls): int {
+            $calls++;
+            usleep(2000);
+            return 1;
+        });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $start = microtime(true);
+        $result = $consumer->read(timeout: 0.05);
+
+        $this->assertSame([], $result);
+        $this->assertGreaterThanOrEqual(0.05, microtime(true) - $start);
+        $this->assertGreaterThan(1, $calls);
+    }
+
+    public function testReadStopsWaitingWhenReadLoopDispatchesNothing(): void
+    {
+        // 0 dispatched frames = readLoop() hit its own timeout (or the connection
+        // dropped): read() must return immediately instead of spinning.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->once())->method('readLoop')->willReturn(0);
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $this->assertSame([], $consumer->read(timeout: 5.0));
+    }
+
     public function testReadOneReturnsNullOnTimeout(): void
     {
         $connection = $this->createMock(StreamConnection::class);

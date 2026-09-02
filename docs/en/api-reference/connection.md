@@ -82,7 +82,7 @@ class Connection
     ): SuperStreamConsumerInterface;
     
     // Lifecycle
-    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void;
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
     public function close(): void;
 }
 ```
@@ -919,7 +919,7 @@ foreach ($consumer->read(timeout: 5.0) as $message) {
 Process incoming server-push frames (deliveries, heartbeats, confirms).
 
 ```php
-public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
+public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 ```
 
 #### Parameters
