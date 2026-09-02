@@ -12,10 +12,12 @@ use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
@@ -94,6 +96,19 @@ class Consumer implements ConsumerInterface
     private ?\Closure $consumerUpdateCallback = null;
 
     /**
+     * Set by a MetadataUpdate for our stream: the broker dropped the
+     * subscription. read()/readOne() re-subscribe transparently (with back-off
+     * while the stream is being recreated) before waiting for messages.
+     */
+    private bool $subscriptionLost = false;
+    private float $nextResubscribeAt = 0.0;
+    private float $resubscribeBackoff = self::RESUBSCRIBE_INITIAL_BACKOFF;
+    private int $resubscribeCount = 0;
+
+    private const RESUBSCRIBE_INITIAL_BACKOFF = 0.05;
+    private const RESUBSCRIBE_MAX_BACKOFF = 1.0;
+
+    /**
      * @param array<int, string> $filterValues Stream filtering values (protocol
      *                            keys `filter.0`, `filter.1`, ... — broker-side,
      *                            chunk-granular; see Producer::sendWithFilter()).
@@ -159,6 +174,105 @@ class Consumer implements ConsumerInterface
     public function isActive(): bool
     {
         return $this->active;
+    }
+
+    /**
+     * Whether the broker dropped this subscription (MetadataUpdate: stream
+     * deleted or leader moved) and it has not been re-established yet. The
+     * next read()/readOne() keeps trying to re-subscribe.
+     */
+    public function isSubscriptionLost(): bool
+    {
+        return $this->subscriptionLost;
+    }
+
+    /** Number of successful re-subscriptions after a MetadataUpdate. */
+    public function getResubscribeCount(): int
+    {
+        return $this->resubscribeCount;
+    }
+
+    private function onStreamUnavailable(): void
+    {
+        $this->subscriptionLost = true;
+        // Nothing is in flight any more: the broker forgot the subscription and
+        // with it every outstanding credit.
+        $this->creditsInFlight = 0;
+        $this->pendingCredits = 0;
+        $this->active = !$this->singleActiveConsumer;
+        $this->resubscribeBackoff = self::RESUBSCRIBE_INITIAL_BACKOFF;
+        $this->nextResubscribeAt = microtime(true);
+    }
+
+    /**
+     * Try once to re-establish a lost subscription. Returns true when the
+     * subscription is live again (or was never lost), false when the stream is
+     * still missing/unavailable and the next attempt is scheduled (back-off).
+     *
+     * @throws ProtocolException for any broker error other than STREAM_NOT_EXIST / STREAM_NOT_AVAILABLE
+     */
+    public function resubscribeIfLost(): bool
+    {
+        if (!$this->subscriptionLost) {
+            return true;
+        }
+        if (microtime(true) < $this->nextResubscribeAt) {
+            return false;
+        }
+
+        try {
+            $this->sendSubscribe($this->resumeOffset());
+        } catch (ProtocolException $e) {
+            $retryable = in_array(
+                $e->getResponseCode(),
+                [ResponseCodeEnum::STREAM_NOT_EXIST, ResponseCodeEnum::STREAM_NOT_AVAILABLE],
+                true
+            );
+            if (!$retryable) {
+                throw $e;
+            }
+            $this->nextResubscribeAt = microtime(true) + $this->resubscribeBackoff;
+            $this->resubscribeBackoff = min($this->resubscribeBackoff * 2, self::RESUBSCRIBE_MAX_BACKOFF);
+            return false;
+        }
+
+        $this->subscriptionLost = false;
+        $this->resubscribeCount++;
+        // Grow back to the adaptive target the previous subscription had reached.
+        if ($this->creditTarget > $this->initialCredit) {
+            $this->pendingCredits = $this->creditTarget - $this->initialCredit;
+            $this->sendPendingCredits();
+        }
+        return true;
+    }
+
+    /**
+     * Where to resume after the broker dropped the subscription.
+     *
+     * If the stream was merely unavailable for a moment (leader move) we
+     * continue right after the last message we processed. If it was deleted
+     * and recreated its offsets start over: continuing at our old offset would
+     * silently wait until the new stream grows past it, so we fall back to the
+     * initial OffsetSpec. StreamStats tells the two apart: the committed offset
+     * of a recreated stream is below what we already consumed.
+     */
+    private function resumeOffset(): OffsetSpec
+    {
+        if (!$this->hasProcessedMessage) {
+            return $this->offset;
+        }
+        $response = $this->connection->request(new StreamStatsRequestV1($this->stream));
+        if (!$response instanceof StreamStatsResponseV1) {
+            throw UnexpectedResponseException::create(StreamStatsResponseV1::class, $response);
+        }
+        foreach ($response->getStats() as $stat) {
+            if ($stat->getKey() === 'committed_chunk_id') {
+                return $stat->getValue() < $this->lastOffset
+                    ? $this->offset
+                    : OffsetSpec::offset($this->lastOffset + 1);
+            }
+        }
+        return OffsetSpec::offset($this->lastOffset + 1);
     }
 
     /** @return array<string, string> */
@@ -267,23 +381,41 @@ class Consumer implements ConsumerInterface
             },
         );
 
+        $this->connection->registerMetadataUpdateHandler(
+            $this->stream,
+            "subscription-{$this->subscriptionId}",
+            function (): void {
+                $this->onStreamUnavailable();
+            }
+        );
+
+        $this->sendSubscribe($this->offset);
+    }
+
+    private function sendSubscribe(OffsetSpec $offset): void
+    {
         // Set before sending the subscribe request: a Deliver frame (and thus the
-        // callback above, which decrements creditsInFlight) can arrive while we are
-        // still waiting for the SubscribeResponse below.
+        // deliver callback, which decrements creditsInFlight) can arrive while we
+        // are still waiting for the SubscribeResponse below.
         $this->creditsInFlight = $this->initialCredit;
 
         // request() correlates the reply: with single-active-consumer the broker
         // may push ConsumerUpdate before the SubscribeResponse, and the handler's
         // nested queryOffset() must not swallow our response.
-        $this->connection->request(
-            new SubscribeRequestV1(
-                $this->subscriptionId,
-                $this->stream,
-                $this->offset,
-                $this->initialCredit,
-                $this->buildSubscribeProperties(),
-            )
-        );
+        try {
+            $this->connection->request(
+                new SubscribeRequestV1(
+                    $this->subscriptionId,
+                    $this->stream,
+                    $offset,
+                    $this->initialCredit,
+                    $this->buildSubscribeProperties(),
+                )
+            );
+        } catch (ProtocolException $e) {
+            $this->creditsInFlight = 0;
+            throw $e;
+        }
     }
 
     /**
@@ -309,6 +441,16 @@ class Consumer implements ConsumerInterface
     {
         $deadline = microtime(true) + $timeout;
         while (!$this->hasUnread() && $timeout > 0) {
+            if (!$this->resubscribeIfLost()) {
+                // Stream still gone: keep servicing the socket until the next
+                // attempt is due (or the caller's deadline passes).
+                $slice = min($timeout, max(0.0, $this->nextResubscribeAt - microtime(true)));
+                if ($slice > 0) {
+                    $this->connection->readLoop(maxFrames: 1, timeout: $slice);
+                }
+                $timeout = $deadline - microtime(true);
+                continue;
+            }
             // 0 dispatched frames = timeout, stop() or disconnect: nothing more to wait for.
             if ($this->connection->readLoop(maxFrames: 1, timeout: $timeout) === 0) {
                 return;
@@ -421,10 +563,15 @@ class Consumer implements ConsumerInterface
         }
 
         $this->connection->unregisterSubscriber($this->subscriptionId);
+        $this->connection->unregisterMetadataUpdateHandler($this->stream, "subscription-{$this->subscriptionId}");
 
-        $this->connection->request(
-            new UnsubscribeRequestV1($this->subscriptionId)
-        );
+        if (!$this->subscriptionLost) {
+            // A lost subscription is already gone on the broker; Unsubscribe
+            // would only earn SUBSCRIPTION_ID_NOT_EXIST.
+            $this->connection->request(
+                new UnsubscribeRequestV1($this->subscriptionId)
+            );
+        }
         $this->buffer = [];
         $this->bufferHead = 0;
         $this->unreadCount = 0;

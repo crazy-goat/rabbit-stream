@@ -226,11 +226,31 @@ A `Producer` for each partition is opened **lazily**, on the first publish
 routed to that partition — creating a `SuperStreamProducer` for a
 100-partition super stream does not open 100 sockets/publishers up front.
 
-> **Caveat**: partition membership is resolved once, when the
-> `SuperStreamProducer` is created. A `MetadataUpdate` for a partition (e.g.
-> its leader changed, or the super stream's partition set itself changed) is
-> **not** automatically detected or handled — if your topology can change at
-> runtime, recreate the `SuperStreamProducer` to pick it up.
+**Topology changes are handled for you.** When a partition becomes
+unavailable (it was deleted, or its leader moved), the broker pushes a
+`MetadataUpdate` and the `SuperStreamProducer` marks its topology stale. The
+next `send()`/`sendBatch()` re-resolves the partition list, closes the
+producers of partitions that no longer exist, and clears the routing
+strategy's cache; the per-partition `Producer` re-declares itself the same way
+it does on a plain stream (see
+[Publishing](publishing.md#stream-deleted-or-leader-moved-metadataupdate)).
+
+```php
+$producer = $connection->createSuperStreamProducer('orders');
+// ... a partition is deleted elsewhere ...
+$producer->send('payload', 'routing-key');   // refreshes the topology first
+echo count($producer->getPartitions());      // one fewer partition
+echo $producer->getRefreshCount();           // 1
+```
+
+`isPartitionsStale()` and `getRefreshCount()` expose the state;
+`refreshPartitions()` forces the refresh immediately instead of on the next
+publish.
+
+> **Note**: RabbitMQ cannot add partitions to an existing super stream, so the
+> refresh is about availability, never about a growing partition count. A
+> deleted partition stream is also unbound from the super stream, so it
+> disappears from the routing set until it is bound again.
 
 > **Throughput tip:** prefer `sendBatch()` over per-message `send()` when
 > publishing to a super stream. Routing spreads the writes over partitions, so

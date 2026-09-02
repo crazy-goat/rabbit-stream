@@ -39,4 +39,9 @@ final class KeyRoutingStrategy implements RoutingStrategy
         $this->cache[$routingKey] = $streams;
         return $streams;
     }
+
+    public function reset(): void
+    {
+        $this->cache = [];
+    }
 }

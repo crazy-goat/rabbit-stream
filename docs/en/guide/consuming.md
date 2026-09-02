@@ -607,7 +607,47 @@ stream with the same `name` on different connections join the same SAC
 group; on the same connection they would not (each subscription is
 independent per connection).
 
-## 9. Low-Level Consuming
+## 9. Stream Deleted or Leader Moved (MetadataUpdate)
+
+When the stream becomes unavailable the broker pushes a `MetadataUpdate` and
+drops the subscription together with its outstanding credit. The `Consumer`
+recovers on its own:
+
+- `read()`/`readOne()` notice the lost subscription and re-`Subscribe`,
+  retrying with exponential back-off (50 ms up to 1 s) while the stream is
+  missing — usually because it is being recreated.
+- After a brief unavailability the consumer resumes right after the last
+  message it processed. If the stream was deleted and recreated its offsets
+  start over, so resuming at the old offset would silently wait forever; the
+  consumer detects this (the stream's committed offset is below what it already
+  consumed) and falls back to the initial `OffsetSpec` instead.
+- The adaptive credit window is granted again after the re-subscribe, so
+  throughput returns to where it was.
+
+```php
+$consumer = $connection->createConsumer('my-stream', OffsetSpec::first());
+
+// ... the stream is deleted and recreated elsewhere ...
+
+$messages = $consumer->read(timeout: 5.0);   // re-subscribes, then reads
+echo $consumer->getResubscribeCount();       // 1
+```
+
+`isSubscriptionLost()` reports whether the subscription is currently down, and
+`resubscribeIfLost()` attempts one re-subscribe immediately (returning `false`
+when the stream is still gone). Any broker error other than
+`STREAM_NOT_EXIST`/`STREAM_NOT_AVAILABLE` is rethrown as a `ProtocolException`
+rather than retried.
+
+For a `SuperStreamConsumer` this happens per partition: one deleted partition
+does not stop the others.
+
+> **Cluster note**: a leader move to a different node cannot be followed on the
+> same connection. Consuming can be served by any replica, so this affects
+> single-node setups and recreated streams; a stream that moved away entirely
+> needs a new connection.
+
+## 10. Low-Level Consuming
 
 For advanced use cases, you can use the protocol-level commands directly.
 The snippets below use a raw `StreamConnection` (`$stream`) — the low-level

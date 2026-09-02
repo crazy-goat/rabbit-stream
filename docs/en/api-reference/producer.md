@@ -41,6 +41,7 @@ $producer = $connection->createProducer(
 | `$stream` | `string` | Yes | Name of the stream to publish to |
 | `$name` | `?string` | No | Unique producer name for deduplication. If provided, enables exactly-once semantics across reconnects. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus` object. |
+| `$redeclareTimeout` | `float` | No | How long (seconds) a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher; default `5.0`. `0` fails on the first attempt. See [isStale()](#isstale). |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Once reached, `send()`/`sendBatch()` block, draining confirms until the count drops back below the limit. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
 
 ### Examples
@@ -357,6 +358,47 @@ echo $producer->getPendingConfirms(); // 0
 
 - Decremented as `onConfirm`/publish-error frames arrive, whether observed via `waitForConfirms()`, the `onConfirm` callback, or the `maxPendingConfirms` back-pressure drain in `send()`/`sendBatch()`
 - Useful for custom throttling or metrics alongside `maxPendingConfirms`
+
+---
+
+### isStale()
+
+```php
+public function isStale(): bool
+```
+
+Whether the broker has dropped this publisher — it pushed a `MetadataUpdate`
+for the stream, or answered a publish with `PUBLISHER_NOT_EXIST` /
+`STREAM_NOT_AVAILABLE`. The next `send()`, `sendBatch()` or `sendWithFilter()`
+re-runs `DeclarePublisher` before publishing, retrying with exponential
+back-off for up to `$redeclareTimeout` seconds and throwing a
+`ProtocolException` if the stream is still gone.
+
+Unconfirmed messages are lost when this happens: they are reported to the
+`onConfirm` callback as a failed `ConfirmationStatus` carrying the broker's
+response code, and they stop counting toward `maxPendingConfirms`.
+
+```php
+$producer->send('a');
+// ... the stream is deleted; any readLoop()/waitForConfirms() dispatches the MetadataUpdate ...
+$producer->isStale();      // true
+$producer->send('b');      // re-declares first, then publishes
+$producer->isStale();      // false
+```
+
+See [Publishing → Stream Deleted or Leader Moved](../guide/publishing.md#stream-deleted-or-leader-moved-metadataupdate).
+
+---
+
+### getRedeclareCount()
+
+```php
+public function getRedeclareCount(): int
+```
+
+How many times this publisher has been successfully re-declared after a
+`MetadataUpdate`. Useful as a health metric: a number that keeps growing means
+the stream is flapping.
 
 ---
 

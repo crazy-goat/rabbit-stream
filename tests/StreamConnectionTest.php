@@ -1422,4 +1422,61 @@ class StreamConnectionTest extends TestCase
         socket_close($serverSocket);
         socket_close($clientSocket);
     }
+
+
+    public function testDispatchMetadataUpdateInvokesPerStreamHandlersThenGlobalCallback(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $order = [];
+        $connection->registerMetadataUpdateHandler(
+            's1',
+            'publisher-1',
+            function (MetadataUpdateResponseV1 $u) use (&$order): void {
+                $order[] = 'publisher-1:' . $u->getStream();
+            }
+        );
+        $connection->registerMetadataUpdateHandler('s1', 'subscription-2', function () use (&$order): void {
+            $order[] = 'subscription-2';
+        });
+        $connection->registerMetadataUpdateHandler('other', 'publisher-9', function () use (&$order): void {
+            $order[] = 'other-stream-must-not-fire';
+        });
+        $connection->onMetadataUpdate(function () use (&$order): void {
+            $order[] = 'global';
+        });
+
+        socket_write($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertSame(['publisher-1:s1', 'subscription-2', 'global'], $order);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testUnregisteredMetadataUpdateHandlerIsNotInvoked(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $fired = 0;
+        $connection->registerMetadataUpdateHandler('s1', 'publisher-1', function () use (&$fired): void {
+            $fired++;
+        });
+        $connection->unregisterMetadataUpdateHandler('s1', 'publisher-1');
+
+        socket_write($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertSame(0, $fired);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
 }

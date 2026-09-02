@@ -6,12 +6,18 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Message;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
+use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Tests\Support\CapturedClosures;
+use CrazyGoat\RabbitStream\Tests\Support\CapturedObjects;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
 
@@ -944,5 +950,159 @@ class ConsumerTest extends TestCase
         $this->assertCount(1, $creditRequests);
         $this->assertSame(3, $creditRequests[0]->toArray()['credit']);
         $this->assertSame(0, $this->getPendingCredits($consumer));
+    }
+
+
+    /**
+     * @return array{
+     *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
+     *     1: CapturedClosures,
+     *     2: CapturedObjects<object>
+     * }
+     */
+    private function connectionCapturingMetadataHandler(): array
+    {
+        $handlers = new CapturedClosures();
+        /** @var CapturedObjects<object> $requests */
+        $requests = new CapturedObjects();
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(function (string $stream, string $id, \Closure $h) use ($handlers): void {
+                $this->assertSame('test-stream', $stream);
+                $this->assertSame('subscription-1', $id);
+                $handlers->add($h);
+            });
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request) use ($requests): object {
+                $requests->add($request);
+                return new \stdClass();
+            });
+        return [$connection, $handlers, $requests];
+    }
+
+    public function testMetadataUpdateMarksSubscriptionLostAndReadResubscribes(): void
+    {
+        [$connection, $handlers, $requests] = $this->connectionCapturingMetadataHandler();
+        // readLoop() reports "nothing dispatched" so read() returns on its deadline.
+        $connection->expects($this->any())->method('readLoop')->willReturn(0);
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::next(), initialCredit: 7);
+        $this->assertSame(1, $handlers->count(), 'Consumer must register a MetadataUpdate handler');
+        $this->assertSame(1, $requests->count());
+
+        $handlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+        $this->assertTrue($consumer->isSubscriptionLost());
+
+        $this->assertSame([], $consumer->read(0.05));
+
+        $this->assertFalse($consumer->isSubscriptionLost());
+        $this->assertSame(1, $consumer->getResubscribeCount());
+        $this->assertSame(2, $requests->count());
+        $resubscribe = $requests->at(1);
+        $this->assertInstanceOf(SubscribeRequestV1::class, $resubscribe);
+        $subscribe = $resubscribe->toArray();
+        $this->assertIsArray($subscribe['offsetSpec']);
+        $this->assertSame(
+            OffsetSpec::next()->getType(),
+            $subscribe['offsetSpec']['type'],
+            'Nothing consumed yet: re-subscribe uses the original OffsetSpec'
+        );
+        $this->assertSame(7, $subscribe['credit']);
+    }
+
+    public function testResubscribeBacksOffWhileStreamIsMissing(): void
+    {
+        $handlers = new CapturedClosures();
+        $subscribes = 0;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(function (string $stream, string $id, \Closure $h) use ($handlers): void {
+                $handlers->add($h);
+            });
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request) use (&$subscribes): object {
+                $subscribes++;
+                if ($subscribes > 1) {
+                    throw new ProtocolException('gone', responseCode: ResponseCodeEnum::STREAM_NOT_EXIST);
+                }
+                return new \stdClass();
+            });
+        $connection->expects($this->any())
+            ->method('readLoop')
+            ->willReturnCallback(function (?int $maxFrames, ?float $timeout): int {
+                usleep((int) (($timeout ?? 0.0) * 1_000_000));
+                return 0;
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $handlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+
+        $this->assertSame([], $consumer->read(0.3));
+
+        $this->assertTrue($consumer->isSubscriptionLost(), 'Stream still missing: subscription stays lost');
+        // 0.3s with back-off 0.05, 0.1, 0.2: a handful of attempts, not a busy loop.
+        $this->assertGreaterThanOrEqual(3, $subscribes);
+        $this->assertLessThanOrEqual(6, $subscribes);
+    }
+
+    public function testResubscribeRethrowsNonRetryableErrors(): void
+    {
+        $handlers = new CapturedClosures();
+        $calls = 0;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(function (string $stream, string $id, \Closure $h) use ($handlers): void {
+                $handlers->add($h);
+            });
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function () use (&$calls): object {
+                $calls++;
+                if ($calls > 1) {
+                    throw new ProtocolException('nope', responseCode: ResponseCodeEnum::ACCESS_REFUSED);
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $handlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+
+        $this->expectException(ProtocolException::class);
+        $consumer->resubscribeIfLost();
+    }
+
+    public function testCloseOnLostSubscriptionSkipsUnsubscribe(): void
+    {
+        [$connection, $handlers, $requests] = $this->connectionCapturingMetadataHandler();
+        $connection->expects($this->once())->method('unregisterSubscriber')->with(1);
+        $connection->expects($this->once())
+            ->method('unregisterMetadataUpdateHandler')
+            ->with('test-stream', 'subscription-1');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $handlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+
+        $consumer->close();
+
+        foreach ($requests->all() as $request) {
+            $this->assertNotInstanceOf(
+                UnsubscribeRequestV1::class,
+                $request,
+                'The broker already dropped the subscription'
+            );
+        }
     }
 }

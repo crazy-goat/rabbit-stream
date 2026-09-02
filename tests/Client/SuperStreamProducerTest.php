@@ -30,6 +30,10 @@ class SuperStreamProducerTest extends TestCase
             {
                 return $this->map[$routingKey] ?? [];
             }
+
+            public function reset(): void
+            {
+            }
         };
     }
 
@@ -231,5 +235,67 @@ class SuperStreamProducerTest extends TestCase
         $producer->send('m3', 'key-a');
 
         $this->assertSame(1, $callCount, 'Partition producer must be opened lazily, only once');
+    }
+
+
+    public function testMarkPartitionsStaleRefreshesTopologyOnNextSend(): void
+    {
+        $created = [];
+        $factory = function (string $partition) use (&$created): ProducerInterface {
+            $producer = $this->createMock(ProducerInterface::class);
+            $created[] = $partition;
+            return $producer;
+        };
+        $resolves = 0;
+        $resolver = function () use (&$resolves): array {
+            $resolves++;
+            return ['p0', 'p1'];
+        };
+        $strategy = $this->createMock(RoutingStrategy::class);
+        $strategy->method('route')->willReturn(['p0']);
+        $strategy->expects($this->once())->method('reset');
+
+        $producer = new SuperStreamProducer(
+            ['p0', 'p1'],
+            $strategy,
+            \Closure::fromCallable($factory),
+            \Closure::fromCallable($resolver)
+        );
+        $producer->send('m1', 'k');
+        $this->assertSame(0, $resolves);
+
+        $producer->markPartitionsStale();
+        $this->assertTrue($producer->isPartitionsStale());
+        $this->assertSame(0, $resolves, 'Refresh is lazy: nothing happens until the next publish');
+
+        $producer->send('m2', 'k');
+
+        $this->assertFalse($producer->isPartitionsStale());
+        $this->assertSame(1, $resolves);
+        $this->assertSame(1, $producer->getRefreshCount());
+        $this->assertSame(['p0'], $created, 'Partition producer survives a refresh that keeps the partition');
+    }
+
+    public function testRefreshPartitionsClosesProducersOfVanishedPartitions(): void
+    {
+        $gone = $this->createMock(ProducerInterface::class);
+        $gone->expects($this->once())->method('close');
+        $kept = $this->createMock(ProducerInterface::class);
+        $kept->expects($this->never())->method('close');
+        $factory = fn(string $partition): ProducerInterface => $partition === 'p1' ? $gone : $kept;
+
+        $strategy = $this->fixedStrategy(['a' => ['p0'], 'b' => ['p1']]);
+        $producer = new SuperStreamProducer(
+            ['p0', 'p1'],
+            $strategy,
+            \Closure::fromCallable($factory),
+            fn(): array => ['p0']
+        );
+        $producer->send('m', 'a');
+        $producer->send('m', 'b');
+
+        $producer->refreshPartitions();
+
+        $this->assertSame(['p0'], $producer->getPartitions());
     }
 }

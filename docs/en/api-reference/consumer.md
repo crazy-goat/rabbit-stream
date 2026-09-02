@@ -415,6 +415,49 @@ $consumer->onConsumerUpdate(function (bool $active, Consumer $consumer): ?Offset
 
 ---
 
+## Recovery Methods
+
+### isSubscriptionLost()
+
+```php
+public function isSubscriptionLost(): bool
+```
+
+Whether the broker dropped this subscription because the stream became
+unavailable (a `MetadataUpdate` frame: the stream was deleted, or its leader
+moved) and it has not been re-established yet. `read()`/`readOne()` keep
+trying to re-subscribe while this is `true`.
+
+### getResubscribeCount()
+
+```php
+public function getResubscribeCount(): int
+```
+
+How many times the subscription has been successfully re-established after a
+`MetadataUpdate`.
+
+### resubscribeIfLost()
+
+```php
+public function resubscribeIfLost(): bool
+```
+
+Attempts one re-subscribe right now, instead of waiting for the next
+`read()`/`readOne()`. Returns `true` when the subscription is live (or was
+never lost) and `false` when the stream is still missing and the next attempt
+has been scheduled (back-off grows from 50 ms to 1 s). Broker errors other
+than `STREAM_NOT_EXIST`/`STREAM_NOT_AVAILABLE` are thrown as a
+`ProtocolException`.
+
+The resume position is chosen automatically: right after the last processed
+message, or the consumer's initial `OffsetSpec` when the stream's committed
+offset shows it was recreated from scratch.
+
+See [Consuming → Stream Deleted or Leader Moved](../guide/consuming.md#9-stream-deleted-or-leader-moved-metadataupdate).
+
+---
+
 ## Lifecycle Methods
 
 ### close()

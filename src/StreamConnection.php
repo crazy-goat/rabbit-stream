@@ -50,6 +50,14 @@ class StreamConnection
     private array $subscriberCallbacks = [];
     /** @var array<int, callable> */
     private array $consumerUpdateHandlers = [];
+    /**
+     * Per-stream MetadataUpdate handlers: stream name => handler id => handler.
+     * Filled by Producer/Consumer so a "stream unavailable" notification reaches
+     * exactly the publishers/subscriptions that live on that stream.
+     *
+     * @var array<string, array<string, callable>>
+     */
+    private array $metadataUpdateHandlers = [];
     private ?\Closure $metadataUpdateCallback = null;
     private ?\Closure $heartbeatCallback = null;
     private ?\Closure $consumerUpdateCallback = null;
@@ -351,11 +359,42 @@ class StreamConnection
     /**
      * Register a callback for metadata update notifications from the server.
      *
+     * The global callback is invoked for every MetadataUpdate, after the
+     * per-stream handlers registered with registerMetadataUpdateHandler().
+     *
      * @param callable $callback Called with (MetadataUpdateResponseV1 $update) on topology changes
      */
     public function onMetadataUpdate(callable $callback): void
     {
         $this->metadataUpdateCallback = \Closure::fromCallable($callback);
+    }
+
+    /**
+     * Register a per-stream handler for MetadataUpdate frames.
+     *
+     * The broker pushes MetadataUpdate when a stream becomes unavailable (it was
+     * deleted, or its leader moved) and drops every publisher and subscription
+     * that was declared on it. Producer and Consumer register a handler here so
+     * they can mark themselves stale and re-declare/re-subscribe transparently.
+     *
+     * @param string   $stream    Stream name the handler is interested in
+     * @param string   $handlerId Unique id per registration (e.g. "publisher-3"), used to unregister
+     * @param callable $handler   Called with (MetadataUpdateResponseV1 $update)
+     */
+    public function registerMetadataUpdateHandler(string $stream, string $handlerId, callable $handler): void
+    {
+        $this->metadataUpdateHandlers[$stream][$handlerId] = $handler;
+    }
+
+    /**
+     * Remove a per-stream MetadataUpdate handler registered with registerMetadataUpdateHandler().
+     */
+    public function unregisterMetadataUpdateHandler(string $stream, string $handlerId): void
+    {
+        unset($this->metadataUpdateHandlers[$stream][$handlerId]);
+        if (isset($this->metadataUpdateHandlers[$stream]) && $this->metadataUpdateHandlers[$stream] === []) {
+            unset($this->metadataUpdateHandlers[$stream]);
+        }
     }
 
     /**
@@ -807,6 +846,17 @@ class StreamConnection
     private function handleMetadataUpdate(ReadBuffer $frame): void
     {
         $update = MetadataUpdateResponseV1::fromStreamBuffer($frame);
+        if (!$update instanceof MetadataUpdateResponseV1) {
+            throw new DeserializationException('Failed to deserialize MetadataUpdate frame');
+        }
+        $this->logger->warning('MetadataUpdate: stream unavailable', [
+            'stream' => $update->getStream(),
+            'code' => sprintf('0x%04x', $update->getCode()),
+        ]);
+        // Copy: a handler may (un)register handlers for this stream while we iterate.
+        foreach ($this->metadataUpdateHandlers[$update->getStream()] ?? [] as $handler) {
+            $handler($update);
+        }
         if ($this->metadataUpdateCallback instanceof \Closure) {
             ($this->metadataUpdateCallback)($update);
         }
