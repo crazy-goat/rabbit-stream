@@ -389,6 +389,7 @@ class Connection implements ConnectionInterface
         ?string $name = null,
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+        float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
     ): ProducerInterface {
         $publisherId = $this->publisherIdCounter++;
         $producer = new Producer(
@@ -397,7 +398,8 @@ class Connection implements ConnectionInterface
             $publisherId,
             $name,
             $onConfirm,
-            $maxPendingConfirms
+            $maxPendingConfirms,
+            $redeclareTimeout,
         );
         $this->producers[$publisherId] = $producer;
         return $producer;
@@ -447,11 +449,17 @@ class Connection implements ConnectionInterface
         ?string $name = null,
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+        float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
     ): SuperStreamProducerInterface {
         $partitions = $this->partitions($superStream);
         $strategy ??= new HashRoutingStrategy();
 
-        $factory = function (string $partition) use ($name, $onConfirm, $maxPendingConfirms): ProducerInterface {
+        $factory = function (string $partition) use (
+            $name,
+            $onConfirm,
+            $maxPendingConfirms,
+            $redeclareTimeout
+        ): ProducerInterface {
             // Per-partition publisher name so name-based dedup/sequence-query
             // (Producer::querySequence()) still works per partition.
             $partitionName = $name !== null ? "{$name}-{$partition}" : null;
@@ -462,13 +470,36 @@ class Connection implements ConnectionInterface
                 $publisherId,
                 $partitionName,
                 $onConfirm,
-                $maxPendingConfirms
+                $maxPendingConfirms,
+                $redeclareTimeout,
             );
             $this->producers[$publisherId] = $producer;
             return $producer;
         };
 
-        return new SuperStreamProducer($partitions, $strategy, \Closure::fromCallable($factory));
+        $producer = new SuperStreamProducer(
+            $partitions,
+            $strategy,
+            \Closure::fromCallable($factory),
+            fn(): array => $this->partitions($superStream),
+        );
+
+        // A MetadataUpdate on any partition makes the producer re-resolve the
+        // topology before its next publish. WeakReference: the handler must not
+        // keep a closed producer alive.
+        $ref = \WeakReference::create($producer);
+        $handlerId = 'super-stream-producer-' . spl_object_id($producer);
+        foreach ($partitions as $partition) {
+            $this->streamConnection->registerMetadataUpdateHandler(
+                $partition,
+                $handlerId,
+                static function () use ($ref): void {
+                    $ref->get()?->markPartitionsStale();
+                }
+            );
+        }
+
+        return $producer;
     }
 
     public function createSuperStreamConsumer(

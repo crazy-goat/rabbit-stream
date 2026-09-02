@@ -40,6 +40,7 @@ $producer = $connection->createSuperStreamProducer(
     ?string $name = null,               // Optional: base producer name
     ?callable $onConfirm = null,        // Optional: confirmation callback
     int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+    float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
 ): SuperStreamProducerInterface
 ```
 
@@ -52,6 +53,7 @@ $producer = $connection->createSuperStreamProducer(
 | `$name` | `?string` | No | Base name. Each partition's underlying `Producer` gets `"{$name}-{$partition}"` so per-partition sequence dedup (`Producer::querySequence()`) still works. |
 | `$onConfirm` | `?callable` | No | Confirmation callback, passed through to every partition's `Producer` |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap, passed through to every partition's `Producer` |
+| `$redeclareTimeout` | `float` | No | Re-declare timeout after a `MetadataUpdate`, passed through to every partition's `Producer` |
 
 ### Examples
 
@@ -205,7 +207,8 @@ public function getPendingConfirms(): int
 
 ### getPartitions()
 
-The super stream's partition names, as resolved when this producer was created.
+The super stream's partition names, as resolved when this producer was created
+or at the last topology refresh.
 
 ```php
 /** @return list<string> */
@@ -226,7 +229,52 @@ foreach ($producer->getPartitions() as $partition) {
 
 #### Notes
 
-- This does **not** reflect a topology change after construction — see the caveat under [Constructor](#constructor)
+- Refreshed automatically after a `MetadataUpdate` on any partition — see [refreshPartitions()](#refreshpartitions)
+
+---
+
+### isPartitionsStale()
+
+Whether a `MetadataUpdate` arrived for one of the partitions, so the next
+publish re-resolves the topology.
+
+```php
+public function isPartitionsStale(): bool
+```
+
+---
+
+### refreshPartitions()
+
+Re-resolve the partition list now, instead of lazily on the next publish. The
+partition list is re-read from the broker (a `Partitions` request), producers
+of partitions that no longer exist are closed and dropped, and the routing
+strategy's cache is cleared (`RoutingStrategy::reset()`).
+
+```php
+public function refreshPartitions(): void
+```
+
+#### Throws
+
+- `ProtocolException` - if the super stream itself no longer exists
+
+#### Notes
+
+- Called automatically by `send()`/`sendBatch()` when the topology is stale
+- RabbitMQ cannot add partitions to an existing super stream, so a refresh
+  can only ever shrink the routing set (a deleted partition stream is also
+  unbound from the super stream)
+
+---
+
+### getRefreshCount()
+
+How many topology refreshes have completed since this producer was created.
+
+```php
+public function getRefreshCount(): int
+```
 
 ---
 

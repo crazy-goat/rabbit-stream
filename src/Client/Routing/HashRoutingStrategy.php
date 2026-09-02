@@ -32,4 +32,9 @@ final class HashRoutingStrategy implements RoutingStrategy
 
         return [$partitions[$index]];
     }
+
+    public function reset(): void
+    {
+        // Stateless: nothing cached.
+    }
 }

@@ -477,6 +477,55 @@ $producer = $connection->createProducer(
 );
 ```
 
+### Stream Deleted or Leader Moved (MetadataUpdate)
+
+When a stream becomes unavailable — it was deleted, or its leader moved to
+another node — the broker pushes a `MetadataUpdate` frame and forgets every
+publisher declared on that stream. The `Producer` handles this for you:
+
+1. It marks itself **stale** as soon as the `MetadataUpdate` is dispatched
+   (any `readLoop()`, `waitForConfirms()` or `read()` call services the socket).
+2. Messages that were still unconfirmed are reported to the `onConfirm`
+   callback as failed, with the `MetadataUpdate` response code. They will never
+   be confirmed, so this is your cue to resend them.
+3. The next `send()`/`sendBatch()`/`sendWithFilter()` re-runs
+   `DeclarePublisher` before publishing, retrying with exponential back-off
+   while the stream is missing (it is usually being recreated). A named
+   producer re-reads its publishing sequence from the broker, so publishing IDs
+   never collide.
+
+```php
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+
+$producer = $connection->createProducer(
+    'my-stream',
+    onConfirm: function (ConfirmationStatus $status) use (&$toResend) {
+        if (!$status->isConfirmed()) {
+            $toResend[] = $status->getPublishingId();
+        }
+    }
+);
+
+// ... the stream is deleted and recreated elsewhere ...
+
+$producer->send('next message');  // re-declares transparently
+echo $producer->getRedeclareCount();  // 1
+```
+
+`isStale()` exposes the current state and `getRedeclareCount()` how many times
+the publisher had to be re-declared. If the stream is still gone after
+`redeclareTimeout` seconds (default 5, configurable per producer), the publish
+throws a `ProtocolException` carrying the broker's response code, and the
+producer stays stale so a later `send()` can try again.
+
+A `PublishError` with `PUBLISHER_NOT_EXIST` or `STREAM_NOT_AVAILABLE` triggers
+the same recovery, which covers the case where the `MetadataUpdate` was missed.
+
+> **Cluster note**: a leader move to a *different node* cannot be followed on
+> the same connection — publishers must be connected to the partition leader.
+> The re-declare then keeps failing with `STREAM_NOT_AVAILABLE` and you need a
+> new connection to the new leader.
+
 ### Error Recovery Strategies
 
 1. **Transient errors** (network issues): Retry with exponential backoff

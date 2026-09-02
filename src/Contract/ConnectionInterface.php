@@ -58,6 +58,7 @@ interface ConnectionInterface
         ?string $name = null,
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+        float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
     ): ProducerInterface;
 
     /**
@@ -89,6 +90,7 @@ interface ConnectionInterface
         ?string $name = null,
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+        float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
     ): SuperStreamProducerInterface;
 
     /**

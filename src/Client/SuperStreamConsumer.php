@@ -66,8 +66,17 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
     {
         $deadline = microtime(true) + $timeout;
         while (!$this->anyHasUnread() && $timeout > 0) {
+            // A partition dropped by the broker (MetadataUpdate) re-subscribes
+            // here, with back-off while it is being recreated.
+            $allSubscribed = true;
+            foreach ($this->consumers as $consumer) {
+                if ($consumer instanceof Consumer && !$consumer->resubscribeIfLost()) {
+                    $allSubscribed = false;
+                }
+            }
+            $slice = $allSubscribed ? $timeout : min($timeout, 0.05);
             // 0 dispatched frames = timeout, stop() or disconnect: nothing more to wait for.
-            if (($this->readLoop)($timeout) === 0) {
+            if (($this->readLoop)($slice) === 0 && $allSubscribed) {
                 return;
             }
             $timeout = $deadline - microtime(true);

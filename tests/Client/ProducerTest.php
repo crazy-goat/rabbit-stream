@@ -5,12 +5,21 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\AmqpMessageEncoder;
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Producer;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
+use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
+use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
+use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Tests\Support\CapturedClosures;
+use CrazyGoat\RabbitStream\Tests\Support\CapturedObjects;
+use CrazyGoat\RabbitStream\VO\PublishingError;
 use PHPUnit\Framework\TestCase;
 
 class ProducerTest extends TestCase
@@ -620,5 +629,203 @@ class ProducerTest extends TestCase
         $sequence = $producer->querySequence();
         $this->assertEquals(42, $sequence);
         $this->assertNotNull($capturedRequest, 'QueryPublisherSequenceRequestV1 should have been sent');
+    }
+
+
+    /**
+     * Producer wired to a mock connection that captures the per-stream
+     * MetadataUpdate handler and the publisher error callback.
+     *
+     * @return array{
+     *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
+     *     1: CapturedClosures,
+     *     2: CapturedClosures
+     * }
+     */
+    private function connectionCapturingHandlers(): array
+    {
+        $metadataHandlers = new CapturedClosures();
+        $errorCallbacks = new CapturedClosures();
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(function (string $stream, string $id, \Closure $h) use ($metadataHandlers): void {
+                $this->assertSame('test-stream', $stream);
+                $this->assertSame('publisher-1', $id);
+                $metadataHandlers->add($h);
+            });
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(
+                function (int $id, \Closure $onConfirm, \Closure $onError) use ($errorCallbacks): void {
+                    $errorCallbacks->add($onError);
+                }
+            );
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        return [$connection, $metadataHandlers, $errorCallbacks];
+    }
+
+    public function testMetadataUpdateMarksProducerStaleAndNextSendRedeclares(): void
+    {
+        [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
+        /** @var CapturedObjects<object> $requests */
+        $requests = new CapturedObjects();
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request) use ($requests): object {
+                $requests->add($request);
+                return new \stdClass();
+            });
+        $published = 0;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$published): void {
+                if ($request instanceof PublishRequestV1) {
+                    $published++;
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $this->assertSame(1, $metadataHandlers->count(), 'Producer must register a MetadataUpdate handler');
+        $this->assertFalse($producer->isStale());
+
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+        $this->assertTrue($producer->isStale());
+        $this->assertSame(0, $requests->count(), 'Re-declare must be lazy: nothing sent until the next publish');
+
+        $producer->send('after');
+
+        $this->assertFalse($producer->isStale());
+        $this->assertSame(1, $producer->getRedeclareCount());
+        $this->assertSame(1, $requests->count());
+        $this->assertInstanceOf(DeclarePublisherRequestV1::class, $requests->at(0));
+        $this->assertSame(1, $published);
+    }
+
+    public function testMetadataUpdateReportsUnconfirmedMessagesAsFailed(): void
+    {
+        [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var CapturedObjects<ConfirmationStatus> $statuses */
+        $statuses = new CapturedObjects();
+        $onConfirm = function (ConfirmationStatus $s) use ($statuses): void {
+            $statuses->add($s);
+        };
+        $producer = new Producer($connection, 'test-stream', 1, onConfirm: $onConfirm);
+        $producer->send('a'); // publishingId 0
+        $producer->send('b'); // publishingId 1
+        $this->assertSame(2, $producer->getPendingConfirms());
+
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+
+        $this->assertSame(0, $producer->getPendingConfirms(), 'Lost messages must not count against back-pressure');
+        $this->assertSame(2, $statuses->count());
+        $this->assertFalse($statuses->at(0)->isConfirmed());
+        $this->assertSame(0, $statuses->at(0)->getPublishingId());
+        $this->assertSame(1, $statuses->at(1)->getPublishingId());
+        $this->assertSame(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, $statuses->at(1)->getErrorCode());
+        // waitForConfirms() has nothing left to wait for — no TimeoutException.
+        $producer->waitForConfirms(0.01);
+    }
+
+    public function testPublishErrorPublisherNotExistMarksProducerStale(): void
+    {
+        [$connection, , $errorCallbacks] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('a');
+
+        $errorCallbacks->at()([new PublishingError(0, ResponseCodeEnum::PUBLISHER_NOT_EXIST->value)]);
+
+        $this->assertTrue($producer->isStale());
+    }
+
+    public function testRedeclareRetriesWhileStreamMissingThenGivesUpWithProtocolException(): void
+    {
+        [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
+        $attempts = 0;
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function () use (&$attempts): object {
+                $attempts++;
+                throw new ProtocolException('nope', responseCode: ResponseCodeEnum::STREAM_NOT_EXIST);
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        $producer = new Producer($connection, 'test-stream', 1, redeclareTimeout: 0.2);
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+
+        $start = microtime(true);
+        try {
+            $producer->send('x');
+            $this->fail('Expected ProtocolException');
+        } catch (ProtocolException $e) {
+            $this->assertSame(ResponseCodeEnum::STREAM_NOT_EXIST, $e->getResponseCode());
+            $this->assertStringContainsString('could not be re-declared', $e->getMessage());
+        }
+        $this->assertGreaterThan(1, $attempts, 'Should retry with back-off before giving up');
+        $this->assertLessThan(1.0, microtime(true) - $start);
+        $this->assertTrue($producer->isStale(), 'Still stale: the next send() tries again');
+    }
+
+    public function testRedeclareDoesNotRetryNonRetryableErrors(): void
+    {
+        [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
+        $attempts = 0;
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function () use (&$attempts): object {
+                $attempts++;
+                throw new ProtocolException('denied', responseCode: ResponseCodeEnum::ACCESS_REFUSED);
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        $producer = new Producer($connection, 'test-stream', 1, redeclareTimeout: 5.0);
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+
+        $this->expectException(ProtocolException::class);
+        try {
+            $producer->send('x');
+        } finally {
+            $this->assertSame(1, $attempts);
+        }
+    }
+
+    public function testCloseOnStaleProducerSkipsDeletePublisher(): void
+    {
+        [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $deletes = 0;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$deletes): void {
+                if ($request instanceof DeletePublisherRequestV1) {
+                    $deletes++;
+                }
+            });
+        $connection->expects($this->once())->method('unregisterPublisher')->with(1);
+        $connection->expects($this->once())
+            ->method('unregisterMetadataUpdateHandler')
+            ->with('test-stream', 'publisher-1');
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+        $producer->close();
+
+        $this->assertSame(0, $deletes, 'The broker already forgot the publisher');
     }
 }

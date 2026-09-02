@@ -224,7 +224,8 @@ public function unregisterPublisher(int $publisherId): void
 
 ### onMetadataUpdate()
 
-Registers a callback for metadata update frames.
+Registers a global callback for metadata update frames. It runs after the
+per-stream handlers registered with `registerMetadataUpdateHandler()`.
 
 ```php
 public function onMetadataUpdate(callable $callback): void
@@ -232,6 +233,31 @@ public function onMetadataUpdate(callable $callback): void
 
 **Parameters:**
 - `$callback` - Receives `MetadataUpdateResponseV1` object
+
+### registerMetadataUpdateHandler()
+
+Registers a handler for `MetadataUpdate` frames concerning one specific stream.
+This is how `Producer` and `Consumer` learn that the broker dropped their
+publisher/subscription, so they can re-declare or re-subscribe on the next
+call; applications normally use the high-level API and never call this.
+
+```php
+public function registerMetadataUpdateHandler(string $stream, string $handlerId, callable $handler): void
+```
+
+**Parameters:**
+- `$stream` - Stream name the handler is interested in
+- `$handlerId` - Unique id per registration (e.g. `"publisher-3"`), used to unregister
+- `$handler` - Receives `MetadataUpdateResponseV1`
+
+### unregisterMetadataUpdateHandler()
+
+Removes a per-stream handler. `Producer::close()` and `Consumer::close()` do
+this for their own registration.
+
+```php
+public function unregisterMetadataUpdateHandler(string $stream, string $handlerId): void
+```
 
 ### onHeartbeat()
 

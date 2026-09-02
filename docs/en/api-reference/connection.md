@@ -51,6 +51,8 @@ class Connection
         string $stream,
         ?string $name = null,
         ?callable $onConfirm = null,
+        int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+        float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
     ): Producer;
     
     public function createConsumer(
@@ -71,6 +73,8 @@ class Connection
         ?RoutingStrategy $strategy = null,
         ?string $name = null,
         ?callable $onConfirm = null,
+        int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+        float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
     ): SuperStreamProducerInterface;
     
     public function createSuperStreamConsumer(
@@ -676,6 +680,8 @@ public function createProducer(
     string $stream,
     ?string $name = null,
     ?callable $onConfirm = null,
+    int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+    float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
 ): Producer
 ```
 
@@ -686,6 +692,8 @@ public function createProducer(
 | `$stream` | `string` | Yes | Name of the stream to publish to |
 | `$name` | `?string` | No | Producer name for deduplication. Enables exactly-once semantics. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus`. |
+| `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding publishes. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
+| `$redeclareTimeout` | `float` | No | How long a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher. Default: `Producer::DEFAULT_REDECLARE_TIMEOUT` (5.0 s). See [Producer::isStale()](producer.md#isstale). |
 
 #### Return Value
 
@@ -815,6 +823,7 @@ public function createSuperStreamProducer(
     ?string $name = null,
     ?callable $onConfirm = null,
     int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+    float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
 ): SuperStreamProducerInterface
 ```
 
@@ -827,10 +836,11 @@ public function createSuperStreamProducer(
 | `$name` | `?string` | No | Base producer name. Each partition's underlying `Producer` gets the derived name `"{$name}-{$partition}"`, so per-partition sequence dedup still works. |
 | `$onConfirm` | `?callable` | No | Confirmation callback, passed through to every partition's `Producer`. |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
+| `$redeclareTimeout` | `float` | No | Re-declare timeout after a `MetadataUpdate`, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_REDECLARE_TIMEOUT` (5.0 s). |
 
 #### Return Value
 
-`SuperStreamProducerInterface` - resolves the super stream's partitions immediately (one `partitions()` round trip), but opens each partition's `Producer` lazily on first publish to that partition
+`SuperStreamProducerInterface` - resolves the super stream's partitions immediately (one `partitions()` round trip), but opens each partition's `Producer` lazily on first publish to that partition. A `MetadataUpdate` on any partition makes the next publish re-resolve the partition list — see [SuperStreamProducer::refreshPartitions()](super-stream-producer.md#refreshpartitions)
 
 #### Exceptions
 

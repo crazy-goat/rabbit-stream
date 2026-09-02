@@ -20,4 +20,11 @@ interface RoutingStrategy
      *                       return more than one partition for a single key
      */
     public function route(string $routingKey, array $partitions): array;
+
+    /**
+     * Forget any cached routing decisions. Called by SuperStreamProducer after
+     * a MetadataUpdate on one of the partitions (the super stream may have
+     * been recreated with different bindings).
+     */
+    public function reset(): void;
 }
