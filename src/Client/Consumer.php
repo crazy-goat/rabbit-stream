@@ -43,7 +43,21 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
  */
 class Consumer implements ConsumerInterface
 {
-    private const MAX_UINT16 = 65535;
+    /**
+     * Largest credit value that is safe to put in a Credit frame. The protocol
+     * documents the field as uint16, but RabbitMQ (verified on 4.3.5) decodes
+     * it as a signed 16-bit integer: 32768 and above become negative, the
+     * subscription's credit goes below zero and it silently stops delivering.
+     * Subscribe's initial credit does not have this problem, but the same cap
+     * is applied everywhere for one consistent limit.
+     */
+    public const MAX_CREDIT = 32767;
+
+    /**
+     * Default adaptive credit window: keep roughly this many bytes of chunks in
+     * flight, converted to a chunk count using the observed chunk size (#500).
+     */
+    public const DEFAULT_CREDIT_WINDOW_BYTES = 8 * 1024 * 1024;
 
     /** @var Message[] */
     private array $buffer = [];
@@ -60,6 +74,16 @@ class Consumer implements ConsumerInterface
     private int $creditsInFlight = 0;
 
     /**
+     * Chunks the consumer currently wants in flight. Starts at initialCredit and,
+     * when creditWindowBytes > 0, follows creditWindowBytes / observed chunk size
+     * (never below initialCredit, never above MAX_CREDIT).
+     */
+    private int $creditTarget;
+
+    /** Exponential moving average of delivered chunk sizes in bytes (0 until the first chunk). */
+    private float $avgChunkBytes = 0.0;
+
+    /**
      * Whether this consumer is currently allowed to receive messages. Always
      * true for a non-single-active-consumer subscription. A single active
      * consumer subscription starts as inactive and flips per the broker's
@@ -73,6 +97,18 @@ class Consumer implements ConsumerInterface
      * @param array<int, string> $filterValues Stream filtering values (protocol
      *                            keys `filter.0`, `filter.1`, ... — broker-side,
      *                            chunk-granular; see Producer::sendWithFilter()).
+     * @param int $creditWindowBytes Target bytes in flight. Credit is chunk-granular
+     *                            on the wire, and chunk size depends on how the
+     *                            producer published (thousands of messages per chunk
+     *                            for a batching producer on a plain stream, a handful
+     *                            for a super-stream partition fed one message at a
+     *                            time). The consumer measures the chunk size it sees
+     *                            and grants ceil(creditWindowBytes / avgChunk) credits
+     *                            (at least initialCredit), so small chunks over a
+     *                            network do not collapse the window to a few messages
+     *                            per round trip (#500). The target never exceeds
+     *                            MAX_CREDIT. 0 disables the adaptation and keeps
+     *                            exactly initialCredit chunks in flight.
      */
     public function __construct(
         private readonly StreamConnection $connection,
@@ -87,10 +123,18 @@ class Consumer implements ConsumerInterface
         private readonly bool $matchUnfiltered = false,
         private readonly bool $singleActiveConsumer = false,
         private readonly ?string $superStream = null,
+        private readonly int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
     ) {
         if ($this->maxBufferSize <= 0) {
             throw new InvalidArgumentException('maxBufferSize must be greater than 0');
         }
+        if ($this->initialCredit <= 0 || $this->initialCredit > self::MAX_CREDIT) {
+            throw new InvalidArgumentException('initialCredit must be between 1 and ' . self::MAX_CREDIT);
+        }
+        if ($this->creditWindowBytes < 0) {
+            throw new InvalidArgumentException('creditWindowBytes must be >= 0');
+        }
+        $this->creditTarget = $this->initialCredit;
         if ($this->singleActiveConsumer && $this->name === null) {
             throw new InvalidArgumentException(
                 'singleActiveConsumer requires a consumer name (the broker groups '
@@ -215,9 +259,10 @@ class Consumer implements ConsumerInterface
                 }
 
                 $this->creditsInFlight--;
-                if ($this->pendingCredits < self::MAX_UINT16) {
+                if ($this->pendingCredits < self::MAX_CREDIT) {
                     $this->pendingCredits++;
                 }
+                $this->observeChunkSize($chunkLength);
                 $this->sendPendingCredits();
             },
         );
@@ -401,6 +446,38 @@ class Consumer implements ConsumerInterface
      * buffer headroom (message units, checked as a threshold — see class docblock)
      * and the initialCredit cap on outstanding (in-flight) credit allow.
      */
+    /**
+     * Current in-flight chunk target (see creditWindowBytes in the constructor).
+     */
+    public function getCreditTarget(): int
+    {
+        return $this->creditTarget;
+    }
+
+    /**
+     * Fold a delivered chunk's size into the running average and re-derive the
+     * in-flight chunk target. When the target grows, the missing credit units are
+     * queued as pending so sendPendingCredits() grants them; when it shrinks, the
+     * replacement credit stays withheld until in-flight credit drops below it.
+     */
+    private function observeChunkSize(int $chunkBytes): void
+    {
+        if ($this->creditWindowBytes <= 0) {
+            return;
+        }
+        $this->avgChunkBytes = $this->avgChunkBytes <= 0.0
+            ? (float) $chunkBytes
+            : $this->avgChunkBytes * 0.8 + $chunkBytes * 0.2;
+
+        $wanted = (int) ceil($this->creditWindowBytes / max(1.0, $this->avgChunkBytes));
+        $this->creditTarget = min(self::MAX_CREDIT, max($this->initialCredit, $wanted));
+
+        $missing = $this->creditTarget - ($this->creditsInFlight + $this->pendingCredits);
+        if ($missing > 0) {
+            $this->pendingCredits = min(self::MAX_CREDIT, $this->pendingCredits + $missing);
+        }
+    }
+
     private function sendPendingCredits(): void
     {
         if ($this->pendingCredits <= 0) {
@@ -414,8 +491,8 @@ class Consumer implements ConsumerInterface
             return;
         }
 
-        $creditHeadroom = $this->initialCredit - $this->creditsInFlight;
-        $creditsToSend = min($this->pendingCredits, $creditHeadroom, self::MAX_UINT16);
+        $creditHeadroom = $this->creditTarget - $this->creditsInFlight;
+        $creditsToSend = min($this->pendingCredits, $creditHeadroom, self::MAX_CREDIT);
         if ($creditsToSend <= 0) {
             return;
         }

@@ -144,6 +144,49 @@ latency — see [Performance Comparison](#performance-comparison) above for
 end-to-end throughput. The wire format is unchanged; every existing
 exact-byte serialization test still passes.
 
+## Super Streams over a Network
+
+Measured on Hetzner Cloud (RabbitMQ on a 4 vCPU VM, consumers on 2 vCPU VMs,
+private network, RTT ~1 ms, 300,000 × 1 KB messages, 3 partitions). Two settings
+decide super-stream throughput; neither matters much on a loopback benchmark.
+
+### 1. Publish in batches
+
+Hash routing spreads one logical stream over N partitions, so each partition
+sees a fraction of the write rate. Publishing with `send()` one message at a
+time produced chunks of **~5 messages**; `sendBatch(500)` produced **~106**.
+
+| Producer | msg/s | Resulting chunk size |
+|---|---|---|
+| `SuperStreamProducer::send()` per message | 88,000 | ~5 msgs |
+| `SuperStreamProducer::sendBatch(500)` | 374,000 | ~106 msgs |
+| Plain stream `send()` | 154,000 | ~3,750 msgs |
+
+### 2. Credit window
+
+Credit is granted per chunk. With 5-message chunks `initialCredit: 10` allows
+50 messages per round trip — the consumer is latency-bound regardless of CPU.
+
+| Consumer, 1 process | chunk ~5 msgs | chunk ~106 msgs |
+|---|---|---|
+| `initialCredit: 10` | 45,000 msg/s | 127,000 msg/s |
+| `initialCredit: 100` | 41,000 msg/s (CPU-bound with work) | 240,000 msg/s per partition |
+
+Since #500 the `Consumer` sizes the window in bytes (`creditWindowBytes`,
+default 8 MiB) and converts it to chunks using the observed chunk size, so the
+default already covers this case. Raise `creditWindowBytes` for high-latency
+links; set it to `0` to pin the window to `initialCredit` chunks.
+
+### What scaling buys you
+
+A super stream does not make one consumer faster than a plain stream. It lets N
+consumers on N machines share the work: with ~18 µs of processing per message,
+one 2 vCPU VM reached 52,000 msg/s and three VMs with single-active-consumer
+partitions reached 141,000 msg/s (2.7×). Without per-message work each VM
+already read 350,000–460,000 msg/s and the broker, not the client, was the
+limit. Match the partition count to the number of consumers; extra partitions
+only make chunks smaller.
+
 ## Credit Tuning
 
 ### Understanding Credits

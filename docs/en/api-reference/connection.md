@@ -63,6 +63,7 @@ class Connection
         bool $matchUnfiltered = false,
         bool $singleActiveConsumer = false,
         ?string $superStream = null,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): Consumer;
     
     public function createSuperStreamProducer(
@@ -79,6 +80,7 @@ class Connection
         int $autoCommit = 0,
         int $initialCredit = 10,
         bool $singleActiveConsumer = false,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): SuperStreamConsumerInterface;
     
     // Lifecycle
@@ -734,6 +736,7 @@ public function createConsumer(
     bool $matchUnfiltered = false,
     bool $singleActiveConsumer = false,
     ?string $superStream = null,
+    int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
 ): Consumer
 ```
 
@@ -745,11 +748,12 @@ public function createConsumer(
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification (see `OffsetSpec` factory methods) |
 | `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Auto-commit interval (number of messages). `0` disables auto-commit. |
-| `$initialCredit` | `int` | No | Initial flow control credits. Default: `10` |
+| `$initialCredit` | `int` | No | Initial (and minimum) number of chunks in flight, 1–32767. Default: `10` |
 | `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (`filter.0`, `filter.1`, ... properties). Chunk-granular — see the [Consumer API reference](consumer.md). |
 | `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver messages published with no filter value. |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer for this subscription. Requires `$name`. |
 | `$superStream` | `?string` | No | Name of the super stream this partition belongs to. |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 
 #### OffsetSpec Factory Methods
 
@@ -869,6 +873,7 @@ public function createSuperStreamConsumer(
     int $autoCommit = 0,
     int $initialCredit = 10,
     bool $singleActiveConsumer = false,
+    int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
 ): SuperStreamConsumerInterface
 ```
 
@@ -882,6 +887,7 @@ public function createSuperStreamConsumer(
 | `$autoCommit` | `int` | No | Auto-commit interval (messages), passed through to every partition's `Consumer` |
 | `$initialCredit` | `int` | No | Initial flow control credits, passed through to every partition's `Consumer` |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer per partition. Requires `$name`. |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). Passed through to every partition's `Consumer`, which keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 65,535. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 
 #### Return Value
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Contract;
 
+use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
@@ -74,6 +75,7 @@ interface ConnectionInterface
         bool $matchUnfiltered = false,
         bool $singleActiveConsumer = false,
         ?string $superStream = null,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): ConsumerInterface;
 
     /**
@@ -101,6 +103,7 @@ interface ConnectionInterface
         int $autoCommit = 0,
         int $initialCredit = 10,
         bool $singleActiveConsumer = false,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): SuperStreamConsumerInterface;
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
