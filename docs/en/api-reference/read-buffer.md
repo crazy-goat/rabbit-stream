@@ -27,6 +27,11 @@ public function __construct(private readonly string $buffer)
 $buffer = new ReadBuffer($frameData);
 ```
 
+**Throws:** `UnsupportedPlatformException` on a 32-bit PHP build — `getUint32()`,
+`getUint64()` and `getInt64()` would return floats above `PHP_INT_MAX` there,
+silently breaking their `int` return types and the offsets they carry. See
+[Requirements](../getting-started/requirements.md).
+
 ## Integer Read Methods
 
 All integer methods read from the current position and advance the cursor.

@@ -132,6 +132,8 @@ class OsirisChunkParser
      * @param ?int $length See parse().
      * @param ?string $stream Name of the stream the chunk was delivered from, set once per
      *                        yielded Message (see {@see Message::getStream()}); null when unknown.
+     * @param int $maxDepth Maximum AMQP nesting depth accepted when a yielded Message is
+     *                        decoded; carried on each Message because that decode is lazy (#450).
      * @return \Generator<int, Message>
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
@@ -142,10 +144,11 @@ class OsirisChunkParser
         int $offset = 0,
         ?int $length = null,
         ?string $stream = null,
+        int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     ): \Generator {
         $views = self::parseRawViews($chunkBytes, $maxEntriesPerChunk, $offset, $length);
         foreach ($views as [$entryOffset, $timestamp, $start, $len]) {
-            yield Message::fromChunkView($entryOffset, $timestamp, $chunkBytes, $start, $len, $stream);
+            yield Message::fromChunkView($entryOffset, $timestamp, $chunkBytes, $start, $len, $stream, $maxDepth);
         }
     }
 

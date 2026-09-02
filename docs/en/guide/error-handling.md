@@ -72,6 +72,7 @@ RabbitStreamExceptionInterface (interface)
     ├── ConnectionException
     │   └── TimeoutException
     ├── DeserializationException
+    ├── UnsupportedPlatformException
     └── InvalidArgumentException (extends \InvalidArgumentException)
 ```
 
@@ -218,7 +219,21 @@ A `send()` that throws does **not** count the message as pending, so a later
 
 ### DeserializationException
 
-Thrown when frame parsing fails, indicating protocol corruption or version mismatch:
+Thrown when frame parsing fails, indicating protocol corruption or version mismatch.
+It also covers a malformed AMQP payload inside an otherwise valid frame — a
+message body the decoder refuses rather than silently repairs:
+
+| Message | Meaning |
+|---------|---------|
+| `List8/List32/Map8/Map32 size mismatch: declared N bytes, elements consumed M` | The compound's `size` field disagrees with its elements. A lying size used to be accepted, leaving the cursor in the wrong place for whatever came next. |
+| `Map8/Map32 count must be even ...` | An AMQP map counts keys and values separately, so an odd count cannot describe whole pairs. |
+| `... declares N content bytes but only M remain in the frame` | The compound claims more bytes than the entry holds. |
+| `Data section (0x75) must carry binary data, got array` | A Data section holding something other than binary. Previously dropped silently, leaving an empty body. |
+| `Expected described type marker (0x00) ...` | The entry is not AMQP-framed at all — typically a raw body published before #413. Such entries can only be read as raw bytes, via `OsirisChunkParser::parseEntries()` and `ChunkEntry::getData()`. |
+| `AMQP recursion depth limit exceeded (max N)` | Nesting deeper than the consumer's `maxDecodeDepth` (default 32). |
+
+Because message decoding is lazy, these are thrown by the **accessor**
+(`Message::getBody()`, `getApplicationProperties()`, ...), not by `read()`.
 
 ```php
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
@@ -232,6 +247,14 @@ try {
     $stream->close();
 }
 ```
+
+### UnsupportedPlatformException
+
+Thrown when the library is loaded on a 32-bit PHP build. The protocol carries
+uint32 and int64/uint64 fields — offsets, timestamps, chunk sizes — and
+`unpack('N')`/`unpack('J')` return a float above `PHP_INT_MAX` there, which
+would hand back offsets that are quietly wrong. Every entry point that decodes
+wire data refuses to run instead; a 64-bit build is required.
 
 ### InvalidArgumentException
 

@@ -128,6 +128,15 @@ class Consumer implements ConsumerInterface
      *                            per round trip (#500). The target never exceeds
      *                            MAX_CREDIT. 0 disables the adaptation and keeps
      *                            exactly initialCredit chunks in flight.
+     * @param int $maxDecodeDepth Maximum AMQP nesting depth accepted when a delivered
+     *                            message is decoded (#397's limit, made configurable from
+     *                            here by #450). Decoding is lazy — it happens inside
+     *                            Message on the first accessor call — so the limit travels
+     *                            with each Message instead of being applied in read().
+     *                            The default of 32 is ample for real messages; raise it
+     *                            only for a producer that legitimately nests deeper, and
+     *                            keep in mind that a deeply nested frame costs one PHP
+     *                            stack frame per level.
      */
     public function __construct(
         private readonly StreamConnection $connection,
@@ -143,6 +152,7 @@ class Consumer implements ConsumerInterface
         private readonly bool $singleActiveConsumer = false,
         private readonly ?string $superStream = null,
         private readonly int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
+        private readonly int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         ?callable $onClose = null,
     ) {
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
@@ -154,6 +164,9 @@ class Consumer implements ConsumerInterface
         }
         if ($this->creditWindowBytes < 0) {
             throw new InvalidArgumentException('creditWindowBytes must be >= 0');
+        }
+        if ($this->maxDecodeDepth < 1) {
+            throw new InvalidArgumentException('maxDecodeDepth must be greater than 0');
         }
         $this->creditTarget = $this->initialCredit;
         if ($this->singleActiveConsumer && $this->name === null) {
@@ -374,6 +387,7 @@ class Consumer implements ConsumerInterface
                     offset: $chunkOffset,
                     length: $chunkLength,
                     stream: $this->stream,
+                    maxDepth: $this->maxDecodeDepth,
                 );
                 foreach ($messages as $message) {
                     $this->buffer[] = $message;

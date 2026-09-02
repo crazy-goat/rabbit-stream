@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 use CrazyGoat\RabbitStream\Client\AmqpDecoder;
 use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
 use PHPUnit\Framework\TestCase;
 
 class MessageTest extends TestCase
@@ -522,5 +523,44 @@ class MessageTest extends TestCase
             properties: ['message-id' => null]
         );
         $this->assertNull($msg->getMessageId());
+    }
+
+    public function testMaxDepthIsCarriedToTheLazyDecode(): void
+    {
+        // #450: the limit is chosen when the Message is built but used when it is
+        // first read, so it has to be stored on the message. Both lazy factories
+        // must honour it — fromRawEntry() (private copy) and fromChunkView()
+        // (zero-copy view into a shared chunk).
+        $entry = AmqpFixtures::messageWithNestedBody(4);
+
+        $shallow = Message::fromRawEntry(offset: 1, timestamp: 1000, rawData: $entry, maxDepth: 2);
+        try {
+            $shallow->getBody();
+            $this->fail('Expected a depth limit of 2 to reject a 4-deep body');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('recursion depth limit exceeded (max 2)', $e->getMessage());
+        }
+
+        $chunk = 'pad' . $entry;
+        $shallowView = Message::fromChunkView(
+            offset: 1,
+            timestamp: 1000,
+            chunk: $chunk,
+            start: 3,
+            length: strlen($entry),
+            maxDepth: 2,
+        );
+        try {
+            $shallowView->getBody();
+            $this->fail('Expected a depth limit of 2 to reject a 4-deep body from a chunk view');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('recursion depth limit exceeded (max 2)', $e->getMessage());
+        }
+
+        // Default limit: the same bytes decode.
+        $this->assertSame(
+            [[[[null]]]],
+            Message::fromRawEntry(offset: 1, timestamp: 1000, rawData: $entry)->getBody()
+        );
     }
 }

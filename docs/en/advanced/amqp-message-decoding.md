@@ -99,16 +99,24 @@ Lists and maps with count:
 ```php
 // List8 with 3 items (0xc0)
 // Format: [size] [count] [items...]
-$data = "\xc0\x05\x03\x52\x01\x52\x02\x52\x03";  // [1, 2, 3]
+// size covers the count byte plus the content bytes: 1 + 6 = 7
+$data = "\xc0\x07\x03\x52\x01\x52\x02\x52\x03";  // [1, 2, 3]
 [$value, $pos] = AmqpDecoder::decodeValue($data, 0);
 // $value = [1, 2, 3]
 
 // Map8 with 1 pair (0xc1)
 // Format: [size] [count*2] [key] [value]
-$data = "\xc1\x05\x02\xa1\x01a\x52\x01";  // {"a": 1}
+// size = 1 (count byte) + 5 (content bytes) = 6
+$data = "\xc1\x06\x02\xa1\x01a\x52\x01";  // {"a": 1}
 [$value, $pos] = AmqpDecoder::decodeValue($data, 0);
 // $value = ["a" => 1]
 ```
+
+The `size` field is validated, not trusted: the decoder rejects a compound whose
+elements do not consume exactly the declared content, one whose declared content
+does not fit in the frame, and a map whose `count` is odd (keys and values are
+counted separately, so an odd count cannot describe whole pairs). See
+[Validation Limits](#validation-limits).
 
 ### Described Types
 
@@ -152,10 +160,16 @@ Each section follows this pattern:
 ```
 0x00                    # Described type marker
 0x53 0x73               # Descriptor: smallulong 0x73 (Properties)
-0xc0 0x10 0x02          # List8: size=16, count=2
+0xc0 0x1e 0x07          # List8: size=30 (1 count byte + 29 content bytes), count=7
   0xa1 0x0a message-id  # Field 0: message-id = "message-id"
-  0xa1 0x07 text/plain  # Field 1: content-type = "text/plain"
+  0x40 x5               # Fields 1-5: null (user-id, to, subject, reply-to, correlation-id)
+  0xa1 0x0a text/plain  # Field 6: content-type = "text/plain"
 ```
+
+The fields are **positional**, so reaching `content-type` (index 6) means
+encoding the five fields before it as null. `size` counts the count byte plus
+every content byte, and the decoder now checks that the elements consume it
+exactly.
 
 ### Properties Field Mapping
 
@@ -181,30 +195,35 @@ The Properties section (0x73) contains 13 ordered fields:
 
 ### Complete Message Example
 
+Every `size` below is the count byte plus the content bytes — the exact values
+the decoder requires (a mismatch is rejected, see [Validation
+Limits](#validation-limits)):
+
 ```
 # Header section (0x70)
 00 53 70                    # Described type, descriptor 0x70
-C0 03 01 42                 # List8: size=3, count=1, boolean false
+C0 02 01 42                 # List8: size=2, count=1, boolean false
                             # Header: durable=false
 
-# Properties section (0x73)  
+# Properties section (0x73)
 00 53 73                    # Described type, descriptor 0x73
-C0 15 03                    # List8: size=21, count=3
-  A1 0A 6D6573736167652D31  # message-id = "message-1"
-  A1 0A 746578742F706C6169 # content-type = "text/plain"
-  A1 08 7574662D38          # content-encoding = "utf-8"
+C0 24 08                    # List8: size=36, count=8 (fields are positional)
+  A1 09 6D6573736167652D31  # Field 0:   message-id = "message-1"
+  40 40 40 40 40            # Fields 1-5: null
+  A1 0A 746578742F706C61696E # Field 6:  content-type = "text/plain"
+  A1 05 7574662D38          # Field 7:   content-encoding = "utf-8"
 
 # ApplicationProperties section (0x74)
 00 53 74                    # Described type, descriptor 0x74
-C1 0E 04                    # Map8: size=14, count=4 (2 pairs)
-  A1 07 636F756E747279     # key: "country"
-  A1 02 5553               # value: "US"
-  A1 04 63697479           # key: "city"
-  A1 08 4E657720596F726B   # value: "New York"
+C1 1E 04                    # Map8: size=30, count=4 (2 pairs)
+  A1 07 636F756E747279      # key: "country"
+  A1 02 5553                # value: "US"
+  A1 04 63697479            # key: "city"
+  A1 08 4E657720596F726B    # value: "New York"
 
 # Data section (0x75)
 00 53 75                    # Described type, descriptor 0x75
-A0 0C                       # Vbin8: length=12
+A0 0D                       # Vbin8: length=13
   48656C6C6F2C20576F726C6421  # "Hello, World!"
 ```
 
@@ -243,6 +262,25 @@ $sections = AmqpDecoder::decodeMessage($binaryMessage);
 //   'footer' => null,
 // ]
 ```
+
+### Validation Limits
+
+`decodeValue()` and `decodeMessage()` both take an optional `int $maxDepth`
+(default `AmqpDecoder::MAX_RECURSION_DEPTH`, 32) and reject anything nested
+deeper. On the consume path the limit comes from the consumer instead — see
+`maxDecodeDepth` in the [Consumer API reference](../api-reference/consumer.md) —
+and is applied where the lazy decode actually happens, inside `Message`.
+
+Beyond depth, a payload is rejected (with `DeserializationException`) when:
+
+| Rule | Why |
+|------|-----|
+| A compound declares at most 131,072 elements | A truthful `count` of millions of 1-byte elements would build a multi-hundred-MB PHP array from a small frame — an uncatchable OOM fatal |
+| A compound's `count` fits the bytes actually available | Same, for a `count` that simply lies |
+| A compound's elements consume exactly its declared `size` | A lying `size` otherwise desynchronises everything decoded after it |
+| A map's `count` is even | Keys and values are counted separately |
+| A Data section (0x75) carries binary | Anything else used to be dropped silently, leaving an empty body |
+| Every variable-width length fits the frame | Bounds are compared as subtractions, so a 32-bit length cannot overflow the check |
 
 ### Section Access
 
