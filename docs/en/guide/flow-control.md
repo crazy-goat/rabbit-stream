@@ -98,6 +98,37 @@ $response = $stream->readMessage();
 - **Low credit**: Lower latency (messages processed immediately), but more network round-trips for credit replenishment
 - **High credit**: Better throughput (fewer credit requests), but higher memory usage and potential for message backlog
 
+### Credit Is Counted in Chunks, Not Bytes
+
+One credit lets the broker send one **chunk**, and a chunk is whatever the
+producer's writes were batched into. A plain stream fed by one `sendBatch()`
+producer easily has thousands of 1 KB messages per chunk; a super-stream
+partition fed by `send()` one message at a time over a network has a handful.
+With `initialCredit: 10` that is the difference between ~38 MB and ~50 messages
+in flight per round trip.
+
+The `Consumer` therefore adapts the window (#500): it measures the chunk sizes
+it receives and keeps `ceil(creditWindowBytes / averageChunkSize)` chunks in
+flight, never fewer than `initialCredit` and never more than 32,767 (RabbitMQ
+decodes the Credit field as a signed 16-bit integer; larger values silently
+stop the subscription). The default window is 8 MiB.
+
+```php
+// Small chunks over a slow link: allow a bigger window
+$consumer = $connection->createConsumer(
+    'orders-0',
+    OffsetSpec::first(),
+    creditWindowBytes: 32 * 1024 * 1024,
+);
+
+// Fixed behaviour: exactly initialCredit chunks in flight, as before 3.x
+$consumer = $connection->createConsumer('orders', OffsetSpec::first(), initialCredit: 10, creditWindowBytes: 0);
+```
+
+`Consumer::getCreditTarget()` exposes the current target for monitoring. The
+`maxBufferSize` gate (no credit while too many unread messages are buffered)
+still applies on top of the window.
+
 ### Credit Replenishment
 
 After processing messages, send a `CreditRequestV1` to replenish credits. This happens inside your `registerSubscriber()` deliver callback (low-level API):

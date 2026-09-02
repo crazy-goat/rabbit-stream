@@ -232,6 +232,12 @@ routed to that partition — creating a `SuperStreamProducer` for a
 > **not** automatically detected or handled — if your topology can change at
 > runtime, recreate the `SuperStreamProducer` to pick it up.
 
+> **Throughput tip:** prefer `sendBatch()` over per-message `send()` when
+> publishing to a super stream. Routing spreads the writes over partitions, so
+> single-message publishes end up as very small chunks (measured: ~5 messages
+> per chunk vs ~106 with batches of 500), which slows down every consumer of
+> that partition. See [Performance Tuning](../advanced/performance-tuning.md#super-streams-over-a-network).
+
 ### Hash routing (default)
 
 By default, `createSuperStreamProducer()` uses `HashRoutingStrategy`: it
@@ -321,6 +327,12 @@ while (true) {
 stream) the message was actually delivered from, set once per message from
 the subscribing `Consumer`'s stream name — this is how you tell which
 partition a message in the aggregated `read()`/`readOne()` result came from.
+
+> **Credit window:** partition chunks are usually much smaller than plain-stream
+> chunks. The consumer adapts its credit window in bytes (`creditWindowBytes`,
+> default 8 MiB), so small chunks over a network no longer throttle it to a few
+> messages per round trip; raise it for high-latency links. See
+> [Flow Control](flow-control.md#credit-is-counted-in-chunks-not-bytes).
 
 ### read() vs. readOne()
 

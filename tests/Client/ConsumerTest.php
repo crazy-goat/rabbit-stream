@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Message;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
@@ -487,6 +488,115 @@ class ConsumerTest extends TestCase
     }
 
     /**
+     * @return array{0: Consumer, 1: callable, 2: \ArrayObject<int, int>} consumer, deliver callback, credits sent
+     */
+    private function consumerWithCapturedCredits(int $initialCredit, int $creditWindowBytes): array
+    {
+        $registeredCallback = null;
+        /** @var \ArrayObject<int, int> $credits */
+        $credits = new \ArrayObject();
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$registeredCallback): void {
+                $registeredCallback = $cb;
+            });
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use ($credits): void {
+                if ($request instanceof CreditRequestV1) {
+                    $credits[] = $request->toArray()['credit'];
+                }
+            });
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            initialCredit: $initialCredit,
+            maxBufferSize: 1_000_000,
+            creditWindowBytes: $creditWindowBytes,
+        );
+        $this->assertIsCallable($registeredCallback);
+
+        return [$consumer, $registeredCallback, $credits];
+    }
+
+    private function deliverOf(string $chunkBytes): object
+    {
+        return new class ($chunkBytes) {
+            public function __construct(private readonly string $bytes)
+            {
+            }
+
+            /** @return array{0: string, 1: int, 2: int} */
+            public function getChunkView(): array
+            {
+                return [$this->bytes, 0, strlen($this->bytes)];
+            }
+        };
+    }
+
+    public function testSmallChunksGrowCreditTargetToFillByteWindow(): void
+    {
+        // #500: a ~40-byte chunk with a 4000-byte window should raise the in-flight
+        // target to ~100 chunks and grant the missing credit immediately.
+        [$consumer, $deliver, $credits] = $this->consumerWithCapturedCredits(10, 4000);
+        $chunk = $this->buildOneEntryChunk('X');
+
+        $deliver($this->deliverOf($chunk));
+
+        $expectedTarget = (int) ceil(4000 / strlen($chunk));
+        $this->assertSame($expectedTarget, $consumer->getCreditTarget());
+        // One replacement credit + the units needed to grow from 10 to the target.
+        $this->assertSame([1 + ($expectedTarget - 10)], $credits->getArrayCopy());
+    }
+
+    public function testLargeChunksKeepInitialCreditAsTarget(): void
+    {
+        // Window smaller than one chunk: target stays at initialCredit and each
+        // delivered chunk is replaced by exactly one credit, as before #500.
+        [$consumer, $deliver, $credits] = $this->consumerWithCapturedCredits(10, 16);
+        $chunk = $this->buildOneEntryChunk('X');
+
+        $deliver($this->deliverOf($chunk));
+        $deliver($this->deliverOf($chunk));
+
+        $this->assertSame(10, $consumer->getCreditTarget());
+        $this->assertSame([1, 1], $credits->getArrayCopy());
+    }
+
+    public function testZeroCreditWindowDisablesAdaptation(): void
+    {
+        [$consumer, $deliver, $credits] = $this->consumerWithCapturedCredits(10, 0);
+        $deliver($this->deliverOf($this->buildOneEntryChunk('X')));
+
+        $this->assertSame(10, $consumer->getCreditTarget());
+        $this->assertSame([1], $credits->getArrayCopy());
+    }
+
+    public function testCreditTargetIsCappedAtMaxCredit(): void
+    {
+        // RabbitMQ decodes the Credit field as a signed int16: 32768+ turns
+        // negative and silently kills the subscription (verified on 4.3.5).
+        [$consumer, $deliver, $credits] = $this->consumerWithCapturedCredits(10, 1_000_000_000);
+        $deliver($this->deliverOf($this->buildOneEntryChunk('X')));
+
+        $this->assertSame(Consumer::MAX_CREDIT, $consumer->getCreditTarget());
+        $this->assertSame([Consumer::MAX_CREDIT - 9], $credits->getArrayCopy());
+        $this->assertLessThanOrEqual(32767, max($credits->getArrayCopy()));
+    }
+
+    public function testInitialCreditMustBeWithinMaxCredit(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $this->expectException(InvalidArgumentException::class);
+        new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), initialCredit: 0);
+    }
+
+    /**
      * Builds a minimal valid single-entry Osiris user-data chunk containing one
      * simple entry with the given raw entry bytes.
      */
@@ -675,7 +785,7 @@ class ConsumerTest extends TestCase
         $this->assertCount(0, $creditRequests, 'No credits should be sent when pendingCredits is negative');
     }
 
-    public function testCreditsCappedAtMaxUint16(): void
+    public function testCreditsCappedAtMaxCredit(): void
     {
         $capturedRequest = null;
 
@@ -695,11 +805,11 @@ class ConsumerTest extends TestCase
             'test-stream',
             1,
             OffsetSpec::first(),
-            initialCredit: 1000000,
+            initialCredit: 32767,
             maxBufferSize: 100000,
         );
 
-        // No credit currently outstanding, so headroom (1,000,000) does not bind —
+        // No credit currently outstanding, so headroom (32,767) does not bind —
         // only the protocol's own uint16 credit field width does.
         $this->setCreditsInFlight($consumer, 0);
         $this->setPendingCredits($consumer, 70000);
@@ -708,8 +818,8 @@ class ConsumerTest extends TestCase
         $sendPendingCredits->invoke($consumer);
 
         $this->assertInstanceOf(CreditRequestV1::class, $capturedRequest);
-        $this->assertSame(65535, $capturedRequest->toArray()['credit'], 'Credits should be capped at MAX_UINT16');
-        $this->assertSame(70000 - 65535, $this->getPendingCredits($consumer));
+        $this->assertSame(32767, $capturedRequest->toArray()['credit'], 'Credits should be capped at MAX_CREDIT');
+        $this->assertSame(70000 - 32767, $this->getPendingCredits($consumer));
     }
 
     public function testCreditsCappedAtInitialCreditHeadroom(): void

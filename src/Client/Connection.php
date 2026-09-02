@@ -420,6 +420,7 @@ class Connection implements ConnectionInterface
         bool $matchUnfiltered = false,
         bool $singleActiveConsumer = false,
         ?string $superStream = null,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): ConsumerInterface {
         $subscriptionId = $this->subscriptionIdCounter++;
         $consumer = new Consumer(
@@ -434,6 +435,7 @@ class Connection implements ConnectionInterface
             matchUnfiltered: $matchUnfiltered,
             singleActiveConsumer: $singleActiveConsumer,
             superStream: $superStream,
+            creditWindowBytes: $creditWindowBytes,
         );
         $this->consumers[$subscriptionId] = $consumer;
         return $consumer;
@@ -476,6 +478,7 @@ class Connection implements ConnectionInterface
         int $autoCommit = 0,
         int $initialCredit = 10,
         bool $singleActiveConsumer = false,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): SuperStreamConsumerInterface {
         $partitions = $this->partitions($superStream);
 
@@ -490,6 +493,7 @@ class Connection implements ConnectionInterface
                 $initialCredit,
                 singleActiveConsumer: $singleActiveConsumer,
                 superStream: $superStream,
+                creditWindowBytes: $creditWindowBytes,
             );
         }
 

@@ -23,6 +23,7 @@ class Consumer
         bool $matchUnfiltered = false,
         bool $singleActiveConsumer = false,
         ?string $superStream = null,
+        int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
     );
     
     // Reading methods
@@ -66,6 +67,7 @@ $consumer = $connection->createConsumer(
     bool $matchUnfiltered = false,    // Optional: also receive messages with no filter value
     bool $singleActiveConsumer = false, // Optional: single active consumer (requires $name)
     ?string $superStream = null,      // Optional: super-stream partition name
+    int $creditWindowBytes = 8 * 1024 * 1024, // Optional: adaptive credit window in bytes (0 = fixed initialCredit)
 ): Consumer
 ```
 
@@ -77,12 +79,13 @@ $consumer = $connection->createConsumer(
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification. Use `OffsetSpec::first()`, `OffsetSpec::last()`, `OffsetSpec::offset()`, etc. |
 | `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`, and for `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Number of messages between automatic offset commits. `0` disables auto-commit. |
-| `$initialCredit` | `int` | No | Initial number of flow control credits. **Chunk-granular**: 1 credit = 1 future chunk delivery, and outstanding (in-flight) credit is capped at this value — the server can never have more than `initialCredit` chunks in flight at once. Higher values increase throughput but allow more chunks (and therefore memory) in flight. |
+| `$initialCredit` | `int` | No | Initial number of flow control credits. **Chunk-granular**: 1 credit = 1 future chunk delivery, and this is the starting and **minimum** in-flight chunk target; `$creditWindowBytes` may raise it when chunks turn out to be small. Must be 1–32767. |
 | `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — a chunk in flight when the buffer is already full is still accepted in full (messages are never dropped), so the buffer can transiently exceed this by up to one chunk's worth of messages. |
 | `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (sent as `filter.0`, `filter.1`, ... properties). Filtering is **chunk-granular** (bloom filter per chunk) — see [Stream Filtering](../guide/consuming.md#7-stream-filtering). |
 | `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver chunks containing messages published with no filter value. |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer: the broker activates exactly one consumer per `$name` group at a time. Requires `$name`; throws `InvalidArgumentException` otherwise. See [Single Active Consumer](../guide/consuming.md#8-single-active-consumer). |
 | `$superStream` | `?string` | No | Name of the super stream this partition belongs to (sent as the `super-stream` property). |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 
 ### OffsetSpec Factory Methods
 
