@@ -11,13 +11,18 @@ use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\PublishRequestV2;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 
 class Producer implements ProducerInterface
 {
+    public const DEFAULT_MAX_PENDING_CONFIRMS = 10000;
+    private const DEFAULT_BACKPRESSURE_TIMEOUT = 30.0;
+
     private int $publishingId = 0;
     private int $pendingConfirms = 0;
 
@@ -29,6 +34,7 @@ class Producer implements ProducerInterface
         private readonly int $publisherId,
         private readonly ?string $name = null,
         ?callable $onConfirm = null,
+        private readonly int $maxPendingConfirms = self::DEFAULT_MAX_PENDING_CONFIRMS,
     ) {
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->declare();
@@ -89,10 +95,44 @@ class Producer implements ProducerInterface
      */
     public function send(string $message, ?float $timeout = null): void
     {
+        $this->applyBackpressure($timeout);
         $this->pendingConfirms++;
         $this->connection->sendMessage(new PublishRequestV1(
             $this->publisherId,
             new PublishedMessage($this->publishingId++, AmqpMessageEncoder::encodeDataSection($message))
+        ), $timeout);
+    }
+
+    /**
+     * Publish a single message tagged with a stream-filtering value.
+     *
+     * Uses the Publish v2 frame (`PublishRequestV2`/`PublishedMessageV2`) which carries
+     * a per-message `filterValue` the broker hashes into a per-chunk bloom filter.
+     * A consumer subscribing with matching `filterValues` (see
+     * `Connection::createConsumer()`) asks the broker to only deliver chunks whose
+     * bloom filter may contain that value — filtering is CHUNK-granular, not
+     * message-granular: a delivered chunk can still contain non-matching messages,
+     * so callers that need exact filtering must also post-filter on the consume
+     * side using the same filter value convention.
+     *
+     * @param string      $message    plain payload (see send())
+     * @param string|null $filterValue value hashed into the chunk's bloom filter;
+     *                                 null publishes without a filter value (never
+     *                                 matches an active filter, always delivered
+     *                                 when `matchUnfiltered` is enabled)
+     * @param ?float      $timeout    socket write timeout in seconds; null uses connection default
+     */
+    public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void
+    {
+        $this->applyBackpressure($timeout);
+        $this->pendingConfirms++;
+        $this->connection->sendMessage(new PublishRequestV2(
+            $this->publisherId,
+            new PublishedMessageV2(
+                $this->publishingId++,
+                $filterValue ?? '',
+                AmqpMessageEncoder::encodeDataSection($message)
+            )
         ), $timeout);
     }
 
@@ -108,12 +148,39 @@ class Producer implements ProducerInterface
         if ($messages === []) {
             return;
         }
+        $this->applyBackpressure($timeout);
         $published = [];
         foreach ($messages as $message) {
             $published[] = new PublishedMessage($this->publishingId++, AmqpMessageEncoder::encodeDataSection($message));
             $this->pendingConfirms++;
         }
         $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published), $timeout);
+    }
+
+    /**
+     * Block until pendingConfirms drops below maxPendingConfirms (0 = unlimited,
+     * old fire-and-forget behaviour). Drains confirms/errors off the socket via
+     * readLoop() one frame at a time so callbacks fire promptly.
+     *
+     * @throws TimeoutException if the deadline passes before enough confirms arrive
+     */
+    private function applyBackpressure(?float $timeout): void
+    {
+        if ($this->maxPendingConfirms <= 0 || $this->pendingConfirms < $this->maxPendingConfirms) {
+            return;
+        }
+
+        $deadline = microtime(true) + ($timeout ?? self::DEFAULT_BACKPRESSURE_TIMEOUT);
+        while ($this->pendingConfirms >= $this->maxPendingConfirms) {
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                throw new TimeoutException(
+                    "Timed out waiting for pending confirms to drop below {$this->maxPendingConfirms} " .
+                    "(currently {$this->pendingConfirms})"
+                );
+            }
+            $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
+        }
     }
 
     public function close(): void
@@ -147,6 +214,11 @@ class Producer implements ProducerInterface
     public function getLastPublishingId(): ?int
     {
         return $this->publishingId === 0 ? null : $this->publishingId - 1;
+    }
+
+    public function getPendingConfirms(): int
+    {
+        return $this->pendingConfirms;
     }
 
     public function querySequence(): int

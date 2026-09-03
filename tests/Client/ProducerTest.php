@@ -124,9 +124,9 @@ class ProducerTest extends TestCase
         $capturedTimeout = null;
         $connection->expects($this->any())
             ->method('readLoop')
-            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout) {
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout): int {
                 $capturedTimeout = $timeout;
-                return null;
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -175,9 +175,10 @@ class ProducerTest extends TestCase
 
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks): int {
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -297,10 +298,11 @@ class ProducerTest extends TestCase
         $readLoopCalled = false;
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCalled): int {
                 $readLoopCalled = true;
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0, 1, 2]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -364,11 +366,12 @@ class ProducerTest extends TestCase
         $captured = ['maxFrames' => null, 'timeout' => null];
         $connection->expects($this->once())
             ->method('readLoop')
-            ->willReturnCallback(function ($maxFrames, $timeout) use (&$registeredCallbacks, &$captured): void {
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$registeredCallbacks, &$captured): int {
                 $captured['maxFrames'] = $maxFrames;
                 $captured['timeout'] = $timeout;
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 ($registeredCallbacks['onConfirm'])([0]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -402,11 +405,12 @@ class ProducerTest extends TestCase
         $readLoopCallCount = 0;
         $connection->expects($this->exactly(3))
             ->method('readLoop')
-            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): void {
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): int {
                 $readLoopCallCount++;
                 $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
                 // One confirm frame per readLoop() call, as with maxFrames: 1.
                 ($registeredCallbacks['onConfirm'])([$readLoopCallCount - 1]);
+                return 1;
             });
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -451,6 +455,135 @@ class ProducerTest extends TestCase
         $this->expectExceptionMessage('Cannot query sequence for unnamed producer');
 
         $producer->querySequence();
+    }
+
+    public function testGetPendingConfirmsReturnsCurrentCount(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $producer = new Producer($connection, 'test-stream', 1);
+
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $producer->send('msg1');
+        $this->assertSame(1, $producer->getPendingConfirms());
+        $producer->send('msg2');
+        $this->assertSame(2, $producer->getPendingConfirms());
+    }
+
+    public function testMaxPendingConfirmsZeroPreservesUnlimitedBehaviour(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        // Backpressure disabled (0 = unlimited), so readLoop() must never be
+        // invoked to drain confirms, no matter how many sends pile up.
+        $connection->expects($this->never())->method('readLoop');
+
+        $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 0);
+
+        for ($i = 0; $i < 50; $i++) {
+            $producer->send('msg');
+        }
+
+        $this->assertSame(50, $producer->getPendingConfirms());
+    }
+
+    public function testSendDrainsConfirmsWhenMaxPendingConfirmsReached(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $readLoopCallCount = 0;
+        $connection->expects($this->once())
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): int {
+                $readLoopCallCount++;
+                $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
+                ($registeredCallbacks['onConfirm'])([0]);
+                return 1;
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 2);
+
+        // First two sends fill the window without draining.
+        $producer->send('msg1');
+        $producer->send('msg2');
+        $this->assertSame(2, $producer->getPendingConfirms());
+
+        // Third send hits the cap and must drain one confirm before publishing.
+        $producer->send('msg3');
+
+        $this->assertSame(1, $readLoopCallCount, 'readLoop() must be called exactly once to drain');
+        $this->assertSame(2, $producer->getPendingConfirms());
+    }
+
+    public function testSendBatchDrainsConfirmsWhenMaxPendingConfirmsReached(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $connection->expects($this->once())
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$registeredCallbacks): int {
+                $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
+                ($registeredCallbacks['onConfirm'])([0, 1]);
+                return 1;
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 2);
+
+        $producer->sendBatch(['msg1', 'msg2']);
+        $this->assertSame(2, $producer->getPendingConfirms());
+
+        // This batch hits the cap and must drain before publishing again.
+        $producer->sendBatch(['msg3']);
+
+        $this->assertSame(1, $producer->getPendingConfirms());
+    }
+
+    public function testSendThrowsTimeoutExceptionWhenBackpressureNeverDrains(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        // readLoop() never invokes onConfirm, simulating a broker that never confirms.
+        $connection->expects($this->atLeastOnce())->method('readLoop');
+
+        $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 1);
+
+        $producer->send('msg1');
+
+        $this->expectException(TimeoutException::class);
+        $this->expectExceptionMessage('Timed out waiting for pending confirms to drop below 1');
+
+        $producer->send('msg2', 0.01);
     }
 
     public function testQuerySequenceReturnsSequenceForNamedProducer(): void

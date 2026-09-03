@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 
 class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
 {
+    public const TYPE_NONE = 0x0000;
     public const TYPE_FIRST = 0x0001;
     public const TYPE_LAST = 0x0002;
     public const TYPE_NEXT = 0x0003;
@@ -26,6 +27,7 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
             !in_array(
                 $type,
                 [
+                    self::TYPE_NONE,
                     self::TYPE_FIRST,
                     self::TYPE_LAST,
                     self::TYPE_NEXT,
@@ -38,6 +40,15 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         ) {
             throw new InvalidArgumentException("Invalid offset spec type: $type");
         }
+    }
+
+    /**
+     * "Keep current position" — used only as a ConsumerUpdate reply value, never
+     * as a Subscribe offset specification.
+     */
+    public static function none(): self
+    {
+        return new self(self::TYPE_NONE);
     }
 
     public static function first(): self

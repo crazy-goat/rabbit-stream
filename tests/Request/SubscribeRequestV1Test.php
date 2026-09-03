@@ -101,4 +101,41 @@ class SubscribeRequestV1Test extends TestCase
 
         $this->assertSame($expected, $bytes);
     }
+
+    public function testSerializesWithEmptyPropertiesIsByteIdenticalToNoProperties(): void
+    {
+        $withDefault = new SubscribeRequestV1(1, 'my-stream', OffsetSpec::first(), 10);
+        $withDefault->withCorrelationId(1);
+
+        $withEmpty = new SubscribeRequestV1(1, 'my-stream', OffsetSpec::first(), 10, []);
+        $withEmpty->withCorrelationId(1);
+
+        $this->assertSame($withDefault->toStreamBuffer()->getContents(), $withEmpty->toStreamBuffer()->getContents());
+    }
+
+    public function testSerializesWithProperties(): void
+    {
+        $request = new SubscribeRequestV1(1, 'my-stream', OffsetSpec::first(), 10, [
+            'filter.0' => 'region-eu',
+            'match-unfiltered' => 'true',
+        ]);
+        $request->withCorrelationId(1);
+
+        $bytes = $request->toStreamBuffer()->getContents();
+
+        $expected = pack('n', 0x0007)           // key
+            . pack('n', 1)                      // version
+            . pack('N', 1)                      // correlationId
+            . pack('C', 1)                      // subscriptionId
+            . pack('n', 9) . 'my-stream'       // stream
+            . pack('n', 0x0001)                // offsetSpec type (FIRST)
+            . pack('n', 10)                    // credit
+            . pack('N', 2)                      // properties count
+            . pack('n', 8) . 'filter.0'
+            . pack('n', 9) . 'region-eu'
+            . pack('n', 16) . 'match-unfiltered'
+            . pack('n', 4) . 'true';
+
+        $this->assertSame($expected, $bytes);
+    }
 }

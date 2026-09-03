@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Buffer\FromStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
 use CrazyGoat\RabbitStream\Util\TypeCast;
@@ -38,16 +39,37 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
         return $this->publishingIds;
     }
 
+    /**
+     * Read all publishing ids with a single unpack('J*', ...) call instead of
+     * one getUint64() call (bounds check + unpack + position bump) per id,
+     * and hand them to the constructor via a private array-taking path
+     * instead of a variadic spread + array_values() — this matters when a
+     * broker confirms thousands of publishing ids in one PublishConfirm frame.
+     */
     public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $publisherId = $buffer->getUint8();
         $count = $buffer->getUint32();
-        $publishingIds = [];
-        for ($i = 0; $i < $count; $i++) {
-            $publishingIds[] = $buffer->getUint64();
+
+        if ($count === 0) {
+            return self::fromParts($publisherId, []);
         }
-        return new static($publisherId, ...$publishingIds);
+
+        $unpacked = unpack('J*', $buffer->readBytes($count * 8));
+        if ($unpacked === false) {
+            throw new DeserializationException('Failed to unpack publishing ids');
+        }
+
+        return self::fromParts($publisherId, array_values($unpacked));
+    }
+
+    /** @param array<int, int> $publishingIds */
+    private static function fromParts(int $publisherId, array $publishingIds): static
+    {
+        $instance = new static($publisherId);
+        $instance->publishingIds = $publishingIds;
+        return $instance;
     }
 
     /** @param array<string, mixed> $data */

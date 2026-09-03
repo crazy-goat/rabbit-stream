@@ -7,41 +7,23 @@ namespace CrazyGoat\RabbitStream\Client;
 class AmqpMessageDecoder
 {
     /**
-     * Decode a ChunkEntry into a Message.
+     * Wrap a ChunkEntry into a Message. The AMQP sections (body, properties,
+     * applicationProperties, messageAnnotations) are NOT decoded here — decoding
+     * is deferred to the first Message accessor call that needs them (see
+     * Message::fromRawEntry()), so a caller that only reads the offset/timestamp,
+     * or only some messages of a batch, never pays the AMQP decode cost for the rest.
      */
     public static function decode(ChunkEntry $entry): Message
     {
-        $sections = AmqpDecoder::decodeMessage($entry->getData());
-
-        $rawBody = $sections['body'] ?? null;
-        if (is_array($rawBody)) {
-            $body = array_values($rawBody);
-        } elseif ($rawBody === null || is_scalar($rawBody)) {
-            $body = $rawBody;
-        } else {
-            $body = null;
-        }
-
-        $properties = $sections['properties'] ?? [];
-        $applicationProperties = $sections['applicationProperties'] ?? [];
-        $messageAnnotations = $sections['messageAnnotations'] ?? [];
-
-        return new Message(
-            offset: $entry->getOffset(),
-            timestamp: $entry->getTimestamp(),
-            body: $body,
-            properties: is_array($properties) ? $properties : [],
-            applicationProperties: is_array($applicationProperties) ? $applicationProperties : [],
-            messageAnnotations: is_array($messageAnnotations) ? $messageAnnotations : [],
-        );
+        return Message::fromRawEntry($entry->getOffset(), $entry->getTimestamp(), $entry->getData());
     }
 
     /**
-     * Decode multiple ChunkEntries into Messages.
-     * @param ChunkEntry[] $entries
+     * Wrap multiple ChunkEntries into Messages (lazily decoded, see decode()).
+     * @param iterable<ChunkEntry> $entries
      * @return Message[]
      */
-    public static function decodeAll(array $entries): array
+    public static function decodeAll(iterable $entries): array
     {
         $messages = [];
         foreach ($entries as $entry) {

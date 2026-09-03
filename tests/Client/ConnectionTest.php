@@ -854,8 +854,9 @@ class ConnectionTest extends TestCase
 
         $capturedArgs = [];
         $streamConnection->method('readLoop')
-            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): void {
+            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): int {
                 $capturedArgs = ['maxFrames' => $maxFrames, 'timeout' => $timeout];
+                return 1;
             });
 
         $streamConnection->method('close');
@@ -873,8 +874,9 @@ class ConnectionTest extends TestCase
 
         $capturedArgs = [];
         $streamConnection->method('readLoop')
-            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): void {
+            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): int {
                 $capturedArgs = ['maxFrames' => $maxFrames, 'timeout' => $timeout];
+                return 1;
             });
 
         $streamConnection->method('close');

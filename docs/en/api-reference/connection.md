@@ -20,6 +20,7 @@ class Connection
         ?LoggerInterface $logger = null,
         ?int $requestedFrameMax = null,
         ?int $requestedHeartbeat = null,
+        ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
     ): self;
     
@@ -34,6 +35,17 @@ class Connection
     public function queryOffset(string $reference, string $stream): int;
     public function storeOffset(string $reference, string $stream, int $offset): void;
     
+    // Super streams
+    public function createSuperStream(
+        string $name,
+        array $partitions = [],
+        array $bindingKeys = [],
+        array $arguments = []
+    ): void;
+    public function deleteSuperStream(string $name): void;
+    public function route(string $routingKey, string $superStream): array;
+    public function partitions(string $superStream): array;
+    
     // Factory methods
     public function createProducer(
         string $stream,
@@ -47,10 +59,32 @@ class Connection
         ?string $name = null,
         int $autoCommit = 0,
         int $initialCredit = 10,
+        array $filterValues = [],
+        bool $matchUnfiltered = false,
+        bool $singleActiveConsumer = false,
+        ?string $superStream = null,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     ): Consumer;
     
+    public function createSuperStreamProducer(
+        string $superStream,
+        ?RoutingStrategy $strategy = null,
+        ?string $name = null,
+        ?callable $onConfirm = null,
+    ): SuperStreamProducerInterface;
+    
+    public function createSuperStreamConsumer(
+        string $superStream,
+        OffsetSpec $offset,
+        ?string $name = null,
+        int $autoCommit = 0,
+        int $initialCredit = 10,
+        bool $singleActiveConsumer = false,
+        int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
+    ): SuperStreamConsumerInterface;
+    
     // Lifecycle
-    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void;
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
     public function close(): void;
 }
 ```
@@ -70,6 +104,7 @@ public static function create(
     ?LoggerInterface $logger = null,
     ?int $requestedFrameMax = null,
     ?int $requestedHeartbeat = null,
+    ?int $maxDeliverFrameSize = null,
     ?StreamConnection $streamConnection = null,
 ): self
 ```
@@ -85,8 +120,9 @@ public static function create(
 | `$vhost` | `string` | No | Virtual host. Default: `/` |
 | `$serializer` | `?BinarySerializerInterface` | No | Custom binary serializer. Default: `PhpBinarySerializer` |
 | `$logger` | `?LoggerInterface` | No | PSR-3 logger for debugging. Default: `NullLogger` |
-| `$requestedFrameMax` | `?int` | No | Requested maximum frame size. `0` means unlimited. Default: `null` (use server value) |
+| `$requestedFrameMax` | `?int` | No | Requested maximum frame size for the *outgoing* protocol negotiation. `0` means unlimited. Default: `null` (use server value, capped by `StreamConnection::DEFAULT_MAX_FRAME_SIZE` unless you pass this explicitly — see [negotiation caveat](#frame_max-negotiation-only-lowers-the-default) below) |
 | `$requestedHeartbeat` | `?int` | No | Requested heartbeat interval in seconds. `0` disables heartbeats. Default: `null` (use server value) |
+| `$maxDeliverFrameSize` | `?int` | No | Max size in bytes for incoming **Deliver** frames (key `0x0008`), which the broker does not bound by the negotiated `frame_max` — see [Deliver frames need their own cap](#deliver-frames-need-their-own-cap) below. Default: `null` (`StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE`, 64MB) |
 | `$streamConnection` | `?StreamConnection` | No | Pre-configured stream connection (advanced use). Default: `null` |
 
 ### Return Value
@@ -95,10 +131,40 @@ public static function create(
 
 ### Exceptions
 
-- `InvalidArgumentException` - If `requestedFrameMax` or `requestedHeartbeat` is negative
+- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, or `maxDeliverFrameSize` is negative
 - `AuthenticationException` - If PLAIN SASL mechanism is not supported or credentials are invalid
 - `UnexpectedResponseException` - If the server returns an unexpected response during handshake
 - `ConnectionException` - If the TCP connection cannot be established
+
+### Deliver frames need their own cap
+
+The broker does not enforce the negotiated `frame_max` on Deliver frames: a
+stream chunk is sent whole, however big it grew due to server-side
+coalescing (e.g. a fast producer publishing several batches without calling
+`waitForConfirms()` between them). `StreamConnection` therefore caps Deliver
+frames with a separate, larger limit (`maxDeliverFrameSize`, default 64MB)
+instead of the same limit used for every other incoming frame
+(`StreamConnection::setMaxFrameSize()` / `DEFAULT_MAX_FRAME_SIZE`, 8MB). See
+[Performance Tuning → Frame Size Limits](../advanced/performance-tuning.md#frame-size-limits)
+for the full write-up and a reproduction of the underlying broker behavior.
+
+### `frame_max` negotiation only lowers the default
+
+If you don't pass `requestedFrameMax`, a broker advertising a huge `frame_max`
+during Tune (including `0xFFFFFFFF`) cannot raise the effective control-frame
+cap above `StreamConnection::DEFAULT_MAX_FRAME_SIZE` — the negotiated value is
+only ever used to *lower* it. Pass `requestedFrameMax` explicitly to raise (or
+lower) the cap deliberately.
+
+### Outgoing frames over frame_max fail fast
+
+A frame larger than the negotiated `frame_max` is now rejected before
+anything is written to the socket, raising
+`CrazyGoat\RabbitStream\Exception\InvalidArgumentException` with the frame
+size and the limit in the message — the connection stays connected and
+usable. Previously the oversized frame was written, the broker closed the
+connection, and the failure surfaced later as an unrelated-looking "Cannot
+read: socket is not connected".
 
 ### Connection Handshake Flow
 
@@ -154,6 +220,16 @@ $connection = Connection::create(
     host: 'localhost',
     requestedFrameMax: 1048576,  // 1MB
     requestedHeartbeat: 30         // 30 seconds
+);
+```
+
+**Connection with a raised Deliver frame cap:**
+```php
+// Only needed if you expect broker-coalesced chunks bigger than the 64MB
+// default (see "Deliver frames need their own cap" above).
+$connection = Connection::create(
+    host: 'localhost',
+    maxDeliverFrameSize: 128 * 1024 * 1024,
 );
 ```
 
@@ -361,6 +437,166 @@ foreach ($metadata->getStreamMetadata() as $streamMeta) {
 
 ---
 
+## Super Stream Methods
+
+See the [Super Streams Guide](../guide/super-streams.md) for a full walkthrough; this section is the reference for the four `Connection` methods it uses.
+
+### createSuperStream()
+
+Create a super stream: a logical stream backed by several physical partition streams, with broker-side exchange bindings between them.
+
+```php
+/**
+ * @param string[] $partitions
+ * @param string[] $bindingKeys
+ * @param array<string, string> $arguments
+ */
+public function createSuperStream(
+    string $name,
+    array $partitions = [],
+    array $bindingKeys = [],
+    array $arguments = []
+): void
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$name` | `string` | Yes | Name of the super stream |
+| `$partitions` | `string[]` | No | Names of the physical partition streams to create (e.g. `['orders-0', 'orders-1']`) |
+| `$bindingKeys` | `string[]` | No | Exchange binding key per partition, same order as `$partitions` — matched by `route()` |
+| `$arguments` | `array<string, string>` | No | Per-partition stream arguments, same keys as `createStream()` (e.g. `max-length-bytes`, `max-age`) |
+
+#### Return Value
+
+`void`
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ProtocolException` - If the super stream already exists or arguments are invalid
+
+#### Example
+
+```php
+$connection->createSuperStream(
+    'orders',
+    ['orders-0', 'orders-1', 'orders-2'],
+    ['0', '1', '2'],
+    ['max-age' => '24h']
+);
+```
+
+---
+
+### deleteSuperStream()
+
+Delete a super stream and all of its partitions.
+
+```php
+public function deleteSuperStream(string $name): void
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$name` | `string` | Yes | Name of the super stream to delete |
+
+#### Return Value
+
+`void`
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ProtocolException` - If the super stream does not exist
+
+#### Example
+
+```php
+$connection->deleteSuperStream('orders');
+```
+
+---
+
+### route()
+
+Ask the broker which partition(s) a routing key maps to, via the exchange bindings created with `createSuperStream()`'s `$bindingKeys`.
+
+```php
+/** @return string[] */
+public function route(string $routingKey, string $superStream): array
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$routingKey` | `string` | Yes | The key to route |
+| `$superStream` | `string` | Yes | Name of the super stream |
+
+#### Return Value
+
+`string[]` - The partition stream name(s) matching this routing key. Like the Java client, more than one partition can legitimately be returned for a single key (overlapping binding keys).
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+
+#### Example
+
+```php
+$streams = $connection->route('customer-123', 'orders');
+echo implode(', ', $streams); // e.g. "orders-1"
+```
+
+#### Notes
+
+- One broker round trip per call. `KeyRoutingStrategy` (used by `createSuperStreamProducer()`) wraps this with an in-memory per-key cache.
+
+---
+
+### partitions()
+
+Resolve a super stream's partition (physical stream) names.
+
+```php
+/** @return list<string> */
+public function partitions(string $superStream): array
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$superStream` | `string` | Yes | Name of the super stream |
+
+#### Return Value
+
+`list<string>` - The partition stream names, e.g. `['orders-0', 'orders-1', 'orders-2']`
+
+#### Exceptions
+
+- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ProtocolException` - If the super stream does not exist, or exists but currently has zero partitions
+
+#### Example
+
+```php
+$partitions = $connection->partitions('orders');
+foreach ($partitions as $partition) {
+    echo "Partition: {$partition}\n";
+}
+```
+
+#### Notes
+
+- `createSuperStreamProducer()` and `createSuperStreamConsumer()` call this internally to resolve partitions
+
+---
+
 ## Offset Management Methods
 
 ### queryOffset()
@@ -496,6 +732,11 @@ public function createConsumer(
     ?string $name = null,
     int $autoCommit = 0,
     int $initialCredit = 10,
+    array $filterValues = [],
+    bool $matchUnfiltered = false,
+    bool $singleActiveConsumer = false,
+    ?string $superStream = null,
+    int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
 ): Consumer
 ```
 
@@ -505,9 +746,14 @@ public function createConsumer(
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification (see `OffsetSpec` factory methods) |
-| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`. |
+| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Auto-commit interval (number of messages). `0` disables auto-commit. |
-| `$initialCredit` | `int` | No | Initial flow control credits. Default: `10` |
+| `$initialCredit` | `int` | No | Initial (and minimum) number of chunks in flight, 1–32767. Default: `10` |
+| `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (`filter.0`, `filter.1`, ... properties). Chunk-granular — see the [Consumer API reference](consumer.md). |
+| `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver messages published with no filter value. |
+| `$singleActiveConsumer` | `bool` | No | Enables single active consumer for this subscription. Requires `$name`. |
+| `$superStream` | `?string` | No | Name of the super stream this partition belongs to. |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 
 #### OffsetSpec Factory Methods
 
@@ -556,6 +802,122 @@ $consumer = $connection->createConsumer(
 
 ---
 
+### createSuperStreamProducer()
+
+Create a producer that publishes to a super stream's partitions, routing each message via a `RoutingStrategy`.
+
+```php
+use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
+
+public function createSuperStreamProducer(
+    string $superStream,
+    ?RoutingStrategy $strategy = null,
+    ?string $name = null,
+    ?callable $onConfirm = null,
+    int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
+): SuperStreamProducerInterface
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$superStream` | `string` | Yes | Name of the super stream to publish to |
+| `$strategy` | `?RoutingStrategy` | No | Routing strategy. Default: `HashRoutingStrategy` — MurmurHash3 x86_32, seed `104729`, matching the Java/.NET clients exactly, so a routing key lands on the same partition regardless of which client language published it. See `KeyRoutingStrategy` for broker-resolved (exchange binding) routing instead. |
+| `$name` | `?string` | No | Base producer name. Each partition's underlying `Producer` gets the derived name `"{$name}-{$partition}"`, so per-partition sequence dedup still works. |
+| `$onConfirm` | `?callable` | No | Confirmation callback, passed through to every partition's `Producer`. |
+| `$maxPendingConfirms` | `int` | No | Back-pressure cap, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
+
+#### Return Value
+
+`SuperStreamProducerInterface` - resolves the super stream's partitions immediately (one `partitions()` round trip), but opens each partition's `Producer` lazily on first publish to that partition
+
+#### Exceptions
+
+- `ProtocolException` - If the super stream does not exist or has zero partitions
+
+#### Example
+
+```php
+use CrazyGoat\RabbitStream\Client\Routing\KeyRoutingStrategy;
+
+// Default hash routing
+$producer = $connection->createSuperStreamProducer('orders');
+$producer->send('Order payload', routingKey: 'customer-123');
+
+// Broker-resolved key routing instead
+$producer = $connection->createSuperStreamProducer(
+    'orders',
+    new KeyRoutingStrategy($connection, 'orders'),
+    name: 'order-service',
+);
+```
+
+#### Notes
+
+- Partition membership is resolved once, at creation time — a topology change (partition leader change, or the super stream's partition set itself changing) is **not** automatically detected; recreate the `SuperStreamProducer` if you need to react to that.
+
+**See Also:** [SuperStreamProducer API Reference](super-stream-producer.md)
+
+---
+
+### createSuperStreamConsumer()
+
+Create a consumer that subscribes to every partition of a super stream, all sharing the same consumer `$name`.
+
+```php
+public function createSuperStreamConsumer(
+    string $superStream,
+    OffsetSpec $offset,
+    ?string $name = null,
+    int $autoCommit = 0,
+    int $initialCredit = 10,
+    bool $singleActiveConsumer = false,
+    int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
+): SuperStreamConsumerInterface
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$superStream` | `string` | Yes | Name of the super stream to consume from |
+| `$offset` | `OffsetSpec` | Yes | Starting offset specification, applied to every partition |
+| `$name` | `?string` | No | Consumer name, shared by every partition's subscription. Required for `singleActiveConsumer` — the broker groups the per-partition subscriptions into one single-active-consumer group *per partition* using this shared name. |
+| `$autoCommit` | `int` | No | Auto-commit interval (messages), passed through to every partition's `Consumer` |
+| `$initialCredit` | `int` | No | Initial flow control credits, passed through to every partition's `Consumer` |
+| `$singleActiveConsumer` | `bool` | No | Enables single active consumer per partition. Requires `$name`. |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). Passed through to every partition's `Consumer`, which keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 65,535. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
+
+#### Return Value
+
+`SuperStreamConsumerInterface` - one plain `Consumer` per partition, aggregated
+
+#### Exceptions
+
+- `ProtocolException` - If the super stream does not exist or has zero partitions
+
+#### Example
+
+```php
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
+$consumer = $connection->createSuperStreamConsumer('orders', OffsetSpec::first(), name: 'order-processor');
+
+foreach ($consumer->read(timeout: 5.0) as $message) {
+    echo "[{$message->getStream()}] {$message->getBody()}\n";
+    $consumer->storeOffset($message->getStream(), $message->getOffset());
+}
+```
+
+#### Notes
+
+- Offset tracking is entirely per-partition — there is no aggregate, super-stream-wide offset. `storeOffset()`/`queryOffset()` on the returned consumer always take the partition name explicitly (`Message::getStream()` names it).
+
+**See Also:** [SuperStreamConsumer API Reference](super-stream-consumer.md)
+
+---
+
 ## Lifecycle Methods
 
 ### readLoop()
@@ -563,7 +925,7 @@ $consumer = $connection->createConsumer(
 Process incoming server-push frames (deliveries, heartbeats, confirms).
 
 ```php
-public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
+public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 ```
 
 #### Parameters
@@ -844,5 +1206,8 @@ $connection = getConnectionWithRetry('rabbitmq.example.com');
 - [Consumer API Reference](consumer.md)
 - [Producer API Reference](producer.md)
 - [Message API Reference](message.md)
+- [SuperStreamProducer API Reference](super-stream-producer.md)
+- [SuperStreamConsumer API Reference](super-stream-consumer.md)
 - [Publishing Guide](../guide/publishing.md)
 - [Consuming Guide](../guide/consuming.md)
+- [Super Streams Guide](../guide/super-streams.md)

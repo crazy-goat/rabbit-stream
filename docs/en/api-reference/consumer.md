@@ -19,6 +19,11 @@ class Consumer
         int $autoCommit = 0,
         int $initialCredit = 10,
         int $maxBufferSize = 1000,
+        array $filterValues = [],
+        bool $matchUnfiltered = false,
+        bool $singleActiveConsumer = false,
+        ?string $superStream = null,
+        int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
     );
     
     // Reading methods
@@ -27,10 +32,17 @@ class Consumer
      */
     public function read(float $timeout = 5.0): array;
     public function readOne(float $timeout = 5.0): ?Message;
+    public function hasUnread(): bool;
+    /** @return Message[] */
+    public function drain(): array;
     
     // Offset management
     public function storeOffset(int $offset): void;
     public function queryOffset(): int;
+    
+    // Single active consumer
+    public function isActive(): bool;
+    public function onConsumerUpdate(callable $callback): void;
     
     // Lifecycle
     public function close(): void;
@@ -49,7 +61,13 @@ $consumer = $connection->createConsumer(
     OffsetSpec $offset,               // Required: Starting offset specification
     ?string $name = null,             // Optional: Consumer name for offset tracking
     int $autoCommit = 0,             // Optional: Auto-commit interval (messages)
-    int $initialCredit = 10,          // Optional: Initial flow control credits
+    int $initialCredit = 10,          // Optional: Initial flow control credits (chunk-granular)
+    int $maxBufferSize = 1000,        // Optional: Target buffer bound (message-granular)
+    array $filterValues = [],         // Optional: broker-side stream filtering values
+    bool $matchUnfiltered = false,    // Optional: also receive messages with no filter value
+    bool $singleActiveConsumer = false, // Optional: single active consumer (requires $name)
+    ?string $superStream = null,      // Optional: super-stream partition name
+    int $creditWindowBytes = 8 * 1024 * 1024, // Optional: adaptive credit window in bytes (0 = fixed initialCredit)
 ): Consumer
 ```
 
@@ -59,9 +77,15 @@ $consumer = $connection->createConsumer(
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification. Use `OffsetSpec::first()`, `OffsetSpec::last()`, `OffsetSpec::offset()`, etc. |
-| `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`. |
+| `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`, and for `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Number of messages between automatic offset commits. `0` disables auto-commit. |
-| `$initialCredit` | `int` | No | Initial number of flow control credits. Higher values increase throughput but use more memory. |
+| `$initialCredit` | `int` | No | Initial number of flow control credits. **Chunk-granular**: 1 credit = 1 future chunk delivery, and this is the starting and **minimum** in-flight chunk target; `$creditWindowBytes` may raise it when chunks turn out to be small. Must be 1–32767. |
+| `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — a chunk in flight when the buffer is already full is still accepted in full (messages are never dropped), so the buffer can transiently exceed this by up to one chunk's worth of messages. |
+| `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (sent as `filter.0`, `filter.1`, ... properties). Filtering is **chunk-granular** (bloom filter per chunk) — see [Stream Filtering](../guide/consuming.md#7-stream-filtering). |
+| `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver chunks containing messages published with no filter value. |
+| `$singleActiveConsumer` | `bool` | No | Enables single active consumer: the broker activates exactly one consumer per `$name` group at a time. Requires `$name`; throws `InvalidArgumentException` otherwise. See [Single Active Consumer](../guide/consuming.md#8-single-active-consumer). |
+| `$superStream` | `?string` | No | Name of the super stream this partition belongs to (sent as the `super-stream` property). |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 
 ### OffsetSpec Factory Methods
 
@@ -156,6 +180,7 @@ $messages = $consumer->read(timeout: 10.0);
 - Automatically manages flow control credits
 - Triggers auto-commit if enabled and threshold reached
 - May return an empty array if timeout expires with no messages
+- Every `Message` returned carries this consumer's stream name — see [`Message::getStream()`](message.md#getstream)
 
 ---
 
@@ -203,6 +228,45 @@ $message = $consumer->readOne(timeout: 1.0);
 - Automatically manages flow control credits
 - Triggers auto-commit if enabled and threshold reached
 - Returns `null` on timeout, not an exception
+
+---
+
+### hasUnread()
+
+Whether at least one already-buffered, not-yet-read message is currently held in memory.
+
+```php
+public function hasUnread(): bool
+```
+
+#### Return Value
+
+`bool` - `true` if the in-process buffer holds an unread message
+
+#### Notes
+
+- Purely a check against the in-process buffer — performs **no connection I/O**
+- Used internally by `SuperStreamConsumer::read()`/`readOne()` to decide whether a bounded `readLoop()` pass is needed before aggregating across partitions
+
+---
+
+### drain()
+
+Non-blocking drain of whatever messages are already buffered.
+
+```php
+/** @return Message[] */
+public function drain(): array
+```
+
+#### Return Value
+
+`Message[]` - every currently-buffered message, or an empty array if none are buffered
+
+#### Notes
+
+- Performs **no connection I/O** (no `readLoop()` call) — mirrors the tail of `read()` exactly
+- Used internally by `SuperStreamConsumer::read()` to collect each partition's buffered messages after one shared bounded read pass
 
 ---
 
@@ -304,6 +368,50 @@ try {
 - Returns the offset last stored via `storeOffset()` or auto-commit
 - Useful for resuming consumption after restart
 - Makes a round-trip to the server
+
+---
+
+## Single Active Consumer Methods
+
+### isActive()
+
+```php
+public function isActive(): bool
+```
+
+Whether this consumer is currently allowed to receive messages. Always `true`
+for a consumer created without `singleActiveConsumer`. For a single active
+consumer, tracks the broker's most recent `ConsumerUpdate` activation state —
+starts `false` and flips to `true`/`false` as the broker activates/deactivates
+it.
+
+### onConsumerUpdate()
+
+```php
+public function onConsumerUpdate(callable $callback): void
+```
+
+Overrides the default single active consumer resume logic. The callback
+receives `(bool $active, Consumer $consumer): ?OffsetSpec` and its return
+value becomes the reply sent to the broker's `ConsumerUpdate` query
+(`null` means "keep current position").
+
+Default behavior (used when no callback is registered):
+- **Activation** (`$active === true`): calls `queryOffset()` for the
+  consumer's `name` and replies `OffsetSpec::offset($stored + 1)`; if nothing
+  is stored yet, replies with the consumer's initial `OffsetSpec`.
+- **Deactivation** (`$active === false`): if `autoCommit > 0` and at least one
+  message was processed, stores the last processed offset so the next active
+  consumer resumes without gaps; replies `null` (keep position).
+
+```php
+$consumer->onConsumerUpdate(function (bool $active, Consumer $consumer): ?OffsetSpec {
+    if (!$active) {
+        return null;
+    }
+    return OffsetSpec::first(); // always replay from the start on activation
+});
+```
 
 ---
 
@@ -523,31 +631,51 @@ try {
 
 ## Flow Control
 
+### Chunk vs. message semantics
+
+This is the part of flow control that is easy to get wrong, so it's worth
+stating precisely:
+
+- The server always delivers whole **chunks** (one Deliver frame = one chunk,
+  atomic on the wire) — anywhere from 1 to thousands of messages each.
+- The server's credit system is **chunk-granular**: 1 credit grants exactly 1
+  future chunk delivery, regardless of how many messages that chunk turns out
+  to contain.
+- `maxBufferSize` is a **message** bound: the target ceiling on unread
+  messages held in the client-side buffer.
+
+Because a delivered chunk is never split or dropped (at-least-once delivery —
+no message is ever discarded once it arrives), the buffer can transiently hold
+more than `maxBufferSize` messages, by at most one chunk's worth, right after a
+chunk lands. What `maxBufferSize` actually controls is credit: once the unread
+count reaches or exceeds it, no further credit is granted, so the server stops
+delivering new chunks until the buffer drains back below the limit.
+
 ### Credit Mechanism
 
 RabbitMQ Streams uses a credit-based flow control system:
 
-1. **Initial Credit** - Specified when creating the consumer (`initialCredit` parameter)
-2. **Credits Consumed** - Each delivered message consumes one credit
-3. **Credits Replenished** - The client automatically sends more credits as messages are processed
-4. **Backpressure** - When the buffer reaches `maxBufferSize`, credits are held back
+1. **Initial Credit** - Specified when creating the consumer (`initialCredit` parameter); this is also the hard cap on outstanding (in-flight, i.e. sent-but-not-yet-consumed) credit — the server can never have more than `initialCredit` chunks in flight at once
+2. **Credits Consumed** - Each delivered chunk consumes one credit, no matter how many messages it contains
+3. **Credits Replenished** - The client automatically sends more credit as the buffer drains, one credit per chunk's worth of headroom that reopens
+4. **Backpressure** - While the unread count is at or over `maxBufferSize`, no new credit is granted at all; credit withheld this way is remembered and granted once the buffer drains
 
 ### Buffer Management
 
 The consumer maintains an internal buffer of messages:
 
-- **Default Size**: 1000 messages (`maxBufferSize`)
+- **Default Size**: 1000 messages (`maxBufferSize`) — a target, not a hard cap (see above)
 - **Automatic Replenishment**: Credits are sent as the buffer drains
-- **Pending Credits**: Credits are accumulated when the buffer is full and sent when space is available
+- **Pending Credits**: Credit units withheld while the buffer was full are remembered and sent once space is available, bounded by the `initialCredit` cap on outstanding credit
 
 ### Backpressure Handling
 
 When the consumer cannot keep up with the message rate:
 
-1. The internal buffer fills up
-2. New credits are not sent to the server
-3. The server stops sending messages
-4. As the buffer drains, credits are replenished
+1. The internal buffer's unread count reaches `maxBufferSize`
+2. No new credit is granted to the server (a chunk already in flight may still land — it is never dropped)
+3. Once un-replenished, the server eventually runs out of credit and stops sending new chunks
+4. As the buffer drains via `read()`/`readOne()`, withheld credit is granted back, up to the `initialCredit` cap on outstanding credit
 
 ```php
 // High-throughput consumer with large buffer

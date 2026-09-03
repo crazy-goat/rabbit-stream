@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\ChunkEntry;
+use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
@@ -626,5 +627,172 @@ class OsirisChunkParserTest extends TestCase
         $header .= "\x00\x00\x00"; // Reserved (3 bytes)
 
         return $header . $dataSection;
+    }
+
+    public function testParseEntriesYieldsSameEntriesAsParse(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 3,
+            numRecords: 3,
+            timestamp: 1234567890,
+            chunkFirstOffset: 50,
+            entries: [
+                ['type' => 'simple', 'data' => 'Message 1'],
+                ['type' => 'simple', 'data' => 'Message 2'],
+                ['type' => 'simple', 'data' => 'Message 3'],
+            ]
+        );
+
+        $viaGenerator = iterator_to_array(OsirisChunkParser::parseEntries($chunk), false);
+        $viaArray = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(3, $viaGenerator);
+        $this->assertEquals($viaArray, $viaGenerator);
+    }
+
+    public function testParseEntriesDoesNotMaterialiseEntriesUntilIterated(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 3,
+            numRecords: 3,
+            timestamp: 1234567890,
+            chunkFirstOffset: 50,
+            entries: [
+                ['type' => 'simple', 'data' => 'Message 1'],
+                ['type' => 'simple', 'data' => 'Message 2'],
+                ['type' => 'simple', 'data' => 'Message 3'],
+            ]
+        );
+
+        $generator = OsirisChunkParser::parseEntries($chunk);
+        $this->assertInstanceOf(\Generator::class, $generator);
+
+        // Nothing has been read from the generator yet — pulling only the first
+        // entry must not force the rest to be parsed/allocated.
+        $first = null;
+        foreach ($generator as $entry) {
+            $first = $entry;
+            break;
+        }
+
+        $this->assertInstanceOf(ChunkEntry::class, $first);
+        $this->assertSame('Message 1', $first->getData());
+        $this->assertTrue($generator->valid(), 'Generator must still have entries left to yield');
+    }
+
+    public function testParseEntriesThrowsOnInvalidChunkOnlyWhenIterated(): void
+    {
+        $invalidChunk = "\x00invalid";
+
+        $generator = OsirisChunkParser::parseEntries($invalidChunk);
+        // Constructing the generator must not execute the function body yet.
+        $this->addToAssertionCount(1);
+
+        $this->expectException(DeserializationException::class);
+        foreach ($generator as $entry) {
+            // trigger iteration
+        }
+    }
+
+    /** Encode a string as a standalone AMQP 1.0 Data section (vbin32), as this library's Producer does. */
+    private function encodeAmqpData(string $body): string
+    {
+        return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
+    }
+
+    public function testParseMessagesYieldsMessagesEquivalentToParseEntries(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 3,
+            numRecords: 3,
+            timestamp: 1234567890,
+            chunkFirstOffset: 50,
+            entries: [
+                ['type' => 'simple', 'data' => $this->encodeAmqpData('Message 1')],
+                ['type' => 'simple', 'data' => $this->encodeAmqpData('Message 2')],
+                ['type' => 'simple', 'data' => $this->encodeAmqpData('Message 3')],
+            ]
+        );
+
+        $entries = OsirisChunkParser::parse($chunk);
+        $messages = iterator_to_array(OsirisChunkParser::parseMessages($chunk), false);
+
+        $this->assertCount(3, $messages);
+        foreach ($messages as $i => $message) {
+            $this->assertInstanceOf(Message::class, $message);
+            $this->assertSame($entries[$i]->getOffset(), $message->getOffset());
+            $this->assertSame($entries[$i]->getTimestamp(), $message->getTimestamp());
+        }
+        $this->assertSame('Message 1', $messages[0]->getBody());
+        $this->assertSame('Message 2', $messages[1]->getBody());
+        $this->assertSame('Message 3', $messages[2]->getBody());
+    }
+
+    public function testParseMessagesYieldsMessagesForSubBatchEntries(): void
+    {
+        $innerEntries = [
+            ['data' => $this->encodeAmqpData('SubMessage 1')],
+            ['data' => $this->encodeAmqpData('SubMessage 2')],
+        ];
+
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 2,
+            timestamp: 999999999,
+            chunkFirstOffset: 1000,
+            entries: [
+                ['type' => 'subbatch', 'codec' => 0, 'entries' => $innerEntries],
+            ]
+        );
+
+        $messages = iterator_to_array(OsirisChunkParser::parseMessages($chunk), false);
+
+        $this->assertCount(2, $messages);
+        $this->assertSame(1000, $messages[0]->getOffset());
+        $this->assertSame('SubMessage 1', $messages[0]->getBody());
+        $this->assertSame(1001, $messages[1]->getOffset());
+        $this->assertSame('SubMessage 2', $messages[1]->getBody());
+        $this->assertSame(999999999, $messages[0]->getTimestamp());
+    }
+
+    public function testParseMessagesDoesNotMaterialiseUntilIterated(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 3,
+            numRecords: 3,
+            timestamp: 1234567890,
+            chunkFirstOffset: 50,
+            entries: [
+                ['type' => 'simple', 'data' => $this->encodeAmqpData('Message 1')],
+                ['type' => 'simple', 'data' => $this->encodeAmqpData('Message 2')],
+                ['type' => 'simple', 'data' => $this->encodeAmqpData('Message 3')],
+            ]
+        );
+
+        $generator = OsirisChunkParser::parseMessages($chunk);
+        $this->assertInstanceOf(\Generator::class, $generator);
+
+        $first = null;
+        foreach ($generator as $message) {
+            $first = $message;
+            break;
+        }
+
+        $this->assertInstanceOf(Message::class, $first);
+        $this->assertSame('Message 1', $first->getBody());
+        $this->assertTrue($generator->valid(), 'Generator must still have entries left to yield');
+    }
+
+    public function testParseMessagesThrowsOnInvalidChunkOnlyWhenIterated(): void
+    {
+        $invalidChunk = "\x00invalid";
+
+        $generator = OsirisChunkParser::parseMessages($invalidChunk);
+        $this->addToAssertionCount(1);
+
+        $this->expectException(DeserializationException::class);
+        foreach ($generator as $message) {
+            // trigger iteration
+        }
     }
 }

@@ -111,17 +111,99 @@ class AdaptiveBatchProducer
 }
 ```
 
+## Serialization & Frame I/O Overhead
+
+Below the batching-level tuning above, the client also minimizes CPU cost per
+message on the hot publish path and per frame on the hot receive path:
+
+- `PublishRequestV1`/`V2::toStreamBuffer()` build the entire request payload
+  with direct `pack()` calls and string concatenation in one pass, instead of
+  routing the header and each message through its own `WriteBuffer` object.
+- `StreamConnection::wrapFrame()` and `CommandTrait::getKeyVersion()` build
+  their fixed-width headers with a single `pack()` call instead of several
+  chained `WriteBuffer::addUIntX()` calls.
+- `PublishConfirmResponseV1::fromStreamBuffer()` reads all publishing ids
+  with one `unpack('J*', ...)` call instead of one `ReadBuffer::getUint64()`
+  call per id.
+- `StreamConnection::readBytes()` reads with `socket_recv(..., MSG_WAITALL)`
+  in a loop instead of looping `socket_read()` with `.=`, cutting the number
+  of syscalls and string reallocations needed to read a large frame (e.g. an
+  8MB Deliver frame).
+
+Micro-benchmark results (Apple Silicon, PHP 8.5, localhost broker):
+
+| Operation | Before | After |
+|-----------|--------|-------|
+| Serialize 1x 1KB `PublishRequestV1` | ~0.72 µs | ~0.42 µs |
+| Serialize batch of 500x 1KB messages | ~0.26 µs/msg | ~0.17 µs/msg |
+| Serialize 1x 512KB message | ~78 µs | ~15 µs |
+| Parse `PublishConfirm` with 5000 ids | ~365 µs total | ~29 µs total |
+
+These are CPU-only serialization/deserialization costs, not full round-trip
+latency — see [Performance Comparison](#performance-comparison) above for
+end-to-end throughput. The wire format is unchanged; every existing
+exact-byte serialization test still passes.
+
+## Super Streams over a Network
+
+Measured on Hetzner Cloud (RabbitMQ on a 4 vCPU VM, consumers on 2 vCPU VMs,
+private network, RTT ~1 ms, 300,000 × 1 KB messages, 3 partitions). Two settings
+decide super-stream throughput; neither matters much on a loopback benchmark.
+
+### 1. Publish in batches
+
+Hash routing spreads one logical stream over N partitions, so each partition
+sees a fraction of the write rate. Publishing with `send()` one message at a
+time produced chunks of **~5 messages**; `sendBatch(500)` produced **~106**.
+
+| Producer | msg/s | Resulting chunk size |
+|---|---|---|
+| `SuperStreamProducer::send()` per message | 88,000 | ~5 msgs |
+| `SuperStreamProducer::sendBatch(500)` | 374,000 | ~106 msgs |
+| Plain stream `send()` | 154,000 | ~3,750 msgs |
+
+### 2. Credit window
+
+Credit is granted per chunk. With 5-message chunks `initialCredit: 10` allows
+50 messages per round trip — the consumer is latency-bound regardless of CPU.
+
+| Consumer, 1 process | chunk ~5 msgs | chunk ~106 msgs |
+|---|---|---|
+| `initialCredit: 10` | 45,000 msg/s | 127,000 msg/s |
+| `initialCredit: 100` | 41,000 msg/s (CPU-bound with work) | 240,000 msg/s per partition |
+
+Since #500 the `Consumer` sizes the window in bytes (`creditWindowBytes`,
+default 8 MiB) and converts it to chunks using the observed chunk size, so the
+default already covers this case. Raise `creditWindowBytes` for high-latency
+links; set it to `0` to pin the window to `initialCredit` chunks.
+
+### What scaling buys you
+
+A super stream does not make one consumer faster than a plain stream. It lets N
+consumers on N machines share the work: with ~18 µs of processing per message,
+one 2 vCPU VM reached 52,000 msg/s and three VMs with single-active-consumer
+partitions reached 141,000 msg/s (2.7×). Without per-message work each VM
+already read 350,000–460,000 msg/s and the broker, not the client, was the
+limit. Match the partition count to the number of consumers; extra partitions
+only make chunks smaller.
+
 ## Credit Tuning
 
 ### Understanding Credits
 
-Credits control flow between server and consumer:
+Credits control flow between server and consumer, and they are **chunk-granular**:
+1 credit grants exactly 1 future chunk delivery, regardless of how many
+messages that chunk contains (the server always delivers whole chunks — one
+Deliver frame per chunk, atomic on the wire, from 1 to thousands of messages
+each). `maxBufferSize`, covered below, is a separate, **message**-granular
+bound — see [Consumer Buffer Size](#consumer-buffer-size) for how the two
+interact.
 
 ```
 Consumer ──► Subscribe (initialCredit=10) ──► Server
-Consumer ◄── Deliver (10 messages) ◄─────── Server
-Consumer ──► Credit (5) ─────────────────► Server
-Consumer ◄── Deliver (5 messages) ◄────── Server
+Consumer ◄── Deliver (1 chunk)     ◄─────── Server   [consumes 1 credit, any number of messages]
+Consumer ──► Credit (5)            ─────────────────► Server
+Consumer ◄── Deliver (5 chunks)    ◄────── Server    [consumes 5 credits]
 ```
 
 ### Initial Credit Parameter
@@ -148,14 +230,24 @@ $consumer = new Consumer(
 
 ### Credit Management Internals
 
-The Consumer automatically manages credits:
+The Consumer automatically manages credits, with units kept consistent
+throughout: `pendingCredits` and `creditsInFlight` are chunk-granular counters,
+and the buffer-full check they're gated on compares against `unreadCount`
+(unread messages), never the raw backing-array size:
 
 ```php
-// When buffer is below maxBufferSize, send 1 credit
-if (count($this->buffer) < $this->maxBufferSize) {
-    $this->connection->sendMessage(
-        new CreditRequestV1($this->subscriptionId, 1)
-    );
+// One credit unit is owed per chunk delivered...
+$this->pendingCredits++;
+
+// ...and sent back only while there's message-level headroom in the buffer,
+// bounded by how much chunk-level credit initialCredit still allows outstanding.
+private function sendPendingCredits(): void
+{
+    if ($this->pendingCredits <= 0 || $this->unreadCount >= $this->maxBufferSize) {
+        return;
+    }
+    $creditsToSend = min($this->pendingCredits, $this->initialCredit - $this->creditsInFlight, self::MAX_UINT16);
+    // ... send $creditsToSend, decrement pendingCredits, increment creditsInFlight
 }
 ```
 
@@ -176,7 +268,9 @@ $connection->sendMessage(
 
 ### maxBufferSize Parameter
 
-Controls back-pressure on the consumer:
+Controls back-pressure on the consumer. `maxBufferSize` is a **message** bound
+— a target, not a hard cap — while credit remains chunk-granular (see
+[Understanding Credits](#understanding-credits)):
 
 ```php
 $consumer = new Consumer(
@@ -185,14 +279,24 @@ $consumer = new Consumer(
     subscriptionId: 1,
     offset: OffsetSpec::next(),
     initialCredit: 100,
-    maxBufferSize: 1000,  // Buffer up to 1000 messages
+    maxBufferSize: 1000,  // Target: keep unread messages around/under 1000
 );
 ```
 
 **Behavior:**
-- When buffer reaches `maxBufferSize`, no new credits are sent
-- Server stops delivering until consumer catches up
-- Prevents memory exhaustion on slow consumers
+- A delivered chunk is always accepted into the buffer in full — messages are
+  never dropped (at-least-once delivery) — even if that overshoots
+  `maxBufferSize`; the buffer can transiently hold up to one chunk's worth more
+  than the configured bound right after a chunk lands
+- Once the unread count reaches or exceeds `maxBufferSize`, no *new* credit is
+  granted; withheld credit is remembered and granted back — one credit per
+  chunk's worth of headroom that reopens — as the buffer drains via
+  `read()`/`readOne()`
+- Outstanding (in-flight) credit is additionally capped at `initialCredit`, so
+  the server can never have more than `initialCredit` chunks in flight at once
+- Server stops delivering new chunks once it runs out of un-replenished credit
+- Prevents unbounded memory growth on slow consumers, bounded by chunk size
+  rather than message size alone
 
 ### Buffer Size Guidelines
 
@@ -229,6 +333,146 @@ while (true) {
     // Buffer stays small, back-pressure prevents overload
 }
 ```
+
+## Message Decoding
+
+Chunk parsing and AMQP 1.0 section decoding are both **lazy**:
+
+- `OsirisChunkParser::parseEntries()` (used internally by `Consumer`) yields
+  `ChunkEntry` instances one at a time from a chunk instead of materialising
+  them all up front. `OsirisChunkParser::parse()` still returns an eager
+  `ChunkEntry[]` array — its signature and behavior are unchanged — but it is
+  now implemented in terms of `parseEntries()`.
+- Each `Message` decodes its body, properties, application properties and
+  message annotations only on the **first** call to a getter that needs them
+  (`getBody()`, `getProperties()`, etc.) — not at construction time — and
+  caches the result for subsequent calls.
+
+This means a consumer that only reads `getOffset()`/`getTimestamp()`, or that
+reads a handful of messages out of a large chunk and moves on, never pays the
+AMQP decode cost (properties, application properties, message annotations, and
+the body itself) for messages it never inspects. The eager `Message`
+constructor and all its accessors keep working exactly as before —
+`Message::fromRawEntry()` is purely an additional, opt-in construction path
+used internally by `AmqpMessageDecoder::decode()`.
+
+### Consumer Hot Path: No Intermediate ChunkEntry, and a Data-Section Fast Path
+
+For the common case — 1 KB payloads published by this library's own
+`Producer`, which always wraps the body in a single AMQP 1.0 Data section —
+two further optimizations cut per-message CPU on `Consumer`'s deliver path:
+
+- `OsirisChunkParser::parseMessages()` yields `Message` objects directly from
+  a chunk, sharing the same validated parsing core as `parseEntries()`/
+  `parse()` but skipping the intermediate `ChunkEntry` allocation entirely.
+  `Consumer` uses `parseMessages()` internally; `parseEntries()` and `parse()`
+  are unchanged and still return `ChunkEntry`.
+- `Message::getBody()` recognizes a raw entry that is *exactly* one AMQP 1.0
+  Data section (`00 53 75 b0` + big-endian uint32 length + body, or the
+  `00 53 75 a0` vbin8 variant) and extracts the body directly, without
+  invoking the generic `AmqpDecoder`. Anything else (a Properties section
+  present, a different body encoding, etc.) transparently falls back to the
+  full `AmqpDecoder::decodeMessage()` path — behavior is identical either way,
+  only the cost differs.
+
+Measured against a real `bench-batch` stream of 1 KB messages (12 captured
+chunks, ~21,500 entries, averaged over repeated passes):
+
+| Path | Before | After |
+|------|--------|-------|
+| Chunk → `Message` construction | ~0.62–0.66 µs/msg | ~0.47–0.53 µs/msg |
+| `getBody()` | ~0.68–0.74 µs/msg | ~0.16–0.18 µs/msg |
+
+`AmqpDecoder`'s primitive readers (used by the generic-decode fallback) were
+also tightened: offset-form `unpack($format, $data, $position)` instead of
+`substr()` + `unpack()`, and big-endian format codes (`n`/`N`/`J`, `G`/`E` for
+float/double) with explicit two's-complement sign conversion instead of
+`strrev()` + machine-endian formats (`s`/`l`/`q`/`f`/`d`) — the latter were
+only correct on little-endian hosts by accident of `strrev()` undoing what a
+machine-endian read would otherwise get wrong.
+
+### Zero-Copy Chunk Parsing (No Full-Chunk Copies)
+
+A Deliver frame used to be copied twice before a single message could be read
+out of it:
+
+1. `DeliverResponseV1::fromStreamBuffer()` copied the whole chunk out of the
+   frame via `ReadBuffer::getRemainingBytes()`.
+2. `OsirisChunkParser` then `substr()`-copied the declared data section out of
+   that chunk again.
+
+For a large chunk (chunks are received whole — see
+[Frame Size Limits](#frame-size-limits) — and can run into several MB under a
+fast producer), that is pure memory-bandwidth churn that produces nothing.
+
+`ReadBuffer` now supports a zero-copy window: `new ReadBuffer($buffer, $offset,
+$length)` shares the backing string instead of copying it (`getRemainingWindow()`
+is the zero-copy counterpart of `getRemainingBytes()`, and `slice()` derives a
+nested window). `DeliverResponseV1` stores the whole frame buffer plus a
+chunk offset/length window instead of a copied chunk string —
+`getChunkBytes()` still works exactly as before (it just materialises the
+chunk lazily, only if something actually calls it), and two zero-copy
+accessors were added: `getChunkView(): array{0: string, 1: int, 2: int}` and
+`getChunkBuffer(): ReadBuffer`. `OsirisChunkParser::parse()`/`parseEntries()`/
+`parseMessages()` gained optional `$offset`/`$length` parameters so they can
+parse a chunk living inside a larger buffer without copying it out first.
+`Consumer`'s deliver callback uses this end to end via `getChunkView()`, so a
+chunk is parsed straight out of the socket-read frame buffer.
+
+Measured on the `bench-batch` stream (200k × 1 KB messages, chunks up to
+~6356 messages):
+
+| Metric | Before | After |
+|--------|--------|-------|
+| `Consumer::read()` peak memory (whole 200k-message stream) | 42.30 MB | 33.10 MB |
+| `Consumer::readOne()` peak memory (whole 200k-message stream) | 42.30 MB | 33.10 MB |
+| `OsirisChunkParser::parse()` on a ~6.58 MB chunk | ~2.95 ms | ~2.16 ms |
+| `OsirisChunkParser::parse()` on a ~2.12 MB chunk | ~0.95 ms | ~0.67 ms |
+
+Per-message payload `substr()` inside `OsirisChunkParser` (extracting each
+entry's own bytes, and a sub-batch's inner-record bytes) used to still copy
+proportional to real message data — see the next section for how that copy
+was eliminated too.
+
+### Zero-Copy Messages (No Per-Message Payload Copy)
+
+Even with the chunk-wide copies above eliminated, `OsirisChunkParser::parseMessages()`
+still `substr()`-ed each entry's own bytes out of the chunk before handing them
+to `Message::fromRawEntry()` — so a chunk of N lazily-decoded messages cost one
+chunk buffer *plus* N payload copies.
+
+`Message` gained a second lazy constructor, `Message::fromChunkView(int $offset,
+int $timestamp, string $chunk, int $start, int $length)`, which stores the
+chunk string, start and length instead of copying a substring out of it. PHP
+strings are refcounted, so passing `$chunk` here just bumps a refcount — every
+`Message` built from one chunk shares that single buffer. Decoding (still
+lazy, on the first accessor call) reads the fast-path prefix and length field
+directly out of the chunk at the entry's absolute offset, and does exactly one
+`substr()` to extract the body; the generic fallback `substr()`s only the
+entry's own range before calling `AmqpDecoder::decodeMessage()`. `Message::fromRawEntry()`
+is unchanged and still available for a caller holding a standalone byte
+string.
+
+`OsirisChunkParser::parseMessages()` now yields `fromChunkView()` views for
+both plain entries and sub-batch inner records — sub-batch inner entries are
+views into the *outer* chunk string too, no longer copied into an
+intermediate sub-batch buffer first. `parseEntries()`/`parse()`
+(`ChunkEntry`-based) are unchanged, since `ChunkEntry` needs a real byte
+string.
+
+Measured on the `bench-batch` stream (200k × 1 KB messages, chunks up to
+~6356 messages, `initialCredit=5000`):
+
+| Metric | Before | After |
+|--------|--------|-------|
+| `Consumer::read()` peak memory | 31 MB | 27 MB |
+| `Consumer::readOne()` peak memory | 25 MB | 17 MB |
+
+Throughput (msg/s) is essentially unchanged — this is a memory win, not a CPU
+one. `readOne()` benefits more than `read()` because it never holds more than
+one decoded `Message` alive at a time, so its peak is dominated by how many
+*undecoded* chunk-view `Message`s plus chunk buffers are alive at once, which
+the zero-copy view reduces the most.
 
 ## Timeout Tuning
 
@@ -277,6 +521,41 @@ try {
 - **Medium (5-10s):** Production with good network
 - **High (30s+):** High latency networks, large batches
 
+### Producer Flow Control (`maxPendingConfirms`)
+
+`Producer::send()`/`sendBatch()` do not read the socket by default beyond what
+is needed for back-pressure, so a long run of `send()` calls without
+`waitForConfirms()` can put an unbounded number of frames in flight. The
+broker then coalesces them into large chunks, which can slow down consumers
+and spike broker-side memory.
+
+The `maxPendingConfirms` constructor parameter (default `10000`) caps how many
+unconfirmed publishes are allowed before `send()`/`sendBatch()` transparently
+drain confirms off the socket (blocking, like `waitForConfirms()`) until the
+count drops back below the limit:
+
+```php
+$producer = new Producer(
+    $streamConnection,
+    'my-stream',
+    publisherId: 1,
+    maxPendingConfirms: 1000, // block send() once 1000 confirms are outstanding
+);
+
+for ($i = 0; $i < 200_000; $i++) {
+    $producer->send("message-{$i}"); // self-throttles instead of unbounded fan-out
+}
+```
+
+Pass `0` to restore the old unlimited/fire-and-forget behavior. Use
+`getPendingConfirms(): int` to inspect the current outstanding count, e.g. for
+metrics or custom throttling logic.
+
+**Guidelines:**
+- **Low (100-1,000):** Memory-constrained environments, slow consumers
+- **Medium (10,000, default):** Good default for most workloads
+- **`0` (unlimited):** Only when you fully control pacing yourself (e.g. calling `waitForConfirms()` periodically)
+
 ### Consumer read() Timeout
 
 Controls message polling timeout:
@@ -298,7 +577,8 @@ $messages = $consumer->read(timeout: 60.0);
 
 ### setMaxFrameSize()
 
-Protects against memory exhaustion from huge frames:
+Protects against memory exhaustion from huge **incoming, non-Deliver** frames
+(protocol responses, PublishConfirm/PublishError, MetadataUpdate, etc.):
 
 ```php
 // Default: 8MB
@@ -318,15 +598,84 @@ $connection->setMaxFrameSize(0);
 - **Decrease:** If you only send small messages, prevents DoS
 - **Increase:** If you send large messages (>8MB)
 
-### Frame Size Error
+### setMaxDeliverFrameSize() — Deliver frames need a separate, larger cap
 
-If a frame exceeds the limit:
+The broker does **not** enforce the negotiated `frame_max` on Deliver frames
+(key `0x0008`): a stream chunk is written to the wire whole, however big it
+is. A fast producer publishing several batches back-to-back without calling
+`waitForConfirms()` between them lets the broker's chunk writer coalesce them
+into a single on-disk chunk — measured well over 1 MiB from a burst of 1 KB
+messages, even though every individual `PublishRequest` frame stayed under the
+negotiated `frame_max`. Because that chunk lives on the broker's disk, a
+consumer that caps Deliver frames by the same (smaller) control-frame limit
+dies with `ConnectionException` ("Frame size ... exceeds maximum allowed
+...") on *every* restart, forever, at that same offset — a "poison chunk".
+
+`StreamConnection` therefore tracks the Deliver frame cap separately from
+`maxFrameSize`, defaulting to a much larger, but still bounded, ceiling:
 
 ```php
-if ($this->maxFrameSize > 0 && $size > $this->maxFrameSize) {
+// Default: 64MB — comfortably above realistic coalesced chunk sizes, while
+// still guarding against a hostile/broken broker sending an unbounded frame.
+$connection->setMaxDeliverFrameSize(64 * 1024 * 1024);
+
+// No limit (not recommended — only if you fully trust the broker)
+$connection->setMaxDeliverFrameSize(0);
+```
+
+`Connection::create()` exposes this as a `maxDeliverFrameSize` parameter
+(`null` = default):
+
+```php
+$connection = Connection::create(
+    host: '127.0.0.1',
+    maxDeliverFrameSize: 128 * 1024 * 1024, // raise further if you expect huge chunks
+);
+```
+
+### Negotiated frame_max only ever lowers the default control-frame cap
+
+`Connection::create()` negotiates `frame_max` with the broker during the Tune
+step. If you don't pass `requestedFrameMax` yourself, a broker advertising an
+unexpectedly huge value (including `0xFFFFFFFF`) cannot blow the incoming
+control-frame cap open — the effective cap is
+`min(negotiatedFrameMax, StreamConnection::DEFAULT_MAX_FRAME_SIZE)` in that
+case. Passing `requestedFrameMax` explicitly is treated as a deliberate
+choice and is honored as-is (even above the default).
+
+### Outgoing frames fail fast instead of silently killing the connection
+
+Writing a frame bigger than the negotiated `frame_max` used to be written to
+the socket anyway, the broker would close the connection, and the failure
+only surfaced later as a confusing "Cannot read: socket is not connected"\.
+`sendFrame()` now validates the frame size against the negotiated outgoing
+limit **before writing anything**, raising a clear
+`CrazyGoat\RabbitStream\Exception\InvalidArgumentException` naming both the
+frame size and the limit, with the connection left connected and usable:
+
+```php
+try {
+    $producer->send($hugeMessage);
+} catch (\CrazyGoat\RabbitStream\Exception\InvalidArgumentException $e) {
+    // e.g. "Frame size 3132009 exceeds negotiated maximum frame size of 1048576"
+    // the connection is still usable — no need to reconnect
+}
+```
+
+`setOutgoingMaxFrameSize()` / `getOutgoingMaxFrameSize()` on `StreamConnection`
+manage this limit directly (`0` = unlimited); `Connection::create()` sets it
+from the negotiated `frame_max` automatically.
+
+### Frame Size Error
+
+If an incoming frame exceeds its cap (`maxFrameSize` for everything except
+Deliver frames, `maxDeliverFrameSize` for Deliver frames):
+
+```php
+if ($cap > 0 && $size > $cap) {
     $this->close();
     throw new ConnectionException(
-        "Frame size {$size} exceeds maximum allowed {$this->maxFrameSize}"
+        "Frame size {$size} exceeds maximum allowed {$cap}"
     );
 }
 ```

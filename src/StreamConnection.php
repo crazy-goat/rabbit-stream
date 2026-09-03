@@ -16,12 +16,14 @@ use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -30,6 +32,15 @@ class StreamConnection
     private bool $connected = false;
     private ?\Socket $socket = null;
     private int $correlationId = 0;
+    /**
+     * Correlated responses read by request() while it was waiting for a different
+     * correlation ID (e.g. a nested request() issued from a server-push handler
+     * such as a ConsumerUpdate query). Consumed FIFO by readMessage() and by
+     * correlation ID by request().
+     *
+     * @var list<object>
+     */
+    private array $pendingResponses = [];
     private bool $running = false;
     private readonly bool $debugLogging;
 
@@ -37,23 +48,42 @@ class StreamConnection
     private array $publisherCallbacks = [];
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
+    /** @var array<int, callable> */
+    private array $consumerUpdateHandlers = [];
     private ?\Closure $metadataUpdateCallback = null;
     private ?\Closure $heartbeatCallback = null;
     private ?\Closure $consumerUpdateCallback = null;
 
+    /**
+     * Keyed by protocol key for O(1) isset() lookup instead of in_array()'s
+     * linear scan (GitHub #411) — this is checked once per received frame.
+     *
+     * @var array<int, true>
+     */
     private const SERVER_PUSH_KEYS = [
-        0x0003, // PublishConfirm
-        0x0004, // PublishError
-        0x0008, // Deliver
-        0x0010, // MetadataUpdate
-        0x0016, // Close (server-initiated)
-        0x0017, // Heartbeat
-        0x001a, // ConsumerUpdate
+        0x0003 => true, // PublishConfirm
+        0x0004 => true, // PublishError
+        0x0008 => true, // Deliver
+        0x0010 => true, // MetadataUpdate
+        0x0016 => true, // Close (server-initiated)
+        0x0017 => true, // Heartbeat
+        0x001a => true, // ConsumerUpdate
     ];
 
     public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
 
+    /**
+     * The broker does not enforce frame_max on Deliver frames (0x0008): a chunk is
+     * sent whole regardless of the negotiated frame_max, so Deliver frames need a
+     * separate, larger cap. 64MB comfortably exceeds chunks observed in practice
+     * (multi-megabyte coalesced chunks from a fast producer) while still guarding
+     * against a hostile/broken broker sending an unbounded frame.
+     */
+    public const DEFAULT_MAX_DELIVER_FRAME_SIZE = 64 * 1024 * 1024;
+
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
+    private int $maxDeliverFrameSize = self::DEFAULT_MAX_DELIVER_FRAME_SIZE;
+    private int $outgoingMaxFrameSize = 0;
 
     /**
      * @param string                $host     RabbitMQ stream server hostname
@@ -183,6 +213,67 @@ class StreamConnection
     }
 
     /**
+     * Set the maximum allowed size in bytes for incoming Deliver frames (key 0x0008).
+     *
+     * The broker does not enforce the negotiated frame_max on Deliver frames — a
+     * stream chunk is sent whole, so this needs its own (larger) cap independent
+     * of {@see setMaxFrameSize()}.
+     *
+     * @param int $maxDeliverFrameSize Maximum Deliver frame size in bytes (0 = no limit)
+     * @throws InvalidArgumentException If the value is negative
+     */
+    public function setMaxDeliverFrameSize(int $maxDeliverFrameSize): void
+    {
+        if ($maxDeliverFrameSize < 0) {
+            throw new InvalidArgumentException(
+                "Max deliver frame size must be >= 0 (0 = no limit), got {$maxDeliverFrameSize}"
+            );
+        }
+        $this->maxDeliverFrameSize = $maxDeliverFrameSize;
+    }
+
+    /**
+     * Get the current maximum allowed size in bytes for incoming Deliver frames.
+     *
+     * @return int Maximum Deliver frame size (0 = no limit)
+     */
+    public function getMaxDeliverFrameSize(): int
+    {
+        return $this->maxDeliverFrameSize;
+    }
+
+    /**
+     * Set the negotiated outgoing frame size limit in bytes.
+     *
+     * Frames written via {@see sendFrame()} larger than this are rejected up
+     * front with an {@see InvalidArgumentException} before anything is written
+     * to the socket, instead of being written and having the broker close the
+     * connection.
+     *
+     * @param int $outgoingMaxFrameSize Maximum outgoing frame size in bytes (0 = no limit)
+     * @throws InvalidArgumentException If the value is negative
+     */
+    public function setOutgoingMaxFrameSize(int $outgoingMaxFrameSize): void
+    {
+        if ($outgoingMaxFrameSize < 0) {
+            throw new InvalidArgumentException(
+                "Outgoing max frame size must be >= 0 (0 = no limit), got {$outgoingMaxFrameSize}"
+            );
+        }
+        $this->outgoingMaxFrameSize = $outgoingMaxFrameSize;
+    }
+
+    /**
+     * Get the current negotiated outgoing frame size limit in bytes.
+     *
+     * @return int Maximum outgoing frame size (0 = no limit)
+     */
+    public function getOutgoingMaxFrameSize(): int
+    {
+        return $this->outgoingMaxFrameSize;
+    }
+
+    /**
      * Register callbacks for publish confirm/error notifications.
      *
      * @param int      $publisherId Publisher ID as declared with the server
@@ -216,6 +307,35 @@ class StreamConnection
     public function unregisterSubscriber(int $subscriptionId): void
     {
         unset($this->subscriberCallbacks[$subscriptionId]);
+        unset($this->consumerUpdateHandlers[$subscriptionId]);
+    }
+
+    /**
+     * Register a per-subscription handler for ConsumerUpdate queries (single
+     * active consumer activation/deactivation, super-stream rebalance).
+     *
+     * Dispatch order in handleConsumerUpdate(): a registered per-subscription
+     * handler takes priority over the global onConsumerUpdate() callback,
+     * which in turn takes priority over the "none" (keep current position)
+     * default.
+     *
+     * @param int      $subscriptionId Subscription ID as declared with the server
+     * @param callable $handler        Called with (ConsumerUpdateResponseV1 $update): ?OffsetSpec.
+     *                                 Returning null means "none" (offsetType 0).
+     */
+    public function registerConsumerUpdateHandler(int $subscriptionId, callable $handler): void
+    {
+        $this->consumerUpdateHandlers[$subscriptionId] = $handler;
+    }
+
+    /**
+     * Remove a previously registered per-subscription ConsumerUpdate handler.
+     *
+     * @param int $subscriptionId Subscription ID to unregister
+     */
+    public function unregisterConsumerUpdateHandler(int $subscriptionId): void
+    {
+        unset($this->consumerUpdateHandlers[$subscriptionId]);
     }
 
     /**
@@ -296,11 +416,24 @@ class StreamConnection
      * @param string     $frame  The complete frame payload (including length prefix)
      * @param float|null $timeout Optional write timeout in seconds
      * @return int Number of bytes written
-     * @throws ConnectionException If the socket is not connected or a write error occurs
-     * @throws TimeoutException    If the socket is not ready for writing within the timeout
+     * @throws ConnectionException      If the socket is not connected or a write error occurs
+     * @throws InvalidArgumentException If the frame exceeds the negotiated outgoing frame size limit
+     * @throws TimeoutException         If the socket is not ready for writing within the timeout
      */
     public function sendFrame(string $frame, ?float $timeout = null): int
     {
+        if ($this->outgoingMaxFrameSize > 0) {
+            // $frame includes the 4-byte length prefix added by wrapFrame(); the
+            // negotiated frame_max applies to the payload only.
+            $payloadSize = strlen($frame) - 4;
+            if ($payloadSize > $this->outgoingMaxFrameSize) {
+                throw new InvalidArgumentException(
+                    "Frame size {$payloadSize} exceeds negotiated maximum frame size of " .
+                    "{$this->outgoingMaxFrameSize}"
+                );
+            }
+        }
+
         $this->debugFrame('Socket -> ', $frame, keyOffset: 4);
 
         if (!$this->socket instanceof \Socket) {
@@ -367,11 +500,54 @@ class StreamConnection
      */
     public function readMessage(float $timeout = 30.0): object
     {
+        if ($this->pendingResponses !== []) {
+            return array_shift($this->pendingResponses);
+        }
+
+        return $this->readResponse($timeout, null);
+    }
+
+    /**
+     * Send a correlated request and return its matching response.
+     *
+     * Unlike sendMessage()+readMessage(), this matches the reply by correlation
+     * ID, so it is safe to call re-entrantly from a server-push handler (for
+     * example a ConsumerUpdate handler querying the stored offset while an outer
+     * request() is still waiting for its own SubscribeResponse). Responses that
+     * belong to another in-flight request are parked and handed to that
+     * request (or to the next readMessage()) instead of being misattributed.
+     *
+     * @param object $request Request object implementing ToStreamBufferInterface and CorrelationInterface
+     * @param float  $timeout Seconds to wait for the response
+     * @throws InvalidArgumentException If the request carries no correlation ID
+     * @throws ConnectionException|DeserializationException|ProtocolException|TimeoutException See readMessage()
+     */
+    public function request(object $request, float $timeout = 30.0): object
+    {
+        if (!$request instanceof CorrelationInterface) {
+            throw new InvalidArgumentException('request() requires a correlated request; use sendMessage()');
+        }
+        $this->sendMessage($request, $timeout);
+
+        return $this->readResponse($timeout, $request->getCorrelationId());
+    }
+
+    private function readResponse(float $timeout, ?int $expectedCorrelationId): object
+    {
         $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
 
         while (true) {
             if (!$this->connected) {
                 throw new ConnectionException("Connection closed");
+            }
+
+            // A nested request() (issued from a server-push handler dispatched
+            // below) may already have parked the response we are waiting for.
+            if ($expectedCorrelationId !== null) {
+                $parked = $this->takePendingResponse($expectedCorrelationId);
+                if ($parked !== null) {
+                    return $parked;
+                }
             }
 
             $remainingTimeout = $timeout;
@@ -389,7 +565,7 @@ class StreamConnection
 
             $key = $frame->peekUint16();
 
-            if (in_array($key, self::SERVER_PUSH_KEYS, true)) {
+            if (isset(self::SERVER_PUSH_KEYS[$key])) {
                 $this->dispatchServerPush($frame);
 
                 // Connection may have been closed by server-initiated close
@@ -400,8 +576,47 @@ class StreamConnection
                 continue;
             }
 
-            return $this->serializer->deserialize($frame->getRemainingBytes());
+            $response = $this->serializer->deserialize($frame->getRemainingBytes());
+            if ($expectedCorrelationId === null) {
+                return $response;
+            }
+
+            if (!$response instanceof CorrelationInterface) {
+                // A response frame without a correlation ID (in practice a Credit
+                // error, which the broker only sends for a rejected Credit request,
+                // e.g. after a single-active-consumer handover) cannot be the reply
+                // we are waiting for. Log and keep reading.
+                $this->logger->warning('Unsolicited response received while awaiting correlated reply', [
+                    'response' => $response::class,
+                    'details' => $response instanceof CreditResponseV1
+                        ? [
+                            'subscriptionId' => $response->getSubscriptionId(),
+                            'responseCode' => $response->getResponseCode(),
+                        ]
+                        : [],
+                ]);
+                continue;
+            }
+
+            if ($response->getCorrelationId() !== $expectedCorrelationId) {
+                // Belongs to another in-flight request (outer or nested) — park it.
+                $this->pendingResponses[] = $response;
+                continue;
+            }
+
+            return $response;
         }
+    }
+
+    private function takePendingResponse(int $correlationId): ?object
+    {
+        foreach ($this->pendingResponses as $index => $pending) {
+            if ($pending instanceof CorrelationInterface && $pending->getCorrelationId() === $correlationId) {
+                array_splice($this->pendingResponses, $index, 1);
+                return $pending;
+            }
+        }
+        return null;
     }
 
     /**
@@ -409,17 +624,22 @@ class StreamConnection
      * The loop continues until one of:
      *   - `stop()` is called
      *   - The connection is closed
-     *   - `$maxFrames` frames have been dispatched
+     *   - `$maxFrames` frames have been processed (dispatched or discarded)
      *   - `$timeout` seconds have elapsed
+     *
+     * Discarded non-server-push frames count toward `$maxFrames` to prevent
+     * unbounded execution under unexpected frame traffic.
      *
      * If both `$maxFrames` and `$timeout` are null, the loop runs indefinitely
      * (until `stop()` or disconnect).
      *
-     * @param int|null   $maxFrames Maximum number of frames to dispatch (null = unlimited)
+     * @param int|null   $maxFrames Maximum number of frames to process (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
+     * @return int Number of frames processed (including server-push dispatched and discarded frames);
+     *             0 means the loop ended on timeout, stop() or disconnect without handling any frame
      * @throws ConnectionException If the socket is not connected
      */
-    public function readLoop(?int $maxFrames = null, ?float $timeout = null): void
+    public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
         if (!$this->socket instanceof \Socket) {
             throw new ConnectionException("Cannot read: socket is not connected");
@@ -467,14 +687,16 @@ class StreamConnection
                 continue;
             }
 
-            $frame = $this->readFrame(timeout: 0.0);
+            // socket_select() already confirmed the socket is readable above;
+            // avoid a second, redundant select per frame (see readFrameNoWait()).
+            $frame = $this->readFrameNoWait();
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
                 continue;
             }
 
             $key = $frame->peekUint16();
 
-            if (in_array($key, self::SERVER_PUSH_KEYS, true)) {
+            if (isset(self::SERVER_PUSH_KEYS[$key])) {
                 $this->dispatchServerPush($frame);
                 $dispatched++;
 
@@ -487,6 +709,9 @@ class StreamConnection
                     'readLoop() received unexpected non-server-push frame, discarding',
                     ['key' => sprintf('0x%04x', $key)]
                 );
+                // Count discarded frames toward maxFrames so unexpected traffic
+                // (e.g. CreditResponse) cannot make readLoop(maxFrames: N) unbounded.
+                $dispatched++;
             }
 
             if ($maxFrames !== null && $dispatched >= $maxFrames) {
@@ -495,6 +720,8 @@ class StreamConnection
         }
 
         $this->running = false;
+
+        return $dispatched;
     }
 
     private function dispatchServerPush(ReadBuffer $frame): void
@@ -597,11 +824,25 @@ class StreamConnection
         if (!$query instanceof ConsumerUpdateResponseV1) {
             throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
         }
-        $offsetType = 1;
+        $offsetType = OffsetSpec::TYPE_NONE;
         $offset = 0;
-        if ($this->consumerUpdateCallback instanceof \Closure) {
+
+        $subscriptionHandler = $this->consumerUpdateHandlers[$query->getSubscriptionId()] ?? null;
+        if ($subscriptionHandler !== null) {
+            $offsetSpec = $subscriptionHandler($query);
+            if ($offsetSpec !== null) {
+                [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
+            }
+        } elseif ($this->consumerUpdateCallback instanceof \Closure) {
             [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
         }
+
+        if ($offsetType < 0 || $offsetType > 5) {
+            throw new InvalidArgumentException(
+                "Invalid ConsumerUpdate reply offset type: {$offsetType} (must be 0-5)"
+            );
+        }
+
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
             offsetType: $offsetType,
@@ -614,10 +855,9 @@ class StreamConnection
 
     private function wrapFrame(string $content): string
     {
-        return (new WriteBuffer())
-            ->addUInt32(strlen($content))
-            ->addRaw($content)
-            ->getContents();
+        // Direct pack()+concat instead of a WriteBuffer object: this runs once
+        // per outgoing message (and once per heartbeat/close-response reply).
+        return pack('N', strlen($content)) . $content;
     }
 
     /**
@@ -650,6 +890,32 @@ class StreamConnection
             return null;
         }
 
+        return $this->readFrameNoWait();
+    }
+
+    /**
+     * Read a single raw frame from the socket without first calling socket_select().
+     *
+     * Callers must already know the socket is readable (or be prepared to block on
+     * the underlying socket_read() calls) — this exists so readLoop(), which already
+     * performs its own socket_select() before every frame, does not pay for a second,
+     * redundant select per frame.
+     *
+     * The frame is decoded as Size(uint32) + Key(uint16) + rest of payload: the key
+     * is read separately from the remaining payload so that the size cap can be
+     * chosen based on the frame's key — Deliver frames (0x0008) are not capped by
+     * the negotiated frame_max, since the broker sends stream chunks whole
+     * regardless of frame_max; they use {@see $maxDeliverFrameSize} instead.
+     *
+     * @return ReadBuffer|null Parsed frame buffer, or null if no data arrived
+     * @throws ConnectionException If the socket is not connected, frame exceeds max size, or read error occurs
+     */
+    private function readFrameNoWait(): ?ReadBuffer
+    {
+        if (!$this->socket instanceof \Socket) {
+            throw new ConnectionException("Cannot read: socket is not connected");
+        }
+
         $sizeData = $this->readBytes(4);
         if ($sizeData === null) {
             return null;
@@ -661,16 +927,48 @@ class StreamConnection
         }
         $size = $sizeUnpacked[1];
 
-        if ($this->maxFrameSize > 0 && $size > $this->maxFrameSize) {
-            $this->close();
-            throw new ConnectionException(
-                "Frame size {$size} exceeds maximum allowed {$this->maxFrameSize}"
-            );
+        if ($size < 2) {
+            throw new DeserializationException("Frame size {$size} is too small to contain a key");
         }
 
-        $frameData = $this->readBytes($size);
-        if ($frameData === null) {
-            throw new ConnectionException("Failed to read frame data");
+        // Fast path: a frame that fits under BOTH caps is read in one piece, no
+        // key peek and no concatenation. Only a frame exceeding the smaller cap
+        // needs its key inspected, because Deliver frames (0x0008) get their own
+        // cap — the broker does not enforce frame_max on them.
+        $fastCap = match (true) {
+            $this->maxFrameSize <= 0 => $this->maxDeliverFrameSize,
+            $this->maxDeliverFrameSize <= 0 => $this->maxFrameSize,
+            default => min($this->maxFrameSize, $this->maxDeliverFrameSize),
+        };
+        if ($fastCap <= 0 || $size <= $fastCap) {
+            $frameData = $this->readBytes($size);
+            if ($frameData === null) {
+                throw new ConnectionException("Failed to read frame data");
+            }
+        } else {
+            $keyData = $this->readBytes(2);
+            if ($keyData === null) {
+                throw new ConnectionException("Failed to read frame key");
+            }
+
+            $keyUnpacked = unpack('n', $keyData);
+            $key = $keyUnpacked !== false ? $keyUnpacked[1] : null;
+
+            $cap = $key === KeyEnum::DELIVER->value ? $this->maxDeliverFrameSize : $this->maxFrameSize;
+
+            if ($cap > 0 && $size > $cap) {
+                $this->close();
+                throw new ConnectionException(
+                    "Frame size {$size} exceeds maximum allowed {$cap}"
+                );
+            }
+
+            $remainingData = $this->readBytes($size - 2);
+            if ($remainingData === null) {
+                throw new ConnectionException("Failed to read frame data");
+            }
+
+            $frameData = $keyData . $remainingData;
         }
 
         $this->debugFrame('Socket <-', $frameData, keyOffset: 0);
@@ -720,32 +1018,55 @@ class StreamConnection
         $this->logger->debug($prefix . bin2hex($frame));
     }
 
+    /**
+     * Read exactly $length bytes from the socket into a single buffer.
+     *
+     * Uses socket_recv() with MSG_WAITALL so the kernel fills as much of the
+     * request as it can in one call instead of the previous socket_read()
+     * loop, which issued one syscall (and one string realloc via `.=`) per
+     * available chunk — for an 8MB Deliver frame that could be hundreds of
+     * short reads. MSG_WAITALL still returns short on a signal (EINTR) or a
+     * partial receive before the full length is available, so the loop below
+     * keeps issuing recv() for the remainder; a `''` chunk still means the
+     * peer closed the connection, and SOCKET_ETIMEDOUT still yields null,
+     * matching the previous semantics exactly.
+     */
     private function readBytes(int $length): ?string
     {
         if (!$this->socket instanceof \Socket) {
             throw new ConnectionException("Cannot read: socket is not connected");
         }
 
+        if ($length === 0) {
+            return '';
+        }
+
         $data = '';
         $remaining = $length;
 
         while ($remaining > 0) {
-            $chunk = socket_read($this->socket, $remaining);
-            if ($chunk === false) {
+            $chunk = '';
+            $read = socket_recv($this->socket, $chunk, $remaining, MSG_WAITALL);
+
+            if ($read === false) {
                 $error = socket_last_error($this->socket);
+                if ($error === SOCKET_EINTR) {
+                    continue;
+                }
                 if ($error === SOCKET_ETIMEDOUT) {
                     return null;
                 }
                 $this->connected = false;
                 throw new ConnectionException("Failed to read from socket: " . socket_strerror($error));
             }
-            if ($chunk === '') {
+
+            if ($read === 0) {
                 $this->connected = false;
                 throw new ConnectionException("Failed to read from socket: connection closed by peer");
             }
 
             $data .= $chunk;
-            $remaining -= strlen($chunk);
+            $remaining -= $read;
         }
 
         return $data;

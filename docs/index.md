@@ -25,6 +25,8 @@ Welcome to the RabbitStream documentation! RabbitStream is a pure PHP library im
 - [Connection](en/api-reference/connection.md) - StreamConnection class reference
 - [Producer](en/api-reference/producer.md) - Publishing messages
 - [Consumer](en/api-reference/consumer.md) - Consuming messages
+- [SuperStreamProducer](en/api-reference/super-stream-producer.md) - Publishing to super stream partitions
+- [SuperStreamConsumer](en/api-reference/super-stream-consumer.md) - Consuming from every super stream partition
 - [Message](en/api-reference/message.md) - Message structure and handling
 - [StreamConnection](en/api-reference/stream-connection.md) - Low-level connection management
 - [WriteBuffer](en/api-reference/write-buffer.md) - Binary serialization for requests
