@@ -898,6 +898,9 @@ class StreamConnection
                     'readLoop() received unexpected non-server-push frame, discarding',
                     ['key' => sprintf('0x%04x', $key)]
                 );
+                // Count discarded frames toward maxFrames so unexpected traffic
+                // (e.g. CreditResponse) cannot make readLoop(maxFrames: N) unbounded.
+                $dispatched++;
             }
 
             if ($maxFrames !== null && $dispatched >= $maxFrames) {
