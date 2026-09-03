@@ -360,5 +360,5 @@ $connection = Connection::create(
 
 - Learn about [Publishing](../guide/publishing.md) patterns and best practices
 - Explore [Consuming](../guide/consuming.md) strategies
-- Read the [API Reference](../api/index.md) for complete documentation
-- Check [Examples](../../examples/) for real-world usage patterns
+- Read the [API Reference](../api-reference/) for complete documentation
+- Check [Examples](../../../examples/) for real-world usage patterns

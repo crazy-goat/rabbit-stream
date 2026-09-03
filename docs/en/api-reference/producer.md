@@ -708,4 +708,4 @@ function publishWithRetry($connection, $stream, $message, $maxRetries = 3) {
 - [Basic Producer Example](../examples/basic-producer.md)
 - [Named Producer Deduplication](../examples/named-producer-deduplication.md)
 - [Connection API Reference](connection.md) (if available)
-- [ResponseCodeEnum](../../src/Enum/ResponseCodeEnum.php)
+- [ResponseCodeEnum](../../../src/Enum/ResponseCodeEnum.php)

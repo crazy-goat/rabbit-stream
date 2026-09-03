@@ -307,5 +307,5 @@ Now that you've completed the quick start:
 - Learn about [Configuration](./configuration.md) options
 - Explore the [Publishing Guide](../guide/publishing.md) for advanced producer features
 - Read the [Consuming Guide](../guide/consuming.md) for consumer patterns
-- Check the [API Reference](../api/index.md) for complete class documentation
-- See [Examples](../../examples/) for more working code samples
+- Check the [API Reference](../api-reference/) for complete class documentation
+- See [Examples](../../../examples/) for more working code samples

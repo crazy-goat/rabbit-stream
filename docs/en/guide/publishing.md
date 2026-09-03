@@ -126,7 +126,7 @@ RabbitMQ Streams uses asynchronous publish confirmations. When you publish a mes
 2. The server stores the message durably
 3. Later, the server sends `PublishConfirm` (0x0003) with the publishing IDs that were confirmed
 
-This flow is illustrated in the [Publish Flow Diagram](../assets/diagrams/publish-flow.md).
+This flow is illustrated in the [Publish Flow Diagram](../../assets/diagrams/publish-flow.md).
 
 ### Using onConfirm Callback
 
@@ -566,5 +566,5 @@ the same recovery, which covers the case where the `MetadataUpdate` was missed.
 - [Basic Producer Example](../examples/basic-producer.md)
 - [Named Producer Deduplication](../examples/named-producer-deduplication.md)
 - [Low-Level Protocol](../examples/low-level-protocol.md)
-- [Publish Flow Diagram](../assets/diagrams/publish-flow.md)
+- [Publish Flow Diagram](../../assets/diagrams/publish-flow.md)
 - [Producer API Reference](../api-reference/producer.md)
