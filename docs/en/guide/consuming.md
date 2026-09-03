@@ -207,7 +207,7 @@ First time consuming?          →  OffsetSpec::first()
                               →  OffsetSpec::last() (for new data only)
 
 Resuming after restart?        →  Query stored offset
-                              →  OffsetSpec::offset($storedOffset + 1)
+                              →  OffsetSpec::offset($storedOffset)
 
 Processing recent data only?   →  OffsetSpec::timestamp(time() - 3600)
                               →  OffsetSpec::interval(3600)
@@ -310,7 +310,7 @@ foreach ($messages as $message) {
     processEvent($message);
     
     // Store offset after successful processing
-    $consumer->storeOffset($message->getOffset());
+    $consumer->storeOffset($message->getOffset() + 1);
 }
 ```
 
@@ -335,7 +335,7 @@ try {
     
     $consumer = $connection->createConsumer(
         'events',
-        OffsetSpec::offset($lastOffset + 1),
+        OffsetSpec::offset($lastOffset),
         name: 'event-processor-v1'
     );
 } catch (\Exception $e) {
@@ -379,7 +379,7 @@ function createResumingConsumer(
         // Resume from next offset
         return $connection->createConsumer(
             $stream,
-            OffsetSpec::offset($lastOffset + 1),
+            OffsetSpec::offset($lastOffset),
             name: $consumerName
         );
     } catch (\Exception $e) {
@@ -401,7 +401,7 @@ $consumer = createResumingConsumer($connection, 'events', 'processor-v1');
 try {
     while ($message = $consumer->readOne()) {
         processEvent($message);
-        $consumer->storeOffset($message->getOffset());
+        $consumer->storeOffset($message->getOffset() + 1);
     }
 } finally {
     $consumer->close();
@@ -432,6 +432,22 @@ $consumer = $connection->createConsumer(
 1. **Counter-based**: The consumer counts messages and stores the offset every N messages
 2. **Final commit on close**: When `close()` is called, the final offset is stored
 3. **Requires named consumer**: Auto-commit only works with named consumers
+
+### What Gets Stored
+
+The stored value is the **next** offset to consume — `lastProcessedOffset + 1`
+— which is what the Java, Go and .NET clients store too. Resume by handing it
+straight to `OffsetSpec::offset()` (which is inclusive), with no arithmetic:
+
+```php
+$stored = $connection->queryOffset('auto-consumer', 'events');
+$consumer = $connection->createConsumer('events', OffsetSpec::offset($stored), name: 'auto-consumer');
+```
+
+> **Changed in v1.3.0.** Auto-commit used to store the last *consumed* offset,
+> so every resume redelivered that message (#396). Offsets written by an older
+> version are one too low: resume those consumers once with
+> `OffsetSpec::offset($stored + 1)`, or accept a single duplicate.
 
 ### Trade-offs
 
@@ -534,7 +550,120 @@ $consumer = $connection->createConsumer(
 
 For detailed flow control documentation, see [Flow Control Guide](flow-control.md).
 
-## 7. Low-Level Consuming
+## 7. Stream Filtering
+
+The broker can filter a stream by a per-message filter value tagged at publish
+time, so a consumer only receives chunks that may contain matching messages.
+
+> **Caveat — chunk granularity.** Filtering happens on whole chunks via a
+> bloom filter, not per message: a chunk is delivered as soon as its bloom
+> filter *may* contain a subscribed value, and every message in a delivered
+> chunk arrives, matching or not. A chunk containing *only* non-matching
+> values is never delivered, but a delivered chunk can still contain
+> non-matching messages if they share a chunk with a matching one. Exact,
+> message-granular filtering requires the application to post-filter using
+> the message's own filter value.
+
+**Publishing with a filter value:**
+```php
+$producer = $connection->createProducer('events');
+$producer->sendWithFilter('order created', filterValue: 'region-eu');
+$producer->sendWithFilter('order created', filterValue: 'region-us');
+```
+
+**Subscribing with matching filter values:**
+```php
+$consumer = $connection->createConsumer(
+    'events',
+    OffsetSpec::first(),
+    filterValues: ['region-eu'],
+    matchUnfiltered: false, // set true to also receive messages with no filter value
+);
+```
+
+## 8. Single Active Consumer
+
+Single active consumer (SAC) lets several consumers share one logical
+subscription (identified by `name`): the broker activates exactly one at a
+time and hands over activation to another when the active one disconnects —
+useful for HA consumer groups without duplicate processing.
+
+```php
+$consumer = $connection->createConsumer(
+    'events',
+    OffsetSpec::first(),
+    name: 'order-processor',    // required: the broker groups SAC consumers by this reference
+    autoCommit: 1,               // store progress so a successor can resume without gaps
+    singleActiveConsumer: true,
+);
+
+if ($consumer->isActive()) {
+    $messages = $consumer->read(timeout: 5.0);
+}
+```
+
+By default, when this consumer is activated it resumes right after its
+stored offset (or its initial `OffsetSpec` if nothing was stored yet); when
+deactivated, it stores its last processed offset (if `autoCommit` is on) so
+the next active consumer picks up from there. Override this with
+`onConsumerUpdate()`:
+
+```php
+$consumer->onConsumerUpdate(function (bool $active, $consumer): ?OffsetSpec {
+    if (!$active) {
+        return null; // keep current position, nothing else to do
+    }
+    // custom resume logic, e.g. always replay from the start
+    return OffsetSpec::first();
+});
+```
+
+Grouping is by `name` **across connections** — two consumers on the same
+stream with the same `name` on different connections join the same SAC
+group; on the same connection they would not (each subscription is
+independent per connection).
+
+## 9. Stream Deleted or Leader Moved (MetadataUpdate)
+
+When the stream becomes unavailable the broker pushes a `MetadataUpdate` and
+drops the subscription together with its outstanding credit. The `Consumer`
+recovers on its own:
+
+- `read()`/`readOne()` notice the lost subscription and re-`Subscribe`,
+  retrying with exponential back-off (50 ms up to 1 s) while the stream is
+  missing — usually because it is being recreated.
+- After a brief unavailability the consumer resumes right after the last
+  message it processed. If the stream was deleted and recreated its offsets
+  start over, so resuming at the old offset would silently wait forever; the
+  consumer detects this (the stream's committed offset is below what it already
+  consumed) and falls back to the initial `OffsetSpec` instead.
+- The adaptive credit window is granted again after the re-subscribe, so
+  throughput returns to where it was.
+
+```php
+$consumer = $connection->createConsumer('my-stream', OffsetSpec::first());
+
+// ... the stream is deleted and recreated elsewhere ...
+
+$messages = $consumer->read(timeout: 5.0);   // re-subscribes, then reads
+echo $consumer->getResubscribeCount();       // 1
+```
+
+`isSubscriptionLost()` reports whether the subscription is currently down, and
+`resubscribeIfLost()` attempts one re-subscribe immediately (returning `false`
+when the stream is still gone). Any broker error other than
+`STREAM_NOT_EXIST`/`STREAM_NOT_AVAILABLE` is rethrown as a `ProtocolException`
+rather than retried.
+
+For a `SuperStreamConsumer` this happens per partition: one deleted partition
+does not stop the others.
+
+> **Cluster note**: a leader move to a different node cannot be followed on the
+> same connection. Consuming can be served by any replica, so this affects
+> single-node setups and recreated streams; a stream that moved away entirely
+> needs a new connection.
+
+## 10. Low-Level Consuming
 
 For advanced use cases, you can use the protocol-level commands directly.
 The snippets below use a raw `StreamConnection` (`$stream`) — the low-level
@@ -678,7 +807,7 @@ $queryResponse = $stream->readMessage();
 $startOffset = OffsetSpec::first();
 if ($queryResponse instanceof QueryOffsetResponseV1) {
     $storedOffset = $queryResponse->getOffset();
-    $startOffset = OffsetSpec::offset($storedOffset + 1);
+    $startOffset = OffsetSpec::offset($storedOffset);
     echo "Resuming from offset: {$storedOffset}\n";
 }
 
@@ -753,7 +882,7 @@ try {
         foreach ($messages as $message) {
             try {
                 processMessage($message);
-                $consumer->storeOffset($message->getOffset());
+                $consumer->storeOffset($message->getOffset() + 1);
             } catch (\Exception $e) {
                 echo "Failed to process message: {$e->getMessage()}\n";
                 // Decide whether to continue or stop
@@ -790,7 +919,7 @@ function consumeWithRetry(
                 $tempConsumer = $connection->createConsumer($stream, $offset, name: $consumerName);
                 $lastOffset = $tempConsumer->queryOffset();
                 $tempConsumer->close();
-                $offset = OffsetSpec::offset($lastOffset + 1);
+                $offset = OffsetSpec::offset($lastOffset);
                 echo "Resuming from offset: {$lastOffset}\n";
             } catch (\Exception $e) {
                 echo "Starting from beginning\n";
@@ -800,7 +929,7 @@ function consumeWithRetry(
             
             while ($message = $consumer->readOne()) {
                 $processor($message);
-                $consumer->storeOffset($message->getOffset());
+                $consumer->storeOffset($message->getOffset() + 1);
             }
             
             $consumer->close();

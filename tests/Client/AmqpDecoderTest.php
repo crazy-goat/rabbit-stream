@@ -243,9 +243,12 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeList8WithNestedValues(): void
     {
         // list8 with string and int
-        // size=9, count=2, items: str8 "hi" (0xa1 0x02 "hi" = 4 bytes), smalluint 42 (0x52 0x2a = 2 bytes)
-        // Total: 1 (format) + 1 (size) + 1 (count) + 4 + 2 = 9 bytes
-        [$value, $pos] = AmqpDecoder::decodeValue("\xc0\x09\x02\xa1\x02hi\x52\x2a", 0);
+        // size=7, count=2, items: str8 "hi" (0xa1 0x02 "hi" = 4 bytes), smalluint 42 (0x52 0x2a = 2 bytes)
+        // size covers the count byte + the 6 content bytes only — NOT the format code
+        // or the size byte itself, which is what the pre-#453 fixture (size=9, the
+        // whole encoded length) wrongly used. Total on the wire: 1 (format) +
+        // 1 (size) + 1 (count) + 4 + 2 = 9 bytes.
+        [$value, $pos] = AmqpDecoder::decodeValue("\xc0\x07\x02\xa1\x02hi\x52\x2a", 0);
         $this->assertSame(['hi', 42], $value);
         $this->assertSame(9, $pos);
     }
@@ -253,7 +256,9 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeList32(): void
     {
         // list32: size (4 bytes) + count (4 bytes) + items
-        [$value, $pos] = AmqpDecoder::decodeValue("\xd0\x00\x00\x00\x06\x00\x00\x00\x02\x52\x01\x52\x02", 0);
+        // size=8 = 4 count bytes + 4 content bytes (two smalluints); the pre-#453
+        // fixture declared 6, which the exact-consumption check now rejects.
+        [$value, $pos] = AmqpDecoder::decodeValue("\xd0\x00\x00\x00\x08\x00\x00\x00\x02\x52\x01\x52\x02", 0);
         $this->assertSame([1, 2], $value);
         $this->assertSame(13, $pos);
     }
@@ -270,11 +275,12 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeMap8WithMultiplePairs(): void
     {
         // map8 with 2 pairs
-        // size=10, count=4 (2 pairs)
+        // size=11 = 1 count byte + 10 content bytes (the pre-#453 fixture declared 10,
+        // forgetting that size covers the count byte too)
         // pair1: str8 "a" (0xa1 0x01 "a" = 3 bytes), smalluint 1 (0x52 0x01 = 2 bytes)
         // pair2: str8 "b" (0xa1 0x01 "b" = 3 bytes), smalluint 2 (0x52 0x02 = 2 bytes)
         // Total: 1 (format) + 1 (size) + 1 (count) + 3 + 2 + 3 + 2 = 13 bytes
-        [$value, $pos] = AmqpDecoder::decodeValue("\xc1\x0a\x04\xa1\x01a\x52\x01\xa1\x01b\x52\x02", 0);
+        [$value, $pos] = AmqpDecoder::decodeValue("\xc1\x0b\x04\xa1\x01a\x52\x01\xa1\x01b\x52\x02", 0);
         $this->assertSame(['a' => 1, 'b' => 2], $value);
         $this->assertSame(13, $pos);
     }
@@ -382,19 +388,23 @@ class AmqpDecoderTest extends TestCase
 
     public function testDecodeUnexpectedEndReadingList8(): void
     {
+        // list8: size=3 (2 content bytes) with only 1 byte of content present.
+        // Since #488 the content window is validated against the frame up front,
+        // so this is rejected before the element loop rather than by whichever
+        // element read happened to run off the end of the string.
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Unexpected end of data');
+        $this->expectExceptionMessage('List8 declares 2 content bytes but only 1 remain in the frame');
 
-        // list8: size=3, count=5 (but only 1 byte of data)
         AmqpDecoder::decodeValue("\xc0\x03\x05\x52", 0);
     }
 
     public function testDecodeUnexpectedEndReadingMap8(): void
     {
+        // map8: size=3 (2 content bytes) with only 1 byte of content present — see
+        // testDecodeUnexpectedEndReadingList8().
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Unexpected end of data');
+        $this->expectExceptionMessage('Map8 declares 2 content bytes but only 1 remain in the frame');
 
-        // map8: size=3, count=4 (but only 1 byte of data)
         AmqpDecoder::decodeValue("\xc1\x03\x04\xa1", 0);
     }
 
@@ -501,9 +511,8 @@ class AmqpDecoderTest extends TestCase
         // count = 8,388,608 with only 1 real content byte would otherwise build an
         // ~8-million-entry array from a 10-byte frame (uncatchable OOM fatal).
         // size = 5 (4 count bytes + 1 content byte), count = 0x00800000, content = 0x40.
-        // Note: the guard's available-bytes window is size - 3 (= 2 here), because
-        // $endPosition = position + size - 4 is treated as an inclusive bound (a
-        // pre-existing off-by-one in the size math); the cap is still tight enough.
+        // The available-bytes window is exactly size - 4 (= 1 here) since #488 fixed
+        // the off-by-one that made it one byte too generous.
         $payload = "\xd0\x00\x00\x00\x05\x00\x80\x00\x00\x40";
         $baseline = memory_get_usage(true);
 
@@ -511,7 +520,7 @@ class AmqpDecoderTest extends TestCase
             AmqpDecoder::decodeValue($payload, 0);
             $this->fail('Expected DeserializationException for oversized list32 count');
         } catch (DeserializationException $e) {
-            $this->assertStringContainsString('List32 count 8388608 exceeds available bytes 2', $e->getMessage());
+            $this->assertStringContainsString('List32 count 8388608 exceeds available bytes 1', $e->getMessage());
             $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
         }
 
@@ -532,7 +541,7 @@ class AmqpDecoderTest extends TestCase
             AmqpDecoder::decodeValue($payload, 0);
             $this->fail('Expected DeserializationException for oversized map32 count');
         } catch (DeserializationException $e) {
-            $this->assertStringContainsString('Map32 count 8388608 exceeds available bytes 2', $e->getMessage());
+            $this->assertStringContainsString('Map32 count 8388608 exceeds available bytes 1', $e->getMessage());
             $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
         }
 
@@ -541,8 +550,8 @@ class AmqpDecoderTest extends TestCase
 
     public function testDecodeList32CountWithinAvailableBytesStillDecodes(): void
     {
-        // Boundary: count well within the available window. size = 7 (content = 3
-        // null bytes), count = 3. available = size - 3 = 4, 3 <= 4 -> decodes.
+        // Boundary: count exactly fills the available window. size = 7 (content = 3
+        // null bytes), count = 3. available = size - 4 = 3, 3 <= 3 -> decodes.
         [$value, $pos] = AmqpDecoder::decodeValue("\xd0\x00\x00\x00\x07\x00\x00\x00\x03\x40\x40\x40", 0);
         $this->assertSame([null, null, null], $value);
         $this->assertSame(12, $pos);
@@ -551,7 +560,7 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeMap32CountWithinAvailableBytesStillDecodes(): void
     {
         // Boundary: 1 pair = 2 elements, both 1-byte nulls. size = 6 (content = 2),
-        // count = 2. available = size - 3 = 3, 2 <= 3 -> decodes. Null key coerces
+        // count = 2. available = size - 4 = 2, 2 <= 2 -> decodes. Null key coerces
         // to '' by the map key logic.
         [$value, $pos] = AmqpDecoder::decodeValue("\xd1\x00\x00\x00\x06\x00\x00\x00\x02\x40\x40", 0);
         $this->assertSame(['' => null], $value);
@@ -560,18 +569,18 @@ class AmqpDecoderTest extends TestCase
 
     public function testDecodeList32CountExceedingAvailableThrows(): void
     {
-        // Boundary just past the cap: size = 7 -> available = 4, count = 5 > 4.
+        // Boundary just past the cap: size = 7 -> available = 3, count = 5 > 3.
         $this->expectException(DeserializationException::class);
-        $this->expectExceptionMessage('List32 count 5 exceeds available bytes 4');
+        $this->expectExceptionMessage('List32 count 5 exceeds available bytes 3');
 
         AmqpDecoder::decodeValue("\xd0\x00\x00\x00\x07\x00\x00\x00\x05\x40\x40\x40", 0);
     }
 
     public function testDecodeMap32CountExceedingAvailableThrows(): void
     {
-        // Boundary just past the cap: size = 6 -> available = 3, count = 4 > 3.
+        // Boundary just past the cap: size = 6 -> available = 2, count = 4 > 2.
         $this->expectException(DeserializationException::class);
-        $this->expectExceptionMessage('Map32 count 4 exceeds available bytes 3');
+        $this->expectExceptionMessage('Map32 count 4 exceeds available bytes 2');
 
         AmqpDecoder::decodeValue("\xd1\x00\x00\x00\x06\x00\x00\x00\x04\x40\x40", 0);
     }
@@ -581,7 +590,7 @@ class AmqpDecoderTest extends TestCase
         // Regression guard: the existing valid fixtures from testDecodeList32 /
         // testDecodeMap32 must decode byte-for-byte identically after the guard.
         [$list, $listPos] = AmqpDecoder::decodeValue(
-            "\xd0\x00\x00\x00\x06\x00\x00\x00\x02\x52\x01\x52\x02",
+            "\xd0\x00\x00\x00\x08\x00\x00\x00\x02\x52\x01\x52\x02",
             0
         );
         $this->assertSame([1, 2], $list);
@@ -607,7 +616,7 @@ class AmqpDecoderTest extends TestCase
             AmqpDecoder::decodeMessage($message);
             $this->fail('Expected DeserializationException for oversized list32 body');
         } catch (DeserializationException $e) {
-            $this->assertStringContainsString('List32 count 8388608 exceeds available bytes 2', $e->getMessage());
+            $this->assertStringContainsString('List32 count 8388608 exceeds available bytes 1', $e->getMessage());
             $this->assertInstanceOf(RabbitStreamExceptionInterface::class, $e);
         }
     }
@@ -705,6 +714,115 @@ class AmqpDecoderTest extends TestCase
         $this->assertArrayHasKey(255, $value);
         $this->assertSame(null, $value[255]);
         $this->assertSame(strlen($payload), $pos);
+    }
+
+    // ========== Compound size arithmetic (issues #488, #453, #489) ==========
+
+    public function testCompoundSizeOneByteShortOfItsContentIsRejected(): void
+    {
+        // list8 declaring size=2 (1 content byte) around a 2-byte element. Before
+        // #488 the content window was treated as inclusive and ran one byte past
+        // the declared content, so this frame decoded happily; the window is now
+        // exactly size - 1 bytes wide, and #453's exact-consumption check catches
+        // the overrun.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('List8 size mismatch: declared 2 bytes, elements consumed 3');
+
+        AmqpDecoder::decodeValue("\xc0\x02\x01\x52\x01", 0);
+    }
+
+    public function testCompoundDeclaringMoreBytesThanItsElementsConsumeIsRejected(): void
+    {
+        // list32 with a truthful count (1) but a size claiming 3 content bytes for a
+        // 2-byte element. The elements are all decodable, so nothing else notices;
+        // only the #453 consumption check does. A lying size like this used to be
+        // accepted and left the cursor short of the compound's end, desynchronising
+        // whatever the caller decoded next.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('List32 size mismatch: declared 7 bytes, elements consumed 6');
+
+        AmqpDecoder::decodeValue("\xd0\x00\x00\x00\x07\x00\x00\x00\x01\x52\x01\x40", 0);
+    }
+
+    public function testMapWithOddCountIsRejected(): void
+    {
+        // map8 count=3: keys and values are counted separately, so an odd count
+        // cannot describe whole pairs. Pre-#489 it was truncated to 1 pair and the
+        // orphan key silently dropped, accepting the malformed frame.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map8 count must be even (keys and values are counted separately), got 3');
+
+        AmqpDecoder::decodeValue("\xc1\x06\x03\xa1\x01k\x52\x01", 0);
+    }
+
+    public function testMap32WithOddCountIsRejected(): void
+    {
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map32 count must be even (keys and values are counted separately), got 3');
+
+        AmqpDecoder::decodeValue("\xd1\x00\x00\x00\x09\x00\x00\x00\x03\xa1\x01k\x52\x01", 0);
+    }
+
+    public function testCompoundSizeSmallerThanItsOwnCountFieldIsRejected(): void
+    {
+        // size=0 cannot even cover the count field it is defined to include.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('List8 size 0 is smaller than its own 1-byte count field');
+
+        AmqpDecoder::decodeValue("\xc0\x00\x00", 0);
+    }
+
+    // ========== Non-binary Data section (issue #452) ==========
+
+    public function testDataSectionCarryingANonBinaryValueThrows(): void
+    {
+        // Data section (0x75) holding a list8 instead of binary. Pre-#452 this was
+        // silently dropped and the caller got body = '' with no way to notice.
+        $message = "\x00\x53\x75" . "\xc0\x03\x01\x52\x2a";
+
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Data section (0x75) must carry binary data, got array');
+
+        AmqpDecoder::decodeMessage($message);
+    }
+
+    // ========== Un-framed payload hint (issue #456) ==========
+
+    public function testDecodeMessageHintsThatThePayloadMayBeRawBytes(): void
+    {
+        try {
+            AmqpDecoder::decodeMessage('plain text, never AMQP-framed');
+            $this->fail('Expected DeserializationException for a non-AMQP payload');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Expected described type marker (0x00) at position 0', $e->getMessage());
+            $this->assertStringContainsString('raw, un-framed body', $e->getMessage());
+            $this->assertStringContainsString('OsirisChunkParser::parseEntries()', $e->getMessage());
+        }
+    }
+
+    // ========== 32-bit-safe length bounds (issue #451) ==========
+
+    public function testBinary32LengthBeyondTheFrameIsRejected(): void
+    {
+        // length = 0xFFFFFFFF with 2 bytes of content. The check is written as
+        // $length > strlen($data) - $position precisely so that a length this large
+        // cannot overflow the comparison into passing on a 32-bit build.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Unexpected end of data reading binary32 content');
+
+        AmqpDecoder::decodeValue("\xb0\xff\xff\xff\xffhi", 0);
+    }
+
+    public function testString32AndSymbol32LengthsBeyondTheFrameAreRejected(): void
+    {
+        foreach (["\xb1" => 'string32', "\xb3" => 'symbol32'] as $formatCode => $what) {
+            try {
+                AmqpDecoder::decodeValue($formatCode . "\xff\xff\xff\xffhi", 0);
+                $this->fail("Expected DeserializationException for an oversized {$what} length");
+            } catch (DeserializationException $e) {
+                $this->assertSame("Unexpected end of data reading {$what} content", $e->getMessage());
+            }
+        }
     }
 
     /**

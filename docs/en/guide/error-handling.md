@@ -72,8 +72,21 @@ RabbitStreamExceptionInterface (interface)
     ├── ConnectionException
     │   └── TimeoutException
     ├── DeserializationException
-    └── InvalidArgumentException (extends \InvalidArgumentException)
+    ├── NoRouteForKeyException
+    ├── UnsupportedPlatformException
+    ├── InvalidArgumentException (extends \InvalidArgumentException)
+    └── LengthException (extends \LengthException)
 ```
+
+Every throwable the library raises implements `RabbitStreamExceptionInterface`,
+so a single `catch (RabbitStreamExceptionInterface $e)` around a publish or
+consume loop is enough — no native `\Exception`, `\ValueError` or
+`\LengthException` escapes from `src/`, and a unit test enforces that
+(`tests/Exception/ExceptionHierarchyTest.php`).
+
+`InvalidArgumentException` and `LengthException` extend their native namesakes
+on purpose: joining the hierarchy is not a BC break, so code that already
+catches `\InvalidArgumentException` (or `\LogicException`) keeps working.
 
 ### Base Exception: `RabbitStreamException`
 
@@ -110,6 +123,24 @@ try {
     } elseif ($code === ResponseCodeEnum::ACCESS_REFUSED) {
         // Log permission error
         error_log("Permission denied for stream");
+    }
+}
+```
+
+`ProtocolException` is also raised for a frame whose 2-byte command key matches
+no known command — junk on the wire, or a command introduced by a newer
+RabbitMQ. `getResponseCode()` returns `null` in that case, because the frame was
+never decoded far enough to have one:
+
+```php
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+
+try {
+    $consumer->read();
+} catch (ProtocolException $e) {
+    // e.g. "Unknown stream protocol command code: 0x8099"
+    if ($e->getResponseCode() === null) {
+        error_log('Undecodable frame: ' . $e->getMessage());
     }
 }
 ```
@@ -168,6 +199,35 @@ try {
 }
 ```
 
+#### A connection closed mid-frame cannot be retried
+
+Every socket call is bounded by `SO_RCVTIMEO`/`SO_SNDTIMEO` (the
+`socketTimeout` of `Connection::create()`, 30 s by default). When one of them
+expires with **part of a frame** already read or written, the client closes the
+connection and throws `ConnectionException` — the consumed bytes cannot be put
+back on the socket, and the peer cannot resynchronise mid-frame, so continuing
+would mean parsing payload as framing.
+
+```php
+try {
+    $messages = $consumer->read(timeout: 5.0);
+} catch (TimeoutException $e) {
+    // Nothing was in flight: the connection is still usable, just retry.
+} catch (ConnectionException $e) {
+    // Framing was lost (or the peer went away): re-establish the connection
+    // with Connection::create() and re-create producers/consumers.
+}
+```
+
+Catch order matters: `TimeoutException` extends `ConnectionException`.
+
+#### Publisher/subscription id exhaustion
+
+`ConnectionException` is also thrown when all 256 publisher (or subscription)
+ids of a connection are taken — the ids are a uint8 on the wire. Closing a
+producer or consumer hands its id back, so this only happens with 256 of them
+alive at once. See [Connection](../api-reference/connection.md#publisher-and-subscription-ids-are-a-per-connection-resource).
+
 #### TimeoutException
 
 Specialized `ConnectionException` for timeout scenarios:
@@ -184,9 +244,26 @@ $response = $stream->readMessage(timeout: 5.0);
 > — it throws `TimeoutException` when confirmations do not arrive within
 > the given timeout (see [Publishing Guide](publishing.md)).
 
+A `send()` that throws does **not** count the message as pending, so a later
+`waitForConfirms()` is not blocked by a message the broker never received.
+
 ### DeserializationException
 
-Thrown when frame parsing fails, indicating protocol corruption or version mismatch:
+Thrown when frame parsing fails, indicating protocol corruption or version mismatch.
+It also covers a malformed AMQP payload inside an otherwise valid frame — a
+message body the decoder refuses rather than silently repairs:
+
+| Message | Meaning |
+|---------|---------|
+| `List8/List32/Map8/Map32 size mismatch: declared N bytes, elements consumed M` | The compound's `size` field disagrees with its elements. A lying size used to be accepted, leaving the cursor in the wrong place for whatever came next. |
+| `Map8/Map32 count must be even ...` | An AMQP map counts keys and values separately, so an odd count cannot describe whole pairs. |
+| `... declares N content bytes but only M remain in the frame` | The compound claims more bytes than the entry holds. |
+| `Data section (0x75) must carry binary data, got array` | A Data section holding something other than binary. Previously dropped silently, leaving an empty body. |
+| `Expected described type marker (0x00) ...` | The entry is not AMQP-framed at all — typically a raw body published before #413. Such entries can only be read as raw bytes, via `OsirisChunkParser::parseEntries()` and `ChunkEntry::getData()`. |
+| `AMQP recursion depth limit exceeded (max N)` | Nesting deeper than the consumer's `maxDecodeDepth` (default 32). |
+
+Because message decoding is lazy, these are thrown by the **accessor**
+(`Message::getBody()`, `getApplicationProperties()`, ...), not by `read()`.
 
 ```php
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
@@ -200,6 +277,14 @@ try {
     $stream->close();
 }
 ```
+
+### UnsupportedPlatformException
+
+Thrown when the library is loaded on a 32-bit PHP build. The protocol carries
+uint32 and int64/uint64 fields — offsets, timestamps, chunk sizes — and
+`unpack('N')`/`unpack('J')` return a float above `PHP_INT_MAX` there, which
+would hand back offsets that are quietly wrong. Every entry point that decodes
+wire data refuses to run instead; a 64-bit build is required.
 
 ### InvalidArgumentException
 
@@ -217,6 +302,25 @@ try {
     echo "Invalid argument: " . $e->getMessage();
 }
 ```
+
+### LengthException
+
+Thrown when a value is too long to be represented on the wire. Today that is a
+single case: a payload larger than the AMQP 1.0 `vbin32` limit of 4294967295
+bytes, whose 32-bit length prefix would wrap modulo 2^32 and corrupt framing.
+
+```php
+use CrazyGoat\RabbitStream\Exception\LengthException;
+
+try {
+    $producer->send($hugePayload);
+} catch (LengthException $e) {
+    // "AMQP 1.0 Data section payload exceeds the 4294967295-byte vbin32 limit"
+}
+```
+
+Practical payloads hit the broker's frame-size limit long before this one; the
+guard exists so oversize data fails loudly instead of silently.
 
 ## Common Error Scenarios
 

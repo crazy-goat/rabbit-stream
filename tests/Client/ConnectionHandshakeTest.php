@@ -6,6 +6,8 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
@@ -209,6 +211,215 @@ class ConnectionHandshakeTest extends TestCase
             ->method('setMaxFrameSize');
 
         $streamConnection->method('close');
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        unset($connection);
+    }
+
+    public function testCreateCapsMaxFrameSizeAtDefaultWhenNegotiatedExceedsDefaultAndNoExplicitRequest(): void
+    {
+        // Regression test for GH #398: a broker Tune with frameMax = 0xFFFFFFFF
+        // (or any value above the default safety cap) must not blow the incoming
+        // control-frame cap open just because the caller didn't request a specific
+        // frame_max — negotiation may only ever LOWER the cap from its default.
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new PeerPropertiesResponseV1(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(0xFFFFFFFF, 60),
+                new OpenResponseV1(),
+            );
+
+        $streamConnection->method('sendMessage');
+
+        $streamConnection->expects($this->once())
+            ->method('setMaxFrameSize')
+            ->with(StreamConnection::DEFAULT_MAX_FRAME_SIZE);
+
+        $streamConnection->expects($this->once())
+            ->method('setOutgoingMaxFrameSize')
+            ->with(0xFFFFFFFF);
+
+        $streamConnection->method('close');
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        unset($connection);
+    }
+
+    public function testCreateAllowsExplicitFrameMaxAboveDefault(): void
+    {
+        // A caller explicitly passing a requestedFrameMax above the default safety
+        // cap is a deliberate raise and must be honored as-is.
+        $explicitFrameMax = 20 * 1024 * 1024;
+
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new PeerPropertiesResponseV1(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(0xFFFFFFFF, 60),
+                new OpenResponseV1(),
+            );
+
+        $streamConnection->method('sendMessage');
+
+        $streamConnection->expects($this->once())
+            ->method('setMaxFrameSize')
+            ->with($explicitFrameMax);
+
+        $streamConnection->method('close');
+
+        $connection = Connection::create(
+            requestedFrameMax: $explicitFrameMax,
+            streamConnection: $streamConnection,
+        );
+
+        unset($connection);
+    }
+
+    public function testCreateSetsDefaultMaxDeliverFrameSize(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new PeerPropertiesResponseV1(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(131072, 60),
+                new OpenResponseV1(),
+            );
+
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+
+        $streamConnection->expects($this->once())
+            ->method('setMaxDeliverFrameSize')
+            ->with(StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE);
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        unset($connection);
+    }
+
+    public function testCreatePassesThroughCustomMaxDeliverFrameSize(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new PeerPropertiesResponseV1(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(131072, 60),
+                new OpenResponseV1(),
+            );
+
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+
+        $streamConnection->expects($this->once())
+            ->method('setMaxDeliverFrameSize')
+            ->with(128 * 1024 * 1024);
+
+        $connection = Connection::create(
+            maxDeliverFrameSize: 128 * 1024 * 1024,
+            streamConnection: $streamConnection,
+        );
+
+        unset($connection);
+    }
+
+    public function testCreateThrowsOnNegativeMaxDeliverFrameSize(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxDeliverFrameSize must not be negative');
+
+        Connection::create(maxDeliverFrameSize: -1, streamConnection: $streamConnection);
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function invalidCreateArguments(): array
+    {
+        return [
+            'requestedFrameMax' => ['requestedFrameMax', 'requestedFrameMax must not be negative'],
+            'requestedHeartbeat' => ['requestedHeartbeat', 'requestedHeartbeat must not be negative'],
+            'maxDeliverFrameSize' => ['maxDeliverFrameSize', 'maxDeliverFrameSize must not be negative'],
+            'socketTimeout' => ['socketTimeout', 'socketTimeout must be greater than 0'],
+        ];
+    }
+
+    /**
+     * Connection::create() is the library's main entry point; before #465 its four
+     * argument checks threw the *global* InvalidArgumentException, so the one catch
+     * the #242 hierarchy exists for missed them. The library class extends the native
+     * one, so catch (\InvalidArgumentException) callers are unaffected — asserted here
+     * alongside the interface.
+     *
+     * @dataProvider invalidCreateArguments
+     */
+    public function testCreateRejectsInvalidArgumentsInsideTheLibraryHierarchy(
+        string $argument,
+        string $expectedMessage
+    ): void {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        try {
+            match ($argument) {
+                'requestedFrameMax' => Connection::create(
+                    requestedFrameMax: -1,
+                    streamConnection: $streamConnection,
+                ),
+                'requestedHeartbeat' => Connection::create(
+                    requestedHeartbeat: -1,
+                    streamConnection: $streamConnection,
+                ),
+                'maxDeliverFrameSize' => Connection::create(
+                    maxDeliverFrameSize: -1,
+                    streamConnection: $streamConnection,
+                ),
+                'socketTimeout' => Connection::create(
+                    streamConnection: $streamConnection,
+                    socketTimeout: 0.0,
+                ),
+                default => $this->fail('Unhandled argument name: ' . $argument),
+            };
+            $this->fail('Expected Connection::create() to reject ' . $argument);
+        } catch (RabbitStreamExceptionInterface $e) {
+            $this->assertInstanceOf(InvalidArgumentException::class, $e);
+            $this->assertInstanceOf(\InvalidArgumentException::class, $e);
+            $this->assertSame($expectedMessage, $e->getMessage());
+        }
+    }
+
+    public function testCreateSetsOutgoingMaxFrameSizeToNegotiatedValue(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new PeerPropertiesResponseV1(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(131072, 60),
+                new OpenResponseV1(),
+            );
+
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+
+        $streamConnection->expects($this->once())
+            ->method('setOutgoingMaxFrameSize')
+            ->with(131072);
 
         $connection = Connection::create(streamConnection: $streamConnection);
 

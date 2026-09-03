@@ -20,8 +20,26 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
     use CommandTrait;
     use V1Trait;
 
-    public function __construct(private int $subscriptionId, private string $chunkBytes)
-    {
+    /** Length of the chunk window into $frameBuffer, starting at $chunkOffset. */
+    private readonly int $chunkLength;
+
+    /**
+     * @param string $frameBuffer The frame string the chunk lives in. When constructed
+     *                            directly (e.g. via fromArray()) this IS the chunk itself
+     *                            (offset 0). When constructed via fromStreamBuffer(), this
+     *                            is the whole Deliver frame and the chunk is a window into
+     *                            it — never copied out.
+     * @param int $chunkOffset Absolute offset of the chunk within $frameBuffer.
+     * @param ?int $chunkLength Chunk length; defaults to everything from $chunkOffset to
+     *                          the end of $frameBuffer.
+     */
+    public function __construct(
+        private int $subscriptionId,
+        private string $frameBuffer,
+        private int $chunkOffset = 0,
+        ?int $chunkLength = null,
+    ) {
+        $this->chunkLength = $chunkLength ?? (strlen($this->frameBuffer) - $this->chunkOffset);
     }
 
     public function getSubscriptionId(): int
@@ -29,9 +47,35 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
         return $this->subscriptionId;
     }
 
+    /**
+     * Materialises the chunk as a plain string. Kept for backward compatibility;
+     * prefer getChunkView() (or getChunkBuffer()) on the consume hot path, since
+     * this always copies the chunk out of the frame buffer.
+     */
     public function getChunkBytes(): string
     {
-        return $this->chunkBytes;
+        if ($this->chunkOffset === 0 && $this->chunkLength === strlen($this->frameBuffer)) {
+            return $this->frameBuffer;
+        }
+        return substr($this->frameBuffer, $this->chunkOffset, $this->chunkLength);
+    }
+
+    /**
+     * Zero-copy view of the chunk: the frame buffer plus the offset/length of the
+     * chunk within it. Callers (e.g. OsirisChunkParser) parse the chunk directly
+     * out of this window instead of forcing a copy via getChunkBytes().
+     *
+     * @return array{0: string, 1: int, 2: int}
+     */
+    public function getChunkView(): array
+    {
+        return [$this->frameBuffer, $this->chunkOffset, $this->chunkLength];
+    }
+
+    /** Zero-copy ReadBuffer window over the chunk, sharing the frame buffer. */
+    public function getChunkBuffer(): ReadBuffer
+    {
+        return new ReadBuffer($this->frameBuffer, $this->chunkOffset, $this->chunkLength);
     }
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?static
@@ -56,8 +100,10 @@ class DeliverResponseV1 implements KeyVersionInterface, FromStreamBufferInterfac
             $buffer->skip(8);
         }
 
-        $chunkBytes = $buffer->getRemainingBytes();
-        return new static($subscriptionId, $chunkBytes);
+        // Zero-copy: the chunk is described as a window into the frame buffer
+        // instead of being copied out via getRemainingBytes() (#412).
+        [$frameBuffer, $chunkOffset, $chunkLength] = $buffer->getRemainingWindow();
+        return new static($subscriptionId, $frameBuffer, $chunkOffset, $chunkLength);
     }
 
     /** @param array<string, mixed> $data */

@@ -7,45 +7,40 @@ namespace CrazyGoat\RabbitStream\Client;
 class AmqpMessageDecoder
 {
     /**
-     * Decode a ChunkEntry into a Message.
+     * Wrap a ChunkEntry into a Message. The AMQP sections (body, properties,
+     * applicationProperties, messageAnnotations) are NOT decoded here — decoding
+     * is deferred to the first Message accessor call that needs them (see
+     * Message::fromRawEntry()), so a caller that only reads the offset/timestamp,
+     * or only some messages of a batch, never pays the AMQP decode cost for the rest.
+     *
+     * @param int $maxDepth Maximum AMQP nesting depth accepted when the returned Message
+     *                      is decoded; carried on the Message because that decode is lazy (#450).
      */
-    public static function decode(ChunkEntry $entry): Message
-    {
-        $sections = AmqpDecoder::decodeMessage($entry->getData());
-
-        $rawBody = $sections['body'] ?? null;
-        if (is_array($rawBody)) {
-            $body = array_values($rawBody);
-        } elseif ($rawBody === null || is_scalar($rawBody)) {
-            $body = $rawBody;
-        } else {
-            $body = null;
-        }
-
-        $properties = $sections['properties'] ?? [];
-        $applicationProperties = $sections['applicationProperties'] ?? [];
-        $messageAnnotations = $sections['messageAnnotations'] ?? [];
-
-        return new Message(
-            offset: $entry->getOffset(),
-            timestamp: $entry->getTimestamp(),
-            body: $body,
-            properties: is_array($properties) ? $properties : [],
-            applicationProperties: is_array($applicationProperties) ? $applicationProperties : [],
-            messageAnnotations: is_array($messageAnnotations) ? $messageAnnotations : [],
+    public static function decode(
+        ChunkEntry $entry,
+        int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH
+    ): Message {
+        return Message::fromRawEntry(
+            $entry->getOffset(),
+            $entry->getTimestamp(),
+            $entry->getData(),
+            maxDepth: $maxDepth
         );
     }
 
     /**
-     * Decode multiple ChunkEntries into Messages.
-     * @param ChunkEntry[] $entries
+     * Wrap multiple ChunkEntries into Messages (lazily decoded, see decode()).
+     * @param iterable<ChunkEntry> $entries
+     * @param int $maxDepth See decode().
      * @return Message[]
      */
-    public static function decodeAll(array $entries): array
-    {
+    public static function decodeAll(
+        iterable $entries,
+        int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH
+    ): array {
         $messages = [];
         foreach ($entries as $entry) {
-            $messages[] = self::decode($entry);
+            $messages[] = self::decode($entry, $maxDepth);
         }
         return $messages;
     }

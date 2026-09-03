@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Enum;
 
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+
 enum KeyEnum: int
 {
     case DECLARE_PUBLISHER = 0x0001;
@@ -65,6 +67,15 @@ enum KeyEnum: int
     case OPEN_RESPONSE = 0x8015;
     case CLOSE_RESPONSE = 0x8016;
 
+    /**
+     * @throws ProtocolException when the code matches no defined command. Reached from
+     *                           ResponseBuilder::fromResponseBuffer() for every inbound
+     *                           frame, so it must stay inside the library's exception
+     *                           hierarchy: a junk key, or a command added by a future
+     *                           RabbitMQ, used to escape a
+     *                           catch (RabbitStreamExceptionInterface) consume loop as a
+     *                           bare \ValueError and take the worker down (#394).
+     */
     public static function fromStreamCode(int $code): KeyEnum
     {
         $result = self::tryFrom($code);
@@ -72,7 +83,7 @@ enum KeyEnum: int
             return $result;
         }
 
-        throw new \ValueError(sprintf(
+        throw new ProtocolException(sprintf(
             'Unknown stream protocol command code: 0x%04x',
             $code
         ));

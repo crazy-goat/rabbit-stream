@@ -7,12 +7,19 @@ Before installing and using RabbitStream, ensure your system meets the following
 ### Minimum Version
 
 - **PHP 8.1 or higher** is required
+- A **64-bit build** is required
 
-Verify your PHP version:
+Verify your PHP version and integer width:
 
 ```bash
 php -v
+php -r 'echo PHP_INT_SIZE === 8 ? "64-bit OK\n" : "32-bit: unsupported\n";'
 ```
+
+Stream offsets, timestamps and chunk sizes are uint32/uint64 on the wire. A
+32-bit build cannot represent them as integers — `unpack()` returns floats above
+`PHP_INT_MAX` — so rather than return offsets that are quietly wrong, the library
+throws `UnsupportedPlatformException` as soon as it is asked to decode anything.
 
 ### Required PHP Extensions
 

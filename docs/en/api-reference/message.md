@@ -27,6 +27,7 @@ class Message
     
     // Core getters
     public function getOffset(): int;
+    public function getStream(): ?string;
     public function getTimestamp(): int;
     /** @return array<int, mixed>|string|int|float|bool|null */
     public function getBody(): string|int|float|bool|array|null;
@@ -111,7 +112,7 @@ $message = $consumer->readOne();
 echo "Message offset: {$message->getOffset()}\n";
 
 // Store offset for resuming later
-$consumer->storeOffset($message->getOffset());
+$consumer->storeOffset($message->getOffset() + 1);
 ```
 
 #### Notes
@@ -120,6 +121,42 @@ $consumer->storeOffset($message->getOffset());
 - The first message in a stream has offset 0
 - Offsets are durable and survive restarts
 - Used for consumer position tracking
+
+---
+
+### getStream()
+
+Get the name of the stream this message was delivered from.
+
+```php
+public function getStream(): ?string
+```
+
+#### Return Value
+
+`?string` - The name of the stream (the physical stream a `Consumer` subscribed to) this message was delivered from, or `null` when unknown — e.g. a `Message` constructed outside a `Consumer`'s deliver path.
+
+#### Example
+
+```php
+// Regular Consumer: every message shares the one subscribed stream name
+$message = $consumer->readOne();
+echo $message->getStream(); // e.g. "my-stream"
+
+// SuperStreamConsumer: getStream() tells you which partition a message
+// came from, since read()/readOne() aggregate across all of them
+foreach ($superStreamConsumer->read(timeout: 5.0) as $message) {
+    echo "[{$message->getStream()}] {$message->getBody()}\n";
+    // Offset tracking is per-partition — pass the partition name through
+    $superStreamConsumer->storeOffset($message->getStream(), $message->getOffset() + 1);
+}
+```
+
+#### Notes
+
+- Set once, at construction, from the subscribing `Consumer`'s stream name — never changes for a given `Message`
+- With a plain `Consumer`, every message it returns has the same `getStream()` value (the stream it was created against)
+- With `SuperStreamConsumer`, this is how the caller tells partitions apart in the aggregated `read()`/`readOne()` result — see the [Super Streams Guide](../guide/super-streams.md) and [SuperStreamConsumer API Reference](super-stream-consumer.md)
 
 ---
 
@@ -675,7 +712,7 @@ while ($message = $consumer->readOne()) {
     processEvent($data, $metadata);
     
     // Store offset for tracking
-    $consumer->storeOffset($message->getOffset());
+    $consumer->storeOffset($message->getOffset() + 1);
 }
 ```
 

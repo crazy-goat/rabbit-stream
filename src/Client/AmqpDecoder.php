@@ -5,10 +5,16 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Platform;
 
 class AmqpDecoder
 {
-    private const MAX_RECURSION_DEPTH = 32;
+    /**
+     * Default maximum nesting depth accepted while decoding (#397). Public so the
+     * callers that thread an operator-supplied limit down to here — Consumer,
+     * OsirisChunkParser, Message — can spell their own default as this one.
+     */
+    public const MAX_RECURSION_DEPTH = 32;
 
     /**
      * Maximum number of elements a single compound (list or map) may declare.
@@ -34,6 +40,11 @@ class AmqpDecoder
         int $depth = 0,
         int $maxDepth = self::MAX_RECURSION_DEPTH
     ): array {
+        if ($depth === 0) {
+            // unpack('N'/'J') in the fixed-width readers would return floats on a
+            // 32-bit build; checked once per top-level value, not per element (#458).
+            Platform::assertSixtyFourBitIntegers();
+        }
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data');
         }
@@ -105,6 +116,8 @@ class AmqpDecoder
      */
     public static function decodeMessage(string $data, int $maxDepth = self::MAX_RECURSION_DEPTH): array
     {
+        Platform::assertSixtyFourBitIntegers();
+
         if ($data === '') {
             throw new DeserializationException('Empty message data');
         }
@@ -126,7 +139,12 @@ class AmqpDecoder
             // Check for described type marker
             if (ord($data[$position]) !== 0x00) {
                 throw new DeserializationException(sprintf(
-                    'Expected described type marker (0x00) at position %d, got 0x%02x',
+                    'Expected described type marker (0x00) at position %d, got 0x%02x. '
+                    . 'The payload is not an AMQP 1.0 message — this is what a raw, '
+                    . 'un-framed body looks like, e.g. an entry published by rabbit-stream '
+                    . 'before #413 that is still sitting in the stream. Such entries cannot '
+                    . 'be decoded; read them as raw bytes instead, via '
+                    . 'OsirisChunkParser::parseEntries() and ChunkEntry::getData().',
                     $position,
                     ord($data[$position])
                 ));
@@ -158,10 +176,17 @@ class AmqpDecoder
                     break;
 
                 case 0x75: // Data (body)
-                    if (is_string($value)) {
-                        $currentBody = $sections['body'];
-                        $sections['body'] = (is_string($currentBody) ? $currentBody : '') . $value;
+                    // AMQP 1.0 defines Data as binary, so anything else is malformed.
+                    // Silently dropping it (the pre-#452 behaviour) handed the caller
+                    // an empty body with no exception and no way to notice the loss.
+                    if (!is_string($value)) {
+                        throw new DeserializationException(sprintf(
+                            'Data section (0x75) must carry binary data, got %s',
+                            get_debug_type($value)
+                        ));
                     }
+                    $currentBody = $sections['body'];
+                    $sections['body'] = (is_string($currentBody) ? $currentBody : '') . $value;
                     break;
 
                 case 0x76:
@@ -229,27 +254,30 @@ class AmqpDecoder
     }
 
     /**
-     * @return array<int|string, mixed>
+     * Unpack an integer at $position without slicing $data first (offset-form
+     * unpack()). $format must describe exactly one value.
      */
-    private static function safeUnpack(string $format, string $data, string $context): array
+    private static function unpackIntAt(string $format, string $data, int $position, string $context): int
     {
-        $result = unpack($format, $data);
+        $result = unpack($format, $data, $position);
         if ($result === false) {
             throw new DeserializationException('Failed to unpack ' . $context);
         }
-        return $result;
+        return (int) $result[1];
     }
 
-    private static function unpackInt(string $format, string $data, string $context): int
+    /**
+     * Unpack a float/double at $position without slicing $data first. $format
+     * must be a big-endian format ('G' float, 'E' double) — 'f'/'d' are
+     * machine-endian and must never be used here.
+     */
+    private static function unpackFloatAt(string $format, string $data, int $position, string $context): float
     {
-        $val = self::safeUnpack($format, $data, $context)[1];
-        return is_scalar($val) ? (int) $val : 0;
-    }
-
-    private static function unpackFloat(string $format, string $data, string $context): float
-    {
-        $val = self::safeUnpack($format, $data, $context)[1];
-        return is_scalar($val) ? (float) $val : 0.0;
+        $result = unpack($format, $data, $position);
+        if ($result === false) {
+            throw new DeserializationException('Failed to unpack ' . $context);
+        }
+        return (float) $result[1];
     }
 
     /** @return array{0: int, 1: int} */
@@ -258,7 +286,7 @@ class AmqpDecoder
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int8');
         }
-        $value = self::unpackInt('c', $data[$position], 'int8');
+        $value = self::unpackIntAt('c', $data, $position, 'int8');
         return [$value, $position + 1];
     }
 
@@ -268,7 +296,7 @@ class AmqpDecoder
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uint16');
         }
-        $value = self::unpackInt('n', substr($data, $position, 2), 'uint16');
+        $value = self::unpackIntAt('n', $data, $position, 'uint16');
         return [$value, $position + 2];
     }
 
@@ -278,7 +306,10 @@ class AmqpDecoder
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int16');
         }
-        $value = self::unpackInt('s', strrev(substr($data, $position, 2)), 'int16');
+        $value = self::unpackIntAt('n', $data, $position, 'int16');
+        if ($value >= 0x8000) {
+            $value -= 0x10000;
+        }
         return [$value, $position + 2];
     }
 
@@ -288,11 +319,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uint32');
         }
-        $value = self::unpackInt('N', substr($data, $position, 4), 'uint32');
-        // Handle unsigned 32-bit values > PHP_INT_MAX
-        if ($value < 0) {
-            $value += 4294967296;
-        }
+        $value = self::unpackIntAt('N', $data, $position, 'uint32');
         return [$value, $position + 4];
     }
 
@@ -302,7 +329,10 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int32');
         }
-        $value = self::unpackInt('l', strrev(substr($data, $position, 4)), 'int32');
+        $value = self::unpackIntAt('N', $data, $position, 'int32');
+        if ($value >= 0x80000000) {
+            $value -= 0x100000000;
+        }
         return [$value, $position + 4];
     }
 
@@ -312,7 +342,7 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading float');
         }
-        $value = self::unpackFloat('f', strrev(substr($data, $position, 4)), 'float');
+        $value = self::unpackFloatAt('G', $data, $position, 'float');
         return [$value, $position + 4];
     }
 
@@ -322,11 +352,8 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uint64');
         }
-        $unpacked = unpack('J', substr($data, $position, 8));
-        if ($unpacked === false) {
-            throw new DeserializationException('Failed to unpack uint64 at position ' . $position);
-        }
-        return [$unpacked[1], $position + 8];
+        $value = self::unpackIntAt('J', $data, $position, 'uint64');
+        return [$value, $position + 8];
     }
 
     /** @return array{0: int, 1: int} */
@@ -335,7 +362,10 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int64');
         }
-        $value = self::unpackInt('q', strrev(substr($data, $position, 8)), 'int64');
+        // 'J' unpacks as a native 64-bit PHP int, which is already signed (PHP has
+        // no unsigned 64-bit type), so no manual sign correction is needed here —
+        // unlike the 16/32-bit readers, where 'n'/'N' return an unsigned value.
+        $value = self::unpackIntAt('J', $data, $position, 'int64');
         return [$value, $position + 8];
     }
 
@@ -345,7 +375,7 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading double');
         }
-        $value = self::unpackFloat('d', strrev(substr($data, $position, 8)), 'double');
+        $value = self::unpackFloatAt('E', $data, $position, 'double');
         return [$value, $position + 8];
     }
 
@@ -355,8 +385,9 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading timestamp');
         }
-        // Timestamp is milliseconds since Unix epoch (int64)
-        $value = self::unpackInt('q', strrev(substr($data, $position, 8)), 'timestamp');
+        // Timestamp is milliseconds since Unix epoch (int64); see readInt64() for
+        // why no manual sign correction is needed for a 'J' unpack.
+        $value = self::unpackIntAt('J', $data, $position, 'timestamp');
         return [$value, $position + 8];
     }
 
@@ -366,14 +397,13 @@ class AmqpDecoder
         if ($position + 15 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uuid');
         }
-        $bytes = substr($data, $position, 16);
         // Format as UUID string: 8-4-4-4-12 hex digits
-        $p1 = self::unpackInt('N', substr($bytes, 0, 4), 'uuid part1');
-        $p2 = self::unpackInt('n', substr($bytes, 4, 2), 'uuid part2');
-        $p3 = self::unpackInt('n', substr($bytes, 6, 2), 'uuid part3');
-        $p4 = self::unpackInt('n', substr($bytes, 8, 2), 'uuid part4');
-        $p5a = self::unpackInt('N', substr($bytes, 10, 4), 'uuid part5a');
-        $p5b = self::unpackInt('n', substr($bytes, 14, 2), 'uuid part5b');
+        $p1 = self::unpackIntAt('N', $data, $position, 'uuid part1');
+        $p2 = self::unpackIntAt('n', $data, $position + 4, 'uuid part2');
+        $p3 = self::unpackIntAt('n', $data, $position + 6, 'uuid part3');
+        $p4 = self::unpackIntAt('n', $data, $position + 8, 'uuid part4');
+        $p5a = self::unpackIntAt('N', $data, $position + 10, 'uuid part5a');
+        $p5b = self::unpackIntAt('n', $data, $position + 14, 'uuid part5b');
         $value = sprintf(
             '%08x-%04x-%04x-%04x-%012x',
             $p1,
@@ -416,12 +446,13 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading binary32 length');
         }
-        $length = self::unpackInt('N', substr($data, $position, 4), 'binary32 length');
-        if ($length < 0) {
-            $length += 4294967296;
-        }
+        $length = self::unpackIntAt('N', $data, $position, 'binary32 length');
         $position += 4;
-        if ($position + $length > strlen($data)) {
+        // Written as a subtraction, never as $position + $length: on 32-bit PHP an
+        // attacker-supplied 32-bit $length near PHP_INT_MAX makes that addition
+        // overflow to a negative int and skip the check entirely (#451).
+        // strlen($data) - $position is always >= 0 here, so it cannot overflow.
+        if ($length < 0 || $length > strlen($data) - $position) {
             throw new DeserializationException('Unexpected end of data reading binary32 content');
         }
         return [substr($data, $position, $length), $position + $length];
@@ -447,12 +478,13 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading string32 length');
         }
-        $length = self::unpackInt('N', substr($data, $position, 4), 'string32 length');
-        if ($length < 0) {
-            $length += 4294967296;
-        }
+        $length = self::unpackIntAt('N', $data, $position, 'string32 length');
         $position += 4;
-        if ($position + $length > strlen($data)) {
+        // Written as a subtraction, never as $position + $length: on 32-bit PHP an
+        // attacker-supplied 32-bit $length near PHP_INT_MAX makes that addition
+        // overflow to a negative int and skip the check entirely (#451).
+        // strlen($data) - $position is always >= 0 here, so it cannot overflow.
+        if ($length < 0 || $length > strlen($data) - $position) {
             throw new DeserializationException('Unexpected end of data reading string32 content');
         }
         return [substr($data, $position, $length), $position + $length];
@@ -478,18 +510,87 @@ class AmqpDecoder
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading symbol32 length');
         }
-        $length = self::unpackInt('N', substr($data, $position, 4), 'symbol32 length');
-        if ($length < 0) {
-            $length += 4294967296;
-        }
+        $length = self::unpackIntAt('N', $data, $position, 'symbol32 length');
         $position += 4;
-        if ($position + $length > strlen($data)) {
+        // Written as a subtraction, never as $position + $length: on 32-bit PHP an
+        // attacker-supplied 32-bit $length near PHP_INT_MAX makes that addition
+        // overflow to a negative int and skip the check entirely (#451).
+        // strlen($data) - $position is always >= 0 here, so it cannot overflow.
+        if ($length < 0 || $length > strlen($data) - $position) {
             throw new DeserializationException('Unexpected end of data reading symbol32 content');
         }
         return [substr($data, $position, $length), $position + $length];
     }
 
     // Compound type readers
+
+    /**
+     * Content window of a compound type: the position of the first byte after its
+     * content. EXCLUSIVE, so `$position >= $contentEnd` means "no content left"
+     * and `$contentEnd - $position` is exactly the number of bytes still available.
+     *
+     * The declared `size` covers the count field plus the content, so the content
+     * is `$size - $countWidth` bytes long. The pre-#488 code stored
+     * `$position + $size - $countWidth` as an *inclusive* bound, i.e. one byte past
+     * the real last content byte, which made every window — and the #449
+     * available-bytes cap computed from it — one byte too generous.
+     *
+     * @param int $countWidth 1 for the 8-bit compounds, 4 for the 32-bit ones
+     * @param string $what compound name, for exception messages
+     */
+    private static function compoundContentEnd(
+        string $data,
+        int $position,
+        int $size,
+        int $countWidth,
+        string $what
+    ): int {
+        if ($size < $countWidth) {
+            throw new DeserializationException(sprintf(
+                '%s size %d is smaller than its own %d-byte count field',
+                $what,
+                $size,
+                $countWidth
+            ));
+        }
+        $declaredContent = $size - $countWidth;
+        $remaining = strlen($data) - $position;
+        if ($declaredContent > $remaining) {
+            throw new DeserializationException(sprintf(
+                '%s declares %d content bytes but only %d remain in the frame',
+                $what,
+                $declaredContent,
+                $remaining
+            ));
+        }
+
+        return $position + $declaredContent;
+    }
+
+    /**
+     * Verify that the element loop consumed the compound's declared content
+     * exactly (#453). Before this check a lying `size` was silently accepted: the
+     * per-element guards only stop the loop from *starting* another element past
+     * the window, so the last element could still read beyond it (individual reads
+     * are bounded by strlen($data), not by the compound's own size), and a `size`
+     * larger than the elements actually present left the cursor short of the end,
+     * which then desynchronised whatever the caller decoded next.
+     *
+     * @param string $what compound name, for exception messages
+     */
+    private static function assertCompoundConsumed(int $position, int $contentEnd, int $size, string $what): void
+    {
+        if ($position === $contentEnd) {
+            return;
+        }
+
+        throw new DeserializationException(sprintf(
+            '%s size mismatch: declared %d bytes, elements consumed %d',
+            $what,
+            $size,
+            $size + ($position - $contentEnd)
+        ));
+    }
 
     /** @return array{0: array<int, mixed>, 1: int} */
     private static function readList8(string $data, int $position, int $depth, int $maxDepth): array
@@ -500,16 +601,17 @@ class AmqpDecoder
         $size = ord($data[$position]);
         $count = ord($data[$position + 1]);
         $position += 2;
-        $endPosition = $position + $size - 1; // size includes the count byte
+        $contentEnd = self::compoundContentEnd($data, $position, $size, 1, 'List8');
 
         $list = [];
         for ($i = 0; $i < $count; $i++) {
-            if ($position > $endPosition) {
+            if ($position >= $contentEnd) {
                 throw new DeserializationException('List8 count exceeds available data');
             }
             [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $list[] = $value;
         }
+        self::assertCompoundConsumed($position, $contentEnd, $size, 'List8');
 
         return [$list, $position];
     }
@@ -520,16 +622,10 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading list32 header');
         }
-        $size = self::unpackInt('N', substr($data, $position, 4), 'list32 size');
-        if ($size < 0) {
-            $size += 4294967296;
-        }
-        $count = self::unpackInt('N', substr($data, $position + 4, 4), 'list32 count');
-        if ($count < 0) {
-            $count += 4294967296;
-        }
+        $size = self::unpackIntAt('N', $data, $position, 'list32 size');
+        $count = self::unpackIntAt('N', $data, $position + 4, 'list32 count');
         $position += 8;
-        $endPosition = $position + $size - 4; // size includes the 4 count bytes
+        $contentEnd = self::compoundContentEnd($data, $position, $size, 4, 'List32');
 
         // Security (#449): the 32-bit $count is attacker-supplied. A flat list is
         // depth 1, so the #397 recursion guard does not apply. Cap $count to the
@@ -537,7 +633,7 @@ class AmqpDecoder
         // element is at least 1 byte (its format code), so a count larger than the
         // available bytes is malformed and cannot be satisfied without allocating
         // a multi-hundred-MB array from a small frame (OOM fatal).
-        $available = $endPosition - $position + 1;
+        $available = $contentEnd - $position;
         if ($count > $available) {
             throw new DeserializationException(sprintf(
                 'List32 count %d exceeds available bytes %d',
@@ -560,12 +656,13 @@ class AmqpDecoder
 
         $list = [];
         for ($i = 0; $i < $count; $i++) {
-            if ($position > $endPosition) {
+            if ($position >= $contentEnd) {
                 throw new DeserializationException('List32 count exceeds available data');
             }
             [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $list[] = $value;
         }
+        self::assertCompoundConsumed($position, $contentEnd, $size, 'List32');
 
         return [$list, $position];
     }
@@ -579,22 +676,24 @@ class AmqpDecoder
         $size = ord($data[$position]);
         $count = ord($data[$position + 1]); // count is number of key-value pairs * 2
         $position += 2;
-        $endPosition = $position + $size - 1; // size includes the count byte
+        $contentEnd = self::compoundContentEnd($data, $position, $size, 1, 'Map8');
+        self::assertEvenMapCount($count, 'Map8');
 
         $map = [];
-        $numPairs = (int)($count / 2);
+        $numPairs = intdiv($count, 2);
         for ($i = 0; $i < $numPairs; $i++) {
-            if ($position > $endPosition) {
+            if ($position >= $contentEnd) {
                 throw new DeserializationException('Map8 count exceeds available data');
             }
             [$key, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-            if ($position > $endPosition) {
+            if ($position >= $contentEnd) {
                 throw new DeserializationException('Map8 missing value for key');
             }
             [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
             $map[$mapKey] = $value;
         }
+        self::assertCompoundConsumed($position, $contentEnd, $size, 'Map8');
 
         return [$map, $position];
     }
@@ -605,23 +704,17 @@ class AmqpDecoder
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading map32 header');
         }
-        $size = self::unpackInt('N', substr($data, $position, 4), 'map32 size');
-        if ($size < 0) {
-            $size += 4294967296;
-        }
-        $count = self::unpackInt('N', substr($data, $position + 4, 4), 'map32 count');
-        if ($count < 0) {
-            $count += 4294967296;
-        }
+        $size = self::unpackIntAt('N', $data, $position, 'map32 size');
+        $count = self::unpackIntAt('N', $data, $position + 4, 'map32 count');
         $position += 8;
-        $endPosition = $position + $size - 4; // size includes the 4 count bytes
+        $contentEnd = self::compoundContentEnd($data, $position, $size, 4, 'Map32');
 
         // Security (#449): the 32-bit $count (total key+value elements, i.e. pairs*2)
         // is attacker-supplied. As with readList32, cap it to the bytes actually
         // available before allocating: every element is at least 1 byte (its format
         // code), so a count larger than the available bytes is malformed and would
         // otherwise allocate a multi-hundred-MB map from a small frame (OOM fatal).
-        $available = $endPosition - $position + 1;
+        $available = $contentEnd - $position;
         if ($count > $available) {
             throw new DeserializationException(sprintf(
                 'Map32 count %d exceeds available bytes %d',
@@ -638,22 +731,44 @@ class AmqpDecoder
             ));
         }
 
+        self::assertEvenMapCount($count, 'Map32');
+
         $map = [];
-        $numPairs = (int)($count / 2);
+        $numPairs = intdiv($count, 2);
         for ($i = 0; $i < $numPairs; $i++) {
-            if ($position > $endPosition) {
+            if ($position >= $contentEnd) {
                 throw new DeserializationException('Map32 count exceeds available data');
             }
             [$key, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-            if ($position > $endPosition) {
+            if ($position >= $contentEnd) {
                 throw new DeserializationException('Map32 missing value for key');
             }
             [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
             $map[$mapKey] = $value;
         }
+        self::assertCompoundConsumed($position, $contentEnd, $size, 'Map32');
 
         return [$map, $position];
+    }
+
+    /**
+     * An AMQP map's `count` is the total number of key AND value elements, so it
+     * must be even. Before #489 an odd count was truncated with intdiv-like
+     * `(int)($count / 2)`, which accepted the malformed frame and silently dropped
+     * the orphan key instead of rejecting it.
+     *
+     * @param string $what compound name, for exception messages
+     */
+    private static function assertEvenMapCount(int $count, string $what): void
+    {
+        if ($count % 2 !== 0) {
+            throw new DeserializationException(sprintf(
+                '%s count must be even (keys and values are counted separately), got %d',
+                $what,
+                $count
+            ));
+        }
     }
 
     // Described type reader

@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests\Client;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Producer;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
@@ -854,8 +855,9 @@ class ConnectionTest extends TestCase
 
         $capturedArgs = [];
         $streamConnection->method('readLoop')
-            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): void {
+            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): int {
                 $capturedArgs = ['maxFrames' => $maxFrames, 'timeout' => $timeout];
+                return 1;
             });
 
         $streamConnection->method('close');
@@ -873,8 +875,9 @@ class ConnectionTest extends TestCase
 
         $capturedArgs = [];
         $streamConnection->method('readLoop')
-            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): void {
+            ->willReturnCallback(function (?int $maxFrames, ?float $timeout) use (&$capturedArgs): int {
                 $capturedArgs = ['maxFrames' => $maxFrames, 'timeout' => $timeout];
+                return 1;
             });
 
         $streamConnection->method('close');
@@ -884,6 +887,164 @@ class ConnectionTest extends TestCase
         $connection->readLoop();
 
         $this->assertEquals(['maxFrames' => null, 'timeout' => null], $capturedArgs);
+    }
+
+    // ---------------------------------------------------------------------
+    // Publisher/subscription ids are uint8 on the wire, so they must be
+    // reclaimed when a producer/consumer is closed (#388).
+    // ---------------------------------------------------------------------
+
+    public function testClosingAProducerReleasesItsIdAndReference(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForProducers());
+
+        $producer = $connection->createProducer('stream1');
+        $this->assertArrayHasKey(0, $this->producersOf($connection));
+
+        $producer->close();
+
+        $this->assertSame([], $this->producersOf($connection), 'A closed producer must not be referenced any more');
+    }
+
+    public function testProducerIdsAreReusedSoALongLivedWorkerNeverRunsOut(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForProducers());
+
+        // One producer alive at a time, far more than the 256 ids a uint8 can
+        // hold: this used to die with "Value 256 is out of range for uint8".
+        for ($i = 0; $i < 600; $i++) {
+            $producer = $connection->createProducer('stream');
+            $ids = array_keys($this->producersOf($connection));
+            $this->assertCount(1, $ids);
+            $this->assertGreaterThanOrEqual(0, $ids[0]);
+            $this->assertLessThan(Connection::MAX_CONCURRENT_PUBLISHERS, $ids[0]);
+            $producer->close();
+        }
+
+        $this->assertSame([], $this->producersOf($connection), 'No producer may be leaked');
+    }
+
+    public function testProducerIdsAreNotReusedImmediatelyAfterAClose(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForProducers());
+
+        $first = $connection->createProducer('stream1');
+        $first->close();
+        $second = $connection->createProducer('stream2');
+
+        // Allocation walks forward and wraps, so a late PublishConfirm for the
+        // closed publisher cannot be delivered to the fresh one.
+        $this->assertSame([1], array_keys($this->producersOf($connection)));
+        $this->assertInstanceOf(Producer::class, $second);
+    }
+
+    public function testClosingAProducerTwiceReleasesItsIdOnlyOnce(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForProducers());
+
+        $producer = $connection->createProducer('stream1');
+        $producer->close();
+        $producer->close();
+
+        $a = $connection->createProducer('stream2');
+        $b = $connection->createProducer('stream3');
+
+        $this->assertCount(2, $this->producersOf($connection), 'Two live producers must hold two distinct ids');
+        $this->assertNotSame($a, $b);
+    }
+
+    public function testCreateProducerFailsWhenEveryPublisherIdIsInUse(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForProducers());
+
+        for ($i = 0; $i < Connection::MAX_CONCURRENT_PUBLISHERS; $i++) {
+            $connection->createProducer('stream');
+        }
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessageMatches('/all 256 ids of this connection are in use/');
+        $connection->createProducer('stream');
+    }
+
+    public function testClosingAConsumerReleasesItsIdAndReference(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForConsumers());
+
+        $consumer = $connection->createConsumer('stream1', OffsetSpec::first());
+        $this->assertArrayHasKey(0, $this->consumersOf($connection));
+
+        $consumer->close();
+
+        $this->assertSame([], $this->consumersOf($connection), 'A closed consumer must not be referenced any more');
+    }
+
+    public function testSubscriptionIdsAreReusedSoALongLivedWorkerNeverRunsOut(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForConsumers());
+
+        for ($i = 0; $i < 600; $i++) {
+            $consumer = $connection->createConsumer('stream', OffsetSpec::first());
+            $ids = array_keys($this->consumersOf($connection));
+            $this->assertCount(1, $ids);
+            $this->assertLessThan(Connection::MAX_CONCURRENT_SUBSCRIPTIONS, $ids[0]);
+            $consumer->close();
+        }
+
+        $this->assertSame([], $this->consumersOf($connection), 'No consumer may be leaked');
+    }
+
+    public function testCreateConsumerFailsWhenEverySubscriptionIdIsInUse(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForConsumers());
+
+        for ($i = 0; $i < Connection::MAX_CONCURRENT_SUBSCRIPTIONS; $i++) {
+            $connection->createConsumer('stream', OffsetSpec::first());
+        }
+
+        $this->expectException(ConnectionException::class);
+        $this->expectExceptionMessageMatches('/all 256 ids of this connection are in use/');
+        $connection->createConsumer('stream', OffsetSpec::first());
+    }
+
+    private function mockForProducers(): StreamConnection
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerPublisher');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        return $streamConnection;
+    }
+
+    private function mockForConsumers(): StreamConnection
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerSubscriber');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('request');
+        $streamConnection->method('close');
+
+        return $streamConnection;
+    }
+
+    /** @return array<int, Producer> */
+    private function producersOf(Connection $connection): array
+    {
+        $producers = (new \ReflectionProperty(Connection::class, 'producers'))->getValue($connection);
+        $this->assertIsArray($producers);
+        /** @var array<int, Producer> $producers */
+        return $producers;
+    }
+
+    /** @return array<int, Consumer> */
+    private function consumersOf(Connection $connection): array
+    {
+        $consumers = (new \ReflectionProperty(Connection::class, 'consumers'))->getValue($connection);
+        $this->assertIsArray($consumers);
+        /** @var array<int, Consumer> $consumers */
+        return $consumers;
     }
 
     /** @param array<int, Producer> $producers */

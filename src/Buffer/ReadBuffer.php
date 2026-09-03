@@ -5,18 +5,46 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Buffer;
 
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
+use CrazyGoat\RabbitStream\Platform;
 
+/**
+ * Reads scalars, strings and byte arrays out of a binary buffer with an
+ * internal cursor.
+ *
+ * The buffer can be constructed over the whole of `$buffer`, or over a
+ * zero-copy window into it via `$offset`/`$length`: the backing string is
+ * never copied (`$buffer` is stored by reference-counted value, as PHP
+ * strings always are), only the window bounds differ. `getPosition()` and
+ * every bounds check are relative to the window, not to the underlying
+ * string — from the outside a windowed ReadBuffer behaves exactly like one
+ * constructed over `substr($buffer, $offset, $length)`, just without the
+ * copy. Windows nest freely: `slice()` derives a new window relative to the
+ * caller's current position, still against the same underlying string.
+ */
 class ReadBuffer
 {
     private int $position = 0;
+    private readonly int $windowLength;
 
-    public function __construct(private readonly string $buffer)
-    {
+    /**
+     * @param string $buffer The backing string (shared, never copied here).
+     * @param int $offset Absolute start of the window into $buffer.
+     * @param ?int $length Window length; defaults to everything from $offset to the end of $buffer.
+     */
+    public function __construct(
+        private readonly string $buffer,
+        private readonly int $offset = 0,
+        ?int $length = null
+    ) {
+        // getUint32()/getUint64()/getInt64() would return floats instead of ints
+        // on a 32-bit build, silently corrupting offsets (#458).
+        Platform::assertSixtyFourBitIntegers();
+        $this->windowLength = $length ?? (strlen($buffer) - $this->offset);
     }
 
     private function ensureAvailable(int $bytes): void
     {
-        $available = strlen($this->buffer) - $this->position;
+        $available = $this->windowLength - $this->position;
         if ($bytes > $available) {
             throw new DeserializationException(
                 sprintf(
@@ -32,18 +60,15 @@ class ReadBuffer
     public function getUint8(): int
     {
         $this->ensureAvailable(1);
-        $data = unpack('C', substr($this->buffer, $this->position, 1));
-        if ($data === false) {
-            throw new DeserializationException('Failed to unpack uint8 at position ' . $this->position);
-        }
+        $value = ord($this->buffer[$this->offset + $this->position]);
         $this->position += 1;
-        return $data[1];
+        return $value;
     }
 
     public function getUint16(): int
     {
         $this->ensureAvailable(2);
-        $data = unpack('n', substr($this->buffer, $this->position, 2));
+        $data = unpack('n', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack uint16 at position ' . $this->position);
         }
@@ -56,10 +81,15 @@ class ReadBuffer
         $this->position = 0;
     }
 
+    /**
+     * A full uint32 fits a 64-bit PHP int, so the value is always exact here;
+     * on a 32-bit build unpack('N') would return a float above PHP_INT_MAX,
+     * which is why the constructor rejects that platform outright (#458).
+     */
     public function getUint32(): int
     {
         $this->ensureAvailable(4);
-        $data = unpack('N', substr($this->buffer, $this->position, 4));
+        $data = unpack('N', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack uint32 at position ' . $this->position);
         }
@@ -67,10 +97,16 @@ class ReadBuffer
         return $data[1];
     }
 
+    /**
+     * uint64 is read as a native 64-bit PHP int, so values above PHP_INT_MAX wrap
+     * to negative (tracked separately as #393); on a 32-bit build unpack('J')
+     * would instead return a float for most values, which is why the constructor
+     * rejects that platform outright (#458).
+     */
     public function getUint64(): int
     {
         $this->ensureAvailable(8);
-        $data = unpack('J', substr($this->buffer, $this->position, 8));
+        $data = unpack('J', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack uint64 at position ' . $this->position);
         }
@@ -81,7 +117,7 @@ class ReadBuffer
     public function getInt64(): int
     {
         $this->ensureAvailable(8);
-        $data = unpack('J', substr($this->buffer, $this->position, 8));
+        $data = unpack('J', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack int64 at position ' . $this->position);
         }
@@ -106,7 +142,7 @@ class ReadBuffer
         }
 
         $this->ensureAvailable($len);
-        $data = substr($this->buffer, $this->position, $len);
+        $data = substr($this->buffer, $this->offset + $this->position, $len);
         $this->position += $len;
         return $data;
     }
@@ -114,7 +150,7 @@ class ReadBuffer
     public function getInt16(): int
     {
         $this->ensureAvailable(2);
-        $data = unpack('n', substr($this->buffer, $this->position, 2));
+        $data = unpack('n', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack int16 at position ' . $this->position);
         }
@@ -128,7 +164,7 @@ class ReadBuffer
     public function getInt32(): int
     {
         $this->ensureAvailable(4);
-        $data = unpack('N', substr($this->buffer, $this->position, 4));
+        $data = unpack('N', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack int32 at position ' . $this->position);
         }
@@ -148,7 +184,7 @@ class ReadBuffer
     {
         $arrayLength = $this->getUint32();
 
-        $remaining = strlen($this->buffer) - $this->position;
+        $remaining = $this->windowLength - $this->position;
         if ($arrayLength > $remaining) {
             throw new DeserializationException(
                 sprintf(
@@ -178,7 +214,7 @@ class ReadBuffer
     {
         $arrayLength = $this->getUint32();
 
-        $remaining = strlen($this->buffer) - $this->position;
+        $remaining = $this->windowLength - $this->position;
         if ($arrayLength * 2 > $remaining) {
             throw new DeserializationException(
                 sprintf(
@@ -213,25 +249,51 @@ class ReadBuffer
         }
 
         $this->ensureAvailable($size);
-        $data = substr($this->buffer, $this->position, $size);
+        $data = substr($this->buffer, $this->offset + $this->position, $size);
         $this->position += $size;
         return $data;
     }
 
     public function getRemainingBytes(): string
     {
-        if ($this->position > strlen($this->buffer)) {
+        if ($this->position > $this->windowLength) {
             throw new DeserializationException(
                 sprintf(
                     'Buffer underflow: position %d is past buffer end %d',
                     $this->position,
-                    strlen($this->buffer)
+                    $this->windowLength
                 )
             );
         }
-        $data = substr($this->buffer, $this->position);
-        $this->position = strlen($this->buffer);
+        $data = substr($this->buffer, $this->offset + $this->position, $this->windowLength - $this->position);
+        $this->position = $this->windowLength;
         return $data;
+    }
+
+    /**
+     * Zero-copy equivalent of getRemainingBytes(): instead of materialising the
+     * remaining bytes as a new string, returns a [string, offset, length]
+     * window describing them against the shared backing string. Consumes the
+     * buffer exactly like getRemainingBytes() (position is advanced to the end
+     * of the window).
+     *
+     * @return array{0: string, 1: int, 2: int}
+     */
+    public function getRemainingWindow(): array
+    {
+        if ($this->position > $this->windowLength) {
+            throw new DeserializationException(
+                sprintf(
+                    'Buffer underflow: position %d is past buffer end %d',
+                    $this->position,
+                    $this->windowLength
+                )
+            );
+        }
+        $offset = $this->offset + $this->position;
+        $length = $this->windowLength - $this->position;
+        $this->position = $this->windowLength;
+        return [$this->buffer, $offset, $length];
     }
 
     public function getPosition(): int
@@ -241,14 +303,24 @@ class ReadBuffer
 
     public function skip(int $bytes): void
     {
+        if ($bytes < 0) {
+            throw new DeserializationException(
+                sprintf('Invalid skip length %d at position %d', $bytes, $this->position)
+            );
+        }
         $this->ensureAvailable($bytes);
         $this->position += $bytes;
     }
 
     public function readBytes(int $length): string
     {
+        if ($length < 0) {
+            throw new DeserializationException(
+                sprintf('Invalid read length %d at position %d', $length, $this->position)
+            );
+        }
         $this->ensureAvailable($length);
-        $data = substr($this->buffer, $this->position, $length);
+        $data = substr($this->buffer, $this->offset + $this->position, $length);
         $this->position += $length;
         return $data;
     }
@@ -256,10 +328,47 @@ class ReadBuffer
     public function peekUint16(): int
     {
         $this->ensureAvailable(2);
-        $data = unpack('n', substr($this->buffer, $this->position, 2));
+        $data = unpack('n', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack uint16 at position ' . $this->position);
         }
         return $data[1];
+    }
+
+    /**
+     * Derives a new zero-copy window relative to this buffer's current
+     * position, sharing the same backing string. Does not consume any bytes
+     * from this buffer — the two ReadBuffer instances read independently.
+     *
+     * @param int $offset Offset relative to this buffer's current position.
+     * @param ?int $length Window length; defaults to everything from $offset to the end of this buffer's window.
+     */
+    public function slice(int $offset, ?int $length = null): self
+    {
+        if ($offset < 0) {
+            throw new DeserializationException(sprintf('Invalid slice offset %d', $offset));
+        }
+        $available = $this->windowLength - $this->position - $offset;
+        if ($available < 0) {
+            throw new DeserializationException(
+                sprintf(
+                    'Buffer underflow: slice offset %d at position %d is past buffer end %d',
+                    $offset,
+                    $this->position,
+                    $this->windowLength
+                )
+            );
+        }
+        if ($length !== null && $length > $available) {
+            throw new DeserializationException(
+                sprintf(
+                    'Buffer underflow: need %d bytes at slice offset %d, but only %d available',
+                    $length,
+                    $offset,
+                    $available
+                )
+            );
+        }
+        return new self($this->buffer, $this->offset + $this->position + $offset, $length ?? $available);
     }
 }

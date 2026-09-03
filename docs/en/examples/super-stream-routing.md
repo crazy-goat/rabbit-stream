@@ -1,343 +1,109 @@
 # Super Stream Routing Example
 
-This example demonstrates a complete workflow for working with RabbitMQ Super Streams, including creation, routing, publishing, and consuming.
+This example demonstrates a complete workflow for working with RabbitMQ Super Streams using the high-level `SuperStreamProducer`/`SuperStreamConsumer` API: creation, routing, publishing, and consuming.
 
 ## Overview
 
 This example shows how to:
 1. Create a super stream with multiple partitions
-2. Route messages to specific partitions based on routing keys
-3. Publish messages to the correct partitions
-4. Consume messages from all partitions
+2. Publish messages routed to partitions with the default hash routing strategy (MurmurHash3, Java/.NET-compatible)
+3. Publish messages routed via broker-resolved key routing
+4. Consume messages from all partitions through one `SuperStreamConsumer`
 5. Clean up resources
 
 ## Prerequisites
 
 - RabbitMQ 3.11+ with the stream plugin enabled
-- PHP 8.1+
+- PHP 8.1+ with the `pcntl` extension (used by the consumer script for graceful shutdown)
 - The RabbitStream library installed
 
-## Complete Example
+## Runnable scripts
+
+Two ready-to-run scripts ship in `examples/`:
+
+- [`examples/super_stream_producer.php`](../../../examples/super_stream_producer.php) — creates the super stream (if needed) and publishes 100 messages using the default hash routing strategy
+- [`examples/super_stream_consumer.php`](../../../examples/super_stream_consumer.php) — subscribes to every partition and prints each message's partition, offset and body until interrupted (Ctrl+C)
+
+## Producer: default hash routing
 
 ```php
-<?php
-
-declare(strict_types=1);
-
-require_once __DIR__ . '/vendor/autoload.php';
-
 use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
-use CrazyGoat\RabbitStream\Exception\ProtocolException;
-use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
-use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
-use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-/**
- * Super Stream Routing Example
- * 
- * This example demonstrates:
- * - Creating a super stream with 3 partitions
- * - Routing messages based on customer ID
- * - Publishing to the correct partition
- * - Consuming from all partitions
- */
-class SuperStreamRoutingExample
-{
-    private Connection $connection;
-    private StreamConnection $stream; // low-level handle, for partitions listing
-    private string $superStreamName;
-    private int $partitionCount;
-    private array $partitions = [];
-    private array $producers = [];
-    private array $consumers = [];
-    private int $messagesReceived = 0;
-    
-    public function __construct(
-        string $host,
-        int $port,
-        string $user,
-        string $password,
-        string $superStreamName = 'orders',
-        int $partitionCount = 3
-    ) {
-        $this->superStreamName = $superStreamName;
-        $this->partitionCount = $partitionCount;
-        
-        // Build partition names
-        for ($i = 0; $i < $partitionCount; $i++) {
-            $this->partitions[] = "{$superStreamName}-{$i}";
-        }
-        
-        // Connect to RabbitMQ: wrap a raw StreamConnection so it is also
-        // available for the low-level partitions query below
-        $this->stream = new StreamConnection($host, $port);
-        $this->stream->connect();
-        $this->connection = Connection::create(
-            host: $host,
-            port: $port,
-            user: $user,
-            password: $password,
-            vhost: '/',
-            streamConnection: $this->stream
-        );
-        
-        echo "Connected to RabbitMQ Streams at {$host}:{$port}\n";
-    }
-    
-    /**
-     * Create the super stream with partitions
-     */
-    public function createSuperStream(): void
-    {
-        echo "\n=== Creating Super Stream ===\n";
-        echo "Name: {$this->superStreamName}\n";
-        echo "Partitions: " . implode(', ', $this->partitions) . "\n";
-        
-        $bindingKeys = array_map('strval', range(0, $this->partitionCount - 1));
-        
-        try {
-            $this->connection->createSuperStream(
-                $this->superStreamName,
-                $this->partitions,
-                $bindingKeys,
-                ['max-age' => '1h'] // 1 hour retention
-            );
-            echo "✓ Super stream created successfully\n";
-        } catch (ProtocolException $e) {
-            if ($e->getResponseCode() === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
-                echo "✓ Super stream already exists (continuing)\n";
-            } else {
-                throw $e;
-            }
-        }
-    }
-    
-    /**
-     * Verify partitions exist
-     * Uses the low-level API: there is no high-level wrapper for listing
-     * partitions yet.
-     */
-    public function verifyPartitions(): void
-    {
-        echo "\n=== Verifying Partitions ===\n";
-        
-        $this->stream->sendMessage(new PartitionsRequestV1($this->superStreamName));
-        $response = $this->stream->readMessage();
-        
-        if ($response instanceof PartitionsResponseV1) {
-            $discoveredPartitions = $response->getStreams();
-            echo "Discovered " . count($discoveredPartitions) . " partitions:\n";
-            foreach ($discoveredPartitions as $partition) {
-                echo "  - $partition\n";
-            }
-            
-            // Update our partition list with discovered ones
-            $this->partitions = $discoveredPartitions;
-        }
-    }
-    
-    /**
-     * Test routing for different keys
-     */
-    public function testRouting(): void
-    {
-        echo "\n=== Testing Routing ===\n";
-        
-        $testCustomers = ['alice', 'bob', 'charlie', 'diana', 'eve'];
-        
-        foreach ($testCustomers as $customer) {
-            $targetPartitions = $this->connection->route($customer, $this->superStreamName);
-            $partitionIndex = $this->getPartitionIndex($customer);
-            echo "  Customer '$customer' (hash: {$partitionIndex}) -> " . 
-                 implode(', ', $targetPartitions) . "\n";
-        }
-    }
-    
-    /**
-     * Create producers for each partition
-     */
-    public function createProducers(): void
-    {
-        echo "\n=== Creating Producers ===\n";
-        
-        foreach ($this->partitions as $partition) {
-            $this->producers[$partition] = $this->connection->createProducer($partition);
-            echo "  Created producer for $partition\n";
-        }
-    }
-    
-    /**
-     * Publish messages to appropriate partitions
-     */
-    public function publishMessages(int $messageCount = 100): void
-    {
-        echo "\n=== Publishing {$messageCount} Messages ===\n";
-        
-        $customers = ['alice', 'bob', 'charlie', 'diana', 'eve'];
-        $distribution = array_fill_keys($this->partitions, 0);
-        
-        for ($i = 0; $i < $messageCount; $i++) {
-            $customer = $customers[$i % count($customers)];
-            $partitionIndex = $this->getPartitionIndex($customer);
-            $partitionName = $this->partitions[$partitionIndex];
-            
-            $message = json_encode([
-                'order_id' => $i,
-                'customer' => $customer,
-                'amount' => rand(10, 1000),
-                'timestamp' => date('Y-m-d H:i:s'),
-            ]);
-            
-            $this->producers[$partitionName]->send($message);
-            $distribution[$partitionName]++;
-        }
-        
-        // Wait for all confirms
-        foreach ($this->producers as $producer) {
-            $producer->waitForConfirms(timeout: 5.0);
-        }
-        
-        echo "Messages published. Distribution:\n";
-        foreach ($distribution as $partition => $count) {
-            echo "  $partition: $count messages\n";
-        }
-    }
-    
-    /**
-     * Subscribe to all partitions and consume messages
-     */
-    public function createConsumers(): void
-    {
-        echo "\n=== Creating Consumers ===\n";
-        
-        // High-level consumers: subscribe + credit management are handled
-        // internally (no manual Subscribe/Credit requests needed)
-        foreach ($this->partitions as $i => $partition) {
-            $this->consumers[$partition] = $this->connection->createConsumer(
-                $partition,
-                OffsetSpec::first(),
-                name: 'super-stream-demo-' . $i
-            );
-            echo "  Created consumer for $partition\n";
-        }
-    }
-    
-    /**
-     * Consume messages from all partitions
-     */
-    public function consumeMessages(int $maxMessages = 20): void
-    {
-        echo "\n=== Consuming Messages (max {$maxMessages}) ===\n";
-        
-        $this->messagesReceived = 0;
-        
-        // Read from every partition; read() pumps the underlying read loop
-        $startTime = time();
-        while ($this->messagesReceived < $maxMessages && (time() - $startTime) < 10) {
-            foreach ($this->consumers as $partition => $consumer) {
-                foreach ($consumer->read(timeout: 0.1) as $message) {
-                    $this->handleMessage($message, $partition, $maxMessages);
-                    if ($this->messagesReceived >= $maxMessages) {
-                        break 3;
-                    }
-                }
-            }
-        }
-        
-        echo "\nTotal messages received: {$this->messagesReceived}\n";
-    }
-    
-    /**
-     * Handle an incoming message
-     */
-    private function handleMessage(\CrazyGoat\RabbitStream\Client\Message $message, string $partition, int $maxMessages): void
-    {
-        $data = json_decode($message->getBody(), true);
-        
-        echo sprintf(
-            "  [%s] Order #%d from %s: $%d\n",
-            $partition,
-            $data['order_id'],
-            $data['customer'],
-            $data['amount']
-        );
-        
-        $this->messagesReceived++;
-    }
-    
-    /**
-     * Calculate partition index for a routing key
-     */
-    private function getPartitionIndex(string $routingKey): int
-    {
-        return crc32($routingKey) % $this->partitionCount;
-    }
-    
-    /**
-     * Clean up resources
-     */
-    public function cleanup(): void
-    {
-        echo "\n=== Cleaning Up ===\n";
-        
-        // Close all producers
-        foreach ($this->producers as $partition => $producer) {
-            $producer->close();
-            echo "  Closed producer for $partition\n";
-        }
-        
-        // Close all consumers
-        foreach ($this->consumers as $partition => $consumer) {
-            $consumer->close();
-            echo "  Closed consumer for $partition\n";
-        }
-        
-        // Delete super stream
-        $this->connection->deleteSuperStream($this->superStreamName);
-        echo "  ✓ Super stream deleted\n";
-        
-        // Close connection
-        $this->connection->close();
-        echo "  ✓ Connection closed\n";
-    }
-    
-    /**
-     * Run the complete example
-     */
-    public function run(): void
-    {
-        try {
-            $this->createSuperStream();
-            $this->verifyPartitions();
-            $this->testRouting();
-            $this->createProducers();
-            $this->publishMessages(100);
-            $this->createConsumers();
-            $this->consumeMessages(20);
-            $this->cleanup();
-            
-            echo "\n✓ Example completed successfully!\n";
-        } catch (\Exception $e) {
-            echo "\n✗ Error: " . $e->getMessage() . "\n";
-            $this->cleanup();
-            throw $e;
-        }
-    }
-}
+$connection = Connection::create(host: '127.0.0.1', port: 5552, user: 'guest', password: 'guest');
 
-// Run the example
-$example = new SuperStreamRoutingExample(
-    host: '127.0.0.1',
-    port: 5552,
-    user: 'guest',
-    password: 'guest',
-    superStreamName: 'orders',
-    partitionCount: 3
+$superStream = 'my-super-stream';
+$connection->createSuperStream(
+    $superStream,
+    ['my-super-stream-0', 'my-super-stream-1', 'my-super-stream-2'],
+    ['0', '1', '2']
 );
 
-$example->run();
+// No $strategy argument: defaults to HashRoutingStrategy — MurmurHash3 x86_32
+// (seed 104729), the exact scheme the Java and .NET RabbitMQ Stream clients
+// use, so producers in other languages land the same routing key on the
+// same partition.
+$producer = $connection->createSuperStreamProducer($superStream, name: 'super-stream-producer');
+
+for ($i = 0; $i < 100; $i++) {
+    $customerId = 'customer-' . ($i % 5);
+    $message = json_encode(['order_id' => $i, 'customer_id' => $customerId]);
+    $producer->send($message, routingKey: $customerId);
+}
+
+$producer->waitForConfirms(timeout: 5.0);
+$producer->close();
+$connection->close();
+```
+
+## Producer: key routing (broker-resolved)
+
+Use `KeyRoutingStrategy` when partition placement must follow the super
+stream's exchange bindings (`$bindingKeys` passed to `createSuperStream()`)
+instead of a hash — for example, explicit region routing:
+
+```php
+use CrazyGoat\RabbitStream\Client\Routing\KeyRoutingStrategy;
+
+$superStream = 'orders-by-region';
+$connection->createSuperStream(
+    $superStream,
+    ['orders-us', 'orders-eu', 'orders-asia'],
+    ['us', 'eu', 'asia']
+);
+
+$strategy = new KeyRoutingStrategy($connection, $superStream);
+$producer = $connection->createSuperStreamProducer($superStream, $strategy);
+
+// One Route request per distinct key (cached in memory afterwards).
+$producer->send('Order payload', routingKey: 'eu');
+$producer->send('Another order', routingKey: 'us');
+
+$producer->waitForConfirms(timeout: 5.0);
+$producer->close();
+```
+
+If no binding matches a routing key, `KeyRoutingStrategy` throws
+`CrazyGoat\RabbitStream\Exception\NoRouteForKeyException`.
+
+## Consumer: reading from every partition
+
+```php
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
+$consumer = $connection->createSuperStreamConsumer(
+    'my-super-stream',
+    offset: OffsetSpec::first(),
+    name: 'super-stream-consumer',
+);
+
+while (true) {
+    foreach ($consumer->read(timeout: 5.0) as $message) {
+        // getStream() names the partition this message was delivered from —
+        // offset tracking is per-partition, so store against that name.
+        echo "[{$message->getStream()}] offset={$message->getOffset()} {$message->getBody()}\n";
+        $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
+    }
+}
 ```
 
 ## Running the Example
@@ -361,208 +127,91 @@ docker exec rabbitmq rabbitmq-plugins enable rabbitmq_stream
 composer install
 ```
 
-3. **Run the example:**
+3. **Run the producer, then the consumer (in another terminal):**
 
 ```bash
-php examples/super-stream-routing.php
+php examples/super_stream_producer.php
+php examples/super_stream_consumer.php
 ```
 
 ## Expected Output
 
+Producer:
+
 ```
-Connected to RabbitMQ Streams at 127.0.0.1:5552
+Created super stream 'my-super-stream' with 3 partitions.
+Done. Published 100 messages across partitions:
+  - my-super-stream-0
+  - my-super-stream-1
+  - my-super-stream-2
+```
 
-=== Creating Super Stream ===
-Name: orders
-Partitions: orders-0, orders-1, orders-2
-✓ Super stream created successfully
+Consumer (Ctrl+C to stop):
 
-=== Verifying Partitions ===
-Discovered 3 partitions:
-  - orders-0
-  - orders-1
-  - orders-2
-
-=== Testing Routing ===
-  Customer 'alice' (hash: 1) -> orders-1
-  Customer 'bob' (hash: 2) -> orders-2
-  Customer 'charlie' (hash: 0) -> orders-0
-  Customer 'diana' (hash: 1) -> orders-1
-  Customer 'eve' (hash: 2) -> orders-2
-
-=== Creating Producers ===
-  Created producer for orders-0
-  Created producer for orders-1
-  Created producer for orders-2
-
-=== Publishing 100 Messages ===
-Messages published. Distribution:
-  orders-0: 20 messages
-  orders-1: 40 messages
-  orders-2: 40 messages
-
-=== Creating Consumers ===
-  Created consumer for orders-0
-  Created consumer for orders-1
-  Created consumer for orders-2
-
-=== Consuming Messages (max 20) ===
-  [orders-0] Order #2 from charlie: $456
-  [orders-0] Order #7 from charlie: $789
-  [orders-1] Order #0 from alice: $123
-  [orders-1] Order #3 from alice: $234
-  [orders-2] Order #1 from bob: $345
-  ...
-
-Total messages received: 20
-
-=== Cleaning Up ===
-  Closed producer for orders-0
-  Closed producer for orders-1
-  Closed producer for orders-2
-  Closed consumer for orders-0
-  Closed consumer for orders-1
-  Closed consumer for orders-2
-  ✓ Super stream deleted
-  ✓ Connection closed
-
-✓ Example completed successfully!
+```
+partition=my-super-stream-1 offset=0 body={"order_id":0,"customer_id":"customer-1","amount":742}
+partition=my-super-stream-2 offset=0 body={"order_id":1,"customer_id":"customer-2","amount":318}
+...
 ```
 
 ## Key Concepts Demonstrated
 
-### 1. Consistent Hashing
+### 1. Cross-Language-Compatible Hash Routing
 
-The example uses `crc32()` for consistent hashing:
+`HashRoutingStrategy` (the default) hashes the routing key with MurmurHash3
+x86_32, seed `104729` (`HashRoutingStrategy::SEED`), and takes the unsigned
+result modulo the partition count — the exact scheme the Java and .NET
+clients use, so mixed-language producers agree on partition placement for the
+same key. Routing is entirely client-side; no broker round trip per publish.
 
-```php
-private function getPartitionIndex(string $routingKey): int
-{
-    return crc32($routingKey) % $this->partitionCount;
-}
-```
+### 2. Lazy Per-Partition Producers
 
-This ensures:
-- The same customer always maps to the same partition
-- Even distribution across partitions
-- No need to query the server for routing on every publish
+`SuperStreamProducer` opens a `Producer` for a partition only on the first
+message routed to it, not eagerly for every partition at construction.
 
-### 2. Partition-Aware Publishing
+### 3. Aggregated, Fair Consumption
 
-Messages are routed to the correct partition based on the routing key:
+`SuperStreamConsumer` subscribes a plain `Consumer` to every partition (all
+sharing the consumer name), and `read()`/`readOne()` aggregate across them —
+`readOne()` round-robins fairly so one high-traffic partition can't starve
+the others.
 
-```php
-$customer = 'alice';
-$partitionIndex = $this->getPartitionIndex($customer);
-$partitionName = $this->partitions[$partitionIndex];
+### 4. Per-Partition Offset Tracking
 
-$this->producers[$partitionName]->send($message);
-```
+There is no aggregate, super-stream-wide offset: `storeOffset()`/
+`queryOffset()` on `SuperStreamConsumer` always take the partition name
+(`Message::getStream()`) explicitly.
 
-### 3. Parallel Consumption
-
-Multiple high-level consumers (one per partition) allow parallel consumption — each `Consumer` subscribes and manages credits internally:
+### 5. Resource Cleanup
 
 ```php
-foreach ($this->partitions as $i => $partition) {
-    $this->consumers[$partition] = $this->connection->createConsumer(
-        $partition,
-        OffsetSpec::first(),
-        name: 'super-stream-demo-' . $i
-    );
-}
+$producer->waitForConfirms(timeout: 5.0);
+$producer->close();
 
-// Pump deliveries and read from every partition
-while (true) {
-    foreach ($this->consumers as $partition => $consumer) {
-        foreach ($consumer->read(timeout: 1.0) as $message) {
-            echo "[$partition] {$message->getBody()}\n";
-        }
-    }
-}
-```
+$consumer->close(); // closes every partition's Consumer
 
-### 4. Resource Cleanup
-
-Always clean up resources in the correct order:
-
-```php
-// 1. Close producers
-foreach ($this->producers as $producer) {
-    $producer->close();
-}
-
-// 2. Close consumers (unsubscribes from the partitions)
-foreach ($this->consumers as $consumer) {
-    $consumer->close();
-}
-
-// 3. Delete super stream
 $connection->deleteSuperStream($superStreamName);
-
-// 4. Close connection
 $connection->close();
 ```
 
-## Variations
+## Known limitations
 
-### Direct Routing (No Hash)
-
-If you want explicit control over routing:
-
-```php
-// Create with specific binding keys
-$partitions = ['orders-us', 'orders-eu', 'orders-asia'];
-$bindingKeys = ['us', 'eu', 'asia'];
-
-// Route based on region
-$region = 'eu';
-$streams = $connection->route($region, 'orders');
-echo implode(', ', $streams);
-```
-
-### Range-Based Routing
-
-For routing based on value ranges:
-
-```php
-// Create with range binding keys
-$partitions = ['orders-low', 'orders-mid', 'orders-high'];
-$bindingKeys = ['0-1000', '1001-5000', '5001-*'];
-
-// Route based on order value
-function getPartitionForValue(float $value): string
-{
-    if ($value <= 1000) return 'orders-low';
-    if ($value <= 5000) return 'orders-mid';
-    return 'orders-high';
-}
-```
-
-### Consumer Groups
-
-RabbitMQ Streams supports single-active-consumer groups, but the current client cannot subscribe with a consumer/group reference yet (the field is not exposed by `SubscribeRequestV1`). Until then, consume from each partition with an independently named high-level consumer:
-
-```php
-$consumer = $connection->createConsumer(
-    'orders-0',
-    OffsetSpec::first(),
-    name: 'order-processor-1', // Unique per instance
-);
-```
+Closing several single-active-consumer partitions in a row on one connection
+can occasionally race with the broker pushing a `ConsumerUpdate` activation
+query for another partition while a partition's own `close()` is waiting on
+its `UnsubscribeResponse`. This is a pre-existing limitation of `Consumer`'s
+non-correlated response dispatch, not something `SuperStreamConsumer`
+introduces — its `close()` tolerates the race per-partition (it keeps closing
+the remaining partitions rather than aborting). See the
+[Super Streams Guide](../guide/super-streams.md#known-limitations) for details.
 
 ## Troubleshooting
 
 ### Issue: "Stream does not exist"
 
-**Cause**: Trying to publish to a partition that doesn't exist.
+**Cause**: Trying to publish/consume a super stream that was never created (or was deleted).
 
-**Solution**: Verify partitions exist before publishing (low-level API — there is no high-level wrapper for listing partitions):
-
-```php
-$this->stream->sendMessage(new PartitionsRequestV1($superStreamName));
-$response = $this->stream->readMessage();
-```
+**Solution**: Verify with `Connection::partitions($superStream)` first — it throws `ProtocolException` if the super stream doesn't exist.
 
 ### Issue: "Access refused"
 
@@ -574,24 +223,22 @@ $response = $this->stream->readMessage();
 rabbitmqctl set_permissions -p / guest ".*" ".*" ".*"
 ```
 
-### Issue: Messages not evenly distributed
+### Issue: `NoRouteForKeyException` with `KeyRoutingStrategy`
 
-**Cause**: Poor hash function or skewed routing keys.
+**Cause**: The routing key doesn't match any binding key configured on `createSuperStream()`.
 
-**Solution**: Use consistent hashing and verify distribution:
+**Solution**: Verify with a raw `route()` call:
 
 ```php
-$distribution = [];
-foreach ($customers as $customer) {
-    $partition = crc32($customer) % $partitionCount;
-    $distribution[$partition] = ($distribution[$partition] ?? 0) + 1;
-}
-print_r($distribution);
+$streams = $connection->route($routingKey, $superStream);
+var_dump($streams); // empty array means no binding matched
 ```
 
 ## See Also
 
 - [Super Streams Guide](../guide/super-streams.md) - Comprehensive guide
+- [SuperStreamProducer API Reference](../api-reference/super-stream-producer.md)
+- [SuperStreamConsumer API Reference](../api-reference/super-stream-consumer.md)
 - [Stream Management Guide](../guide/stream-management.md) - Managing streams
 - [Publishing Guide](../guide/publishing.md) - Publishing messages
 - [Consuming Guide](../guide/consuming.md) - Consuming messages

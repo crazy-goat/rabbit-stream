@@ -24,6 +24,16 @@ interface ProducerInterface
      */
     public function sendBatch(array $messages, ?float $timeout = null): void;
 
+    /**
+     * Publish a single message tagged with a stream-filtering value (Publish v2).
+     * See Producer::sendWithFilter() for filtering semantics/caveats.
+     *
+     * @param string      $message     plain payload; see send()
+     * @param string|null $filterValue value hashed into the chunk's bloom filter
+     * @param ?float      $timeout     socket write timeout in seconds; null uses connection default
+     */
+    public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void;
+
     public function close(): void;
 
     public function waitForConfirms(float $timeout = 5.0): void;
@@ -31,4 +41,6 @@ interface ProducerInterface
     public function getLastPublishingId(): ?int;
 
     public function querySequence(): int;
+
+    public function getPendingConfirms(): int;
 }

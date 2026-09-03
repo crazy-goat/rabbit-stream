@@ -12,11 +12,13 @@ class Producer
     // Constructor and internal methods...
     
     public function send(string $message, ?float $timeout = null): void;
+    public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void;
     public function sendBatch(array $messages, ?float $timeout = null): void;
     public function close(): void;
     public function waitForConfirms(float $timeout = 5.0): void;
     public function getLastPublishingId(): ?int;
     public function querySequence(): int;
+    public function getPendingConfirms(): int;
 }
 ```
 
@@ -39,6 +41,8 @@ $producer = $connection->createProducer(
 | `$stream` | `string` | Yes | Name of the stream to publish to |
 | `$name` | `?string` | No | Unique producer name for deduplication. If provided, enables exactly-once semantics across reconnects. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus` object. |
+| `$redeclareTimeout` | `float` | No | How long (seconds) a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher; default `5.0`. `0` fails on the first attempt. See [isStale()](#isstale). |
+| `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Once reached, `send()`/`sendBatch()` block, draining confirms until the count drops back below the limit. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
 
 ### Examples
 
@@ -153,6 +157,45 @@ $producer->sendBatch($messages);
 - Each message is a plain payload string, automatically wrapped in an AMQP 1.0 Data section (same encoding as `send()`)
 - Each message still gets its own publishing ID and confirmation
 - Empty arrays are silently ignored (no-op)
+
+---
+
+### sendWithFilter()
+
+Publish a single message tagged with a stream filtering value.
+
+```php
+public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$message` | `string` | Yes | Message body as string, same encoding as `send()` (wrapped in an AMQP 1.0 Data section on the wire) |
+| `$filterValue` | `?string` | Yes | Stream filtering value attached to the message. `null` publishes an unfiltered message (still contributes to the chunk's bloom filter as "no value") |
+| `$timeout` | `?float` | No | Socket write timeout in seconds; null uses connection default |
+
+#### Return Value
+
+`void`
+
+#### Exceptions
+
+- `ConnectionException` - If the connection is lost
+
+#### Example
+
+```php
+$producer->sendWithFilter(json_encode(['region' => 'eu', 'order_id' => 1]), filterValue: 'eu');
+$producer->sendWithFilter(json_encode(['region' => 'us', 'order_id' => 2]), filterValue: 'us');
+```
+
+#### Notes
+
+- Sent via the same `PublishRequestV2`/`PublishedMessageV2` frame as a normal publish, just with a non-empty filter value attached per message
+- Filtering is **broker-side and chunk-granular**: the broker maintains a bloom filter per chunk and delivers the whole chunk once its filter *may* contain a matching value — every message in a delivered chunk arrives, matching or not. A consumer must still filter application-side for exact matching; see [`$filterValues`/`$matchUnfiltered` on `Consumer`](consumer.md) and the [Stream Filtering guide](../guide/consuming.md#7-stream-filtering)
+- Each message still gets its own publishing ID and confirmation, exactly like `send()`
 
 ---
 
@@ -281,6 +324,82 @@ $id3 = $producer->getLastPublishingId(); // 5 (2 + 3 messages)
 - For named producers, this is automatically managed based on `querySequence()`
 - Publishing IDs start at 1 for unnamed producers
 - Publishing IDs start at `querySequence() + 1` for named producers
+
+---
+
+### getPendingConfirms()
+
+Get the number of publishes sent but not yet confirmed or errored.
+
+```php
+public function getPendingConfirms(): int
+```
+
+#### Parameters
+
+None
+
+#### Return Value
+
+`int` - Current count of outstanding (unconfirmed) publishes
+
+#### Example
+
+```php
+$producer->send('Message 1');
+$producer->send('Message 2');
+echo $producer->getPendingConfirms(); // 2
+
+$producer->waitForConfirms();
+echo $producer->getPendingConfirms(); // 0
+```
+
+#### Notes
+
+- Decremented as `onConfirm`/publish-error frames arrive, whether observed via `waitForConfirms()`, the `onConfirm` callback, or the `maxPendingConfirms` back-pressure drain in `send()`/`sendBatch()`
+- Incremented only once the frame has actually been written: a `send()` that throws leaves the count (and the publishing ID) untouched, so a later `waitForConfirms()` is never blocked by a message the broker never received
+- Useful for custom throttling or metrics alongside `maxPendingConfirms`
+
+---
+
+### isStale()
+
+```php
+public function isStale(): bool
+```
+
+Whether the broker has dropped this publisher — it pushed a `MetadataUpdate`
+for the stream, or answered a publish with `PUBLISHER_NOT_EXIST` /
+`STREAM_NOT_AVAILABLE`. The next `send()`, `sendBatch()` or `sendWithFilter()`
+re-runs `DeclarePublisher` before publishing, retrying with exponential
+back-off for up to `$redeclareTimeout` seconds and throwing a
+`ProtocolException` if the stream is still gone.
+
+Unconfirmed messages are lost when this happens: they are reported to the
+`onConfirm` callback as a failed `ConfirmationStatus` carrying the broker's
+response code, and they stop counting toward `maxPendingConfirms`.
+
+```php
+$producer->send('a');
+// ... the stream is deleted; any readLoop()/waitForConfirms() dispatches the MetadataUpdate ...
+$producer->isStale();      // true
+$producer->send('b');      // re-declares first, then publishes
+$producer->isStale();      // false
+```
+
+See [Publishing → Stream Deleted or Leader Moved](../guide/publishing.md#stream-deleted-or-leader-moved-metadataupdate).
+
+---
+
+### getRedeclareCount()
+
+```php
+public function getRedeclareCount(): int
+```
+
+How many times this publisher has been successfully re-declared after a
+`MetadataUpdate`. Useful as a health metric: a number that keeps growing means
+the stream is flapping.
 
 ---
 

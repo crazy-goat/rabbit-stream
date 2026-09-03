@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests;
 
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
@@ -12,10 +14,12 @@ use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -167,7 +171,10 @@ class StreamConnectionTest extends TestCase
         $connection->setMaxFrameSize(1024);
 
         $frameSize = 2048;
-        socket_write($serverSocket, pack('N', $frameSize));
+        // The size is followed by the 2-byte key (0x0014, an arbitrary non-Deliver
+        // key) since readFrame() now reads size + key before deciding which cap
+        // (maxFrameSize vs maxDeliverFrameSize) applies.
+        socket_write($serverSocket, pack('N', $frameSize) . pack('n', 0x0014));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed \d+/');
@@ -187,7 +194,7 @@ class StreamConnectionTest extends TestCase
 
         $connection->setMaxFrameSize(1024);
 
-        socket_write($serverSocket, pack('N', 2048));
+        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0014));
 
         try {
             $connection->readFrame();
@@ -214,6 +221,217 @@ class StreamConnectionTest extends TestCase
         $buffer = $connection->readFrame();
 
         $this->assertNotNull($buffer);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    // ---- Deliver frame cap tests (broker does not enforce frame_max on Deliver) ----
+
+    public function testDefaultMaxDeliverFrameSizeIs64MB(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertEquals(64 * 1024 * 1024, $connection->getMaxDeliverFrameSize());
+    }
+
+    public function testMaxDeliverFrameSizeCanBeChanged(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxDeliverFrameSize(128 * 1024 * 1024);
+
+        $this->assertEquals(128 * 1024 * 1024, $connection->getMaxDeliverFrameSize());
+    }
+
+    public function testMaxDeliverFrameSizeCanBeSetToZero(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setMaxDeliverFrameSize(0);
+
+        $this->assertEquals(0, $connection->getMaxDeliverFrameSize());
+    }
+
+    public function testSetMaxDeliverFrameSizeRejectsNegativeValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Max deliver frame size must be >= 0');
+
+        $connection->setMaxDeliverFrameSize(-1);
+    }
+
+    public function testReadFrameAllowsDeliverFrameLargerThanMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // A control-frame cap far smaller than the Deliver frame we send below.
+        // Sizes are kept well under the AF_UNIX socketpair's small kernel buffer
+        // (a real write of >1MB would block here since nothing reads
+        // concurrently) — the point is only that the Deliver cap, not
+        // maxFrameSize, governs Deliver frames.
+        $connection->setMaxFrameSize(200);
+        $connection->setMaxDeliverFrameSize(4000);
+
+        // Deliver frame (key 0x0008) bigger than maxFrameSize but within
+        // maxDeliverFrameSize: must NOT be rejected, reproducing a broker
+        // sending an oversized coalesced chunk despite a smaller negotiated
+        // frame_max.
+        $content = str_repeat('x', 1000);
+        $frame = $this->buildFrame(0x0008, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $buffer = $connection->readFrame();
+
+        $this->assertNotNull($buffer);
+        $this->assertEquals(0x0008, $buffer->peekUint16());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testReadFrameRejectsDeliverFrameExceedingMaxDeliverFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setMaxDeliverFrameSize(1024);
+
+        // size (2048) + key (0x0008 = Deliver); no further payload needed since
+        // the cap is enforced right after the key is read.
+        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0008));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed 1024/');
+
+        $connection->readFrame();
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testReadFrameNonDeliverFrameStillUsesMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setMaxFrameSize(1024);
+        $connection->setMaxDeliverFrameSize(2 * 1024 * 1024);
+
+        // A non-Deliver frame (0x0014) exceeding maxFrameSize must still be
+        // rejected, even though maxDeliverFrameSize is much larger.
+        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0014));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed 1024/');
+
+        $connection->readFrame();
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    // ---- Outgoing frame cap tests (fail fast on oversized outgoing frames) ----
+
+    public function testDefaultOutgoingMaxFrameSizeIsUnlimited(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertEquals(0, $connection->getOutgoingMaxFrameSize());
+    }
+
+    public function testOutgoingMaxFrameSizeCanBeChanged(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setOutgoingMaxFrameSize(1024 * 1024);
+
+        $this->assertEquals(1024 * 1024, $connection->getOutgoingMaxFrameSize());
+    }
+
+    public function testSetOutgoingMaxFrameSizeRejectsNegativeValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Outgoing max frame size must be >= 0');
+
+        $connection->setOutgoingMaxFrameSize(-1);
+    }
+
+    public function testSendFrameThrowsInvalidArgumentExceptionWhenFrameExceedsOutgoingMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setOutgoingMaxFrameSize(1024);
+
+        $frame = $this->buildFrame(0x0014, 1, str_repeat('x', 2048));
+
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Frame size \d+ exceeds negotiated maximum frame size of 1024/');
+
+        try {
+            $connection->sendFrame($frame);
+        } finally {
+            // Nothing must have been written to the socket, and the connection
+            // must stay connected/usable — this is a fail-fast validation error,
+            // not a socket failure.
+            $this->assertTrue($connection->isConnected());
+            socket_set_nonblock($serverSocket);
+            $this->assertFalse(@socket_read($serverSocket, 1), 'no bytes should have been written to the socket');
+        }
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSendFrameAllowsFrameWithinOutgoingMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setOutgoingMaxFrameSize(1024);
+
+        $frame = $this->buildFrame(0x0014, 1, str_repeat('x', 100));
+
+        $written = $connection->sendFrame($frame);
+
+        $this->assertEquals(strlen($frame), $written);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testSendFrameAllowsAnyFrameWhenOutgoingMaxFrameSizeIsZero(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setOutgoingMaxFrameSize(0);
+
+        // Kept well under the AF_UNIX socketpair's small kernel send buffer —
+        // nothing reads concurrently here, so a bigger write would block.
+        $frame = $this->buildFrame(0x0014, 1, str_repeat('x', 4000));
+
+        $written = $connection->sendFrame($frame);
+
+        $this->assertEquals(strlen($frame), $written);
 
         socket_close($serverSocket);
         socket_close($clientSocket);
@@ -276,6 +494,85 @@ class StreamConnectionTest extends TestCase
 
         socket_close($serverSocket);
         socket_close($clientSocket);
+    }
+
+    public function testRequestParksResponsesOfOtherCorrelationIds(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Server answers out of order: correlation 2 first, then correlation 1
+        // (the one request() below is waiting for).
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('a'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertSame(1, $response->getCorrelationId());
+
+        // The parked correlation-2 response is handed to the next plain readMessage().
+        $parked = $connection->readMessage(1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $parked);
+        $this->assertSame(2, $parked->getCorrelationId());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testRequestSkipsUnsolicitedCreditErrorResponse(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // A Credit error (0x8009: response code + subscription id, no correlation
+        // ID) arrives while request() waits for correlation 1: it is not our
+        // reply and must be skipped, not returned as the response.
+        socket_write($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('a'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertSame(1, $response->getCorrelationId());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testNestedRequestFromConsumerUpdateHandlerDoesNotStealOuterResponse(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Single-active-consumer scenario (#496): while the outer request() waits
+        // for its SubscribeResponse (correlation 1), the broker pushes a
+        // ConsumerUpdate, whose handler issues its own request() (correlation 2).
+        // The server then answers 1 before 2.
+        socket_write($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $inner = null;
+        $connection->registerConsumerUpdateHandler(1, function () use ($connection, &$inner): OffsetSpec {
+            $inner = $connection->request(new CreateRequestV1('inner'), 1.0);
+            return OffsetSpec::offset(42);
+        });
+
+        $outer = $connection->request(new CreateRequestV1('outer'), 1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $outer);
+        $this->assertSame(1, $outer->getCorrelationId());
+        $this->assertInstanceOf(CreateResponseV1::class, $inner);
+        $this->assertSame(2, $inner->getCorrelationId());
+
+        // Nothing left parked.
+        $this->expectException(TimeoutException::class);
+        $connection->readMessage(0.05);
     }
 
     public function testDispatchHeartbeatEchoesBackAndInvokesCallback(): void
@@ -653,6 +950,138 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpacked);
         $this->assertEquals(0x801a, $unpacked[1]);
 
+        // GitHub #460: with no callback registered the reply must default to
+        // offsetType 0 (none / keep current position) + offset 0, not "first".
+        $unpackedCorr = unpack('N', substr($response, 4, 4));
+        $this->assertIsArray($unpackedCorr);
+        $this->assertEquals($correlationId, $unpackedCorr[1]);
+
+        $unpackedResponseCode = unpack('n', substr($response, 8, 2));
+        $this->assertIsArray($unpackedResponseCode);
+        $this->assertEquals(1, $unpackedResponseCode[1]);
+
+        $unpackedOffsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($unpackedOffsetType);
+        $this->assertEquals(0, $unpackedOffsetType[1]);
+
+        $unpackedOffset = unpack('J', substr($response, 12, 8));
+        $this->assertIsArray($unpackedOffset);
+        $this->assertEquals(0, $unpackedOffset[1]);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testDispatchConsumerUpdateRejectsInvalidOffsetTypeFromCallback(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->onConsumerUpdate(fn(ConsumerUpdateResponseV1 $query): array => [6, 0]);
+
+        $correlationId = 1;
+        $subscriptionId = 1;
+        $active = 1;
+        $content = pack('N', $correlationId)
+            . pack('C', $subscriptionId)
+            . pack('C', $active);
+        $frame = $this->buildFrame(0x001a, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testPerSubscriptionConsumerUpdateHandlerTakesPriorityOverGlobalCallback(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $globalInvoked = false;
+        $connection->onConsumerUpdate(function () use (&$globalInvoked): array {
+            $globalInvoked = true;
+            return [1, 0];
+        });
+
+        $subscriptionInvoked = false;
+        $connection->registerConsumerUpdateHandler(
+            3,
+            function (ConsumerUpdateResponseV1 $query) use (&$subscriptionInvoked): OffsetSpec {
+                $subscriptionInvoked = true;
+                return OffsetSpec::offset(777);
+            }
+        );
+
+        $correlationId = 9;
+        $subscriptionId = 3;
+        $active = 1;
+        $content = pack('N', $correlationId)
+            . pack('C', $subscriptionId)
+            . pack('C', $active);
+        $frame = $this->buildFrame(0x001a, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertTrue($subscriptionInvoked);
+        $this->assertFalse($globalInvoked);
+
+        $response = $this->readResponse($serverSocket);
+        $this->assertNotNull($response);
+        $unpackedOffsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($unpackedOffsetType);
+        $this->assertEquals(OffsetSpec::TYPE_OFFSET, $unpackedOffsetType[1]);
+        $unpackedOffset = unpack('J', substr($response, 12, 8));
+        $this->assertIsArray($unpackedOffset);
+        $this->assertEquals(777, $unpackedOffset[1]);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testUnregisterSubscriberDropsConsumerUpdateHandler(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $subscriptionInvoked = false;
+        $connection->registerConsumerUpdateHandler(
+            3,
+            function () use (&$subscriptionInvoked): OffsetSpec {
+                $subscriptionInvoked = true;
+                return OffsetSpec::offset(777);
+            }
+        );
+        $connection->unregisterSubscriber(3);
+
+        $correlationId = 9;
+        $subscriptionId = 3;
+        $active = 1;
+        $content = pack('N', $correlationId)
+            . pack('C', $subscriptionId)
+            . pack('C', $active);
+        $frame = $this->buildFrame(0x001a, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertFalse($subscriptionInvoked);
+
+        $response = $this->readResponse($serverSocket);
+        $this->assertNotNull($response);
+        $unpackedOffsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($unpackedOffsetType);
+        $this->assertEquals(OffsetSpec::TYPE_NONE, $unpackedOffsetType[1]);
+
         socket_close($serverSocket);
         socket_close($clientSocket);
     }
@@ -676,6 +1105,179 @@ class StreamConnectionTest extends TestCase
         $this->assertGreaterThan(2.3, $elapsed, 'readLoop should block for approximately the timeout duration');
         $this->assertLessThan(3.5, $elapsed, 'readLoop should not block significantly longer than the timeout');
         $this->assertTrue($connection->isConnected(), 'connection should remain usable after the timeout');
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    // ---------------------------------------------------------------------
+    // Socket timeouts (#402), mid-frame desync (#390), partial writes (#389),
+    // sticky socket errors (#391).
+    // ---------------------------------------------------------------------
+
+    public function testSocketTimeoutDefaultsToTheDocumentedValue(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->assertSame(StreamConnection::DEFAULT_SOCKET_TIMEOUT, $connection->getSocketTimeout());
+    }
+
+    public function testSocketTimeoutMustBePositive(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new StreamConnection('127.0.0.1', 5552, socketTimeout: 0.0);
+    }
+
+    public function testSetSocketTimeoutRejectsNonPositiveValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(InvalidArgumentException::class);
+        $connection->setSocketTimeout(-1.0);
+    }
+
+    public function testReadFrameGivesUpWhenThePeerStopsMidFrame(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.2);
+
+        // A frame that announces 64 bytes and then delivers 2: without a receive
+        // timeout readBytes() blocks here forever (#402), and the version that
+        // returned null dropped the 6 bytes already consumed and desynchronised
+        // the connection for good (#390).
+        socket_write($serverSocket, pack('N', 64) . pack('n', 0x0003));
+
+        $start = microtime(true);
+        try {
+            $connection->readFrame(2.0);
+            $this->fail('An incomplete frame must not be reported as a successful or empty read');
+        } catch (ConnectionException $e) {
+            $this->assertStringContainsString('incomplete frame', $e->getMessage());
+            // How many of the 64 payload bytes were consumed before the timeout
+            // is platform-dependent: with MSG_WAITALL, Linux hands back the
+            // partial read while BSD/macOS leaves the bytes queued and reports
+            // EAGAIN. Either way the 4-byte length prefix is already gone, so
+            // the frame cannot be reassembled.
+            $this->assertMatchesRegularExpression('/\d+ of 64 bytes/', $e->getMessage());
+        }
+
+        $this->assertLessThan(2.0, microtime(true) - $start, 'The read must be bounded by the socket timeout');
+        $this->assertFalse(
+            $connection->isConnected(),
+            'A connection stuck mid-frame must be closed, not offered for a retry that would read payload as framing'
+        );
+
+        socket_close($serverSocket);
+    }
+
+    public function testReadFrameReturnsNullAtAFrameBoundaryWithNoData(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.2);
+
+        $this->assertNull($connection->readFrame(0.05));
+        $this->assertTrue($connection->isConnected(), 'No data yet is not a broken connection');
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testTransientSocketErrorDoesNotMarkTheConnectionDead(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.05);
+
+        // Record a transient error on the socket the way a timed-out read does.
+        // socket_last_error() is sticky, so before #391 this single EAGAIN made
+        // isConnected() report false for the rest of the connection's life —
+        // and isConnected() itself then forced it closed.
+        $buffer = '';
+        @socket_recv($clientSocket, $buffer, 1, MSG_WAITALL);
+
+        $this->assertTrue($connection->isConnected());
+
+        // Still usable: a real frame arriving afterwards is read normally.
+        socket_write($serverSocket, $this->buildFrame(0x0011, 1));
+        $frame = $connection->readFrame(1.0);
+
+        $this->assertNotNull($frame);
+        $this->assertSame(0x0011, $frame->peekUint16());
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testFatalSocketErrorStillMarksTheConnectionDead(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+
+        $this->assertFalse($connection->isConnected());
+    }
+
+    public function testFrameThatCannotBeFullyWrittenClosesTheConnection(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(0.2);
+        // Small send buffer + a peer that never reads: the kernel accepts part
+        // of the frame and then stalls, which is exactly the short write the
+        // single unchecked socket_write() used to ignore (#389).
+        socket_set_option($clientSocket, SOL_SOCKET, SO_SNDBUF, 4096);
+
+        $frame = pack('N', 1_048_576) . str_repeat("\x00", 1_048_576);
+
+        $start = microtime(true);
+        try {
+            $connection->sendFrame($frame);
+            $this->fail('A frame that could not be fully written must not be reported as sent');
+        } catch (TimeoutException $e) {
+            // The kernel took nothing at all: the frame never started, so the
+            // caller may retry it and the connection stays usable. (TimeoutException
+            // extends ConnectionException, hence this catch comes first.)
+            $this->assertStringContainsString('no bytes', $e->getMessage());
+        } catch (ConnectionException $e) {
+            $this->assertStringContainsString('partial frame', $e->getMessage());
+            $this->assertFalse(
+                $connection->isConnected(),
+                'The broker cannot resynchronise mid-frame, so the connection must be closed'
+            );
+        }
+
+        $this->assertLessThan(3.0, microtime(true) - $start, 'The write must be bounded by the socket timeout');
+
+        socket_close($serverSocket);
+    }
+
+    public function testSendFrameReportsEveryByteWritten(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setSocketTimeout(1.0);
+
+        $frame = $this->buildFrame(0x0003, 1, str_repeat('x', 2048));
+        $written = $connection->sendFrame($frame);
+
+        $this->assertSame(strlen($frame), $written);
+        $this->assertSame(strlen($frame), strlen((string) $this->readBytesFromSocket($serverSocket, strlen($frame))));
 
         socket_close($serverSocket);
         socket_close($clientSocket);
@@ -990,6 +1592,63 @@ class StreamConnectionTest extends TestCase
         $this->assertStringStartsWith('Socket <-', $debugMessages[0]);
         $this->assertStringNotContainsString('redacted', $debugMessages[0]);
         $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+
+    public function testDispatchMetadataUpdateInvokesPerStreamHandlersThenGlobalCallback(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $order = [];
+        $connection->registerMetadataUpdateHandler(
+            's1',
+            'publisher-1',
+            function (MetadataUpdateResponseV1 $u) use (&$order): void {
+                $order[] = 'publisher-1:' . $u->getStream();
+            }
+        );
+        $connection->registerMetadataUpdateHandler('s1', 'subscription-2', function () use (&$order): void {
+            $order[] = 'subscription-2';
+        });
+        $connection->registerMetadataUpdateHandler('other', 'publisher-9', function () use (&$order): void {
+            $order[] = 'other-stream-must-not-fire';
+        });
+        $connection->onMetadataUpdate(function () use (&$order): void {
+            $order[] = 'global';
+        });
+
+        socket_write($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertSame(['publisher-1:s1', 'subscription-2', 'global'], $order);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
+    public function testUnregisteredMetadataUpdateHandlerIsNotInvoked(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $fired = 0;
+        $connection->registerMetadataUpdateHandler('s1', 'publisher-1', function () use (&$fired): void {
+            $fired++;
+        });
+        $connection->unregisterMetadataUpdateHandler('s1', 'publisher-1');
+
+        socket_write($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertSame(0, $fired);
 
         socket_close($serverSocket);
         socket_close($clientSocket);

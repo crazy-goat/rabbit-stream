@@ -104,6 +104,14 @@ The negotiated value is the **minimum** of client and server proposals:
 - If both propose 0, result is 0 (unlimited/no heartbeat)
 - Otherwise, use `min(clientValue, serverValue)`
 
+> **Caveat (only when you don't pass `requestedFrameMax` to `Connection::create()`):**
+> a server proposing an unexpectedly huge `frameMax` (including `0xFFFFFFFF`)
+> cannot raise the client's *effective* incoming control-frame cap above
+> `StreamConnection::DEFAULT_MAX_FRAME_SIZE` (8MB) — negotiation may only ever
+> *lower* it from that default. Pass `requestedFrameMax` explicitly to raise
+> the cap deliberately. See
+> [Performance Tuning → Frame Size Limits](../advanced/performance-tuning.md#frame-size-limits).
+
 **Purpose:**
 - Negotiate maximum frame size
 - Establish heartbeat interval for connection health
@@ -202,6 +210,16 @@ $stream->sendMessage(new TuneResponseV1($negotiatedFrameMax, $negotiatedHeartbea
 if ($negotiatedFrameMax > 0) {
     $stream->setMaxFrameSize($negotiatedFrameMax);
 }
+
+// Outgoing frames larger than the negotiated frame_max now fail fast
+// (InvalidArgumentException, before anything is written), instead of being
+// written and having the broker close the connection.
+$stream->setOutgoingMaxFrameSize($negotiatedFrameMax);
+
+// Deliver frames (key 0x0008) are NOT bounded by frame_max on the broker
+// side — a stream chunk is sent whole. Give them their own, larger cap
+// instead of reusing $negotiatedFrameMax (default: 64MB either way).
+$stream->setMaxDeliverFrameSize(StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE);
 
 // 6. Open
 $stream->sendMessage(new OpenRequestV1('/'));
@@ -333,6 +351,19 @@ if ($response->getResponseCode() === ResponseCodeEnum::FRAME_TOO_LARGE->value) {
 ```
 
 **Response Code:** `0x0e` (FRAME_TOO_LARGE)
+
+Client-side, an oversized *incoming* frame throws `ConnectionException`
+("Frame size N exceeds maximum allowed M") from `readFrame()`/`readLoop()` and
+closes the connection — except for Deliver frames (key `0x0008`), which the
+broker does not bound by `frame_max` at all (a stream chunk is sent whole) and
+which are therefore checked against the separate, larger
+`maxDeliverFrameSize` instead of `maxFrameSize`. See
+[Performance Tuning → Deliver frames need their own cap](../advanced/performance-tuning.md#setmaxdeliverframesize--deliver-frames-need-a-separate-larger-cap).
+
+An oversized *outgoing* frame is rejected up front by `sendFrame()` with
+`CrazyGoat\RabbitStream\Exception\InvalidArgumentException`, before anything
+is written to the socket — the connection is left connected and usable, so
+there is no need to reconnect after catching it.
 
 ### Socket Errors
 
