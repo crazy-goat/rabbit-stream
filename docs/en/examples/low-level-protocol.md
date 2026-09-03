@@ -452,5 +452,5 @@ try {
 ## See Also
 
 - [Connection Lifecycle Guide](../guide/connection-lifecycle.md) - High-level overview
-- [Connection & Authentication](connection-auth.md) - Protocol details
-- [Connection Management Commands](connection-management-commands.md) - Close, heartbeat
+- [Connection & Authentication](../protocol/connection-auth.md) - Protocol details
+- [Connection Management Commands](../protocol/connection-management-commands.md) - Close, heartbeat
