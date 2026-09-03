@@ -401,6 +401,6 @@ This means:
 
 ## See Also
 
-- [Connection & Authentication Protocol](connection-auth.md) - Detailed protocol reference
-- [Connection Management Commands](connection-management-commands.md) - Command reference
+- [Connection & Authentication Protocol](../protocol/connection-auth.md) - Detailed protocol reference
+- [Connection Management Commands](../protocol/connection-management-commands.md) - Command reference
 - [Low-Level Protocol Example](../examples/low-level-protocol.md) - Working code example
