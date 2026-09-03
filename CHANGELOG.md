@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Docs: 12 broken internal links in `docs/en` (#491, closes #422)** — relative links pointed at paths that do not exist: diagram links one `../` level short (`guide/publishing.md`, `guide/flow-control.md`, `examples/named-producer-deduplication.md`), `../api/index.md` instead of the existing `../api-reference/` (`getting-started/quick-start.md`, `getting-started/configuration.md`), and `examples/`/`src/` file references one level short (`guide/architecture-overview.md`, `api-reference/consumer.md`, `api-reference/producer.md`). Post-merge audit of all 227 relative links in `docs/en` confirms they resolve on disk; 4 pre-existing broken links outside #422's list remain and are tracked in a follow-up issue
+
 ## [1.3.0] - 2026-09-02
 
 ### Added
