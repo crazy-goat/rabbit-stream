@@ -383,7 +383,7 @@ $stream->readLoop(maxFrames: 100);
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `maxFrames` | `?int` | Process up to N server-push frames, then return |
+| `maxFrames` | `?int` | Process up to N frames (dispatched or discarded), then return |
 | `timeout` | `?float` | Process for up to N seconds, then return |
 
 **Examples:**

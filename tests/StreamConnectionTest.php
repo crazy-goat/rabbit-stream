@@ -780,6 +780,29 @@ class StreamConnectionTest extends TestCase
         socket_close($clientSocket);
     }
 
+    public function testReadLoopDiscardsNonServerPushFrameAndCountsTowardMaxFrames(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Feed a CreditResponse (0x8009, non-server-push frame)
+        $content = pack('N', 1) . pack('n', 0x0001);
+        $frame = $this->buildFrame(0x8009, 1, $content);
+        socket_write($serverSocket, $frame);
+
+        $start = microtime(true);
+        $dispatched = $connection->readLoop(maxFrames: 1, timeout: 5.0);
+        $elapsed = microtime(true) - $start;
+
+        $this->assertEquals(1, $dispatched);
+        $this->assertLessThan(2.0, $elapsed);
+
+        socket_close($serverSocket);
+        socket_close($clientSocket);
+    }
+
     public function testDispatchDeliverIgnoresUnregisteredSubscription(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();

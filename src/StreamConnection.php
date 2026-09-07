@@ -822,9 +822,10 @@ class StreamConnection
      * If both `$maxFrames` and `$timeout` are null, the loop runs indefinitely
      * (until `stop()` or disconnect).
      *
-     * @param int|null   $maxFrames Maximum number of frames to dispatch (null = unlimited)
+     * @param int|null   $maxFrames Maximum number of frames to process (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
-     * @return int Number of server-push frames dispatched; 0 means the loop ended
+     * @return int Number of frames processed (dispatched server-push frames plus any
+     *             discarded non-server-push frames); 0 means the loop ended
      *             on timeout, stop() or disconnect without handling any frame
      * @throws ConnectionException If the socket is not connected
      */
@@ -894,6 +895,7 @@ class StreamConnection
                     break;
                 }
             } else {
+                $dispatched++;
                 $this->logger->warning(
                     'readLoop() received unexpected non-server-push frame, discarding',
                     ['key' => sprintf('0x%04x', $key)]
