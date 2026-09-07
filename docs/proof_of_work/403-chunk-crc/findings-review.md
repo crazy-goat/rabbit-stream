@@ -19,3 +19,12 @@ Round 2 (2026-09-07). Re-checked all four round-1 entries (1, 2, 4: **fixed**; 3
 | 6 | `src/Client/OsirisChunkParser.php:376` (first seen round 2) | `crc32()` returns a signed int on 32-bit PHP, so `!==` against the unsigned header uint32 could false-positive on a 32-bit build. Library already assumes 64-bit (see ReadBuffer comment on getUint32/getUint64 floats), so not a bug on supported targets | nit | **not a real finding** — documented portability nit; no action required for this branch. |
 
 Round-2 automated checks all green: composer cs, composer phpstan (0 errors), composer rector (no suggestions), phpunit unit suite (1070 tests, 8190 assertions OK). Wire correctness cross-checked against the Go reference client (`crc32.ChecksumIEEE` over exactly dataLength bytes). Verdict round 2: **needs fixes** (finding 5 only; source code clean).
+
+Round 3 (2026-09-07). Confirmation round — re-verified both round-2 entries; full detail in review-3.md.
+
+| # | Location | What is wrong | Severity | Status |
+|---|---|---|---|---|
+| 5 | `.DS_Store` | Tracked junk file in the #403 diff | low | **fixed** — commit `73efbb6` removes it from the index exactly as prescribed. `git ls-files` no longer lists it; `git diff main...HEAD` only shows its removal relative to `main` (it was tracked there); working-tree copy is covered by `.gitignore:12` and `git status` is clean. |
+| 6 | `src/Client/OsirisChunkParser.php:375` | `crc32()` signed-int comparison on 32-bit PHP | nit | **not a real finding** (confirmed) — `ReadBuffer` docblocks (#458) confirm the constructor rejects 32-bit platforms via the `PHP_INT_SIZE >= 8` gate in `src/Platform.php:36`, so the CRC comparison can never execute on a 32-bit build. Rationale stands. |
+
+No new issues in `e22b2da..73efbb6` (docs-only commits plus the index deletion). Automated checks all green: composer cs (273/273 OK), composer phpstan (0 errors), phpunit unit suite (1070 tests, 8190 assertions OK). Verdict round 3: **clean** — ready to merge.
