@@ -10,3 +10,12 @@ Round 1 (2026-09-07). First review round — `findings-review.md` did not previo
 | 4 | `tests/Client/OsirisChunkParserTest.php` / `tests/Client/ConsumerTest.php` | Missing test: empty-chunk (`dataLength = 0`) CRC path; no unit test that `Consumer::__construct(verifyCrc: false)` propagates to the parser | low | **fixed** — added `testEmptyChunkCrcVerifiesOverEmptyDataSection` (0-entry chunk, `crc32('') = 0`, parses with verification on) and `testVerifyCrcFalsePropagatesToParserAndDefaultVerifies` (a CRC-corrupted chunk delivered through the registered subscriber callback: rejected under the default, accepted with `verifyCrc: false` and buffered as 1 message). |
 
 No high/medium findings. Verdict: clean.
+
+Round 2 (2026-09-07). Re-checked all four round-1 entries (1, 2, 4: **fixed**; 3: **deliberately not fixed**, rationale stands). Full detail in review-2.md. New round-2 entries:
+
+| # | Location | What is wrong | Severity | Status |
+|---|---|---|---|---|
+| 5 | `.DS_Store` (commit `0ff5132`, first seen round 2) | Unrelated macOS junk-file binary modification (6148 → 6148 bytes) is part of the #403 commit; the file is already tracked on `main` so `.gitignore` does not suppress it | low | **still present** — strip via `git rm --cached .DS_Store` before merging. Escaped round 1 because none of the automated checks (cs/phpstan/rector/phpunit) inspect the diff; a CI/pre-push lint such as `git diff --name-only main...HEAD \| grep -E '(^\|/)\.DS_Store$' && exit 1` (or a generic no-binary-junk-in-diff check) would have caught it. |
+| 6 | `src/Client/OsirisChunkParser.php:376` (first seen round 2) | `crc32()` returns a signed int on 32-bit PHP, so `!==` against the unsigned header uint32 could false-positive on a 32-bit build. Library already assumes 64-bit (see ReadBuffer comment on getUint32/getUint64 floats), so not a bug on supported targets | nit | **not a real finding** — documented portability nit; no action required for this branch. |
+
+Round-2 automated checks all green: composer cs, composer phpstan (0 errors), composer rector (no suggestions), phpunit unit suite (1070 tests, 8190 assertions OK). Wire correctness cross-checked against the Go reference client (`crc32.ChecksumIEEE` over exactly dataLength bytes). Verdict round 2: **needs fixes** (finding 5 only; source code clean).
