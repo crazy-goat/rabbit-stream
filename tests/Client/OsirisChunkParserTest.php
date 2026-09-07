@@ -103,6 +103,24 @@ class OsirisChunkParserTest extends TestCase
         iterator_to_array(OsirisChunkParser::parseMessages($corrupted), false);
     }
 
+    public function testEmptyChunkCrcVerifiesOverEmptyDataSection(): void
+    {
+        // #403 round-1 review: a chunk with dataLength = 0 has an empty data
+        // section; crc32('') = 0, and the header must declare exactly that.
+        // The chunk must parse cleanly with CRC verification on.
+        $chunk = $this->createChunk(
+            numEntries: 0,
+            numRecords: 0,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: []
+        );
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertSame([], $entries);
+    }
+
     public function testParseMultiEntryChunk(): void
     {
         $chunk = $this->createChunk(

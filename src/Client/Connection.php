@@ -527,10 +527,10 @@ class Connection implements ConnectionInterface
             superStream: $superStream,
             creditWindowBytes: $creditWindowBytes,
             maxDecodeDepth: $maxDecodeDepth,
-            verifyCrc: $verifyCrc,
             onClose: function (int $id): void {
                 unset($this->consumers[$id]);
             },
+            verifyCrc: $verifyCrc,
         );
         $this->consumers[$subscriptionId] = $consumer;
         return $consumer;

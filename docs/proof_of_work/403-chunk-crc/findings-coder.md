@@ -60,3 +60,12 @@
    tracked as #393, unrelated here, but the same "fits in 64-bit int" reasoning
    documented for `getUint32()` applies; leaving the pointer for whoever picks
    that issue up.
+
+6. **Round-1 fix note: string-offset corruption must target an in-range byte**
+   (`tests/Client/ConsumerTest.php`). The existing CRC tests corrupt `$chunk[60]`,
+   which only works for chunks longer than 61 bytes (the 'Hello World' fixture is
+   61). With `buildOneEntryChunk('X')` the chunk is 57 bytes, and PHP string
+   offset assignment past the end silently pads with spaces — the "corruption"
+   is a no-op and the test fails confusingly. `testVerifyCrcFalsePropagatesToParserAndDefaultVerifies`
+   therefore corrupts byte 52 (the single entry body). If more CRC tests are
+   added, prefer `substr_replace` or assert the chunk is actually modified.

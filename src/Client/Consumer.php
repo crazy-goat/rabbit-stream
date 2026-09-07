@@ -158,8 +158,8 @@ class Consumer implements ConsumerInterface
         private readonly ?string $superStream = null,
         private readonly int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
         private readonly int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
-        private readonly bool $verifyCrc = true,
         ?callable $onClose = null,
+        private readonly bool $verifyCrc = true,
     ) {
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
         if ($this->maxBufferSize <= 0) {
