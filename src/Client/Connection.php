@@ -505,6 +505,7 @@ class Connection implements ConnectionInterface
         ?string $superStream = null,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        bool $verifyCrc = true,
     ): ConsumerInterface {
         $subscriptionId = $this->allocateId(
             $this->subscriptionIdCursor,
@@ -526,6 +527,7 @@ class Connection implements ConnectionInterface
             superStream: $superStream,
             creditWindowBytes: $creditWindowBytes,
             maxDecodeDepth: $maxDecodeDepth,
+            verifyCrc: $verifyCrc,
             onClose: function (int $id): void {
                 unset($this->consumers[$id]);
             },
@@ -597,6 +599,7 @@ class Connection implements ConnectionInterface
         bool $singleActiveConsumer = false,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        bool $verifyCrc = true,
     ): SuperStreamConsumerInterface {
         $partitions = $this->partitions($superStream);
 
@@ -613,6 +616,7 @@ class Connection implements ConnectionInterface
                 superStream: $superStream,
                 creditWindowBytes: $creditWindowBytes,
                 maxDecodeDepth: $maxDecodeDepth,
+                verifyCrc: $verifyCrc,
             );
         }
 

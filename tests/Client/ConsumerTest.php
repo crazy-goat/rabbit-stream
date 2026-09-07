@@ -623,7 +623,7 @@ class ConsumerTest extends TestCase
         $header .= pack('J', 1000); // timestamp
         $header .= pack('J', 1); // epoch
         $header .= pack('J', 0); // chunkFirstOffset
-        $header .= pack('N', 0); // chunkCrc
+        $header .= pack('N', crc32($dataSection)); // chunkCrc
         $header .= pack('N', $dataLength); // dataLength
         $header .= pack('N', 0); // trailerLength
         $header .= pack('C', 0); // bloomSize
