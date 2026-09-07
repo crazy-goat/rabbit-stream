@@ -1,0 +1,30 @@
+# #403 Chunk CRC — findings review (reviewer)
+
+Round 1 (2026-09-07). First review round — `findings-review.md` did not previously exist; no earlier findings to re-check. Entries below are new findings from review-1.md.
+
+| # | Location | What is wrong | Severity | Status |
+|---|---|---|---|---|
+| 1 | `docs/en/advanced/osiris-chunk-format.md:35` | Chunk header Bytes 32-35 documented as "Reserved (int32)"; it is the `chunkCrc` field, now verified — doc outdated | low | **fixed** — layout updated to "Chunk CRC (uint32, CRC-32 of the data section)" plus a new "Chunk CRC (Bytes 32-35)" detail section. Grepped `docs/en` for other references to bytes 32-35 / "Reserved (int32)": no other page documents the chunk header layout, so this was the only occurrence. |
+| 2 | `src/Client/Consumer.php:141-166` | `$verifyCrc` inserted before `$onClose` breaks positional callers passing `onClose` (nit; matches existing maxDecodeDepth pattern; options-object debt already tracked in findings-coder.md) | nit | **fixed** — reordered to `?callable $onClose = null` before `private readonly bool $verifyCrc = true`. Both have defaults, so named-argument callers are unaffected and positional `onClose` callers work again; `$verifyCrc` is new on this branch so no released positional caller of it exists. |
+| 3 | `src/Client/OsirisChunkParser.php:370-384` | `crc32(substr(...))` adds one full data-section copy per chunk on the hot path when verification is on (default); acknowledged in code-decision-1.md | low | **deliberately not fixed** — accepted cost with rationale: PHP's `crc32()` operates on a string, and the parser deliberately reads the entry loop straight out of the frame buffer with an absolute cursor (#484, no intermediate buffer object) — there is no existing string slice to hand `crc32()` without a copy. Avoiding it would require a chunked/incremental CRC over the cursor reads, which complicates the hottest, most performance-sensitive loop in the library for a single pass over already-allocated bytes (no extra allocation beyond the transient copy, which is refcount-shared from the frame buffer in practice). Revisit only if profiling shows CRC verification mattering on real workloads; operators can already opt out via `verifyCrc: false`. |
+| 4 | `tests/Client/OsirisChunkParserTest.php` / `tests/Client/ConsumerTest.php` | Missing test: empty-chunk (`dataLength = 0`) CRC path; no unit test that `Consumer::__construct(verifyCrc: false)` propagates to the parser | low | **fixed** — added `testEmptyChunkCrcVerifiesOverEmptyDataSection` (0-entry chunk, `crc32('') = 0`, parses with verification on) and `testVerifyCrcFalsePropagatesToParserAndDefaultVerifies` (a CRC-corrupted chunk delivered through the registered subscriber callback: rejected under the default, accepted with `verifyCrc: false` and buffered as 1 message). |
+
+No high/medium findings. Verdict: clean.
+
+Round 2 (2026-09-07). Re-checked all four round-1 entries (1, 2, 4: **fixed**; 3: **deliberately not fixed**, rationale stands). Full detail in review-2.md. New round-2 entries:
+
+| # | Location | What is wrong | Severity | Status |
+|---|---|---|---|---|
+| 5 | `.DS_Store` (commit `0ff5132`, first seen round 2) | Unrelated macOS junk-file binary modification (6148 → 6148 bytes) is part of the #403 commit; the file is already tracked on `main` so `.gitignore` does not suppress it | low | **still present** — strip via `git rm --cached .DS_Store` before merging. Escaped round 1 because none of the automated checks (cs/phpstan/rector/phpunit) inspect the diff; a CI/pre-push lint such as `git diff --name-only main...HEAD \| grep -E '(^\|/)\.DS_Store$' && exit 1` (or a generic no-binary-junk-in-diff check) would have caught it. |
+| 6 | `src/Client/OsirisChunkParser.php:376` (first seen round 2) | `crc32()` returns a signed int on 32-bit PHP, so `!==` against the unsigned header uint32 could false-positive on a 32-bit build. Library already assumes 64-bit (see ReadBuffer comment on getUint32/getUint64 floats), so not a bug on supported targets | nit | **not a real finding** — documented portability nit; no action required for this branch. |
+
+Round-2 automated checks all green: composer cs, composer phpstan (0 errors), composer rector (no suggestions), phpunit unit suite (1070 tests, 8190 assertions OK). Wire correctness cross-checked against the Go reference client (`crc32.ChecksumIEEE` over exactly dataLength bytes). Verdict round 2: **needs fixes** (finding 5 only; source code clean).
+
+Round 3 (2026-09-07). Confirmation round — re-verified both round-2 entries; full detail in review-3.md.
+
+| # | Location | What is wrong | Severity | Status |
+|---|---|---|---|---|
+| 5 | `.DS_Store` | Tracked junk file in the #403 diff | low | **fixed** — commit `73efbb6` removes it from the index exactly as prescribed. `git ls-files` no longer lists it; `git diff main...HEAD` only shows its removal relative to `main` (it was tracked there); working-tree copy is covered by `.gitignore:12` and `git status` is clean. |
+| 6 | `src/Client/OsirisChunkParser.php:375` | `crc32()` signed-int comparison on 32-bit PHP | nit | **not a real finding** (confirmed) — `ReadBuffer` docblocks (#458) confirm the constructor rejects 32-bit platforms via the `PHP_INT_SIZE >= 8` gate in `src/Platform.php:36`, so the CRC comparison can never execute on a 32-bit build. Rationale stands. |
+
+No new issues in `e22b2da..73efbb6` (docs-only commits plus the index deletion). Automated checks all green: composer cs (273/273 OK), composer phpstan (0 errors), phpunit unit suite (1070 tests, 8190 assertions OK). Verdict round 3: **clean** — ready to merge.

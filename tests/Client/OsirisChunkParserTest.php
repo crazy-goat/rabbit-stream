@@ -35,6 +35,92 @@ class OsirisChunkParserTest extends TestCase
         $this->assertSame(1234567890, $entries[0]->getTimestamp());
     }
 
+    public function testCorruptedChunkCrcThrowsDeserializationExceptionNamingFirstOffset(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 42,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello World'],
+            ]
+        );
+
+        // Corrupt one byte inside the data section (past the 48-byte header),
+        // leaving the header — and its declared CRC — untouched.
+        $corrupted = $chunk;
+        $corrupted[60] = $corrupted[60] === 'X' ? 'Y' : 'X';
+
+        try {
+            OsirisChunkParser::parse($corrupted);
+            $this->fail('Expected DeserializationException for a corrupted chunk CRC');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('CRC mismatch', $e->getMessage());
+            $this->assertStringContainsString('offset 42', $e->getMessage());
+        }
+    }
+
+    public function testCrcVerificationCanBeDisabled(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 7,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello World'],
+            ]
+        );
+
+        $corrupted = $chunk;
+        $corrupted[60] = $corrupted[60] === 'X' ? 'Y' : 'X';
+
+        $entries = OsirisChunkParser::parse($corrupted, verifyCrc: false);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame(7, $entries[0]->getOffset());
+    }
+
+    public function testParseMessagesAlsoVerifiesChunkCrc(): void
+    {
+        $chunk = $this->createChunk(
+            numEntries: 1,
+            numRecords: 1,
+            timestamp: 1234567890,
+            chunkFirstOffset: 9,
+            entries: [
+                ['type' => 'simple', 'data' => 'Hello World'],
+            ]
+        );
+
+        $corrupted = $chunk;
+        $corrupted[60] = $corrupted[60] === 'X' ? 'Y' : 'X';
+
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('CRC mismatch');
+
+        iterator_to_array(OsirisChunkParser::parseMessages($corrupted), false);
+    }
+
+    public function testEmptyChunkCrcVerifiesOverEmptyDataSection(): void
+    {
+        // #403 round-1 review: a chunk with dataLength = 0 has an empty data
+        // section; crc32('') = 0, and the header must declare exactly that.
+        // The chunk must parse cleanly with CRC verification on.
+        $chunk = $this->createChunk(
+            numEntries: 0,
+            numRecords: 0,
+            timestamp: 1234567890,
+            chunkFirstOffset: 0,
+            entries: []
+        );
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertSame([], $entries);
+    }
+
     public function testParseMultiEntryChunk(): void
     {
         $chunk = $this->createChunk(
@@ -379,7 +465,10 @@ class OsirisChunkParserTest extends TestCase
             ]
         );
         $chunk = substr_replace($chunk, pack('n', 5), 49, 2); // numRecords in sub-batch header
-        OsirisChunkParser::parse($chunk);
+        // The mutation above is deliberate (it is the case under test), so the
+        // data section no longer matches the CRC computed at build time — CRC
+        // verification is disabled to reach the sub-batch validation itself.
+        OsirisChunkParser::parse($chunk, verifyCrc: false);
     }
 
     public function testSubBatchUncompressedSizeCannotHoldRecordsThrowsException(): void
@@ -403,7 +492,9 @@ class OsirisChunkParserTest extends TestCase
         // uncompressedSize field at 51..54 (48-byte chunk header + 1 entry-type
         // byte + 2 bytes of sub-batch numRecords).
         $chunk = substr_replace($chunk, pack('N', 4), 51, 4);
-        OsirisChunkParser::parse($chunk);
+        // Deliberate mutation (the case under test) invalidates the build-time
+        // CRC — verification is disabled to reach the sub-batch validation.
+        OsirisChunkParser::parse($chunk, verifyCrc: false);
     }
 
     public function testCustomMaxEntriesPerChunkAboveDefaultParsesLargerChunk(): void
@@ -558,7 +649,7 @@ class OsirisChunkParserTest extends TestCase
         $header .= pack('J', 1234567890);                            // timestamp
         $header .= pack('J', 1);                                     // epoch
         $header .= pack('J', 0);                                     // chunkFirstOffset
-        $header .= pack('N', 0);                                     // chunkCrc
+        $header .= pack('N', crc32($dataSection));                   // chunkCrc
         $header .= pack('N', strlen($dataSection));                  // dataLength
         $header .= pack('N', 0);                                     // trailerLength
         $header .= pack('C', 0);                                     // bloomSize
@@ -621,7 +712,7 @@ class OsirisChunkParserTest extends TestCase
         $header .= pack('J', $timestamp);
         $header .= pack('J', 1);
         $header .= pack('J', $chunkFirstOffset);
-        $header .= pack('N', 0);
+        $header .= pack('N', crc32($dataSection));
         $header .= pack('N', $dataLength);
         $header .= pack('N', $trailerLength);
         $header .= pack('C', 0);   // BloomSize (uint8)

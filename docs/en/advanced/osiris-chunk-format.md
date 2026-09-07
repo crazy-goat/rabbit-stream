@@ -30,7 +30,7 @@ The `OsirisChunkParser` class decodes these chunks into `ChunkEntry` objects.
 │  Bytes 8-15 │ Timestamp (int64)                              │
 │  Bytes 16-23│ Reserved (uint64)                              │
 │  Bytes 24-31│ Chunk First Offset (uint64)                    │
-│  Bytes 32-35│ Reserved (int32)                               │
+│  Bytes 32-35│ Chunk CRC (uint32, CRC-32 of the data section)  │
 │  Bytes 36-39│ Reserved (uint32)                              │
 │  Bytes 40-43│ Reserved (uint32)                              │
 │  Byte 44    │ Reserved (uint8)                               │
@@ -73,6 +73,13 @@ Example: 0x50 = Magic 5, Version 0
 **Chunk First Offset (Bytes 24-31):**
 - Unsigned 64-bit integer
 - Offset of the first message in this chunk
+
+**Chunk CRC (Bytes 32-35):**
+- Unsigned 32-bit integer
+- CRC-32 of the data section that follows the header (the same standard
+  CRC-32 as `erlang:crc32` / PHP's `crc32()`)
+- Verified by `OsirisChunkParser` on every delivered chunk since #403;
+  see the `verifyCrc` option on `Consumer` to disable it
 
 ## Entry Types
 

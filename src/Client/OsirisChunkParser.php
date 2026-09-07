@@ -75,18 +75,27 @@ class OsirisChunkParser
      *                     (e.g. a whole Deliver frame) without copying it out first.
      * @param ?int $length Chunk length; defaults to everything from $offset to the end
      *                     of $chunkBytes.
+     * @param bool $verifyCrc Whether the chunk's CRC-32 is verified against its data
+     *                        section (default true). Disable only in throughput-
+     *                        critical deployments that accept the risk of silently
+     *                        consuming corrupted chunks.
      * @return ChunkEntry[]
      * @throws DeserializationException If the chunk violates the declared sizes, declares
-     *                                  implausible record counts, or exceeds the entry ceiling
+     *                                  implausible record counts, exceeds the entry ceiling,
+     *                                  or fails CRC verification
      * @throws InvalidArgumentException If $maxEntriesPerChunk is less than 1
      */
     public static function parse(
         string $chunkBytes,
         int $maxEntriesPerChunk = self::DEFAULT_MAX_ENTRIES_PER_CHUNK,
         int $offset = 0,
-        ?int $length = null
+        ?int $length = null,
+        bool $verifyCrc = true
     ): array {
-        return iterator_to_array(self::parseEntries($chunkBytes, $maxEntriesPerChunk, $offset, $length), false);
+        return iterator_to_array(
+            self::parseEntries($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc),
+            false
+        );
     }
 
     /**
@@ -98,6 +107,7 @@ class OsirisChunkParser
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
      * @param ?int $length See parse().
+     * @param bool $verifyCrc See parse().
      * @return \Generator<int, ChunkEntry>
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
@@ -106,9 +116,10 @@ class OsirisChunkParser
         string $chunkBytes,
         int $maxEntriesPerChunk = self::DEFAULT_MAX_ENTRIES_PER_CHUNK,
         int $offset = 0,
-        ?int $length = null
+        ?int $length = null,
+        bool $verifyCrc = true
     ): \Generator {
-        $entries = self::parseRaw($chunkBytes, $maxEntriesPerChunk, $offset, $length);
+        $entries = self::parseRaw($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc);
         foreach ($entries as [$entryOffset, $data, $timestamp]) {
             yield new ChunkEntry($entryOffset, $data, $timestamp);
         }
@@ -134,6 +145,7 @@ class OsirisChunkParser
      *                        yielded Message (see {@see Message::getStream()}); null when unknown.
      * @param int $maxDepth Maximum AMQP nesting depth accepted when a yielded Message is
      *                        decoded; carried on each Message because that decode is lazy (#450).
+     * @param bool $verifyCrc See parse().
      * @return \Generator<int, Message>
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
@@ -145,8 +157,9 @@ class OsirisChunkParser
         ?int $length = null,
         ?string $stream = null,
         int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        bool $verifyCrc = true,
     ): \Generator {
-        $views = self::parseRawViews($chunkBytes, $maxEntriesPerChunk, $offset, $length);
+        $views = self::parseRawViews($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc);
         foreach ($views as [$entryOffset, $timestamp, $start, $len]) {
             yield Message::fromChunkView($entryOffset, $timestamp, $chunkBytes, $start, $len, $stream, $maxDepth);
         }
@@ -163,6 +176,7 @@ class OsirisChunkParser
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
      * @param ?int $length See parse().
+     * @param bool $verifyCrc See parse().
      * @return \Generator<int, array{0: int, 1: string, 2: int}>
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
@@ -171,10 +185,11 @@ class OsirisChunkParser
         string $chunkBytes,
         int $maxEntriesPerChunk,
         int $offset = 0,
-        ?int $length = null
+        ?int $length = null,
+        bool $verifyCrc = true
     ): \Generator {
         [$numEntries, $timestamp, $chunkFirstOffset, $pos, $dataEnd] =
-            self::parseChunkHeader($chunkBytes, $maxEntriesPerChunk, $offset, $length);
+            self::parseChunkHeader($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc);
 
         $entryCount = 0;
         $currentOffset = $chunkFirstOffset;
@@ -262,6 +277,7 @@ class OsirisChunkParser
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
      * @param ?int $length See parse().
+     * @param bool $verifyCrc See parse().
      * @return array{0: int, 1: int, 2: int, 3: int, 4: int} [numEntries, timestamp,
      *         chunkFirstOffset, pos (absolute start of the data section), dataEnd
      *         (absolute end of the data section)]
@@ -272,7 +288,8 @@ class OsirisChunkParser
         string $chunkBytes,
         int $maxEntriesPerChunk,
         int $offset = 0,
-        ?int $length = null
+        ?int $length = null,
+        bool $verifyCrc = true
     ): array {
         if ($maxEntriesPerChunk < 1) {
             throw new InvalidArgumentException('maxEntriesPerChunk must be at least 1');
@@ -307,7 +324,7 @@ class OsirisChunkParser
         $timestamp = $buffer->getInt64();        // Chunk timestamp
         $buffer->getUint64();                     // epoch
         $chunkFirstOffset = $buffer->getUint64();  // First offset in chunk
-        $buffer->getInt32();                      // chunkCrc
+        $chunkCrc = $buffer->getUint32();          // CRC-32 of the data section
         $dataLength = $buffer->getUint32();      // Size of the data (entries) section
         $buffer->getUint32();                     // trailerLength — informational only (see class docblock)
         $buffer->getUint8();                      // bloomSize — informational only (see class docblock)
@@ -350,6 +367,22 @@ class OsirisChunkParser
         // this loop runs once per message rather than once per chunk (#484).
         $dataEnd = $headerSize + $dataLength;
 
+        // CRC-32 (the same standard CRC-32 as erlang:crc32) over exactly the
+        // dataLength bytes of the data section, compared with the value the
+        // header declares. Runs only after the bounds check above, so the
+        // substr() below can never read past the received bytes.
+        if ($verifyCrc) {
+            $computedCrc = crc32(substr($chunkBytes, $headerSize, $dataLength));
+            if ($computedCrc !== $chunkCrc) {
+                throw new DeserializationException(sprintf(
+                    'Chunk CRC mismatch at offset %d: computed 0x%08x but the chunk header declares 0x%08x',
+                    $chunkFirstOffset,
+                    $computedCrc,
+                    $chunkCrc
+                ));
+            }
+        }
+
         return [$numEntries, $timestamp, $chunkFirstOffset, $headerSize, $dataEnd];
     }
 
@@ -365,6 +398,7 @@ class OsirisChunkParser
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
      * @param ?int $length See parse().
+     * @param bool $verifyCrc See parse().
      * @return \Generator<int, array{0: int, 1: int, 2: int, 3: int}>
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
@@ -373,10 +407,11 @@ class OsirisChunkParser
         string $chunkBytes,
         int $maxEntriesPerChunk,
         int $offset = 0,
-        ?int $length = null
+        ?int $length = null,
+        bool $verifyCrc = true
     ): \Generator {
         [$numEntries, $timestamp, $chunkFirstOffset, $pos, $dataEnd] =
-            self::parseChunkHeader($chunkBytes, $maxEntriesPerChunk, $offset, $length);
+            self::parseChunkHeader($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc);
 
         $entryCount = 0;
         $currentOffset = $chunkFirstOffset;

@@ -623,13 +623,64 @@ class ConsumerTest extends TestCase
         $header .= pack('J', 1000); // timestamp
         $header .= pack('J', 1); // epoch
         $header .= pack('J', 0); // chunkFirstOffset
-        $header .= pack('N', 0); // chunkCrc
+        $header .= pack('N', crc32($dataSection)); // chunkCrc
         $header .= pack('N', $dataLength); // dataLength
         $header .= pack('N', 0); // trailerLength
         $header .= pack('C', 0); // bloomSize
         $header .= "\x00\x00\x00"; // reserved
 
         return $header . $dataSection;
+    }
+
+    public function testVerifyCrcFalsePropagatesToParserAndDefaultVerifies(): void
+    {
+        // #403 round-1 review: Consumer(verifyCrc: ...) must reach the chunk
+        // parser used inside the deliver callback.
+        $chunkBytes = $this->buildOneEntryChunk('X');
+        // Corrupt one byte inside the data section (past the 48-byte header,
+        // within the single 'X' entry body), leaving the header — and its
+        // declared CRC — untouched.
+        $corrupted = $chunkBytes;
+        $corrupted[52] = $corrupted[52] === 'X' ? 'Y' : 'X';
+
+        // Default (verifyCrc on): the deliver callback throws on the corrupted chunk.
+        $registeredCallback = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$registeredCallback): void {
+                $registeredCallback = $cb;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $this->assertIsCallable($registeredCallback);
+
+        try {
+            $registeredCallback($this->deliverOf($corrupted));
+            $this->fail('Expected the default consumer to reject a CRC-corrupted chunk');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('CRC mismatch', $e->getMessage());
+        }
+
+        // verifyCrc: false: the same corrupted chunk is accepted.
+        $permissiveCallback = null;
+        $connection2 = $this->createMock(StreamConnection::class);
+        $connection2->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$permissiveCallback): void {
+                $permissiveCallback = $cb;
+            });
+        $connection2->expects($this->any())->method('sendMessage');
+        $connection2->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $consumer = new Consumer($connection2, 'test-stream', 1, OffsetSpec::first(), verifyCrc: false);
+        $this->assertIsCallable($permissiveCallback);
+        $permissiveCallback($this->deliverOf($corrupted));
+
+        $unreadCount = (new \ReflectionProperty($consumer, 'unreadCount'))->getValue($consumer);
+        $this->assertSame(1, $unreadCount, 'verifyCrc: false must let the corrupted chunk through');
     }
 
     public function testNoCreditGrantedWhileUnreadCountAtOrOverMaxBufferSize(): void

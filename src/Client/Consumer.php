@@ -137,6 +137,11 @@ class Consumer implements ConsumerInterface
      *                            only for a producer that legitimately nests deeper, and
      *                            keep in mind that a deeply nested frame costs one PHP
      *                            stack frame per level.
+     * @param bool $verifyCrc Whether every delivered chunk's CRC-32 is verified
+     *                            against its data section (#403). On by default;
+     *                            disable only in throughput-critical deployments
+     *                            that accept the risk of silently consuming
+     *                            corrupted chunks.
      */
     public function __construct(
         private readonly StreamConnection $connection,
@@ -154,6 +159,7 @@ class Consumer implements ConsumerInterface
         private readonly int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
         private readonly int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         ?callable $onClose = null,
+        private readonly bool $verifyCrc = true,
     ) {
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
         if ($this->maxBufferSize <= 0) {
@@ -388,6 +394,7 @@ class Consumer implements ConsumerInterface
                     length: $chunkLength,
                     stream: $this->stream,
                     maxDepth: $this->maxDecodeDepth,
+                    verifyCrc: $this->verifyCrc,
                 );
                 foreach ($messages as $message) {
                     $this->buffer[] = $message;
