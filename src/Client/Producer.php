@@ -404,14 +404,26 @@ class Producer implements ProducerInterface
      */
     private function drainPendingConfirms(): void
     {
-        $deadline = microtime(true) + self::CLOSE_CONFIRM_DRAIN_TIMEOUT;
+        // Bounded drain: leftover confirms after the timeout are simply lost.
+        $this->drainUntilZero(self::CLOSE_CONFIRM_DRAIN_TIMEOUT);
+    }
+
+    /**
+     * Run readLoop() until pendingConfirms reaches 0 or the deadline expires.
+     * Returns true when drained, false on timeout.
+     */
+    private function drainUntilZero(float $timeout): bool
+    {
+        $deadline = microtime(true) + $timeout;
         while ($this->pendingConfirms > 0) {
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
-                break;
+                return false;
             }
             $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
         }
+
+        return true;
     }
 
     /** Whether close() has already run. */
@@ -426,15 +438,7 @@ class Producer implements ProducerInterface
             return;
         }
 
-        $deadline = microtime(true) + $timeout;
-        while ($this->pendingConfirms > 0) {
-            $remaining = $deadline - microtime(true);
-            if ($remaining <= 0) {
-                break;
-            }
-            $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
-        }
-        if ($this->pendingConfirms > 0) {
+        if (!$this->drainUntilZero($timeout)) {
             throw new TimeoutException(
                 "Timed out waiting for {$this->pendingConfirms} publish confirms"
             );
