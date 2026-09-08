@@ -10,6 +10,7 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
@@ -31,7 +32,7 @@ class ConsumerUpdateReplyV1 implements
         private int $offset,
     ) {
         if ($offsetType < 0 || $offsetType > OffsetSpec::TYPE_TIMESTAMP) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "Invalid offset type {$offsetType}: expected 0-5 (none/first/last/next/offset/timestamp)"
             );
         }

@@ -6,3 +6,8 @@
 - `src/Request/ConsumerUpdateReplyV1.php:57` | `toArray()` reports offset for value-less types | nit | **FIXED** — `toArray()` now returns `null` for value-less offset types; covered by `testToArrayOmitsOffsetForValuelessTypes`.
 - `src/VO/OffsetSpec.php:87-91` | value emission keyed on `value !== null`, not type (same bug class as #470) | low | **NOT FIXED (out of scope)** — pre-existing, adjacent file; candidate for a follow-up issue.
 - `src/Request/ConsumerUpdateReplyV1.php:44` | timestamp serialized as uint64, spec says int64 | nit | **NOT FIXED (by design)** — pre-existing behaviour shared with Subscribe/OffsetSpec; epoch-ms is never negative in practice. Candidate follow-up if strict conformance is wanted.
+
+## Round 2
+
+- `src/Request/ConsumerUpdateReplyV1.php:34` | round-1 fix used global `\InvalidArgumentException` instead of the library's custom exception (convention since #242) | low | **FIXED** — now throws `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`; test updated; all checks green.
+

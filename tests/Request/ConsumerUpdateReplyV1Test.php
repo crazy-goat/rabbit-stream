@@ -141,7 +141,7 @@ class ConsumerUpdateReplyV1Test extends TestCase
     {
         // Review round 1 finding: the constructor silently accepted offset
         // types outside 0-5, serializing a protocol violation.
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
         new ConsumerUpdateReplyV1(responseCode: 0x0001, offsetType: 99, offset: 0);
     }
 }
