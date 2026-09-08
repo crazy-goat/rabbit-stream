@@ -62,8 +62,7 @@ class PublishedMessageV2 implements ToStreamBufferInterface, ToArrayInterface
             );
         }
 
-        return pack('J', $this->publishingId)
-            . pack('n', $filterLength) . $this->filterValue
+        return pack('Jn', $this->publishingId, $filterLength) . $this->filterValue
             . pack('N', $length) . $this->message;
     }
 
