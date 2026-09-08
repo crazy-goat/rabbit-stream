@@ -174,15 +174,15 @@ class StreamConnectionTest extends TestCase
         // The size is followed by the 2-byte key (0x0014, an arbitrary non-Deliver
         // key) since readFrame() now reads size + key before deciding which cap
         // (maxFrameSize vs maxDeliverFrameSize) applies.
-        socket_write($serverSocket, pack('N', $frameSize) . pack('n', 0x0014));
+        fwrite($serverSocket, pack('N', $frameSize) . pack('n', 0x0014));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed \d+/');
 
         $connection->readFrame();
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testReadFrameClosesConnectionWhenFrameSizeExceedsLimit(): void
@@ -194,7 +194,7 @@ class StreamConnectionTest extends TestCase
 
         $connection->setMaxFrameSize(1024);
 
-        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0014));
+        fwrite($serverSocket, pack('N', 2048) . pack('n', 0x0014));
 
         try {
             $connection->readFrame();
@@ -203,7 +203,7 @@ class StreamConnectionTest extends TestCase
 
         $this->assertFalse($connection->isConnected());
 
-        socket_close($serverSocket);
+        fclose($serverSocket);
     }
 
     public function testReadFrameWithZeroMaxFrameSizeAllowsAnyFrame(): void
@@ -216,14 +216,14 @@ class StreamConnectionTest extends TestCase
         $connection->setMaxFrameSize(0);
 
         $payload = str_repeat('x', 100);
-        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+        fwrite($serverSocket, pack('N', strlen($payload)) . $payload);
 
         $buffer = $connection->readFrame();
 
         $this->assertNotNull($buffer);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     // ---- Deliver frame cap tests (broker does not enforce frame_max on Deliver) ----
@@ -284,15 +284,15 @@ class StreamConnectionTest extends TestCase
         // frame_max.
         $content = str_repeat('x', 1000);
         $frame = $this->buildFrame(0x0008, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $buffer = $connection->readFrame();
 
         $this->assertNotNull($buffer);
         $this->assertEquals(0x0008, $buffer->peekUint16());
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testReadFrameRejectsDeliverFrameExceedingMaxDeliverFrameSize(): void
@@ -306,15 +306,15 @@ class StreamConnectionTest extends TestCase
 
         // size (2048) + key (0x0008 = Deliver); no further payload needed since
         // the cap is enforced right after the key is read.
-        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0008));
+        fwrite($serverSocket, pack('N', 2048) . pack('n', 0x0008));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed 1024/');
 
         $connection->readFrame();
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testReadFrameNonDeliverFrameStillUsesMaxFrameSize(): void
@@ -329,15 +329,15 @@ class StreamConnectionTest extends TestCase
 
         // A non-Deliver frame (0x0014) exceeding maxFrameSize must still be
         // rejected, even though maxDeliverFrameSize is much larger.
-        socket_write($serverSocket, pack('N', 2048) . pack('n', 0x0014));
+        fwrite($serverSocket, pack('N', 2048) . pack('n', 0x0014));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/Frame size \d+ exceeds maximum allowed 1024/');
 
         $connection->readFrame();
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     // ---- Outgoing frame cap tests (fail fast on oversized outgoing frames) ----
@@ -389,12 +389,16 @@ class StreamConnectionTest extends TestCase
             // must stay connected/usable — this is a fail-fast validation error,
             // not a socket failure.
             $this->assertTrue($connection->isConnected());
-            socket_set_nonblock($serverSocket);
-            $this->assertFalse(@socket_read($serverSocket, 1), 'no bytes should have been written to the socket');
+            stream_set_blocking($serverSocket, false);
+            $chunk = @fread($serverSocket, 1);
+            $this->assertTrue(
+                $chunk === false || $chunk === '',
+                'no bytes should have been written to the socket'
+            );
         }
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testSendFrameAllowsFrameWithinOutgoingMaxFrameSize(): void
@@ -412,8 +416,8 @@ class StreamConnectionTest extends TestCase
 
         $this->assertEquals(strlen($frame), $written);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testSendFrameAllowsAnyFrameWhenOutgoingMaxFrameSizeIsZero(): void
@@ -433,8 +437,8 @@ class StreamConnectionTest extends TestCase
 
         $this->assertEquals(strlen($frame), $written);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testSendMessageDoesNotIncrementCorrelationIdForNonCorrelatedRequests(): void
@@ -466,8 +470,8 @@ class StreamConnectionTest extends TestCase
             );
         }
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testSendMessageIncrementsCorrelationIdForCorrelatedRequests(): void
@@ -492,8 +496,8 @@ class StreamConnectionTest extends TestCase
             'Correlated request should increment correlationId'
         );
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testRequestParksResponsesOfOtherCorrelationIds(): void
@@ -505,8 +509,8 @@ class StreamConnectionTest extends TestCase
 
         // Server answers out of order: correlation 2 first, then correlation 1
         // (the one request() below is waiting for).
-        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
-        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
 
         $response = $connection->request(new CreateRequestV1('a'), 1.0);
         $this->assertInstanceOf(CreateResponseV1::class, $response);
@@ -517,8 +521,8 @@ class StreamConnectionTest extends TestCase
         $this->assertInstanceOf(CreateResponseV1::class, $parked);
         $this->assertSame(2, $parked->getCorrelationId());
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testRequestSkipsUnsolicitedCreditErrorResponse(): void
@@ -531,15 +535,15 @@ class StreamConnectionTest extends TestCase
         // A Credit error (0x8009: response code + subscription id, no correlation
         // ID) arrives while request() waits for correlation 1: it is not our
         // reply and must be skipped, not returned as the response.
-        socket_write($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
-        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
 
         $response = $connection->request(new CreateRequestV1('a'), 1.0);
         $this->assertInstanceOf(CreateResponseV1::class, $response);
         $this->assertSame(1, $response->getCorrelationId());
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testNestedRequestFromConsumerUpdateHandlerDoesNotStealOuterResponse(): void
@@ -553,9 +557,9 @@ class StreamConnectionTest extends TestCase
         // for its SubscribeResponse (correlation 1), the broker pushes a
         // ConsumerUpdate, whose handler issues its own request() (correlation 2).
         // The server then answers 1 before 2.
-        socket_write($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
-        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
-        socket_write($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
 
         $inner = null;
         $connection->registerConsumerUpdateHandler(1, function () use ($connection, &$inner): OffsetSpec {
@@ -588,7 +592,7 @@ class StreamConnectionTest extends TestCase
         });
 
         $frame = $this->buildFrame(0x0017, 1);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -600,8 +604,8 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpacked);
         $this->assertEquals(0x0017, $unpacked[1]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchHeartbeatWithoutCallbackDoesNotCrash(): void
@@ -612,15 +616,15 @@ class StreamConnectionTest extends TestCase
         $this->injectSocket($connection, $clientSocket);
 
         $frame = $this->buildFrame(0x0017, 1);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $response = $this->readResponse($serverSocket);
         $this->assertNotNull($response);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchPublishConfirmInvokesRegisteredCallback(): void
@@ -645,14 +649,14 @@ class StreamConnectionTest extends TestCase
             . pack('J', 100)
             . pack('J', 200);
         $frame = $this->buildFrame(0x0003, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $this->assertEquals([100, 200], $receivedIds);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchPublishConfirmIgnoresUnregisteredPublisher(): void
@@ -676,14 +680,14 @@ class StreamConnectionTest extends TestCase
             . pack('N', 1)
             . pack('J', 100);
         $frame = $this->buildFrame(0x0003, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $this->assertEquals(0, $invokedCount);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchPublishErrorInvokesRegisteredCallback(): void
@@ -708,7 +712,7 @@ class StreamConnectionTest extends TestCase
             . pack('J', 50)
             . pack('n', 0x0002);
         $frame = $this->buildFrame(0x0004, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -717,8 +721,8 @@ class StreamConnectionTest extends TestCase
         $this->assertEquals(50, $receivedErrors[0]->getPublishingId());
         $this->assertEquals(0x0002, $receivedErrors[0]->getCode());
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchPublishErrorIgnoresUnregisteredPublisher(): void
@@ -743,14 +747,14 @@ class StreamConnectionTest extends TestCase
             . pack('J', 50)
             . pack('n', 0x0002);
         $frame = $this->buildFrame(0x0004, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $this->assertFalse($callbackInvoked);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchDeliverInvokesRegisteredSubscriberCallback(): void
@@ -768,7 +772,7 @@ class StreamConnectionTest extends TestCase
         $chunkData = 'test-chunk-data';
         $content = pack('C', 7) . $chunkData;
         $frame = $this->buildFrame(0x0008, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -776,8 +780,8 @@ class StreamConnectionTest extends TestCase
         $this->assertEquals(7, $receivedDeliver->getSubscriptionId());
         $this->assertEquals($chunkData, $receivedDeliver->getChunkBytes());
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testReadLoopDiscardsNonServerPushFrameAndCountsTowardMaxFrames(): void
@@ -790,7 +794,7 @@ class StreamConnectionTest extends TestCase
         // Feed a CreditResponse (0x8009, non-server-push frame)
         $content = pack('N', 1) . pack('n', 0x0001);
         $frame = $this->buildFrame(0x8009, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $start = microtime(true);
         $dispatched = $connection->readLoop(maxFrames: 1, timeout: 5.0);
@@ -799,8 +803,8 @@ class StreamConnectionTest extends TestCase
         $this->assertEquals(1, $dispatched);
         $this->assertLessThan(2.0, $elapsed);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchDeliverIgnoresUnregisteredSubscription(): void
@@ -818,14 +822,14 @@ class StreamConnectionTest extends TestCase
         $chunkData = 'test-chunk-data';
         $content = pack('C', 99) . $chunkData;
         $frame = $this->buildFrame(0x0008, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $this->assertFalse($callbackInvoked);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchServerCloseSendsResponseAndClosesConnection(): void
@@ -843,7 +847,7 @@ class StreamConnectionTest extends TestCase
             . pack('n', strlen($reason))
             . $reason;
         $frame = $this->buildFrame(0x0016, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -855,7 +859,7 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpacked);
         $this->assertEquals(0x8016, $unpacked[1]);
 
-        socket_close($serverSocket);
+        fclose($serverSocket);
     }
 
     public function testDispatchMetadataUpdateInvokesRegisteredCallback(): void
@@ -874,7 +878,7 @@ class StreamConnectionTest extends TestCase
             . pack('n', 11)
             . 'test-stream';
         $frame = $this->buildFrame(0x0010, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -882,8 +886,8 @@ class StreamConnectionTest extends TestCase
         $this->assertEquals(0x0002, $receivedUpdate->getCode());
         $this->assertEquals('test-stream', $receivedUpdate->getStream());
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchMetadataUpdateWithoutCallbackDoesNotCrash(): void
@@ -898,13 +902,13 @@ class StreamConnectionTest extends TestCase
             . pack('n', 11)
             . 'test-stream';
         $frame = $this->buildFrame(0x0010, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         // Should not throw or crash
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchConsumerUpdateInvokesCallbackAndSendsReply(): void
@@ -927,7 +931,7 @@ class StreamConnectionTest extends TestCase
             . pack('C', $subscriptionId)
             . pack('C', $active);
         $frame = $this->buildFrame(0x001a, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -945,8 +949,8 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpackedCorr);
         $this->assertEquals($correlationId, $unpackedCorr[1]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchConsumerUpdateWithoutCallbackSendsDefaultReply(): void
@@ -963,7 +967,7 @@ class StreamConnectionTest extends TestCase
             . pack('C', $subscriptionId)
             . pack('C', $active);
         $frame = $this->buildFrame(0x001a, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -991,8 +995,8 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpackedOffset);
         $this->assertEquals(0, $unpackedOffset[1]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testDispatchConsumerUpdateRejectsInvalidOffsetTypeFromCallback(): void
@@ -1011,13 +1015,13 @@ class StreamConnectionTest extends TestCase
             . pack('C', $subscriptionId)
             . pack('C', $active);
         $frame = $this->buildFrame(0x001a, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testPerSubscriptionConsumerUpdateHandlerTakesPriorityOverGlobalCallback(): void
@@ -1049,7 +1053,7 @@ class StreamConnectionTest extends TestCase
             . pack('C', $subscriptionId)
             . pack('C', $active);
         $frame = $this->buildFrame(0x001a, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -1065,8 +1069,8 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpackedOffset);
         $this->assertEquals(777, $unpackedOffset[1]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testUnregisterSubscriberDropsConsumerUpdateHandler(): void
@@ -1093,7 +1097,7 @@ class StreamConnectionTest extends TestCase
             . pack('C', $subscriptionId)
             . pack('C', $active);
         $frame = $this->buildFrame(0x001a, 1, $content);
-        socket_write($serverSocket, $frame);
+        fwrite($serverSocket, $frame);
 
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
@@ -1105,8 +1109,8 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpackedOffsetType);
         $this->assertEquals(OffsetSpec::TYPE_NONE, $unpackedOffsetType[1]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testReadLoopHandlesTimeoutLongerThanOneSecond(): void
@@ -1129,8 +1133,8 @@ class StreamConnectionTest extends TestCase
         $this->assertLessThan(3.5, $elapsed, 'readLoop should not block significantly longer than the timeout');
         $this->assertTrue($connection->isConnected(), 'connection should remain usable after the timeout');
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     // ---------------------------------------------------------------------
@@ -1171,7 +1175,7 @@ class StreamConnectionTest extends TestCase
         // timeout readBytes() blocks here forever (#402), and the version that
         // returned null dropped the 6 bytes already consumed and desynchronised
         // the connection for good (#390).
-        socket_write($serverSocket, pack('N', 64) . pack('n', 0x0003));
+        fwrite($serverSocket, pack('N', 64) . pack('n', 0x0003));
 
         $start = microtime(true);
         try {
@@ -1193,7 +1197,7 @@ class StreamConnectionTest extends TestCase
             'A connection stuck mid-frame must be closed, not offered for a retry that would read payload as framing'
         );
 
-        socket_close($serverSocket);
+        fclose($serverSocket);
     }
 
     public function testReadFrameReturnsNullAtAFrameBoundaryWithNoData(): void
@@ -1207,8 +1211,8 @@ class StreamConnectionTest extends TestCase
         $this->assertNull($connection->readFrame(0.05));
         $this->assertTrue($connection->isConnected(), 'No data yet is not a broken connection');
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testTransientSocketErrorDoesNotMarkTheConnectionDead(): void
@@ -1219,24 +1223,24 @@ class StreamConnectionTest extends TestCase
         $this->injectSocket($connection, $clientSocket);
         $connection->setSocketTimeout(0.05);
 
-        // Record a transient error on the socket the way a timed-out read does.
-        // socket_last_error() is sticky, so before #391 this single EAGAIN made
-        // isConnected() report false for the rest of the connection's life —
-        // and isConnected() itself then forced it closed.
-        $buffer = '';
-        @socket_recv($clientSocket, $buffer, 1, MSG_WAITALL);
+        // A read that comes back empty-handed (no data within the timeout) is
+        // benign: it must not mark a healthy connection as dead. On the stream
+        // transport there is no sticky socket error state to clear (the old
+        // #391 hazard), but the invariant — timeouts never kill the connection —
+        // is still enforced.
+        $this->assertNull($connection->readFrame(0.05));
 
         $this->assertTrue($connection->isConnected());
 
         // Still usable: a real frame arriving afterwards is read normally.
-        socket_write($serverSocket, $this->buildFrame(0x0011, 1));
+        fwrite($serverSocket, $this->buildFrame(0x0011, 1));
         $frame = $connection->readFrame(1.0);
 
         $this->assertNotNull($frame);
         $this->assertSame(0x0011, $frame->peekUint16());
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testFatalSocketErrorStillMarksTheConnectionDead(): void
@@ -1246,8 +1250,8 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552);
         $this->injectSocket($connection, $clientSocket);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
 
         $this->assertFalse($connection->isConnected());
     }
@@ -1261,8 +1265,11 @@ class StreamConnectionTest extends TestCase
         $connection->setSocketTimeout(0.2);
         // Small send buffer + a peer that never reads: the kernel accepts part
         // of the frame and then stalls, which is exactly the short write the
-        // single unchecked socket_write() used to ignore (#389).
-        socket_set_option($clientSocket, SOL_SOCKET, SO_SNDBUF, 4096);
+        // single unchecked write used to ignore (#389).
+        $imported = socket_import_stream($clientSocket);
+        if ($imported instanceof \Socket) {
+            socket_set_option($imported, SOL_SOCKET, SO_SNDBUF, 4096);
+        }
 
         $frame = pack('N', 1_048_576) . str_repeat("\x00", 1_048_576);
 
@@ -1285,7 +1292,7 @@ class StreamConnectionTest extends TestCase
 
         $this->assertLessThan(3.0, microtime(true) - $start, 'The write must be bounded by the socket timeout');
 
-        socket_close($serverSocket);
+        fclose($serverSocket);
     }
 
     public function testSendFrameReportsEveryByteWritten(): void
@@ -1302,24 +1309,32 @@ class StreamConnectionTest extends TestCase
         $this->assertSame(strlen($frame), $written);
         $this->assertSame(strlen($frame), strlen((string) $this->readBytesFromSocket($serverSocket, strlen($frame))));
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     /**
-     * @return array{\Socket, \Socket}
+     * @return array{resource, resource}
      */
     private function createSocketPair(): array
     {
-        $pair = [];
-        socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $pair);
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        if ($pair === false) {
+            self::fail('stream_socket_pair() failed');
+        }
         return [$pair[0], $pair[1]];
     }
 
-    private function injectSocket(StreamConnection $connection, \Socket $socket): void
+    /**
+     * @param resource $stream
+     */
+    private function injectSocket(StreamConnection $connection, $stream): void
     {
-        $reflection = new \ReflectionProperty($connection, 'socket');
-        $reflection->setValue($connection, $socket);
+        // connect() would normally do this; an injected socket pair bypasses it.
+        stream_set_blocking($stream, false);
+
+        $reflection = new \ReflectionProperty($connection, 'stream');
+        $reflection->setValue($connection, $stream);
 
         $connectedProp = new \ReflectionProperty($connection, 'connected');
         $connectedProp->setValue($connection, true);
@@ -1331,7 +1346,10 @@ class StreamConnectionTest extends TestCase
         return pack('N', strlen($payload)) . $payload;
     }
 
-    private function readResponse(\Socket $socket): ?string
+    /**
+     * @param resource $socket
+     */
+    private function readResponse($socket): ?string
     {
         $sizeData = $this->readBytesFromSocket($socket, 4);
         if ($sizeData === null) {
@@ -1345,13 +1363,16 @@ class StreamConnectionTest extends TestCase
         return $this->readBytesFromSocket($socket, $size);
     }
 
-    private function readBytesFromSocket(\Socket $socket, int $length): ?string
+    /**
+     * @param resource $socket
+     */
+    private function readBytesFromSocket($socket, int $length): ?string
     {
         $data = '';
         $remaining = $length;
 
         while ($remaining > 0) {
-            $chunk = socket_read($socket, $remaining);
+            $chunk = fread($socket, $remaining);
             if ($chunk === false || $chunk === '') {
                 return null;
             }
@@ -1406,7 +1427,7 @@ class StreamConnectionTest extends TestCase
         $this->expectExceptionMessage('socket is not connected');
         $connection->sendMessage(new TuneRequestV1(1024, 100));
 
-        socket_close($serverSocket);
+        fclose($serverSocket);
     }
 
     public function testReadFrameThrowsAfterClose(): void
@@ -1423,7 +1444,7 @@ class StreamConnectionTest extends TestCase
         $reflection = new \ReflectionMethod($connection, 'readFrame');
         $reflection->invoke($connection);
 
-        socket_close($serverSocket);
+        fclose($serverSocket);
     }
 
     public function testReadLoopThrowsAfterClose(): void
@@ -1440,7 +1461,7 @@ class StreamConnectionTest extends TestCase
         $reflection = new \ReflectionMethod($connection, 'readLoop');
         $reflection->invoke($connection, 1, 0.1);
 
-        socket_close($serverSocket);
+        fclose($serverSocket);
     }
 
     // ---- Frame logging redaction tests (#401) ----
@@ -1458,8 +1479,8 @@ class StreamConnectionTest extends TestCase
         $written = $connection->sendFrame($this->buildFrame(0x0014, 1));
         $this->assertGreaterThan(0, $written);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testSaslAuthenticateFrameIsRedactedWhenDebugLoggingEnabled(): void
@@ -1490,8 +1511,8 @@ class StreamConnectionTest extends TestCase
         $this->assertStringNotContainsString(bin2hex($username), $msg);
         $this->assertStringNotContainsString(bin2hex($password), $msg);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testNonSaslFrameProducesNormalHexDebugLineWhenDebugLoggingEnabled(): void
@@ -1512,8 +1533,8 @@ class StreamConnectionTest extends TestCase
         $this->assertStringNotContainsString('redacted', $debugMessages[0]);
         $this->assertMatchesRegularExpression('/^Socket -> [0-9a-f]+$/', $debugMessages[0]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     /**
@@ -1547,7 +1568,7 @@ class StreamConnectionTest extends TestCase
             . pack('N', 1)        // correlationId
             . pack('n', 0x0001)   // responseCode OK
             . "\0" . $username . "\0" . $password;
-        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+        fwrite($serverSocket, pack('N', strlen($payload)) . $payload);
 
         $connection->readFrame(timeout: 1.0);
 
@@ -1562,8 +1583,8 @@ class StreamConnectionTest extends TestCase
         $this->assertStringNotContainsString(bin2hex($username), $msg);
         $this->assertStringNotContainsString(bin2hex($password), $msg);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     /**
@@ -1583,7 +1604,7 @@ class StreamConnectionTest extends TestCase
         // Real SASL_AUTHENTICATE_RESPONSE frame (key 0x8013, version 1):
         // correlationId + responseCode OK. No credential body.
         $payload = pack('nn', 0x8013, 1) . pack('N', 1) . pack('n', 0x0001);
-        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+        fwrite($serverSocket, pack('N', strlen($payload)) . $payload);
 
         $connection->readFrame(timeout: 1.0);
 
@@ -1593,8 +1614,8 @@ class StreamConnectionTest extends TestCase
         $this->assertStringNotContainsString('redacted', $debugMessages[0]);
         $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testNonSaslReadFrameProducesNormalHexDebugLineWhenDebugLoggingEnabled(): void
@@ -1606,7 +1627,7 @@ class StreamConnectionTest extends TestCase
         $this->injectSocket($connection, $clientSocket);
 
         $payload = pack('nn', 0x0014, 1) . pack('N', 1) . pack('n', 0x0001);
-        socket_write($serverSocket, pack('N', strlen($payload)) . $payload);
+        fwrite($serverSocket, pack('N', strlen($payload)) . $payload);
 
         $connection->readFrame(timeout: 1.0);
 
@@ -1616,8 +1637,8 @@ class StreamConnectionTest extends TestCase
         $this->assertStringNotContainsString('redacted', $debugMessages[0]);
         $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
 
@@ -1646,13 +1667,13 @@ class StreamConnectionTest extends TestCase
             $order[] = 'global';
         });
 
-        socket_write($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
+        fwrite($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $this->assertSame(['publisher-1:s1', 'subscription-2', 'global'], $order);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 
     public function testUnregisteredMetadataUpdateHandlerIsNotInvoked(): void
@@ -1668,12 +1689,12 @@ class StreamConnectionTest extends TestCase
         });
         $connection->unregisterMetadataUpdateHandler('s1', 'publisher-1');
 
-        socket_write($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
+        fwrite($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $this->assertSame(0, $fired);
 
-        socket_close($serverSocket);
-        socket_close($clientSocket);
+        fclose($serverSocket);
+        fclose($clientSocket);
     }
 }

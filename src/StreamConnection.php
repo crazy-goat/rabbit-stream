@@ -24,13 +24,36 @@ use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 class StreamConnection
 {
     private bool $connected = false;
-    private ?\Socket $socket = null;
+    /**
+     * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
+     * used for BOTH transports because TLS in PHP is only available through
+     * stream_socket_client('ssl://...'); a \Socket cannot be upgraded to TLS
+     * (socket_import_stream() reads ciphertext below the SSL layer).
+     *
+     * @var resource|null
+     */
+    private $stream;
+
+    /**
+     * The open connection stream, or an exception if it is gone.
+     *
+     * @return resource
+     */
+    private function requireStream()
+    {
+        if ($this->stream === null || !is_resource($this->stream)) {
+            throw new ConnectionException("Cannot read: socket is not connected");
+        }
+
+        return $this->stream;
+    }
     private int $correlationId = 0;
     /**
      * Correlated responses read by request() while it was waiting for a different
@@ -92,16 +115,6 @@ class StreamConnection
     public const DEFAULT_SOCKET_TIMEOUT = 30.0;
 
     /**
-     * Socket-level errors that mean "nothing happened within SO_RCVTIMEO/
-     * SO_SNDTIMEO", as opposed to a broken connection. On Linux a timed-out
-     * blocking recv()/send() reports EAGAIN (== EWOULDBLOCK); ETIMEDOUT comes
-     * from the TCP stack itself.
-     *
-     * @var list<int>
-     */
-    private const TRANSIENT_SOCKET_ERRORS = [SOCKET_EAGAIN, SOCKET_EWOULDBLOCK, SOCKET_ETIMEDOUT];
-
-    /**
      * The broker does not enforce frame_max on Deliver frames (0x0008): a chunk is
      * sent whole regardless of the negotiated frame_max, so Deliver frames need a
      * separate, larger cap. 64MB comfortably exceeds chunks observed in practice
@@ -123,6 +136,10 @@ class StreamConnection
      * @param float                 $socketTimeout Per-socket-call receive/send timeout in
      *                                        seconds (SO_RCVTIMEO/SO_SNDTIMEO), applied in
      *                                        connect(); must be > 0
+     * @param TlsConfig|null        $tls     TLS transport options; null (default) uses
+     *                                        the plaintext tcp:// transport. Passing a
+     *                                        config selects the ssl:// transport (TLS
+     *                                        stream listener, port 5551) — GitHub #400
      * @throws InvalidArgumentException If $socketTimeout is not positive
      */
     public function __construct(
@@ -131,6 +148,7 @@ class StreamConnection
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
         float $socketTimeout = self::DEFAULT_SOCKET_TIMEOUT,
+        private readonly ?TlsConfig $tls = null,
     ) {
         $this->setSocketTimeout($socketTimeout);
         // Resolve once at construction: avoids paying bin2hex() cost on every
@@ -139,43 +157,69 @@ class StreamConnection
     }
 
     /**
-     * Open the TCP socket connection to the RabbitMQ stream server.
+     * Open the connection to the RabbitMQ stream server.
      *
-     * @throws ConnectionException If the socket cannot be created or connected
+     * Uses stream_socket_client() so both the plaintext tcp:// transport and the
+     * TLS ssl:// transport (GitHub #400) share one I/O path — see the $stream
+     * property docblock for why ext-sockets cannot be kept for TLS.
+     *
+     * @throws ConnectionException If the socket cannot be created or connected,
+     *                             or the TLS handshake fails
      */
     public function connect(): void
     {
-        $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
-        if ($socket === false) {
-            throw new ConnectionException("Cannot create socket: " . socket_strerror(socket_last_error()));
-        }
+        $scheme = $this->tls instanceof \CrazyGoat\RabbitStream\VO\TlsConfig ? 'ssl' : 'tcp';
+        $context = stream_context_create(
+            $this->tls instanceof \CrazyGoat\RabbitStream\VO\TlsConfig ? $this->tls->toStreamContext() : []
+        );
 
-        $result = socket_connect($socket, $this->host, $this->port);
-        if (!$result) {
-            $error = socket_strerror(socket_last_error($socket));
-            socket_close($socket);
+        $stream = @stream_socket_client(
+            sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
+            $errorCode,
+            $errorMessage,
+            $this->socketTimeout,
+            STREAM_CLIENT_CONNECT,
+            $context
+        );
+        if ($stream === false) {
             throw new ConnectionException(
-                "Cannot connect to {$this->host}:{$this->port}: " . $error
+                "Cannot connect to {$scheme}://{$this->host}:{$this->port}: " .
+                "{$errorMessage} ({$errorCode})"
             );
         }
 
-        $this->applySocketTimeout($socket);
+        if ($this->tls instanceof \CrazyGoat\RabbitStream\VO\TlsConfig && !stream_socket_enable_crypto($stream, true)) {
+            fclose($stream);
+            throw new ConnectionException(
+                "TLS handshake failed with {$this->host}:{$this->port}"
+            );
+        }
+
+        // The stream is kept non-blocking: every read and write is driven by an
+        // explicit stream_select() bounded by $socketTimeout, which gives the
+        // same "no I/O call may block unboundedly" guarantee as the previous
+        // SO_RCVTIMEO/SO_SNDTIMEO set-up (GitHub #402). stream_set_timeout()
+        // could not be used because it bounds reads but NOT blocking writes.
+        if (!stream_set_blocking($stream, false)) {
+            fclose($stream);
+            throw new ConnectionException('Cannot set the connection to non-blocking mode');
+        }
 
         $this->connected = true;
-        $this->socket = $socket;
+        $this->stream = $stream;
     }
 
     /**
-     * Set the per-socket-call receive/send timeout (SO_RCVTIMEO/SO_SNDTIMEO).
+     * Set the per-I/O-call timeout.
      *
-     * Applies immediately when the socket is already open. This is not an
-     * operation timeout: it bounds how long one socket_recv()/socket_write()
-     * may block with no progress, which is what keeps a stalled peer from
-     * hanging the client forever (GitHub #402).
+     * Applies immediately when the connection is already open. This is not an
+     * operation timeout: it bounds how long one read/write may wait with no
+     * progress (enforced by the stream_select() loops in readBytes()/writeAll()),
+     * which is what keeps a stalled peer from hanging the client forever
+     * (GitHub #402).
      *
      * @param float $socketTimeout Seconds; must be > 0
      * @throws InvalidArgumentException If $socketTimeout is not positive
-     * @throws ConnectionException      If the option cannot be set on an open socket
      */
     public function setSocketTimeout(float $socketTimeout): void
     {
@@ -184,10 +228,6 @@ class StreamConnection
         }
 
         $this->socketTimeout = $socketTimeout;
-
-        if ($this->socket instanceof \Socket) {
-            $this->applySocketTimeout($this->socket);
-        }
     }
 
     public function getSocketTimeout(): float
@@ -196,40 +236,18 @@ class StreamConnection
     }
 
     /**
-     * @throws ConnectionException If SO_RCVTIMEO/SO_SNDTIMEO cannot be set — without
-     *                             them no read or write is bounded, so the caller must
-     *                             not be told the connection is usable
-     */
-    private function applySocketTimeout(\Socket $socket): void
-    {
-        $seconds = (int) $this->socketTimeout;
-        $option = [
-            'sec' => $seconds,
-            'usec' => (int) round(($this->socketTimeout - $seconds) * 1_000_000),
-        ];
-
-        foreach ([SO_RCVTIMEO, SO_SNDTIMEO] as $name) {
-            if (!socket_set_option($socket, SOL_SOCKET, $name, $option)) {
-                throw new ConnectionException(
-                    'Cannot set socket timeout: ' . socket_strerror(socket_last_error($socket))
-                );
-            }
-        }
-    }
-
-    /**
      * Close the TCP socket connection.
      * Safe to call multiple times — subsequent calls are no-ops.
      */
     public function close(): void
     {
-        if ($this->connected && $this->socket instanceof \Socket) {
+        if ($this->connected && $this->stream !== null && is_resource($this->stream)) {
             try {
-                socket_close($this->socket);
+                fclose($this->stream);
             } catch (\Throwable) {
-                // Socket may already be closed, ignore
+                // Stream may already be closed, ignore
             }
-            $this->socket = null;
+            $this->stream = null;
         }
         $this->connected = false;
     }
@@ -254,28 +272,18 @@ class StreamConnection
      *
      * @return bool True if the socket is valid and has no fatal error state
      */
+    /**
+     * Check whether the underlying connection is currently established and usable.
+     *
+     * @return bool True if the connection is valid and has no fatal error state
+     */
     public function isConnected(): bool
     {
         if (!$this->connected) {
             return false;
         }
 
-        if (!$this->socket instanceof \Socket) {
-            return false;
-        }
-
-        // Check if socket is still valid by attempting to get its error status
-        // A closed socket will fail this operation
-        try {
-            $error = @socket_last_error($this->socket);
-            @socket_clear_error($this->socket);
-            if ($error !== 0 && !in_array($error, self::TRANSIENT_SOCKET_ERRORS, true)) {
-                // Socket has a fatal error, mark as disconnected
-                $this->connected = false;
-                return false;
-            }
-        } catch (\Error) {
-            // Socket is invalid/closed
+        if ($this->stream === null || !is_resource($this->stream)) {
             $this->connected = false;
             return false;
         }
@@ -565,36 +573,32 @@ class StreamConnection
 
         $this->debugFrame('Socket -> ', $frame, keyOffset: 4);
 
-        if (!$this->socket instanceof \Socket) {
-            throw new ConnectionException("Cannot write: socket is not connected");
-        }
+        $stream = $this->requireStream();
 
-        // If timeout is specified, wait for socket to be ready for writing
+        // If timeout is specified, wait for the connection to be ready for writing
         if ($timeout !== null && $timeout > 0) {
             $deadline = microtime(true) + $timeout;
 
             $read = null;
-            $write = [$this->socket];
+            $write = [$stream];
             $except = null;
 
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
-                throw new TimeoutException("Write timeout: socket not ready for writing");
+                throw new TimeoutException("Write timeout: connection not ready for writing");
             }
 
             $timeoutSec = (int) $remaining;
             $timeoutUsec = (int) (($remaining - $timeoutSec) * 1_000_000);
 
-            $ready = socket_select($read, $write, $except, $timeoutSec, $timeoutUsec);
+            $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
-                throw new ConnectionException(
-                    "socket_select failed: " . socket_strerror(socket_last_error($this->socket))
-                );
+                throw new ConnectionException("stream_select failed while waiting for write readiness");
             }
 
             if ($ready === 0) {
-                throw new TimeoutException("Write timeout: socket not ready for writing");
+                throw new TimeoutException("Write timeout: connection not ready for writing");
             }
         }
 
@@ -620,61 +624,76 @@ class StreamConnection
      */
     private function writeAll(string $frame): int
     {
-        if (!$this->socket instanceof \Socket) {
-            throw new ConnectionException("Cannot write: socket is not connected");
-        }
+        $stream = $this->requireStream();
 
         $total = strlen($frame);
         $sent = 0;
+        $deadline = microtime(true) + $this->socketTimeout;
 
         while ($sent < $total) {
-            try {
-                $written = socket_write(
-                    $this->socket,
-                    $sent === 0 ? $frame : substr($frame, $sent),
-                    $total - $sent
-                );
-            } catch (\Error $e) {
-                $this->connected = false;
-                throw new ConnectionException("Failed to write to socket: " . $e->getMessage(), $e->getCode(), $e);
+            $write = [$stream];
+            $read = null;
+            $except = null;
+
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                $this->writeTimeout($sent, $total);
             }
 
+            $ready = @stream_select(
+                $read,
+                $write,
+                $except,
+                (int) $remaining,
+                (int) (($remaining - (int) $remaining) * 1_000_000)
+            );
+
+            if ($ready === false) {
+                throw new ConnectionException('stream_select failed while writing');
+            }
+            if ($ready === 0) {
+                $this->writeTimeout($sent, $total);
+            }
+
+            // select() said writable, so on a non-blocking stream fwrite() will
+            // accept at least one byte and never block.
+            $written = @fwrite($stream, $sent === 0 ? $frame : substr($frame, $sent));
+
             if ($written === false || $written === 0) {
-                $error = $written === false ? socket_last_error($this->socket) : 0;
-                socket_clear_error($this->socket);
-
-                if ($error === SOCKET_EINTR) {
-                    continue;
-                }
-
-                if ($written === 0 || in_array($error, self::TRANSIENT_SOCKET_ERRORS, true)) {
-                    if ($sent === 0) {
-                        // Nothing left the client: the frame was never started,
-                        // so the caller can safely retry it.
-                        throw new TimeoutException(sprintf(
-                            'Write timed out after %.1fs: no bytes of a %d byte frame could be sent',
-                            $this->socketTimeout,
-                            $total
-                        ));
-                    }
-                    $this->close();
-                    throw new ConnectionException(sprintf(
-                        'Write timed out after %.1fs with a partial frame on the wire (%d of %d bytes); ' .
-                        'connection closed because the broker cannot resynchronise mid-frame',
-                        $this->socketTimeout,
-                        $sent,
-                        $total
-                    ));
-                }
-
                 $this->connected = false;
-                throw new ConnectionException("Failed to write to socket: " . socket_strerror($error));
+                throw new ConnectionException(
+                    "Failed to write to socket: peer closed the connection or write error"
+                );
             }
 
             $sent += $written;
         }
 
         return $sent;
+    }
+
+    /**
+     * Report a write timeout: TimeoutException when the frame was never started
+     * (the caller may retry it), ConnectionException plus close() when a partial
+     * frame is already on the wire (GitHub #389).
+     */
+    private function writeTimeout(int $sent, int $total): void
+    {
+        if ($sent === 0) {
+            throw new TimeoutException(sprintf(
+                'Write timed out after %.1fs: no bytes of a %d byte frame could be sent',
+                $this->socketTimeout,
+                $total
+            ));
+        }
+        $this->close();
+        throw new ConnectionException(sprintf(
+            'Write timed out after %.1fs with a partial frame on the wire (%d of %d bytes); ' .
+            'connection closed because the broker cannot resynchronise mid-frame',
+            $this->socketTimeout,
+            $sent,
+            $total
+        ));
     }
 
     /**
@@ -831,9 +850,7 @@ class StreamConnection
      */
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
-        if (!$this->socket instanceof \Socket) {
-            throw new ConnectionException("Cannot read: socket is not connected");
-        }
+        $stream = $this->requireStream();
 
         $this->running = true;
         $dispatched = 0;
@@ -845,7 +862,7 @@ class StreamConnection
                 break;
             }
 
-            $read = [$this->socket];
+            $read = [$stream];
             $write = null;
             $except = null;
 
@@ -865,12 +882,10 @@ class StreamConnection
                 $selectTimeoutUsec = (int) (($capped - $selectTimeoutSec) * 1_000_000);
             }
 
-            $ready = socket_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
+            $ready = @stream_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
-                throw new ConnectionException(
-                    'socket_select failed: ' . socket_strerror(socket_last_error($this->socket))
-                );
+                throw new ConnectionException('stream_select failed in readLoop');
             }
 
             if ($ready === 0) {
@@ -1068,21 +1083,25 @@ class StreamConnection
      */
     public function readFrame(float $timeout = 30.0): ?ReadBuffer
     {
-        if (!$this->socket instanceof \Socket) {
-            throw new ConnectionException("Cannot read: socket is not connected");
-        }
+        $stream = $this->requireStream();
 
-        $read = [$this->socket];
+        $read = [$stream];
         $write = null;
         $except = null;
 
         $timeoutSec = (int) $timeout;
         $timeoutUsec = (int) (($timeout - $timeoutSec) * 1_000_000);
 
-        $ready = socket_select($read, $write, $except, $timeout > 0 ? $timeoutSec : 0, $timeout > 0 ? $timeoutUsec : 0);
+        $ready = @stream_select(
+            $read,
+            $write,
+            $except,
+            $timeout > 0 ? $timeoutSec : 0,
+            $timeout > 0 ? $timeoutUsec : 0
+        );
 
         if ($ready === false) {
-            throw new ConnectionException('socket_select failed: ' . socket_strerror(socket_last_error($this->socket)));
+            throw new ConnectionException('stream_select failed while waiting for frame data');
         }
 
         if ($ready === 0) {
@@ -1111,9 +1130,7 @@ class StreamConnection
      */
     private function readFrameNoWait(): ?ReadBuffer
     {
-        if (!$this->socket instanceof \Socket) {
-            throw new ConnectionException("Cannot read: socket is not connected");
-        }
+        $this->requireStream();
 
         // The only read allowed to come back empty-handed: at this point the
         // socket is at a frame boundary, so "no data yet" is not a desync.
@@ -1220,28 +1237,20 @@ class StreamConnection
     }
 
     /**
-     * Read exactly $length bytes from the socket into a single buffer.
+     * Read exactly $length bytes from the connection.
      *
-     * Uses socket_recv() with MSG_WAITALL so the kernel fills as much of the
-     * request as it can in one call instead of the previous socket_read()
-     * loop, which issued one syscall (and one string realloc via `.=`) per
-     * available chunk — for an 8MB Deliver frame that could be hundreds of
-     * short reads. MSG_WAITALL still returns short on a signal (EINTR) or a
-     * partial receive before the full length is available, so the loop below
-     * keeps issuing recv() for the remainder; a `''` chunk still means the
-     * peer closed the connection, and SOCKET_ETIMEDOUT still yields null,
-     * matching the previous semantics exactly.
-     */
-    /**
-     * Read exactly $length bytes from the socket.
+     * Streams have no MSG_WAITALL equivalent: fread() returns whatever is
+     * currently available, so short reads are accumulated in a loop, matching
+     * the semantics of the previous recv()-based implementation.
      *
-     * On a receive timeout (SO_RCVTIMEO, see {@see self::DEFAULT_SOCKET_TIMEOUT})
-     * the outcome depends on how much of the read had already succeeded:
+     * On a receive timeout (stream_set_timeout, see
+     * {@see self::DEFAULT_SOCKET_TIMEOUT}) the outcome depends on how much of
+     * the read had already succeeded:
      *
-     *  - nothing consumed yet and $mustComplete is false — the socket is at a
+     *  - nothing consumed yet and $mustComplete is false — the connection is at a
      *    frame boundary, so null is returned and the caller may simply try again;
      *  - anything already consumed, or $mustComplete — those bytes cannot be
-     *    pushed back onto the socket, so the frame can never be assembled. The
+     *    pushed back onto the connection, so the frame can never be assembled. The
      *    old code returned null here and dropped them, after which the next read
      *    took mid-frame payload for a frame length and desynchronised the
      *    connection permanently (GitHub #390). The connection is now closed with
@@ -1250,15 +1259,13 @@ class StreamConnection
      * @param int  $length       Number of bytes to read (0 returns '')
      * @param bool $mustComplete True when the caller is already mid-frame, so a
      *                           short read is unrecoverable rather than benign
-     * @return string|null The bytes read, or null if no byte arrived at a frame boundary
-     * @throws ConnectionException If the socket is not connected, the peer closed it,
+     * @return string The bytes read, or null if no byte arrived at a frame boundary
+     * @throws ConnectionException If the connection is not connected, the peer closed it,
      *                             the read fails, or an incomplete frame timed out
      */
     private function readBytes(int $length, bool $mustComplete = false): ?string
     {
-        if (!$this->socket instanceof \Socket) {
-            throw new ConnectionException("Cannot read: socket is not connected");
-        }
+        $stream = $this->requireStream();
 
         if ($length === 0) {
             return '';
@@ -1266,43 +1273,75 @@ class StreamConnection
 
         $data = '';
         $remaining = $length;
+        $deadline = microtime(true) + $this->socketTimeout;
 
         while ($remaining > 0) {
-            $chunk = '';
-            $read = socket_recv($this->socket, $chunk, $remaining, MSG_WAITALL);
+            $read = [$stream];
+            $write = null;
+            $except = null;
 
-            if ($read === false) {
-                $error = socket_last_error($this->socket);
-                socket_clear_error($this->socket);
-                if ($error === SOCKET_EINTR) {
-                    continue;
-                }
-                if (in_array($error, self::TRANSIENT_SOCKET_ERRORS, true)) {
-                    if (!$mustComplete && $data === '') {
-                        return null;
-                    }
-                    $this->close();
-                    throw new ConnectionException(sprintf(
-                        'Read timed out after %.1fs with an incomplete frame (%d of %d bytes); ' .
-                        'connection closed because the byte stream can no longer be resynchronised',
-                        $this->socketTimeout,
-                        strlen($data),
-                        $length
-                    ));
-                }
-                $this->connected = false;
-                throw new ConnectionException("Failed to read from socket: " . socket_strerror($error));
+            $remainingTime = $deadline - microtime(true);
+            if ($remainingTime <= 0 && $this->readTimeout($data, $length, $mustComplete)) {
+                return null;
             }
 
-            if ($read === 0) {
-                $this->connected = false;
-                throw new ConnectionException("Failed to read from socket: connection closed by peer");
+            $ready = @stream_select(
+                $read,
+                $write,
+                $except,
+                (int) $remainingTime,
+                (int) (($remainingTime - (int) $remainingTime) * 1_000_000)
+            );
+
+            if ($ready === false) {
+                throw new ConnectionException('stream_select failed while reading');
+            }
+            if ($ready === 0 && $this->readTimeout($data, $length, $mustComplete)) {
+                return null;
+            }
+
+            // Non-blocking: fread() returns whatever plaintext is available and
+            // never blocks. On an ssl:// transport a readable select() state does
+            // not yet guarantee decodable plaintext (a TLS record may still be
+            // incomplete), so an empty read here is retried until the deadline
+            // rather than treated as EOF.
+            $chunk = @fread($stream, $remaining);
+
+            if ($chunk === false || $chunk === '') {
+                $meta = stream_get_meta_data($stream);
+                if ($meta['eof']) {
+                    $this->connected = false;
+                    throw new ConnectionException("Failed to read from socket: connection closed by peer");
+                }
+
+                continue;
             }
 
             $data .= $chunk;
-            $remaining -= $read;
+            $remaining -= strlen($chunk);
         }
 
         return $data;
+    }
+
+    /**
+     * Report a read timeout. Returns true when the read was at a frame boundary
+     * (nothing consumed, $mustComplete false) and the caller may simply try
+     * again; mid-frame the consumed bytes cannot be pushed back (GitHub #390),
+     * so the connection is closed with an explicit error.
+     */
+    private function readTimeout(string $data, int $length, bool $mustComplete): bool
+    {
+        if (!$mustComplete && $data === '') {
+            return true;
+        }
+        $this->close();
+        throw new ConnectionException(sprintf(
+            'Read timed out after %.1fs with an incomplete frame (%d of %d bytes); ' .
+            'connection closed because the byte stream can no longer be resynchronised',
+            $this->socketTimeout,
+            strlen($data),
+            $length
+        ));
     }
 }
