@@ -65,3 +65,23 @@ existing tests only covered the *empty* outcome. Added to
 - The `readLoop() === 0` early-exit also fires on `stop()`/disconnect, which
   means `read()` can return `[]` before the caller's deadline in those cases —
   intentional and documented in `waitForMessages()`'s docblock.
+
+## Round-1 review follow-up: deliver routing in the success-path tests
+
+The two success-path tests
+(`testReadReturnsMessageArrivingAfterNonDeliverFrames`,
+`testReadOneReturnsMessageArrivingAfterNonDeliverFrames`) were reworked to
+route the Deliver through the **real** deliver callback the Consumer registers
+with `registerSubscriber()` (chunk parsing → `buffer[]`/`unreadCount`
+accounting → credit handling) instead of injecting into `buffer` via
+`setBuffer()` reflection. A shared `makeConsumerWithHandlers()` helper captures
+that callback (and the MetadataUpdate handler) from the connection mock. The
+`readLoop()` mock now also records the `maxFrames`/`timeout` arguments
+forwarded by `waitForMessages()` and the tests assert `maxFrames: 1` plus a
+positive, non-increasing remaining-timeout slice on every iteration.
+
+Honesty note: the `readLoop()` mock itself still only stands in for "a frame
+was dispatched" — it does not reproduce the connection's full dispatch loop.
+The tests therefore claim "the deliver callback buffered the message through
+real chunk parsing", not "the connection routed a Deliver frame"; the comments
+in the tests were rewritten to say exactly that.
