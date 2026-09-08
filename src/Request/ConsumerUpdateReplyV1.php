@@ -10,9 +10,11 @@ use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 class ConsumerUpdateReplyV1 implements
     ToStreamBufferInterface,
@@ -29,24 +31,39 @@ class ConsumerUpdateReplyV1 implements
         private int $offsetType,
         private int $offset,
     ) {
+        if ($offsetType < 0 || $offsetType > OffsetSpec::TYPE_TIMESTAMP) {
+            throw new InvalidArgumentException(
+                "Invalid offset type {$offsetType}: expected 0-5 (none/first/last/next/offset/timestamp)"
+            );
+        }
     }
 
     public function toStreamBuffer(): WriteBuffer
     {
-        return self::getKeyVersion($this->getCorrelationId())
+        $buffer = self::getKeyVersion($this->getCorrelationId())
             ->addUInt16($this->responseCode)
-            ->addUInt16($this->offsetType)
-            ->addUInt64($this->offset);
+            ->addUInt16($this->offsetType);
+
+        // Only offset types with a value (4 = offset, 5 = timestamp) carry the
+        // 8-byte value; types 0-3 (none/first/last/next) encode just the type.
+        if ($this->offsetType === OffsetSpec::TYPE_OFFSET || $this->offsetType === OffsetSpec::TYPE_TIMESTAMP) {
+            $buffer->addUInt64($this->offset);
+        }
+
+        return $buffer;
     }
 
-    /** @return array<string, int> */
+    /** @return array<string, int|null> */
     public function toArray(): array
     {
+        $hasValue = $this->offsetType === OffsetSpec::TYPE_OFFSET
+            || $this->offsetType === OffsetSpec::TYPE_TIMESTAMP;
+
         return [
             'correlationId' => $this->getCorrelationId(),
             'responseCode' => $this->responseCode,
             'offsetType' => $this->offsetType,
-            'offset' => $this->offset,
+            'offset' => $hasValue ? $this->offset : null,
         ];
     }
 
