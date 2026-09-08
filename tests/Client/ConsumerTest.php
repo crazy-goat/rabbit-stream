@@ -157,6 +157,86 @@ class ConsumerTest extends TestCase
         $this->assertGreaterThan(1, $calls);
     }
 
+    public function testReadReturnsMessageArrivingAfterNonDeliverFrames(): void
+    {
+        // Models the README Quick Start: a producer's PublishConfirms (or
+        // heartbeats) arrive first, then a Deliver for this subscription.
+        // read() must keep waiting through the unrelated frames and return
+        // the delivered messages, not an empty array.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $calls = 0;
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(
+            function () use (&$calls, &$consumer): int {
+                $calls++;
+                if ($calls >= 3) {
+                    // Third dispatched frame is our Deliver: buffer a message.
+                    $this->setBuffer($consumer, [new Message(41, 0, 'payload')]);
+                }
+                return 1;
+            }
+        );
+
+        $result = $consumer->read(timeout: 5.0);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(41, $result[0]->getOffset());
+        $this->assertSame(3, $calls);
+    }
+
+    public function testReadOneKeepsWaitingWhileNonDeliverFramesArrive(): void
+    {
+        // Same scenario as read(), for readOne(): unrelated server-push frames
+        // must not end the wait before the deadline.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $calls = 0;
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(function () use (&$calls): int {
+            $calls++;
+            usleep(2000);
+            return 1;
+        });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $start = microtime(true);
+        $this->assertNull($consumer->readOne(timeout: 0.05));
+
+        $this->assertGreaterThanOrEqual(0.05, microtime(true) - $start);
+        $this->assertGreaterThan(1, $calls);
+    }
+
+    public function testReadOneReturnsMessageArrivingAfterNonDeliverFrames(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $calls = 0;
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(
+            function () use (&$calls, &$consumer): int {
+                $calls++;
+                if ($calls >= 2) {
+                    // Second dispatched frame is our Deliver: buffer a message.
+                    $this->setBuffer($consumer, [new Message(7, 0, 'payload')]);
+                }
+                return 1;
+            }
+        );
+
+        $message = $consumer->readOne(timeout: 5.0);
+
+        $this->assertNotNull($message);
+        $this->assertSame(7, $message->getOffset());
+        $this->assertSame(2, $calls);
+    }
+
     public function testReadStopsWaitingWhenReadLoopDispatchesNothing(): void
     {
         // 0 dispatched frames = readLoop() hit its own timeout (or the connection
