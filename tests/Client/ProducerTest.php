@@ -959,4 +959,120 @@ class ProducerTest extends TestCase
 
         $this->assertSame(0, $deletes, 'The broker already forgot the publisher');
     }
+
+    public function testCloseDrainsInFlightConfirmsWhileCallbackIsStillRegistered(): void
+    {
+        // Regression guard for #474: close() used to unregister the confirm
+        // callback before the DeletePublisher exchange, so PublishConfirm
+        // frames for in-flight messages were dropped and pendingConfirms was
+        // stuck at 1 forever.
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $readLoopCallCount = 0;
+        $connection->expects($this->exactly(2))
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): int {
+                $readLoopCallCount++;
+                // The callback must still be registered while close() drains.
+                $this->assertNotNull($registeredCallbacks, 'confirm callback must still be registered during close()');
+                ($registeredCallbacks['onConfirm'])([$readLoopCallCount - 1]);
+                return 1;
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('msg1');
+        $producer->send('msg2');
+
+        $producer->close();
+
+        $this->assertSame(2, $readLoopCallCount, 'readLoop() must drain each in-flight confirm');
+        $this->assertSame(0, $producer->getPendingConfirms(), 'pendingConfirms must reach 0 after close()');
+    }
+
+    public function testCloseConfirmsArrivingDuringDeletePublisherExchangeAreNotDropped(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        $unregisterOrder = [];
+        $connection->expects($this->any())
+            ->method('unregisterPublisher')
+            ->willReturnCallback(function (int $id) use (&$unregisterOrder): void {
+                $unregisterOrder[] = 'unregister';
+            });
+        // A confirm arrives interleaved with the DeletePublisher response —
+        // readMessage()'s transparent server-push handling fires the callback.
+        $connection->expects($this->any())
+            ->method('readMessage')
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$unregisterOrder): \stdClass {
+                $this->assertNotContains(
+                    'unregister',
+                    $unregisterOrder,
+                    'the callback must not be unregistered before the DeletePublisher response is read'
+                );
+                $this->assertNotNull(
+                    $registeredCallbacks,
+                    'confirm callback must be registered during the DeletePublisher exchange'
+                );
+                ($registeredCallbacks['onConfirm'])([0]);
+                return new \stdClass();
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('msg1');
+
+        $producer->close();
+
+        $this->assertSame(0, $producer->getPendingConfirms(), 'the confirm that raced with close() must be counted');
+    }
+
+    public function testCloseGivesUpAfterDrainTimeoutWhenBrokerNeverConfirms(): void
+    {
+        // Review round 1 finding: the timeout path of the bounded drain was
+        // untested — a broker that stops confirming must not hang close()
+        // forever, and the leftover pendingConfirms are silently lost.
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        // The broker never confirms: readLoop() simply times out each slot.
+        $connection->expects($this->atLeastOnce())
+            ->method('readLoop')
+            ->willReturn(0);
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('msg1');
+
+        $start = microtime(true);
+        $producer->close();
+        $elapsed = microtime(true) - $start;
+
+        $this->assertSame(1, $producer->getPendingConfirms(), 'the unconfirmed message stays pending');
+        $this->assertLessThan(5.0, $elapsed, 'close() must not wait much longer than the 2s drain timeout');
+    }
 }
