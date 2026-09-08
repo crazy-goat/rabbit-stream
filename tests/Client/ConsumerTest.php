@@ -53,10 +53,11 @@ class ConsumerTest extends TestCase
     /**
      * Mock connection that captures the callbacks the Consumer registers at
      * construction time, plus the Consumer built on top of it:
-     *   [0] the Consumer,
-     *   [1] the deliver callback (route Deliver chunks through the real
+     *   [0] the connection mock,
+     *   [1] the Consumer,
+     *   [2] the deliver callback (route Deliver chunks through the real
      *       deliver path: chunk parsing -> buffer accounting -> credits),
-     *   [2] the MetadataUpdate handler (lost subscription).
+     *   [3] the MetadataUpdate handler (lost subscription).
      *
      * @return array{
      *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,

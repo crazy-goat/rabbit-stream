@@ -68,3 +68,26 @@
    handler capture, `request`/`sendMessage` stubs) and the `Consumer`, and is
    used by both reworked success-path tests. Pre-existing tests with similar
    inline setups were left untouched (out of scope for this branch's diff).
+
+---
+
+# Round 2 Dispositions (review-2.md)
+
+1. Deliver-callback path — **fixed (verified)**: real callback from `registerSubscriber()`
+   exercised in both success-path tests; offsets 41/7 flow through the chunk parser.
+2. Forwarded maxFrames/timeout — **fixed (verified)**: `$forwarded` records every pair;
+   asserted `maxFrames === 1`, positive, ≤ deadline, non-increasing (`read()` variant).
+3. Back-off slice branch — **fixed (verified, deterministic)**: new test covers
+   `resubscribeIfLost() === false` slice; assertions structurally bound (`min($timeout, ...)`),
+   no flaky wall-clock walls.
+4. Misleading comments — **fixed (verified)**: mock behavior stated plainly.
+5. `&$consumer` pre-assignment capture — **fixed (verified)**: no longer exists.
+6. Mock setup duplication — **fixed (verified)**: `makeConsumerWithHandlers()` helper; the
+   back-off test's differing `request()` mock is essential divergence, not duplication.
+
+New in round 2: 1 nit — `makeConsumerWithHandlers()` docblock prose indices are shifted by one
+relative to the actual return shape (prose says [0]=Consumer; actually [0]=connection mock).
+Doc-only; the `@return` type annotation is correct.
+
+**Round-2 verdict: clean** (1 doc-only nit). cs / phpstan(9) / rector / unit (1074 tests)
+all green.
