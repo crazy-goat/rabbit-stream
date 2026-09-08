@@ -48,3 +48,12 @@
 2. (low) no direct decodeValue() BC-wrapper tests — **fixed**: added tests/Client/AmqpDecoderWrapperTest.php (tuple shape, start position, position untouched on exception).
 3. (nit) missing @return mixed on decodeValueInPlace() — **fixed**: docblock tag added.
 4. (nit) unused defaults on decodeValueInPlace() — **fixed**: defaults removed; all call sites pass depth explicitly.
+
+## Round 2 dispositions (review subagent)
+
+1. (low) decodeMessage inlined described-type read — **fixed** (verified round 2): decodeMessage() calls the shared readDescribedType() at depth 0; single explicit $position++ skips the 0x00 marker exactly once; descriptor/value decode at depth 1, identical to pre-refactor. No duplicated logic remains.
+2. (low) no decodeValue() BC-wrapper tests — **fixed** (verified round 2): tests/Client/AmqpDecoderWrapperTest.php covers tuple shape, start position, and the exception case. Note: the position-untouched assertion is trivially true since $position is by-value, but it pins the public contract as intended.
+3. (nit) missing @return mixed — **fixed** (verified round 2): docblock tag present at src/Client/AmqpDecoder.php:58.
+4. (nit) unused defaults — **fixed** (verified round 2): defaults removed from decodeValueInPlace(); all call sites pass depth explicitly.
+
+Round 2 tooling: composer cs ✅, composer phpstan (level 9) ✅, composer rector (dry-run) ✅, unit suite ✅ 1073 tests / 8196 assertions. No new findings — see review-2.md. Verdict: **clean**.
