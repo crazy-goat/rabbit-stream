@@ -36,6 +36,39 @@ Message bodies are plain strings — `Producer::send()` and `sendBatch()`
 automatically wrap them in an [AMQP 1.0 Data section](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html#section-message-format)
 on the wire, and the consumer returns them unwrapped (see [Publishing](docs/en/guide/publishing.md)).
 
+### TLS transport (encrypted connections)
+
+By default connections are plaintext `tcp://` (port 5552). Pass a
+`CrazyGoat\RabbitStream\VO\TlsConfig` to use the encrypted `ssl://` transport
+(RabbitMQ stream listener on port **5551**):
+
+```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\VO\TlsConfig;
+
+$connection = Connection::create(
+    host: 'localhost',
+    port: 5551, // TLS stream port
+    tls: new TlsConfig(
+        cafile: '/etc/ssl/ca.pem', // optional: custom CA bundle
+        // localCert: '/etc/ssl/client.crt',   // optional: client certificate
+        // localPk: '/etc/ssl/client.key',     // (e.g. for EXTERNAL SASL)
+    ),
+);
+```
+
+Peer certificate and hostname verification are **on by default**
+(`verify_peer`/`verify_peer_name`). For a self-signed development broker you can
+disable them explicitly — do not do this in production:
+
+```php
+$connection = Connection::create(
+    host: 'localhost',
+    port: 5551,
+    tls: new TlsConfig(verifyPeer: false, verifyPeerName: false),
+);
+```
+
 ### Consuming
 
 ```php

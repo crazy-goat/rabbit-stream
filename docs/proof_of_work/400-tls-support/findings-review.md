@@ -1,0 +1,46 @@
+# Findings — Issue #400 TLS support, review round 1
+
+| # | File:Line | What is wrong | Severity | Status |
+|---|-----------|---------------|----------|--------|
+| 1 | src/StreamConnection.php:~196 (`connect()`) | `stream_socket_enable_crypto()` runs while the stream is still blocking; a stalled broker hangs the handshake for up to `default_socket_timeout` (INI, ~60s) instead of the configured `$socketTimeout`, weakening the #402 "no unbounded I/O" guarantee on the ssl:// path. Set a bounded deadline (non-blocking + crypto retry loop, or at minimum document the exception). | medium | **fixed** — the stream is now switched to non-blocking *before* the handshake and the handshake is driven by a new `enableCrypto()` deadline loop: retry `stream_socket_enable_crypto()` while it reports progress (no OpenSSL error queued = would-block), wait between attempts with `stream_select()`, and throw a clear `ConnectionException("TLS handshake with host:port timed out after Ns")` once `$socketTimeout` expires. Post-handshake state matches the existing design: the stream is already non-blocking when the handshake returns. |
+| 2 | src/StreamConnection.php:191-201 (`connect()`) | TLS handshake failure is `@`-suppressed and the `ConnectionException("TLS handshake failed...")` carries no OpenSSL error detail (no `openssl_error_string()` / warning capture) — undiagnosable in the field (bad cafile path, hostname mismatch, expired cert all look identical). | low | **fixed** — a new `lastOpenSslError()` helper drains `openssl_error_string()` after each attempt and the detail is included in the `ConnectionException` message (both the failure and timeout paths). |
+| 3 | src/StreamConnection.php:653-661 (`writeAll()`) | `fwrite() === false \|\| 0` after a writable select is reported as "peer closed the connection or write error". On `ssl://` a false/0 can occur with a pending would-block/renegotiation state; the message would mislead. Consider including `stream_get_meta_data()` / last error info. | low | **fixed** — the exception message now mentions the possible ssl:// would-block/renegotiation state and points at `stream_get_meta_data()` for diagnosis. |
+| 4 | src/StreamConnection.php (writeAll/readBytes/readLoop/readFrame) | `stream_select() === false` now throws immediately; the old recv/send paths retried `EINTR`. With pcntl signal handlers installed, select can return false on EINTR and abort a healthy connection. | low | **fixed** — a `selectWasInterrupted()` helper checks `error_get_last()` for "interrupted system call" (streams have no `socket_errno()` API; the errno-4 check is expressed via the warning text). The `writeAll()` and `readBytes()` deadline loops now `continue` instead of throwing on EINTR. |
+| 5 | src/StreamConnection.php:161,163 (`connect()`) | Inline FQCN `instanceof \CrazyGoat\RabbitStream\VO\TlsConfig` despite the class already being imported — violates AGENTS.md "never use fully-qualified class names inline". Use `instanceof TlsConfig`. | low | **fixed** — replaced with `instanceof TlsConfig` via a `$useTls` local; the class was already imported. |
+| 6 | src/StreamConnection.php:265-291 (`isConnected()`) | The fatal-error detection (old `socket_last_error()` probe) is gone; method docblock still claims "no fatal error state" checking. No stream equivalent exists — keep the simplification but fix the docblock to describe the new (resource-validity-only) contract. | low | **fixed** — docblock now describes the resource-validity-only contract and notes that a dead peer surfaces on the next read/write. |
+| 7 | src/StreamConnection.php:1237-1259 (`readBytes()` docblock) | `@return string` but the signature is `?string`; prose says "stream_set_timeout", which this diff removes/never uses — stale references to the old mechanism. | low | **fixed** — `@return ?string` and the stale `stream_set_timeout` mention replaced with the actual mechanism (`$socketTimeout` bounded by the `stream_select()` loops). |
+| 8 | src/StreamConnection.php:265-272 (`isConnected()`) | Two stacked `/** */` docblocks on one method — leftover from the edit; drop the dangling one. | nit | **fixed** — merged into a single docblock (see #6). |
+| 9 | tests/ (missing) | No test exercises scheme selection (`ssl://` URL construction), the `stream_socket_enable_crypto` failure path, or `fclose` cleanup on handshake failure. No E2E run against a broker with the TLS stream listener (README advertises port 5551, nothing covers it). | low | **fixed (partially)** — unit tests `testConnectUsesTcpSchemeWithoutTlsConfig` / `testConnectUsesSslSchemeWithTlsConfig` in `tests/StreamConnectionTest.php` now cover scheme selection. E2E against a TLS listener is **deliberately not fixed** (no TLS E2E infra — no Docker setup provisions a RabbitMQ stream TLS listener with certificates; tracked for a follow-up issue). |
+| 10 | src/StreamConnection.php:~191 (`connect()`) | Connect timeout semantics changed: `stream_socket_client()`'s `timeout` parameter now bounds TCP connect (previously `socket_connect()` was unbounded apart from default INI), and the message "Cannot connect to ..." framing differs slightly. Behavior is arguably better; just note it in CHANGELOG. | nit | **fixed** — a `### Changed` entry was added to the `[Unreleased]` section of `CHANGELOG.md` documenting the TLS transport, the streams-based move and the new (strictly tighter) connect/handshake timeout semantics. |
+| 11 | src/StreamConnection.php:626-655 (`sendMessage()`/`writeAll()`) | Asymmetry (not a regression, same as old SO_SNDTIMEO behavior): the pre-write select honors the caller's `$timeout` argument, but the actual `writeAll()` loop always uses `$this->socketTimeout`. Flag for awareness; no action required this round. | nit | **not a real finding (acknowledged)** — pre-existing, documented behavior; no action this round per the review itself. |
+
+**Verdict: approve with changes** — resolve #1, #2, #5, #7 before merge.
+
+---
+
+## Round 2 (verified against fix commit `ca42b89`)
+
+| # | Round-2 status |
+|---|----------------|
+| 1 | fixed — verified: non-blocking before handshake; `enableCrypto()` deadline loop, timeout throws `ConnectionException` + fclose |
+| 2 | fixed — verified: `lastOpenSslError()` drained into both failure and timeout exception messages |
+| 3 | fixed — verified: message mentions ssl:// would-block/renegotiation and `stream_get_meta_data()` |
+| 4 | fixed — verified: `selectWasInterrupted()` + `continue` in `writeAll()` and `readBytes()`; absolute deadlines so retries don't extend timeouts |
+| 5 | fixed — verified: `instanceof TlsConfig` via `$useTls` local |
+| 6 | fixed — verified: single docblock describing resource-validity-only contract |
+| 7 | fixed — verified: `@return ?string`, stale `stream_set_timeout` prose removed |
+| 8 | fixed — verified: duplicate docblock removed |
+| 9 | fixed (partially, accepted) — scheme-selection unit tests added and passing; TLS E2E deferred to follow-up issue |
+| 10 | fixed — verified: `### Changed` entry in CHANGELOG `[Unreleased]` |
+| 11 | not a real finding (acknowledged, no action) |
+
+QA round 2: `composer cs` clean, `composer phpstan` (L9) 0 errors, `composer rector` dry-run clean,
+unit suite OK (1076 tests / 8199 assertions).
+
+**Round-2 verdict: clean (approve).** One informational note: `selectWasInterrupted()` uses
+`error_get_last()` global state, which could theoretically be stale; in practice a genuine select
+failure overwrites it and deadlines remain absolute. No change required. Full details in `review-2.md`.
+
+## CI failure (escaped defect, round 2 missed it)
+
+- `tests/E2E/ConnectionResilienceTest.php:71` — still reflected the old `StreamConnection::$socket` property (`\Socket`), removed by the stream refactor: 3 E2E tests errored in CI with `ReflectionException`. Round-1 review caught the unit-test migration but missed this E2E helper; a check that would have caught it: grep for `->socket`/`\Socket` across `tests/` (not only `tests/StreamConnectionTest.php`). **Fixed** in the follow-up commit — force-close now `fclose()`s the reflected `stream` resource. Recorded per workflow step 11.

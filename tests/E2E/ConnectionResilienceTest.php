@@ -67,13 +67,13 @@ class ConnectionResilienceTest extends E2ETestCase
 
         $this->assertInstanceOf(StreamConnection::class, $streamConnection);
 
-        // Access socket from StreamConnection
-        $socketReflection = new \ReflectionProperty(StreamConnection::class, 'socket');
-        $socket = $socketReflection->getValue($streamConnection);
+        // Access the underlying stream resource from StreamConnection
+        $streamReflection = new \ReflectionProperty(StreamConnection::class, 'stream');
+        $stream = $streamReflection->getValue($streamConnection);
 
-        if ($socket instanceof \Socket) {
-            // Force close the socket
-            @socket_close($socket);
+        if (is_resource($stream)) {
+            // Force close the stream
+            fclose($stream);
         }
     }
 }

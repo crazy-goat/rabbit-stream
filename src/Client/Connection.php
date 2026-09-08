@@ -52,6 +52,7 @@ use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -100,6 +101,7 @@ class Connection implements ConnectionInterface
         ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
         ?float $socketTimeout = null,
+        ?TlsConfig $tls = null,
     ): self {
         if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
             throw new InvalidArgumentException('requestedFrameMax must not be negative');
@@ -123,7 +125,8 @@ class Connection implements ConnectionInterface
                 $port,
                 $logger,
                 $serializer,
-                $socketTimeout ?? StreamConnection::DEFAULT_SOCKET_TIMEOUT
+                $socketTimeout ?? StreamConnection::DEFAULT_SOCKET_TIMEOUT,
+                $tls,
             );
             $streamConnection->connect();
         }
