@@ -51,6 +51,11 @@ class Producer implements ProducerInterface
     private const DEFAULT_BACKPRESSURE_TIMEOUT = 30.0;
     private const REDECLARE_INITIAL_BACKOFF = 0.05;
     private const REDECLARE_MAX_BACKOFF = 1.0;
+    /**
+     * How long close() waits for in-flight PublishConfirm/PublishError frames
+     * to drain before giving up (GitHub #474).
+     */
+    private const CLOSE_CONFIRM_DRAIN_TIMEOUT = 2.0;
 
     private int $publishingId = 0;
     private int $pendingConfirms = 0;
@@ -364,22 +369,48 @@ class Producer implements ProducerInterface
         }
         $this->closed = true;
 
-        $this->connection->unregisterPublisher($this->publisherId);
-        $this->connection->unregisterMetadataUpdateHandler($this->stream, "publisher-{$this->publisherId}");
-
         try {
             if (!$this->stale) {
                 // A stale publisher is already gone on the broker;
                 // DeletePublisher would only earn a PUBLISHER_NOT_EXIST error.
                 $this->connection->sendMessage(new DeletePublisherRequestV1($this->publisherId));
+                // The confirm callback must stay registered until the
+                // DeletePublisher response has been read: PublishConfirm /
+                // PublishError frames for messages still in flight may arrive
+                // on the socket while we wait, and dropping them would leave
+                // pendingConfirms raised forever (GitHub #474).
                 $this->connection->readMessage();
+                $this->drainPendingConfirms();
             }
         } finally {
+            $this->connection->unregisterPublisher($this->publisherId);
+            $this->connection->unregisterMetadataUpdateHandler($this->stream, "publisher-{$this->publisherId}");
             // The id goes back to the pool even when DeletePublisher fails —
             // this producer will never use it again either way (#388).
             if ($this->onClose instanceof \Closure) {
                 ($this->onClose)($this->publisherId);
             }
+        }
+    }
+
+    /**
+     * Drain PublishConfirm/PublishError frames for messages published before
+     * close(). Runs while the confirm callback is still registered so the
+     * frames decrement pendingConfirms instead of being dropped.
+     *
+     * Bounded: if the broker never confirms the in-flight messages within
+     * CLOSE_CONFIRM_DRAIN_TIMEOUT, close() gives up rather than hanging —
+     * the confirms for those messages are then simply lost.
+     */
+    private function drainPendingConfirms(): void
+    {
+        $deadline = microtime(true) + self::CLOSE_CONFIRM_DRAIN_TIMEOUT;
+        while ($this->pendingConfirms > 0) {
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                break;
+            }
+            $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
         }
     }
 
