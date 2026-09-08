@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests\Request;
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
 
 class ConsumerUpdateReplyV1Test extends TestCase
@@ -110,7 +111,7 @@ class ConsumerUpdateReplyV1Test extends TestCase
     {
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
-            offsetType: 1,
+            offsetType: OffsetSpec::TYPE_OFFSET,
             offset: 200,
         );
         $reply->withCorrelationId(99);
@@ -119,7 +120,28 @@ class ConsumerUpdateReplyV1Test extends TestCase
 
         $this->assertSame(99, $array['correlationId']);
         $this->assertSame(0x0001, $array['responseCode']);
-        $this->assertSame(1, $array['offsetType']);
+        $this->assertSame(OffsetSpec::TYPE_OFFSET, $array['offsetType']);
         $this->assertSame(200, $array['offset']);
+    }
+
+    public function testToArrayOmitsOffsetForValuelessTypes(): void
+    {
+        $reply = new ConsumerUpdateReplyV1(
+            responseCode: 0x0001,
+            offsetType: OffsetSpec::TYPE_FIRST,
+            offset: 200,
+        );
+
+        $array = $reply->toArray();
+
+        $this->assertNull($array['offset'], 'value-less offset types carry no wire value');
+    }
+
+    public function testRejectsInvalidOffsetType(): void
+    {
+        // Review round 1 finding: the constructor silently accepted offset
+        // types outside 0-5, serializing a protocol violation.
+        $this->expectException(\InvalidArgumentException::class);
+        new ConsumerUpdateReplyV1(responseCode: 0x0001, offsetType: 99, offset: 0);
     }
 }

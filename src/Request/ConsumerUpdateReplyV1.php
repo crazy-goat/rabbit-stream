@@ -30,6 +30,11 @@ class ConsumerUpdateReplyV1 implements
         private int $offsetType,
         private int $offset,
     ) {
+        if ($offsetType < 0 || $offsetType > OffsetSpec::TYPE_TIMESTAMP) {
+            throw new \InvalidArgumentException(
+                "Invalid offset type {$offsetType}: expected 0-5 (none/first/last/next/offset/timestamp)"
+            );
+        }
     }
 
     public function toStreamBuffer(): WriteBuffer
@@ -47,14 +52,17 @@ class ConsumerUpdateReplyV1 implements
         return $buffer;
     }
 
-    /** @return array<string, int> */
+    /** @return array<string, int|null> */
     public function toArray(): array
     {
+        $hasValue = $this->offsetType === OffsetSpec::TYPE_OFFSET
+            || $this->offsetType === OffsetSpec::TYPE_TIMESTAMP;
+
         return [
             'correlationId' => $this->getCorrelationId(),
             'responseCode' => $this->responseCode,
             'offsetType' => $this->offsetType,
-            'offset' => $this->offset,
+            'offset' => $hasValue ? $this->offset : null,
         ];
     }
 
