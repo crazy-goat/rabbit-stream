@@ -40,3 +40,7 @@ unit suite OK (1076 tests / 8199 assertions).
 **Round-2 verdict: clean (approve).** One informational note: `selectWasInterrupted()` uses
 `error_get_last()` global state, which could theoretically be stale; in practice a genuine select
 failure overwrites it and deadlines remain absolute. No change required. Full details in `review-2.md`.
+
+## CI failure (escaped defect, round 2 missed it)
+
+- `tests/E2E/ConnectionResilienceTest.php:71` — still reflected the old `StreamConnection::$socket` property (`\Socket`), removed by the stream refactor: 3 E2E tests errored in CI with `ReflectionException`. Round-1 review caught the unit-test migration but missed this E2E helper; a check that would have caught it: grep for `->socket`/`\Socket` across `tests/` (not only `tests/StreamConnectionTest.php`). **Fixed** in the follow-up commit — force-close now `fclose()`s the reflected `stream` resource. Recorded per workflow step 11.
