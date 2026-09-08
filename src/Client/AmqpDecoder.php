@@ -55,12 +55,13 @@ class AmqpDecoder
      *
      * @param int $depth current recursion depth (start at 0)
      * @param int $maxDepth maximum allowed recursion depth
+     * @return mixed the decoded value, with $position advanced past it
      */
     private static function decodeValueInPlace(
         string $data,
         int &$position,
-        int $depth = 0,
-        int $maxDepth = self::MAX_RECURSION_DEPTH
+        int $depth,
+        int $maxDepth
     ): mixed {
         if ($depth === 0) {
             // unpack('N'/'J') in the fixed-width readers would return floats on a
@@ -172,10 +173,9 @@ class AmqpDecoder
                 ));
             }
 
-            // Read the described type (skip the 0x00 marker)
+            // Read the described type (skip the 0x00 marker; depth 0 -> 1)
             $position++;
-            $descriptor = self::decodeValueInPlace($data, $position, 1, $maxDepth);
-            $value = self::decodeValueInPlace($data, $position, 1, $maxDepth);
+            ['descriptor' => $descriptor, 'value' => $value] = self::readDescribedType($data, $position, 0, $maxDepth);
 
             // Match descriptor to section
             switch ($descriptor) {
