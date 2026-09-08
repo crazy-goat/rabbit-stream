@@ -11,3 +11,8 @@
 
 - `src/Request/ConsumerUpdateReplyV1.php:34` | round-1 fix used global `\InvalidArgumentException` instead of the library's custom exception (convention since #242) | low | **FIXED** — now throws `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`; test updated; all checks green.
 
+## Round 3
+
+- Review verdict: **clean**. Round-2 fix verified; no remaining open findings. The two documented "not fixed" out-of-scope items remain follow-up candidates.
+
+
