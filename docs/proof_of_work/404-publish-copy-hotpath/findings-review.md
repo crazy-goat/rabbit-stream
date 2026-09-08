@@ -1,31 +1,18 @@
-# Findings — review 1 (issue #404)
 
-1. `src/VO/PublishedMessageV2.php:59` (toWire) — **Low** — open
-   No direct unit tests for `PublishedMessageV2::toWire()`: only indirect coverage
-   through `PublishRequestV2Test`. The validation branches (negative publishingId,
-   filterValue length > 32767, invalid UTF-8 filterValue, body length > INT32_MAX)
-   are untested. (V1 `PublishedMessage::toWire()` has the same gap; mirror-fix both
-   in a follow-up or in this PR.)
+## Round 1 dispositions (main session, after fixes)
 
-2. `src/VO/PublishedMessageV2.php:11-13` — **Low** — open
-   Validation constants `UINT64_MAX`, `INT16_MAX`, `INT32_MAX` are now duplicated
-   across `PublishedMessage`, `PublishedMessageV2`, and `WriteBuffer`. If
-   `WriteBuffer` limits change, the copies drift silently. Follow-up: extract a
-   shared wire-encode/validation trait.
+1. (low) no direct toWire() unit tests — **fixed**: added tests/VO/PublishedMessageV2Test.php (wire bytes, empty values, negative id, too-long filter, invalid UTF-8).
+2. (low) validation constants duplicated in three classes — **deliberately not fixed**: refactor (WireEncodeTrait) touches three files beyond this issue's minimal scope; tracked as follow-up in findings-coder.md.
+3. (low) validation order (length before UTF-8) differs from WriteBuffer::addString() for doubly-invalid input — **not a real finding**: both orders reject the same inputs; only the exception identity for doubly-invalid data differs, which no caller or test relies on.
+4. (nit) pack('J')+pack('n') vs pack('Jn') — **fixed**: now a single pack('Jn', ...), matching V1 style.
+5. (nit) upper-bound publishingId check dead on 64-bit — **deliberately not fixed**: kept for 32-bit/parity with V1, as the review itself notes.
 
-3. `src/VO/PublishedMessageV2.php:61-71` (toWire) — **Low** — open
-   Validation order differs from `WriteBuffer::addString()`: `toWire()` checks
-   filterValue length before UTF-8 validity, `addString()` checks UTF-8 first. For
-   input violating both, a different exception message is thrown than on the old
-   path. Single-fault inputs are exception-identical; cosmetic only.
+## Round 2 review (reviewer, see review-2.md)
 
-4. `src/VO/PublishedMessageV2.php:79-80` (toWire) — **Nit** — open
-   `pack('J', $this->publishingId) . pack('n', $filterLength)` could be a single
-   `pack('Jn', $this->publishingId, $filterLength)`, matching
-   `PublishedMessage::toWire()`'s combined `pack('JN', ...)` style.
+1. still present? **fixed** — agreed; test file verified by hand (wire bytes, empty case = 14 bytes, negative id, 32768 filter, invalid UTF-8).
+2. still present? **deliberately not fixed** — agreed; no new duplication added; WireEncodeTrait correctly deferred to findings-coder.md.
+3. still present? **not a real finding** — agreed; same input set accepted/rejected, only exception identity for doubly-invalid data differs.
+4. still present? **fixed** — agreed; single `pack('Jn', ...)` confirmed in src/VO/PublishedMessageV2.php.
+5. still present? **deliberately not fixed** — agreed; live on 32-bit, parity with V1.
 
-5. `src/VO/PublishedMessageV2.php:60` (toWire) — **Nit** — open
-   The `$this->publishingId > self::UINT64_MAX` upper-bound check is dead code on
-   64-bit PHP (`UINT64_MAX === PHP_INT_MAX`), and `< 0` is unreachable in practice
-   since `Producer` assigns ids. Kept for parity with V1 and 32-bit safety — no
-   action required.
+New issues: none blocking (two informational notes in review-2.md). Tooling: composer cs / phpstan / rector / unit tests all clean (1075 tests, 8195 assertions). Verdict: **clean**.
