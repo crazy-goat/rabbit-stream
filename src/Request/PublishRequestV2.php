@@ -31,10 +31,9 @@ class PublishRequestV2 implements ToStreamBufferInterface, ToArrayInterface, Key
      * the header and every message through addUInt8()/addArray()'s
      * per-message WriteBuffer allocation.
      *
-     * PublishedMessageV2 carries a variable-length filterValue field that is
-     * only reachable through its own toStreamBuffer(), so (unlike
-     * PublishRequestV1) the per-message encoding itself is not further
-     * flattened here.
+     * PublishedMessageV2::toWire() encodes each message (publishingId,
+     * filterValue, body) in a single pass, so the per-message WriteBuffer
+     * object is gone here too.
      */
     public function toStreamBuffer(): WriteBuffer
     {
@@ -47,7 +46,7 @@ class PublishRequestV2 implements ToStreamBufferInterface, ToArrayInterface, Key
         $payload = pack('nnCN', self::getKey(), self::getVersion(), $this->publisherId, count($this->messages));
 
         foreach ($this->messages as $message) {
-            $payload .= $message->toStreamBuffer()->getContents();
+            $payload .= $message->toWire();
         }
 
         // Pass the finished payload straight to the constructor rather than

@@ -92,9 +92,9 @@ class CreditFlowControlTest extends E2ETestCase
             }
             $pubConnection->sendMessage(new PublishRequestV1(1, ...$msgs1));
 
-            // Wait for publish confirm on pubConnection
-            $pubConnection->readLoop(maxFrames: 1, timeout: 5.0);
-            $this->assertSame(10, $pubConfirmCount, 'All 10 published messages should be confirmed');
+            // Wait for all publish confirms on pubConnection — the broker may
+            // split them across multiple PublishConfirm frames
+            $this->waitForConfirmCount($pubConnection, $pubConfirmCount, 10, 5.0);
 
             // Read the delivery on subConnection (consumes 1 credit, gets 1 chunk)
             $subConnection->readLoop(maxFrames: 1, timeout: 5.0);
@@ -106,8 +106,7 @@ class CreditFlowControlTest extends E2ETestCase
                 $msgs2[] = new PublishedMessage($i, "m-{$i}");
             }
             $pubConnection->sendMessage(new PublishRequestV1(1, ...$msgs2));
-            $pubConnection->readLoop(maxFrames: 1, timeout: 5.0);
-            $this->assertSame(20, $pubConfirmCount, 'All 20 published messages should be confirmed');
+            $this->waitForConfirmCount($pubConnection, $pubConfirmCount, 20, 5.0);
 
             // readLoop with short timeout on sub — no credit, no deliveries
             $subConnection->readLoop(timeout: 0.2);
@@ -122,6 +121,33 @@ class CreditFlowControlTest extends E2ETestCase
         } finally {
             $pubConnection->close();
         }
+    }
+
+    /**
+     * Wait until the publisher confirm callback has counted $expected ids, or
+     * $timeout seconds pass. The broker may batch confirms across several
+     * PublishConfirm frames, so a single readLoop(maxFrames: 1) pass is not
+     * enough — keep reading while the count grows and time remains.
+     */
+    private function waitForConfirmCount(
+        StreamConnection $connection,
+        int &$confirmCount,
+        int $expected,
+        float $timeout
+    ): void {
+        $deadline = microtime(true) + $timeout;
+        while ($confirmCount < $expected && microtime(true) < $deadline) {
+            $dispatched = $connection->readLoop(maxFrames: 1, timeout: max(0.1, $deadline - microtime(true)));
+            if ($dispatched === 0) {
+                break;
+            }
+        }
+
+        $this->assertSame(
+            $expected,
+            $confirmCount,
+            sprintf('All %d published messages should be confirmed', $expected)
+        );
     }
 
     public function testCreditResponseOnInvalidSubscription(): void
