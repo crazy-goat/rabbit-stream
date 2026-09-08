@@ -38,7 +38,7 @@ class ConsumerUpdateReplyV1Test extends TestCase
     {
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
-            offsetType: 1,
+            offsetType: 4,
             offset: 500,
         );
         $reply->withCorrelationId(7);
@@ -49,8 +49,59 @@ class ConsumerUpdateReplyV1Test extends TestCase
             . pack('n', 1)              // version
             . pack('N', 7)              // correlationId
             . pack('n', 0x0001)         // responseCode
-            . pack('n', 1)              // offsetType
+            . pack('n', 4)              // offsetType (offset)
             . pack('J', 500);           // offset (uint64)
+
+        $this->assertSame($expected, $bytes);
+    }
+
+    /** @dataProvider provideValuelessOffsetTypes */
+    public function testSerializesWithoutOffsetForValuelessOffsetTypes(int $offsetType): void
+    {
+        $reply = new ConsumerUpdateReplyV1(
+            responseCode: 0x0001,
+            offsetType: $offsetType,
+            offset: 500,
+        );
+        $reply->withCorrelationId(7);
+
+        $bytes = $reply->toStreamBuffer()->getContents();
+
+        $expected = pack('n', KeyEnum::CONSUMER_UPDATE_RESPONSE->value)
+            . pack('n', 1)              // version
+            . pack('N', 7)              // correlationId
+            . pack('n', 0x0001)         // responseCode
+            . pack('n', $offsetType);   // offsetType (no offset value)
+
+        $this->assertSame($expected, $bytes);
+    }
+
+    /** @return \Generator<string, array{int}> */
+    public static function provideValuelessOffsetTypes(): \Generator
+    {
+        yield 'none (0)' => [0];
+        yield 'first (1)' => [1];
+        yield 'last (2)' => [2];
+        yield 'next (3)' => [3];
+    }
+
+    public function testSerializesWithOffsetForTimestampType(): void
+    {
+        $reply = new ConsumerUpdateReplyV1(
+            responseCode: 0x0001,
+            offsetType: 5,
+            offset: 1700000000000,
+        );
+        $reply->withCorrelationId(7);
+
+        $bytes = $reply->toStreamBuffer()->getContents();
+
+        $expected = pack('n', KeyEnum::CONSUMER_UPDATE_RESPONSE->value)
+            . pack('n', 1)              // version
+            . pack('N', 7)              // correlationId
+            . pack('n', 0x0001)         // responseCode
+            . pack('n', 5)              // offsetType (timestamp)
+            . pack('J', 1700000000000); // offset (uint64)
 
         $this->assertSame($expected, $bytes);
     }
