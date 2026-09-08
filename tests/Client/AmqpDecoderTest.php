@@ -833,7 +833,12 @@ class AmqpDecoderTest extends TestCase
         $payload = "\x40"; // innermost element: null
         for ($i = 0; $i < $depth; $i++) {
             $size = strlen($payload) + 1; // size includes the count byte
-            $payload = "\xc0" . chr($size & 0xFF) . "\x01" . $payload;
+            if ($size > 0xFF) {
+                // A list8 size is a single byte. Masking with & 0xFF would
+                // silently wrap and produce a malformed fixture; fail loudly.
+                throw new \LogicException('list8 size exceeds the 1-byte size field');
+            }
+            $payload = "\xc0" . chr($size) . "\x01" . $payload;
         }
         return $payload;
     }
@@ -944,12 +949,48 @@ class AmqpDecoderTest extends TestCase
         $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
     }
 
+    public function testDecodeArray32AtElementCapDecodes(): void
+    {
+        // Boundary: an honest array32 with exactly MAX_COMPOUND_ELEMENTS elements
+        // must be accepted — only count > 131072 is rejected. Each element is a
+        // 1-byte null (0x40), so the fixture is ~128 KB and the decode is bounded
+        // by the available-bytes guard (count == available).
+        $count = 131072; // exactly MAX_COMPOUND_ELEMENTS
+        $content = str_repeat("\x40", $count);
+        $size = $count + 4; // 4 count bytes + count content bytes
+        $payload = "\xf0" . pack('N', $size) . pack('N', $count) . $content;
+        $baseline = memory_get_usage(true);
+
+        [$value, $pos] = AmqpDecoder::decodeValue($payload, 0);
+        assert(is_array($value));
+        $this->assertCount($count, $value);
+        $this->assertNull($value[0]);
+        $this->assertSame(strlen($payload), $pos);
+
+        // A truthful frame at the cap decodes with bounded memory (~128 KB input
+        // + one PHP array), not the multi-hundred-MB blow-up the guard exists for.
+        $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
+    }
+
     public function testDecodeArray32CountExceedingAvailableThrows(): void
     {
         $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Array32 count 4 exceeds available bytes 1');
         // declares count=4 but only 1 content byte
         AmqpDecoder::decodeValue("\xf0\x00\x00\x00\x05\x00\x00\x00\x04\x40", 0);
+    }
+
+    public function testDecodeArray32MultiByteElementsOverrunStillThrows(): void
+    {
+        // Multi-byte-element variant of the available-bytes guard: with 2-byte
+        // elements a count can sit at or under the available-byte total while the
+        // elements still cannot fit (3 × 2 = 6 bytes needed, 4 declared). The
+        // up-front guard does not fire (3 <= 4); the per-element loop guard
+        // rejects the frame before the third element is read.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Array32 count exceeds available data');
+        // size=8 (count bytes + 4 content bytes), count=3, elements: two smalluints so far
+        AmqpDecoder::decodeValue("\xf0\x00\x00\x00\x08\x00\x00\x00\x03\x52\x01\x52\x02", 0);
     }
 
     public function testDecodeArray8CountExceedsSizeThrows(): void
@@ -976,7 +1017,12 @@ class AmqpDecoderTest extends TestCase
         $data = "\xe0\x02\x01\x41";
         for ($i = 0; $i < 40; $i++) {
             $size = 1 + strlen($data);
-            $data = "\xe0" . chr($size & 0xFF) . "\x01" . $data;
+            if ($size > 0xFF) {
+                // An array8 size is a single byte. Masking with & 0xFF would
+                // silently wrap and produce a malformed fixture; fail loudly.
+                throw new \LogicException('array8 size exceeds the 1-byte size field');
+            }
+            $data = "\xe0" . chr($size) . "\x01" . $data;
         }
         AmqpDecoder::decodeValue($data, 0);
     }

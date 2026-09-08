@@ -596,6 +596,38 @@ class AmqpDecoder
         ));
     }
 
+    /**
+     * #449 element-count guard shared by the 32-bit compound readers
+     * (readList32 / readMap32 / readArray32). The 32-bit $count is
+     * attacker-supplied and every element is at least 1 byte (its format code):
+     * a count larger than the available content bytes is malformed and cannot
+     * be satisfied without allocating a multi-hundred-MB array from a small
+     * frame, and an honest large count (e.g. 8 M null elements in an 8 MiB
+     * frame) would OOM too. A flat compound is depth 1, so the #397 recursion
+     * guard does not apply — cap both before any allocation.
+     *
+     * @param string $what compound name, for exception messages
+     */
+    private static function assertCompoundCount(int $count, int $available, string $what): void
+    {
+        if ($count > $available) {
+            throw new DeserializationException(sprintf(
+                '%s count %d exceeds available bytes %d',
+                $what,
+                $count,
+                $available
+            ));
+        }
+        if ($count > self::MAX_COMPOUND_ELEMENTS) {
+            throw new DeserializationException(sprintf(
+                '%s count %d exceeds maximum compound elements %d',
+                $what,
+                $count,
+                self::MAX_COMPOUND_ELEMENTS
+            ));
+        }
+    }
+
     /** @return array{0: array<int, mixed>, 1: int} */
     private static function readList8(string $data, int $position, int $depth, int $maxDepth): array
     {
@@ -632,31 +664,9 @@ class AmqpDecoder
         $contentEnd = self::compoundContentEnd($data, $position, $size, 4, 'List32');
 
         // Security (#449): the 32-bit $count is attacker-supplied. A flat list is
-        // depth 1, so the #397 recursion guard does not apply. Cap $count to the
-        // bytes actually available in the content span before allocating: every
-        // element is at least 1 byte (its format code), so a count larger than the
-        // available bytes is malformed and cannot be satisfied without allocating
-        // a multi-hundred-MB array from a small frame (OOM fatal).
-        $available = $contentEnd - $position;
-        if ($count > $available) {
-            throw new DeserializationException(sprintf(
-                'List32 count %d exceeds available bytes %d',
-                $count,
-                $available
-            ));
-        }
-        // Security (#449): also cap honest large frames. When count truthfully
-        // equals the available bytes (e.g. 8 M null elements in an 8 MiB frame),
-        // the available-bytes guard above does not fire, but the loop still
-        // builds a multi-hundred-MB array → uncatchable OOM fatal. A flat list
-        // is depth 1, so the #397 recursion guard does not apply either.
-        if ($count > self::MAX_COMPOUND_ELEMENTS) {
-            throw new DeserializationException(sprintf(
-                'List32 count %d exceeds maximum compound elements %d',
-                $count,
-                self::MAX_COMPOUND_ELEMENTS
-            ));
-        }
+        // depth 1, so the #397 recursion guard does not apply — see
+        // assertCompoundCount().
+        self::assertCompoundCount($count, $contentEnd - $position, 'List32');
 
         $list = [];
         for ($i = 0; $i < $count; $i++) {
@@ -748,31 +758,9 @@ class AmqpDecoder
         $contentEnd = self::compoundContentEnd($data, $position, $size, 4, 'Array32');
 
         // Security (#449): the 32-bit $count is attacker-supplied. A flat array
-        // is depth 1, so the #397 recursion guard does not apply. Cap $count to
-        // the bytes actually available in the content span before allocating:
-        // every element is at least 1 byte (its format code), so a count larger
-        // than the available bytes is malformed and cannot be satisfied without
-        // allocating a multi-hundred-MB array from a small frame (OOM fatal).
-        $available = $contentEnd - $position;
-        if ($count > $available) {
-            throw new DeserializationException(sprintf(
-                'Array32 count %d exceeds available bytes %d',
-                $count,
-                $available
-            ));
-        }
-        // Security (#449): also cap honest large frames. When count truthfully
-        // equals the available bytes (e.g. 8 M null elements in an 8 MiB frame),
-        // the available-bytes guard above does not fire, but the loop still
-        // builds a multi-hundred-MB array → uncatchable OOM fatal. A flat array
-        // is depth 1, so the #397 recursion guard does not apply either.
-        if ($count > self::MAX_COMPOUND_ELEMENTS) {
-            throw new DeserializationException(sprintf(
-                'Array32 count %d exceeds maximum compound elements %d',
-                $count,
-                self::MAX_COMPOUND_ELEMENTS
-            ));
-        }
+        // is depth 1, so the #397 recursion guard does not apply — see
+        // assertCompoundCount().
+        self::assertCompoundCount($count, $contentEnd - $position, 'Array32');
 
         $array = [];
         for ($i = 0; $i < $count; $i++) {
@@ -799,26 +787,8 @@ class AmqpDecoder
         $contentEnd = self::compoundContentEnd($data, $position, $size, 4, 'Map32');
 
         // Security (#449): the 32-bit $count (total key+value elements, i.e. pairs*2)
-        // is attacker-supplied. As with readList32, cap it to the bytes actually
-        // available before allocating: every element is at least 1 byte (its format
-        // code), so a count larger than the available bytes is malformed and would
-        // otherwise allocate a multi-hundred-MB map from a small frame (OOM fatal).
-        $available = $contentEnd - $position;
-        if ($count > $available) {
-            throw new DeserializationException(sprintf(
-                'Map32 count %d exceeds available bytes %d',
-                $count,
-                $available
-            ));
-        }
-        // Security (#449): also cap honest large frames — see readList32.
-        if ($count > self::MAX_COMPOUND_ELEMENTS) {
-            throw new DeserializationException(sprintf(
-                'Map32 count %d exceeds maximum compound elements %d',
-                $count,
-                self::MAX_COMPOUND_ELEMENTS
-            ));
-        }
+        // is attacker-supplied. As with readList32, see assertCompoundCount().
+        self::assertCompoundCount($count, $contentEnd - $position, 'Map32');
 
         self::assertEvenMapCount($count, 'Map32');
 
