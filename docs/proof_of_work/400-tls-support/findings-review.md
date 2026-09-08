@@ -15,3 +15,28 @@
 | 11 | src/StreamConnection.php:626-655 (`sendMessage()`/`writeAll()`) | Asymmetry (not a regression, same as old SO_SNDTIMEO behavior): the pre-write select honors the caller's `$timeout` argument, but the actual `writeAll()` loop always uses `$this->socketTimeout`. Flag for awareness; no action required this round. | nit | **not a real finding (acknowledged)** — pre-existing, documented behavior; no action this round per the review itself. |
 
 **Verdict: approve with changes** — resolve #1, #2, #5, #7 before merge.
+
+---
+
+## Round 2 (verified against fix commit `ca42b89`)
+
+| # | Round-2 status |
+|---|----------------|
+| 1 | fixed — verified: non-blocking before handshake; `enableCrypto()` deadline loop, timeout throws `ConnectionException` + fclose |
+| 2 | fixed — verified: `lastOpenSslError()` drained into both failure and timeout exception messages |
+| 3 | fixed — verified: message mentions ssl:// would-block/renegotiation and `stream_get_meta_data()` |
+| 4 | fixed — verified: `selectWasInterrupted()` + `continue` in `writeAll()` and `readBytes()`; absolute deadlines so retries don't extend timeouts |
+| 5 | fixed — verified: `instanceof TlsConfig` via `$useTls` local |
+| 6 | fixed — verified: single docblock describing resource-validity-only contract |
+| 7 | fixed — verified: `@return ?string`, stale `stream_set_timeout` prose removed |
+| 8 | fixed — verified: duplicate docblock removed |
+| 9 | fixed (partially, accepted) — scheme-selection unit tests added and passing; TLS E2E deferred to follow-up issue |
+| 10 | fixed — verified: `### Changed` entry in CHANGELOG `[Unreleased]` |
+| 11 | not a real finding (acknowledged, no action) |
+
+QA round 2: `composer cs` clean, `composer phpstan` (L9) 0 errors, `composer rector` dry-run clean,
+unit suite OK (1076 tests / 8199 assertions).
+
+**Round-2 verdict: clean (approve).** One informational note: `selectWasInterrupted()` uses
+`error_get_last()` global state, which could theoretically be stale; in practice a genuine select
+failure overwrites it and deadlines remain absolute. No change required. Full details in `review-2.md`.
