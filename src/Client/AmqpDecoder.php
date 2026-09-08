@@ -30,6 +30,11 @@ class AmqpDecoder
      * Decode a single AMQP 1.0 value from the binary data at the given position.
      * Returns [value, newPosition].
      *
+     * Kept as the public entry point for callers (tests, external users); the
+     * internal decoding path goes through decodeValueInPlace(), which advances
+     * `$position` in place and returns the plain value, so no throwaway
+     * two-element array is allocated per decoded value (#405).
+     *
      * @param int $depth current recursion depth (start at 0)
      * @param int $maxDepth maximum allowed recursion depth
      * @return array{0: mixed, 1: int}
@@ -40,6 +45,23 @@ class AmqpDecoder
         int $depth = 0,
         int $maxDepth = self::MAX_RECURSION_DEPTH
     ): array {
+        $value = self::decodeValueInPlace($data, $position, $depth, $maxDepth);
+        return [$value, $position];
+    }
+
+    /**
+     * Decode a single AMQP 1.0 value, advancing `$position` past it in place and
+     * returning the decoded value itself — no per-value tuple allocation (#405).
+     *
+     * @param int $depth current recursion depth (start at 0)
+     * @param int $maxDepth maximum allowed recursion depth
+     */
+    private static function decodeValueInPlace(
+        string $data,
+        int &$position,
+        int $depth = 0,
+        int $maxDepth = self::MAX_RECURSION_DEPTH
+    ): mixed {
         if ($depth === 0) {
             // unpack('N'/'J') in the fixed-width readers would return floats on a
             // 32-bit build; checked once per top-level value, not per element (#458).
@@ -57,12 +79,12 @@ class AmqpDecoder
 
         return match ($formatCode) {
             // Fixed-width types
-            0x40 => [null, $position], // null
-            0x41 => [true, $position], // boolean true
-            0x42 => [false, $position], // boolean false
-            0x43 => [0, $position], // uint zero
-            0x44 => [0, $position], // ulong zero
-            0x45 => [[], $position], // list0 (empty list)
+            0x40 => null, // null
+            0x41 => true, // boolean true
+            0x42 => false, // boolean false
+            0x43 => 0, // uint zero
+            0x44 => 0, // ulong zero
+            0x45 => [], // list0 (empty list)
             0x50 => self::readUint8($data, $position), // ubyte
             0x51 => self::readInt8($data, $position), // byte
             0x52 => self::readUint8($data, $position), // smalluint
@@ -150,8 +172,10 @@ class AmqpDecoder
                 ));
             }
 
-            // Read the described type
-            [$descriptor, $value, $position] = self::readDescribedTypeWithPosition($data, $position, 0, $maxDepth);
+            // Read the described type (skip the 0x00 marker)
+            $position++;
+            $descriptor = self::decodeValueInPlace($data, $position, 1, $maxDepth);
+            $value = self::decodeValueInPlace($data, $position, 1, $maxDepth);
 
             // Match descriptor to section
             switch ($descriptor) {
@@ -244,13 +268,14 @@ class AmqpDecoder
 
     // Fixed-width type readers
 
-    /** @return array{0: int, 1: int} */
-    private static function readUint8(string $data, int $position): array
+    private static function readUint8(string $data, int &$position): int
     {
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uint8');
         }
-        return [ord($data[$position]), $position + 1];
+        $value = ord($data[$position]);
+        $position++;
+        return $value;
     }
 
     /**
@@ -280,84 +305,83 @@ class AmqpDecoder
         return (float) $result[1];
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readInt8(string $data, int $position): array
+    private static function readInt8(string $data, int &$position): int
     {
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int8');
         }
         $value = self::unpackIntAt('c', $data, $position, 'int8');
-        return [$value, $position + 1];
+        $position++;
+        return $value;
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readUint16(string $data, int $position): array
+    private static function readUint16(string $data, int &$position): int
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uint16');
         }
         $value = self::unpackIntAt('n', $data, $position, 'uint16');
-        return [$value, $position + 2];
+        $position += 2;
+        return $value;
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readInt16(string $data, int $position): array
+    private static function readInt16(string $data, int &$position): int
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int16');
         }
         $value = self::unpackIntAt('n', $data, $position, 'int16');
+        $position += 2;
         if ($value >= 0x8000) {
             $value -= 0x10000;
         }
-        return [$value, $position + 2];
+        return $value;
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readUint32(string $data, int $position): array
+    private static function readUint32(string $data, int &$position): int
     {
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uint32');
         }
         $value = self::unpackIntAt('N', $data, $position, 'uint32');
-        return [$value, $position + 4];
+        $position += 4;
+        return $value;
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readInt32(string $data, int $position): array
+    private static function readInt32(string $data, int &$position): int
     {
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int32');
         }
         $value = self::unpackIntAt('N', $data, $position, 'int32');
+        $position += 4;
         if ($value >= 0x80000000) {
             $value -= 0x100000000;
         }
-        return [$value, $position + 4];
+        return $value;
     }
 
-    /** @return array{0: float, 1: int} */
-    private static function readFloat(string $data, int $position): array
+    private static function readFloat(string $data, int &$position): float
     {
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading float');
         }
         $value = self::unpackFloatAt('G', $data, $position, 'float');
-        return [$value, $position + 4];
+        $position += 4;
+        return $value;
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readUint64(string $data, int $position): array
+    private static function readUint64(string $data, int &$position): int
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uint64');
         }
         $value = self::unpackIntAt('J', $data, $position, 'uint64');
-        return [$value, $position + 8];
+        $position += 8;
+        return $value;
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readInt64(string $data, int $position): array
+    private static function readInt64(string $data, int &$position): int
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading int64');
@@ -366,21 +390,21 @@ class AmqpDecoder
         // no unsigned 64-bit type), so no manual sign correction is needed here —
         // unlike the 16/32-bit readers, where 'n'/'N' return an unsigned value.
         $value = self::unpackIntAt('J', $data, $position, 'int64');
-        return [$value, $position + 8];
+        $position += 8;
+        return $value;
     }
 
-    /** @return array{0: float, 1: int} */
-    private static function readDouble(string $data, int $position): array
+    private static function readDouble(string $data, int &$position): float
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading double');
         }
         $value = self::unpackFloatAt('E', $data, $position, 'double');
-        return [$value, $position + 8];
+        $position += 8;
+        return $value;
     }
 
-    /** @return array{0: int, 1: int} */
-    private static function readTimestamp(string $data, int $position): array
+    private static function readTimestamp(string $data, int &$position): int
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading timestamp');
@@ -388,11 +412,11 @@ class AmqpDecoder
         // Timestamp is milliseconds since Unix epoch (int64); see readInt64() for
         // why no manual sign correction is needed for a 'J' unpack.
         $value = self::unpackIntAt('J', $data, $position, 'timestamp');
-        return [$value, $position + 8];
+        $position += 8;
+        return $value;
     }
 
-    /** @return array{0: string, 1: int} */
-    private static function readUuid(string $data, int $position): array
+    private static function readUuid(string $data, int &$position): string
     {
         if ($position + 15 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading uuid');
@@ -404,7 +428,8 @@ class AmqpDecoder
         $p4 = self::unpackIntAt('n', $data, $position + 8, 'uuid part4');
         $p5a = self::unpackIntAt('N', $data, $position + 10, 'uuid part5a');
         $p5b = self::unpackIntAt('n', $data, $position + 14, 'uuid part5b');
-        $value = sprintf(
+        $position += 16;
+        return sprintf(
             '%08x-%04x-%04x-%04x-%012x',
             $p1,
             $p2,
@@ -412,22 +437,21 @@ class AmqpDecoder
             $p4,
             $p5a * 65536 + $p5b
         );
-        return [$value, $position + 16];
     }
 
-    /** @return array{0: bool, 1: int} */
-    private static function readBoolean(string $data, int $position): array
+    private static function readBoolean(string $data, int &$position): bool
     {
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading boolean');
         }
-        return [ord($data[$position]) !== 0, $position + 1];
+        $value = ord($data[$position]) !== 0;
+        $position++;
+        return $value;
     }
 
     // Variable-width type readers
 
-    /** @return array{0: string, 1: int} */
-    private static function readBinary8(string $data, int $position): array
+    private static function readBinary8(string $data, int &$position): string
     {
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading binary8 length');
@@ -437,11 +461,12 @@ class AmqpDecoder
         if ($position + $length > strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading binary8 content');
         }
-        return [substr($data, $position, $length), $position + $length];
+        $value = substr($data, $position, $length);
+        $position += $length;
+        return $value;
     }
 
-    /** @return array{0: string, 1: int} */
-    private static function readBinary32(string $data, int $position): array
+    private static function readBinary32(string $data, int &$position): string
     {
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading binary32 length');
@@ -455,11 +480,12 @@ class AmqpDecoder
         if ($length < 0 || $length > strlen($data) - $position) {
             throw new DeserializationException('Unexpected end of data reading binary32 content');
         }
-        return [substr($data, $position, $length), $position + $length];
+        $value = substr($data, $position, $length);
+        $position += $length;
+        return $value;
     }
 
-    /** @return array{0: string, 1: int} */
-    private static function readString8(string $data, int $position): array
+    private static function readString8(string $data, int &$position): string
     {
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading string8 length');
@@ -469,11 +495,12 @@ class AmqpDecoder
         if ($position + $length > strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading string8 content');
         }
-        return [substr($data, $position, $length), $position + $length];
+        $value = substr($data, $position, $length);
+        $position += $length;
+        return $value;
     }
 
-    /** @return array{0: string, 1: int} */
-    private static function readString32(string $data, int $position): array
+    private static function readString32(string $data, int &$position): string
     {
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading string32 length');
@@ -487,11 +514,12 @@ class AmqpDecoder
         if ($length < 0 || $length > strlen($data) - $position) {
             throw new DeserializationException('Unexpected end of data reading string32 content');
         }
-        return [substr($data, $position, $length), $position + $length];
+        $value = substr($data, $position, $length);
+        $position += $length;
+        return $value;
     }
 
-    /** @return array{0: string, 1: int} */
-    private static function readSymbol8(string $data, int $position): array
+    private static function readSymbol8(string $data, int &$position): string
     {
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading symbol8 length');
@@ -501,11 +529,12 @@ class AmqpDecoder
         if ($position + $length > strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading symbol8 content');
         }
-        return [substr($data, $position, $length), $position + $length];
+        $value = substr($data, $position, $length);
+        $position += $length;
+        return $value;
     }
 
-    /** @return array{0: string, 1: int} */
-    private static function readSymbol32(string $data, int $position): array
+    private static function readSymbol32(string $data, int &$position): string
     {
         if ($position + 3 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading symbol32 length');
@@ -519,7 +548,9 @@ class AmqpDecoder
         if ($length < 0 || $length > strlen($data) - $position) {
             throw new DeserializationException('Unexpected end of data reading symbol32 content');
         }
-        return [substr($data, $position, $length), $position + $length];
+        $value = substr($data, $position, $length);
+        $position += $length;
+        return $value;
     }
 
     // Compound type readers
@@ -592,8 +623,10 @@ class AmqpDecoder
         ));
     }
 
-    /** @return array{0: array<int, mixed>, 1: int} */
-    private static function readList8(string $data, int $position, int $depth, int $maxDepth): array
+    /**
+     * @return array<int, mixed>
+     */
+    private static function readList8(string $data, int &$position, int $depth, int $maxDepth): array
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading list8 header');
@@ -608,16 +641,17 @@ class AmqpDecoder
             if ($position >= $contentEnd) {
                 throw new DeserializationException('List8 count exceeds available data');
             }
-            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-            $list[] = $value;
+            $list[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'List8');
 
-        return [$list, $position];
+        return $list;
     }
 
-    /** @return array{0: array<int, mixed>, 1: int} */
-    private static function readList32(string $data, int $position, int $depth, int $maxDepth): array
+    /**
+     * @return array<int, mixed>
+     */
+    private static function readList32(string $data, int &$position, int $depth, int $maxDepth): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading list32 header');
@@ -659,16 +693,17 @@ class AmqpDecoder
             if ($position >= $contentEnd) {
                 throw new DeserializationException('List32 count exceeds available data');
             }
-            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-            $list[] = $value;
+            $list[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'List32');
 
-        return [$list, $position];
+        return $list;
     }
 
-    /** @return array{0: array<string|int, mixed>, 1: int} */
-    private static function readMap8(string $data, int $position, int $depth, int $maxDepth): array
+    /**
+     * @return array<string|int, mixed>
+     */
+    private static function readMap8(string $data, int &$position, int $depth, int $maxDepth): array
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading map8 header');
@@ -685,21 +720,23 @@ class AmqpDecoder
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map8 count exceeds available data');
             }
-            [$key, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
+            $key = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map8 missing value for key');
             }
-            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
+            $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
             $map[$mapKey] = $value;
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Map8');
 
-        return [$map, $position];
+        return $map;
     }
 
-    /** @return array{0: array<string|int, mixed>, 1: int} */
-    private static function readMap32(string $data, int $position, int $depth, int $maxDepth): array
+    /**
+     * @return array<string|int, mixed>
+     */
+    private static function readMap32(string $data, int &$position, int $depth, int $maxDepth): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading map32 header');
@@ -739,17 +776,17 @@ class AmqpDecoder
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map32 count exceeds available data');
             }
-            [$key, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
+            $key = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map32 missing value for key');
             }
-            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
+            $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
             $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
             $map[$mapKey] = $value;
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Map32');
 
-        return [$map, $position];
+        return $map;
     }
 
     /**
@@ -773,30 +810,13 @@ class AmqpDecoder
 
     // Described type reader
 
-    /** @return array{0: array{descriptor: mixed, value: mixed}, 1: int} */
-    private static function readDescribedType(string $data, int $position, int $depth, int $maxDepth): array
-    {
-        [$descriptor, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-        [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-        return [['descriptor' => $descriptor, 'value' => $value], $position];
-    }
-
     /**
-     * Read a described type and return [descriptor, value, newPosition].
-     *
-     * @return array{0: mixed, 1: mixed, 2: int}
+     * @return array{descriptor: mixed, value: mixed}
      */
-    private static function readDescribedTypeWithPosition(string $data, int $position, int $depth, int $maxDepth): array
+    private static function readDescribedType(string $data, int &$position, int $depth, int $maxDepth): array
     {
-        // Skip the 0x00 marker (already checked by caller)
-        $position++;
-
-        // Read the descriptor
-        [$descriptor, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-
-        // Read the value
-        [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
-
-        return [$descriptor, $value, $position];
+        $descriptor = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+        $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+        return ['descriptor' => $descriptor, 'value' => $value];
     }
 }
