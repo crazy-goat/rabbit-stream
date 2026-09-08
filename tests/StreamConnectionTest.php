@@ -1023,9 +1023,9 @@ class StreamConnectionTest extends TestCase
         $this->assertIsArray($unpackedOffsetType);
         $this->assertEquals(0, $unpackedOffsetType[1]);
 
-        $unpackedOffset = unpack('J', substr($response, 12, 8));
-        $this->assertIsArray($unpackedOffset);
-        $this->assertEquals(0, $unpackedOffset[1]);
+        // Offset type 0 (none) carries no offset value — the frame must end
+        // right after the 2-byte offsetType field.
+        $this->assertSame(12, strlen($response));
 
         fclose($serverSocket);
         fclose($clientSocket);
