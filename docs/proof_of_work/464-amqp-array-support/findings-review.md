@@ -1,18 +1,33 @@
-# Findings — Review Round 1 (#464)
+# Findings review — round 1 (#464 AMQP array support)
 
-1. **src/Client/AmqpDecoder.php:748-783** — `readArray32` duplicates the two #449 guard blocks (available-bytes check + MAX_COMPOUND_ELEMENTS check) and their long comments verbatim from `readList32` (~35 duplicated lines incl. comments). A future change to one guard (e.g. raising `MAX_COMPOUND_ELEMENTS` semantics) can easily miss the other. Consider extracting a small `assertCompoundCountGuard(int $count, int $available, string $what)` helper shared by list32/array32.
-   Severity: low — Status: open
+Reviewer feedback addressed in commit `fix(protocol): address round-1 review findings`.
 
-2. **src/Client/AmqpDecoder.php:740-760** — Inconsistent malformed-count error path between array8 and array32: array32 throws a specific pre-computed message ("Array32 count %d exceeds available bytes %d"), while array8 throws the generic in-loop "Array8 count exceeds available data". Functionally safe (uint8 count ≤ 255), but a divergence from list32/list8 parity — same issue exists for list8, so this is consistent with the existing code rather than a regression.
-   Severity: nit — Status: open
+| # | Severity | Finding | Status |
+|---|----------|---------|--------|
+| 1 | low | The #449 count/size guard blocks are duplicated between `readArray32` and `readList32` (and also present in `readMap32`). | ✅ **Fixed** — extracted into one private helper `assertCompoundCount(int $count, int $available, string $what): void` in `src/Client/AmqpDecoder.php`, used by `readList32`, `readMap32` and `readArray32`. Exception messages and check order (available-bytes first, then MAX_COMPOUND_ELEMENTS) are byte-for-byte identical, so no test message changed. |
+| 2 | low | "array8 generic message" — claim that array8 handling differs from list8 in some way. | ❌ **Not a real finding (existing list8 parity)** — `readArray8` already mirrors `readList8` exactly (same size/count field order, same `compoundContentEnd` window, same `assertCompoundConsumed` check). No change needed. |
+| 3 | low | Missing inclusive boundary test at exactly `MAX_COMPOUND_ELEMENTS` (131072) for arrays. | ✅ **Fixed** — added `testDecodeArray32AtElementCapDecodes` in `tests/Client/AmqpDecoderTest.php`: builds the fixture programmatically (131072 one-byte null elements, truthful size), asserts the array decodes in full with peak memory bounded (< 32 MB delta), keeping runtime ~milliseconds. |
+| 4 | nit | The available-bytes guard test only covers 1-byte elements; add a multi-byte-element case. | ✅ **Fixed** — added `testDecodeArray32MultiByteElementsOverrunStillThrows`: 3 declared elements of 2 bytes each against 4 declared content bytes. The up-front guard does not fire (count 3 ≤ 4 available bytes), the per-element loop guard rejects the frame — documenting exactly which guard catches the multi-byte overrun. |
+| 5 | nit | `chr($size & 0xFF)` in test fixtures silently wraps if a size exceeds 255. | ✅ **Fixed** — both occurrences (`buildNestedList8()` and `testDecodeArrayRespectsMaxDepth()`) now compute the size explicitly and throw a `\LogicException` when it exceeds the 1-byte size field, instead of masking it away. |
 
-3. **tests/Client/AmqpDecoderTest.php:990-1012** — `testDecodeArray32HonestLargeFrameThrowsBeforeAllocating` tests only `MAX_COMPOUND_ELEMENTS + 1`. A boundary test at exactly `131072` null elements (accepted, decodes successfully with peak memory still bounded) would pin down the inclusive boundary behaviour; cheap to add (~128 KB payload).
-   Severity: low — Status: open
+## Verification
 
-4. **tests/Client/AmqpDecoderTest.php:998-1000** — The "count exceeds available bytes" guard test (`testDecodeArray32CountExceedingAvailableThrows`) uses 1-byte null elements only. A case where declared count is satisfiable per-byte but elements are multi-byte (e.g. count larger than can be satisfied by str8 elements inside the span) would exercise that the guard is not just the loop guard firing. Low value but tightens coverage.
-   Severity: nit — Status: open
+- `composer lint` (PHPCS + Rector dry-run + PHPStan level 9 + kb-lint): clean
+- `./vendor/bin/phpunit --testsuite unit`: 1085 tests, 8222 assertions, OK
 
-5. **tests/Client/AmqpDecoderTest.php:1030-1036** — `testDecodeArrayRespectsMaxDepth` uses `chr($size & 0xFF)` which silently truncates if the accumulated size ever exceeded 255. Harmless today (depth limit fires at 32 long before sizes approach 255), but a comment noting the reliance, or an assertion that `strlen($data) <= 255`, would make the test self-documenting.
-   Severity: nit — Status: open
+## Round 2 (commit `6a087bd`)
 
-No high- or medium-severity findings. Wire format, depth parity, OOM parity, bounds safety, PHPStan 9 and PSR-12 all verified clean.
+| # | Round-1 finding | Round-2 status |
+|---|-----------------|----------------|
+| 1 | Duplicated count/size guards | ✅ **Still fixed (re-verified).** `assertCompoundCount()` produces byte-identical messages and preserves check order; used by readList32, readMap32, readArray32. |
+| 2 | "array8 generic message" claim | ✅ **Confirmed not a real finding** — readArray8 mirrors readList8 exactly. |
+| 3 | Missing MAX_COMPOUND_ELEMENTS boundary test | ✅ **Still fixed (re-verified).** `testDecodeArray32AtElementCapDecodes` is correct and deterministic (`pack()`-built fixture, count = 131072 exactly). |
+| 4 | Multi-byte-element overrun case | ✅ **Still fixed (re-verified).** `testDecodeArray32MultiByteElementsOverrunStillThrows` correctly exercises the per-element loop guard. |
+| 5 | `chr($size & 0xFF)` silent wrap | ✅ **Still fixed (re-verified).** Both fixture builders now throw `\LogicException` on overflow. |
+
+### Round-2 QA
+- `composer cs` clean, `composer phpstan` clean, `composer rector` dry-run: no changes
+- `./vendor/bin/phpunit --testsuite unit`: OK (1085 tests, 8222 assertions)
+
+### Round-2 verdict
+**Clean** — no open findings; ready to merge. Details in `review-2.md`.
