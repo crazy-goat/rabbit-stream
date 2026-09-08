@@ -99,6 +99,10 @@ class AmqpDecoder
             0xd0 => self::readList32($data, $position, $depth, $maxDepth), // list32
             0xd1 => self::readMap32($data, $position, $depth, $maxDepth), // map32
 
+            // Array types (#464)
+            0xe0 => self::readArray8($data, $position, $depth, $maxDepth), // array8
+            0xf0 => self::readArray32($data, $position, $depth, $maxDepth), // array32
+
             // Described type
             0x00 => self::readDescribedType($data, $position, $depth, $maxDepth),
 
@@ -696,6 +700,91 @@ class AmqpDecoder
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Map8');
 
         return [$map, $position];
+    }
+
+    /**
+     * AMQP 1.0 array8 (0xe0) / array32 (0xf0) (#464): a size in bytes (which
+     * includes the count field) followed by an element count, then the element
+     * constructions. The declared size is used to bound decoding exactly like
+     * the compound readers do; the element count carries the #449-style guards:
+     * a 32-bit count is attacker-supplied and every element is at least 1 byte,
+     * so a count larger than the available bytes is malformed, and an honest
+     * large count (e.g. 8 M null elements) would OOM — cap both like readList32.
+     *
+     * @return array{0: list<mixed>, 1: int}
+     */
+    private static function readArray8(string $data, int $position, int $depth, int $maxDepth): array
+    {
+        if ($position + 1 >= strlen($data)) {
+            throw new DeserializationException('Unexpected end of data reading array8 header');
+        }
+        $size = ord($data[$position]);
+        $count = ord($data[$position + 1]);
+        $position += 2;
+        $contentEnd = self::compoundContentEnd($data, $position, $size, 1, 'Array8');
+
+        $array = [];
+        for ($i = 0; $i < $count; $i++) {
+            if ($position >= $contentEnd) {
+                throw new DeserializationException('Array8 count exceeds available data');
+            }
+            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
+            $array[] = $value;
+        }
+        self::assertCompoundConsumed($position, $contentEnd, $size, 'Array8');
+
+        return [$array, $position];
+    }
+
+    /** @return array{0: list<mixed>, 1: int} */
+    private static function readArray32(string $data, int $position, int $depth, int $maxDepth): array
+    {
+        if ($position + 7 >= strlen($data)) {
+            throw new DeserializationException('Unexpected end of data reading array32 header');
+        }
+        $size = self::unpackIntAt('N', $data, $position, 'array32 size');
+        $count = self::unpackIntAt('N', $data, $position + 4, 'array32 count');
+        $position += 8;
+        $contentEnd = self::compoundContentEnd($data, $position, $size, 4, 'Array32');
+
+        // Security (#449): the 32-bit $count is attacker-supplied. A flat array
+        // is depth 1, so the #397 recursion guard does not apply. Cap $count to
+        // the bytes actually available in the content span before allocating:
+        // every element is at least 1 byte (its format code), so a count larger
+        // than the available bytes is malformed and cannot be satisfied without
+        // allocating a multi-hundred-MB array from a small frame (OOM fatal).
+        $available = $contentEnd - $position;
+        if ($count > $available) {
+            throw new DeserializationException(sprintf(
+                'Array32 count %d exceeds available bytes %d',
+                $count,
+                $available
+            ));
+        }
+        // Security (#449): also cap honest large frames. When count truthfully
+        // equals the available bytes (e.g. 8 M null elements in an 8 MiB frame),
+        // the available-bytes guard above does not fire, but the loop still
+        // builds a multi-hundred-MB array → uncatchable OOM fatal. A flat array
+        // is depth 1, so the #397 recursion guard does not apply either.
+        if ($count > self::MAX_COMPOUND_ELEMENTS) {
+            throw new DeserializationException(sprintf(
+                'Array32 count %d exceeds maximum compound elements %d',
+                $count,
+                self::MAX_COMPOUND_ELEMENTS
+            ));
+        }
+
+        $array = [];
+        for ($i = 0; $i < $count; $i++) {
+            if ($position >= $contentEnd) {
+                throw new DeserializationException('Array32 count exceeds available data');
+            }
+            [$value, $position] = self::decodeValue($data, $position, $depth + 1, $maxDepth);
+            $array[] = $value;
+        }
+        self::assertCompoundConsumed($position, $contentEnd, $size, 'Array32');
+
+        return [$array, $position];
     }
 
     /** @return array{0: array<string|int, mixed>, 1: int} */
