@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Performance: the filtered publish path (Publish v2) no longer copies each payload three times (#404)** — `Producer::sendWithFilter()` built a `WriteBuffer` per message and copied the result out again; `PublishedMessageV2` now encodes publishingId + filterValue + body in a single pass via a new `toWire()` method (the same pattern `PublishedMessage::toWire()` already uses on the plain publish path since #492). Wire output is byte-identical; ~10% faster and ~10k fewer objects per 10k×1 KB batch.
+
 ### Fixed
 - **Bug: `Producer::close()` dropped in-flight publish confirms (#474)** — `close()` unregistered the confirm callback before sending `DeletePublisher`, so `PublishConfirm`/`PublishError` frames racing with the close exchange were silently discarded and `pendingConfirms` stayed raised forever. `close()` now keeps the callback registered through the `DeletePublisher` exchange and then drains remaining confirms in a bounded loop (2 s), unloading the publisher id in a `finally` even when the exchange fails.
 - **Bug: `ConsumerUpdateReplyV1` appended an 8-byte offset for value-less offset types (#470)** — replies to the server's `ConsumerUpdate` push always serialized the `uint64` offset, even for types `none`/`first`/`last`/`next` which carry no value on the wire (only `offset` and `timestamp` do). A strict broker could reject the frame, breaking consumer reattachment. The offset field is now emitted only for types 4/5, the constructor rejects offset types outside 0–5, and `toArray()` reports `null` for value-less types.
