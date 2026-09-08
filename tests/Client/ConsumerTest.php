@@ -50,6 +50,47 @@ class ConsumerTest extends TestCase
         (new \ReflectionProperty($consumer, 'unreadCount'))->setValue($consumer, count($messages));
     }
 
+    /**
+     * Mock connection that captures the callbacks the Consumer registers at
+     * construction time, plus the Consumer built on top of it:
+     *   [0] the connection mock,
+     *   [1] the Consumer,
+     *   [2] the deliver callback (route Deliver chunks through the real
+     *       deliver path: chunk parsing -> buffer accounting -> credits),
+     *   [3] the MetadataUpdate handler (lost subscription).
+     *
+     * @return array{
+     *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
+     *     1: Consumer,
+     *     2: callable|null,
+     *     3: callable|null,
+     * }
+     */
+    private function makeConsumerWithHandlers(): array
+    {
+        $deliverCallback = null;
+        $metadataHandler = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $cb) use (&$deliverCallback): void {
+                $deliverCallback = $cb;
+            });
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(
+                function (string $stream, string $handlerId, callable $handler) use (&$metadataHandler): void {
+                    $metadataHandler = $handler;
+                }
+            );
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+
+        return [$connection, $consumer, $deliverCallback, $metadataHandler];
+    }
+
     private function setPendingCredits(Consumer $consumer, int $value): void
     {
         (new \ReflectionProperty($consumer, 'pendingCredits'))->setValue($consumer, $value);
@@ -155,6 +196,183 @@ class ConsumerTest extends TestCase
         $this->assertSame([], $result);
         $this->assertGreaterThanOrEqual(0.05, microtime(true) - $start);
         $this->assertGreaterThan(1, $calls);
+    }
+
+    public function testReadReturnsMessageArrivingAfterNonDeliverFrames(): void
+    {
+        // Models the README Quick Start: a producer's PublishConfirms (or
+        // heartbeats) arrive first, then a Deliver for this subscription.
+        // read() must keep waiting through the unrelated frames and return
+        // the delivered messages, not an empty array. The Deliver is routed
+        // through the real deliver callback registered with
+        // registerSubscriber() (chunk parsing -> buffer accounting -> credit
+        // handling), so a regression in the subscriber wiring is caught too.
+        // The readLoop() mock itself only stands in for "a frame was
+        // dispatched" — it does not claim to reproduce the connection's
+        // dispatch loop end to end.
+        [$connection, $consumer, $deliverCallback] = $this->makeConsumerWithHandlers();
+        $this->assertIsCallable($deliverCallback);
+
+        $calls = 0;
+        $forwarded = [];
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(
+            function (int $maxFrames, float $timeout) use (&$calls, &$forwarded, $deliverCallback): int {
+                $calls++;
+                $forwarded[] = [$maxFrames, $timeout];
+                if ($calls >= 3) {
+                    // Simulate a Deliver carrying one message having been
+                    // dispatched: feed the chunk through the real deliver
+                    // callback instead of injecting into the buffer directly.
+                    $deliverCallback($this->deliverOf($this->buildOneEntryChunk('payload', 41)));
+                }
+                return 1;
+            }
+        );
+
+        $result = $consumer->read(timeout: 5.0);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(41, $result[0]->getOffset());
+        $this->assertSame(3, $calls);
+        // waitForMessages() must forward maxFrames: 1 and a remaining (positive,
+        // non-increasing) slice of the caller's deadline on every iteration.
+        $this->assertNotEmpty($forwarded);
+        $previous = 5.0;
+        foreach ($forwarded as [$maxFrames, $timeout]) {
+            $this->assertSame(1, $maxFrames);
+            $this->assertGreaterThan(0.0, $timeout);
+            $this->assertLessThanOrEqual(5.0, $timeout);
+            $this->assertLessThanOrEqual($previous, $timeout);
+            $previous = $timeout;
+        }
+    }
+
+    public function testReadOneKeepsWaitingWhileNonDeliverFramesArrive(): void
+    {
+        // Same scenario as read(), for readOne(): unrelated server-push frames
+        // must not end the wait before the deadline.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $calls = 0;
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(function () use (&$calls): int {
+            $calls++;
+            usleep(2000);
+            return 1;
+        });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $start = microtime(true);
+        $this->assertNull($consumer->readOne(timeout: 0.05));
+
+        $this->assertGreaterThanOrEqual(0.05, microtime(true) - $start);
+        $this->assertGreaterThan(1, $calls);
+    }
+
+    public function testReadOneReturnsMessageArrivingAfterNonDeliverFrames(): void
+    {
+        // Same deliver-callback routing as the read() variant: the Deliver is
+        // fed through the real callback from registerSubscriber(), and the
+        // readLoop() mock verifies what waitForMessages() forwards.
+        [$connection, $consumer, $deliverCallback] = $this->makeConsumerWithHandlers();
+        $this->assertIsCallable($deliverCallback);
+
+        $calls = 0;
+        $forwarded = [];
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(
+            function (int $maxFrames, float $timeout) use (&$calls, &$forwarded, $deliverCallback): int {
+                $calls++;
+                $forwarded[] = [$maxFrames, $timeout];
+                if ($calls >= 2) {
+                    // Simulate a Deliver carrying one message having been
+                    // dispatched, via the real deliver callback.
+                    $deliverCallback($this->deliverOf($this->buildOneEntryChunk('payload', 7)));
+                }
+                return 1;
+            }
+        );
+
+        $message = $consumer->readOne(timeout: 5.0);
+
+        $this->assertNotNull($message);
+        $this->assertSame(7, $message->getOffset());
+        $this->assertSame(2, $calls);
+        $this->assertNotEmpty($forwarded);
+        foreach ($forwarded as [$maxFrames, $timeout]) {
+            $this->assertSame(1, $maxFrames);
+            $this->assertGreaterThan(0.0, $timeout);
+            $this->assertLessThanOrEqual(5.0, $timeout);
+        }
+    }
+
+    public function testReadWaitsThroughResubscribeBackoffAfterLostSubscription(): void
+    {
+        // Covers the resubscribeIfLost() === false slice branch of
+        // waitForMessages(): after a MetadataUpdate marks the stream
+        // unavailable and a re-subscribe attempt fails with STREAM_NOT_EXIST,
+        // read() must keep waiting — issuing short readLoop() calls sized by
+        // the remaining back-off — instead of returning early or busy-looping.
+        $subscribeAttempts = 0;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(
+                function (string $stream, string $handlerId, callable $handler) use (&$metadataHandler): void {
+                    $metadataHandler = $handler;
+                }
+            );
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request) use (&$subscribeAttempts): object {
+                if ($request instanceof SubscribeRequestV1) {
+                    $subscribeAttempts++;
+                    if ($subscribeAttempts > 1) {
+                        throw new ProtocolException(
+                            'stream does not exist',
+                            0,
+                            null,
+                            ResponseCodeEnum::STREAM_NOT_EXIST
+                        );
+                    }
+                }
+                return new \stdClass();
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $this->assertIsCallable($metadataHandler);
+
+        $forwarded = [];
+        $connection->expects($this->any())->method('readLoop')->willReturnCallback(
+            function (int $maxFrames, float $timeout) use (&$forwarded): int {
+                $forwarded[] = [$maxFrames, $timeout];
+                usleep(1000);
+                return 1;
+            }
+        );
+
+        $metadataHandler();
+        $start = microtime(true);
+        $this->assertSame([], $consumer->read(timeout: 0.05));
+
+        $this->assertGreaterThanOrEqual(
+            2,
+            $subscribeAttempts,
+            'read() must retry the subscription after a MetadataUpdate'
+        );
+        $this->assertGreaterThanOrEqual(
+            0.05,
+            microtime(true) - $start,
+            'read() must wait out the caller deadline, not give up after the failed re-subscribe'
+        );
+        $this->assertNotEmpty($forwarded, 'The back-off slice branch must keep servicing the connection');
+        foreach ($forwarded as [$maxFrames, $timeout]) {
+            $this->assertSame(1, $maxFrames);
+            $this->assertGreaterThan(0.0, $timeout);
+            $this->assertLessThanOrEqual(0.05, $timeout);
+        }
     }
 
     public function testReadStopsWaitingWhenReadLoopDispatchesNothing(): void
@@ -611,7 +829,7 @@ class ConsumerTest extends TestCase
      * Builds a minimal valid single-entry Osiris user-data chunk containing one
      * simple entry with the given raw entry bytes.
      */
-    private function buildOneEntryChunk(string $entryData): string
+    private function buildOneEntryChunk(string $entryData, int $firstOffset = 0): string
     {
         $dataSection = pack('N', strlen($entryData)) . $entryData;
         $dataLength = strlen($dataSection);
@@ -622,7 +840,7 @@ class ConsumerTest extends TestCase
         $header .= pack('N', 1); // numRecords
         $header .= pack('J', 1000); // timestamp
         $header .= pack('J', 1); // epoch
-        $header .= pack('J', 0); // chunkFirstOffset
+        $header .= pack('J', $firstOffset); // chunkFirstOffset
         $header .= pack('N', crc32($dataSection)); // chunkCrc
         $header .= pack('N', $dataLength); // dataLength
         $header .= pack('N', 0); // trailerLength
