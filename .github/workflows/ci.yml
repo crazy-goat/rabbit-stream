@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: ["main"]
+    types: [opened, synchronize, reopened, labeled]
 
 # NOTE: every `name:` below must stay byte-identical to the branch protection
 # required status check contexts on `main` (`lint`, `unit-tests (PHP 8.1)` …
@@ -67,7 +68,7 @@ jobs:
   lint:
     name: lint
     needs: check-actor
-    if: needs.check-actor.outputs.allowed == 'true'
+    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,7 +94,7 @@ jobs:
   unit-tests:
     name: unit-tests (PHP ${{ matrix.php }})
     needs: [check-actor, lint]
-    if: needs.check-actor.outputs.allowed == 'true'
+    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -116,7 +117,7 @@ jobs:
   e2e-tests:
     name: e2e-tests
     needs: [check-actor, lint]
-    if: needs.check-actor.outputs.allowed == 'true'
+    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
     runs-on: ubuntu-latest
     services:
       rabbitmq:
