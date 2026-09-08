@@ -14,3 +14,20 @@ Reviewer feedback addressed in commit `fix(protocol): address round-1 review fin
 
 - `composer lint` (PHPCS + Rector dry-run + PHPStan level 9 + kb-lint): clean
 - `./vendor/bin/phpunit --testsuite unit`: 1085 tests, 8222 assertions, OK
+
+## Round 2 (commit `6a087bd`)
+
+| # | Round-1 finding | Round-2 status |
+|---|-----------------|----------------|
+| 1 | Duplicated count/size guards | ✅ **Still fixed (re-verified).** `assertCompoundCount()` produces byte-identical messages and preserves check order; used by readList32, readMap32, readArray32. |
+| 2 | "array8 generic message" claim | ✅ **Confirmed not a real finding** — readArray8 mirrors readList8 exactly. |
+| 3 | Missing MAX_COMPOUND_ELEMENTS boundary test | ✅ **Still fixed (re-verified).** `testDecodeArray32AtElementCapDecodes` is correct and deterministic (`pack()`-built fixture, count = 131072 exactly). |
+| 4 | Multi-byte-element overrun case | ✅ **Still fixed (re-verified).** `testDecodeArray32MultiByteElementsOverrunStillThrows` correctly exercises the per-element loop guard. |
+| 5 | `chr($size & 0xFF)` silent wrap | ✅ **Still fixed (re-verified).** Both fixture builders now throw `\LogicException` on overflow. |
+
+### Round-2 QA
+- `composer cs` clean, `composer phpstan` clean, `composer rector` dry-run: no changes
+- `./vendor/bin/phpunit --testsuite unit`: OK (1085 tests, 8222 assertions)
+
+### Round-2 verdict
+**Clean** — no open findings; ready to merge. Details in `review-2.md`.
