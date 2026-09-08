@@ -168,10 +168,9 @@ class StreamConnection
      */
     public function connect(): void
     {
-        $scheme = $this->tls instanceof \CrazyGoat\RabbitStream\VO\TlsConfig ? 'ssl' : 'tcp';
-        $context = stream_context_create(
-            $this->tls instanceof \CrazyGoat\RabbitStream\VO\TlsConfig ? $this->tls->toStreamContext() : []
-        );
+        $useTls = $this->tls instanceof TlsConfig;
+        $scheme = $useTls ? 'ssl' : 'tcp';
+        $context = stream_context_create($useTls ? $this->tls->toStreamContext() : []);
 
         $stream = @stream_socket_client(
             sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
@@ -188,13 +187,6 @@ class StreamConnection
             );
         }
 
-        if ($this->tls instanceof \CrazyGoat\RabbitStream\VO\TlsConfig && !stream_socket_enable_crypto($stream, true)) {
-            fclose($stream);
-            throw new ConnectionException(
-                "TLS handshake failed with {$this->host}:{$this->port}"
-            );
-        }
-
         // The stream is kept non-blocking: every read and write is driven by an
         // explicit stream_select() bounded by $socketTimeout, which gives the
         // same "no I/O call may block unboundedly" guarantee as the previous
@@ -205,8 +197,98 @@ class StreamConnection
             throw new ConnectionException('Cannot set the connection to non-blocking mode');
         }
 
+        if ($useTls) {
+            $this->enableCrypto($stream);
+        }
+
         $this->connected = true;
         $this->stream = $stream;
+    }
+
+    /**
+     * Perform the TLS handshake on a non-blocking stream, bounded by
+     * $socketTimeout (GitHub #400).
+     *
+     * stream_socket_enable_crypto() on a blocking stream would wait on the
+     * default INI timeout (or longer) if the broker stalls mid-handshake,
+     * which would weaken the #402 "no unbounded I/O" guarantee. Instead, the
+     * handshake is driven like every other I/O call: retry while it reports
+     * progress, wait between attempts with stream_select(), and give up once
+     * the deadline expires.
+     *
+     * @param resource $stream Non-blocking stream to upgrade to TLS
+     * @throws ConnectionException If the handshake fails or exceeds $socketTimeout
+     */
+    private function enableCrypto($stream): void
+    {
+        $endpoint = sprintf('%s:%d', $this->host, $this->port);
+        $deadline = microtime(true) + $this->socketTimeout;
+
+        while (true) {
+            $result = @stream_socket_enable_crypto($stream, true);
+            if ($result === true) {
+                return;
+            }
+
+            $opensslError = $this->lastOpenSslError();
+            if ($opensslError !== null) {
+                fclose($stream);
+                throw new ConnectionException("TLS handshake failed with {$endpoint}: {$opensslError}");
+            }
+
+            // No OpenSSL error queued: the handshake needs more data
+            // (would-block) and must be retried once the socket is ready.
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                fclose($stream);
+                throw new ConnectionException(sprintf(
+                    'TLS handshake with %s timed out after %.1fs',
+                    $endpoint,
+                    $this->socketTimeout
+                ));
+            }
+
+            $read = [$stream];
+            $write = [$stream];
+            $except = null;
+            // The handshake may need to read or write; listen for both.
+            @stream_select(
+                $read,
+                $write,
+                $except,
+                (int) $remaining,
+                (int) (($remaining - (int) $remaining) * 1_000_000)
+            );
+            // On timeout (0) or interruption the loop re-enters and either
+            // hits the deadline check above or retries the handshake.
+        }
+    }
+
+    /**
+     * Drain the OpenSSL error queue, keeping the details of the most recent
+     * failure (bad cafile, hostname mismatch, expired cert, ...).
+     */
+    private function lastOpenSslError(): ?string
+    {
+        $messages = [];
+        while (($message = openssl_error_string()) !== false) {
+            $messages[] = $message;
+        }
+
+        return $messages === [] ? null : implode('; ', array_reverse($messages));
+    }
+
+    /**
+     * Whether the last failed stream_select() was only interrupted by a signal
+     * (EINTR) rather than being a real failure — safe to retry (GitHub #402
+     * retained the old recv()/send() EINTR behaviour on the select-based path).
+     */
+    private function selectWasInterrupted(): bool
+    {
+        $error = error_get_last();
+
+        return $error !== null
+            && stripos($error['message'], 'interrupted system call') !== false;
     }
 
     /**
@@ -261,21 +343,14 @@ class StreamConnection
     }
 
     /**
-     * Check whether the underlying TCP socket is currently connected and usable.
-     *
-     * socket_last_error() is sticky: it keeps returning the last error recorded
-     * on the socket until it is cleared. The code is therefore cleared right
-     * after it is read, and transient codes (a receive timeout, an interrupted
-     * call) are not treated as a disconnect — otherwise one timed-out read
-     * would report a perfectly healthy connection as dead for the rest of its
-     * life, and this method would force it closed (GitHub #391).
-     *
-     * @return bool True if the socket is valid and has no fatal error state
-     */
-    /**
      * Check whether the underlying connection is currently established and usable.
      *
-     * @return bool True if the connection is valid and has no fatal error state
+     * Unlike the previous ext-sockets implementation, only resource validity is
+     * checked: PHP streams have no equivalent of the sticky socket_last_error()
+     * probe, so no fatal error state can be detected here. A dead peer is
+     * surfaced by the next read/write instead (GitHub #391).
+     *
+     * @return bool True if the underlying stream resource is still valid
      */
     public function isConnected(): bool
     {
@@ -649,6 +724,9 @@ class StreamConnection
             );
 
             if ($ready === false) {
+                if ($this->selectWasInterrupted()) {
+                    continue;
+                }
                 throw new ConnectionException('stream_select failed while writing');
             }
             if ($ready === 0) {
@@ -662,7 +740,10 @@ class StreamConnection
             if ($written === false || $written === 0) {
                 $this->connected = false;
                 throw new ConnectionException(
-                    "Failed to write to socket: peer closed the connection or write error"
+                    'Failed to write to socket: peer closed the connection or write error. ' .
+                    'On an ssl:// transport a false/0 fwrite() can also indicate a temporary ' .
+                    'TLS would-block or renegotiation state that select() already reported as ' .
+                    'writable — check stream_get_meta_data() for the current state'
                 );
             }
 
@@ -1243,9 +1324,9 @@ class StreamConnection
      * currently available, so short reads are accumulated in a loop, matching
      * the semantics of the previous recv()-based implementation.
      *
-     * On a receive timeout (stream_set_timeout, see
-     * {@see self::DEFAULT_SOCKET_TIMEOUT}) the outcome depends on how much of
-     * the read had already succeeded:
+     * On a receive timeout (bounded by $socketTimeout via the stream_select()
+     * loops, see {@see self::DEFAULT_SOCKET_TIMEOUT}) the outcome depends on
+     * how much of the read had already succeeded:
      *
      *  - nothing consumed yet and $mustComplete is false — the connection is at a
      *    frame boundary, so null is returned and the caller may simply try again;
@@ -1259,7 +1340,7 @@ class StreamConnection
      * @param int  $length       Number of bytes to read (0 returns '')
      * @param bool $mustComplete True when the caller is already mid-frame, so a
      *                           short read is unrecoverable rather than benign
-     * @return string The bytes read, or null if no byte arrived at a frame boundary
+     * @return ?string The bytes read, or null if no byte arrived at a frame boundary
      * @throws ConnectionException If the connection is not connected, the peer closed it,
      *                             the read fails, or an incomplete frame timed out
      */
@@ -1294,6 +1375,9 @@ class StreamConnection
             );
 
             if ($ready === false) {
+                if ($this->selectWasInterrupted()) {
+                    continue;
+                }
                 throw new ConnectionException('stream_select failed while reading');
             }
             if ($ready === 0 && $this->readTimeout($data, $length, $mustComplete)) {

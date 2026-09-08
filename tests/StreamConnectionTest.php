@@ -21,12 +21,44 @@ use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
+use CrazyGoat\RabbitStream\VO\TlsConfig;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 class StreamConnectionTest extends TestCase
 {
+    public function testConnectUsesTcpSchemeWithoutTlsConfig(): void
+    {
+        // Nothing listens on this port, so stream_socket_client() fails
+        // immediately and the error message reveals the chosen scheme.
+        $connection = new StreamConnection('127.0.0.1', 59999, socketTimeout: 0.5);
+
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException');
+        } catch (ConnectionException $e) {
+            self::assertStringContainsString('tcp://127.0.0.1:59999', $e->getMessage());
+        }
+    }
+
+    public function testConnectUsesSslSchemeWithTlsConfig(): void
+    {
+        $connection = new StreamConnection(
+            '127.0.0.1',
+            59999,
+            socketTimeout: 0.5,
+            tls: new TlsConfig()
+        );
+
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException');
+        } catch (ConnectionException $e) {
+            self::assertStringContainsString('ssl://127.0.0.1:59999', $e->getMessage());
+        }
+    }
+
     public function testUsesNullLoggerByDefault(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);
