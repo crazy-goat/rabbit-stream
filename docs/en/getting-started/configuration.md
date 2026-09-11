@@ -24,6 +24,7 @@ $connection = Connection::create(
     requestedFrameMax: null,       // Max frame size (optional)
     requestedHeartbeat: null,        // Heartbeat interval in seconds (optional)
     streamConnection: null,        // Pre-configured StreamConnection (optional)
+    initialFrameMax: null,         // Pre-Open frame ceiling in bytes (optional)
 );
 ```
 
@@ -41,6 +42,7 @@ $connection = Connection::create(
 | `requestedFrameMax` | `?int` | `null` | Maximum frame size in bytes |
 | `requestedHeartbeat` | `?int` | `null` | Heartbeat interval in seconds |
 | `streamConnection` | `?StreamConnection` | `null` | Pre-configured connection instance |
+| `initialFrameMax` | `?int` | `null` | Max frame size in bytes for frames sent before `Open` completes. Default `null` (`StreamConnection::DEFAULT_INITIAL_FRAME_SIZE`, 8192) mirrors the broker's `stream.initial_frame_max`; `0` disables the client-side pre-Open check |
 
 ### Basic Connection Examples
 

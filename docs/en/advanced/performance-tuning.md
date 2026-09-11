@@ -670,8 +670,19 @@ try {
 ```
 
 `setOutgoingMaxFrameSize()` / `getOutgoingMaxFrameSize()` on `StreamConnection`
-manage this limit directly (`0` = unlimited); `Connection::create()` sets it
-from the negotiated `frame_max` automatically.
+manage the *post-Open* limit directly (`0` = unlimited); `Connection::create()`
+sets it from the negotiated `frame_max` once `Open` completes.
+
+Before `Open` completes, the broker enforces its own low
+`stream.initial_frame_max` (8192 bytes by default) regardless of the value
+negotiated at Tune, so the client also has a pre-Open ceiling:
+`setPreOpenMaxFrameSize()` / `getPreOpenMaxFrameSize()` (`0` = no check). An
+oversized pre-Open request raises a `ProtocolException` naming the command
+instead of an `InvalidArgumentException`; `Connection::create()` seeds the
+ceiling before the first handshake frame and clears it (by calling the setter
+with `0`) right after Open completes and the negotiated cap is applied. The two
+setters are independent — setting the negotiated cap does not lift the pre-Open
+ceiling on its own.
 
 ### Frame Size Error
 

@@ -239,6 +239,13 @@ class ConnectionHandshakeTest extends TestCase
             ->method('setMaxFrameSize')
             ->with(StreamConnection::DEFAULT_MAX_FRAME_SIZE);
 
+        $preOpenCalls = [];
+        $streamConnection->expects($this->exactly(2))
+            ->method('setPreOpenMaxFrameSize')
+            ->willReturnCallback(function (int $size) use (&$preOpenCalls): void {
+                $preOpenCalls[] = $size;
+            });
+
         $streamConnection->expects($this->once())
             ->method('setOutgoingMaxFrameSize')
             ->with(0xFFFFFFFF);
@@ -246,6 +253,9 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection->method('close');
 
         $connection = Connection::create(streamConnection: $streamConnection);
+
+        // Seeded before the handshake, then explicitly lifted after Open.
+        $this->assertSame([StreamConnection::DEFAULT_INITIAL_FRAME_SIZE, 0], $preOpenCalls);
 
         unset($connection);
     }
@@ -355,6 +365,7 @@ class ConnectionHandshakeTest extends TestCase
             'requestedHeartbeat' => ['requestedHeartbeat', 'requestedHeartbeat must not be negative'],
             'maxDeliverFrameSize' => ['maxDeliverFrameSize', 'maxDeliverFrameSize must not be negative'],
             'socketTimeout' => ['socketTimeout', 'socketTimeout must be greater than 0'],
+            'initialFrameMax' => ['initialFrameMax', 'initialFrameMax must not be negative'],
         ];
     }
 
@@ -391,6 +402,10 @@ class ConnectionHandshakeTest extends TestCase
                     streamConnection: $streamConnection,
                     socketTimeout: 0.0,
                 ),
+                'initialFrameMax' => Connection::create(
+                    streamConnection: $streamConnection,
+                    initialFrameMax: -1,
+                ),
                 default => $this->fail('Unhandled argument name: ' . $argument),
             };
             $this->fail('Expected Connection::create() to reject ' . $argument);
@@ -417,11 +432,120 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection->method('setMaxFrameSize');
         $streamConnection->method('close');
 
+        $preOpenCalls = [];
+        $streamConnection->expects($this->exactly(2))
+            ->method('setPreOpenMaxFrameSize')
+            ->willReturnCallback(function (int $size) use (&$preOpenCalls): void {
+                $preOpenCalls[] = $size;
+            });
+
         $streamConnection->expects($this->once())
             ->method('setOutgoingMaxFrameSize')
             ->with(131072);
 
         $connection = Connection::create(streamConnection: $streamConnection);
+
+        $this->assertSame([StreamConnection::DEFAULT_INITIAL_FRAME_SIZE, 0], $preOpenCalls);
+
+        unset($connection);
+    }
+
+    public function testCreateSeedsInitialFrameCeilingBeforeAnyHandshakeMessage(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        /** @var list<object> $queue */
+        $queue = [
+            new PeerPropertiesResponseV1(),
+            new SaslHandshakeResponseV1(['PLAIN']),
+            new SaslAuthenticateResponseV1(),
+            new TuneRequestV1(131072, 60),
+            new OpenResponseV1(),
+        ];
+
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+
+        $events = [];
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function () use (&$queue, &$events): object {
+                $response = array_shift($queue);
+                if ($response === null) {
+                    throw new \RuntimeException('readMessage() called more times than canned responses');
+                }
+                $events[] = ['readMessage', $response::class];
+                return $response;
+            });
+        $streamConnection->method('setPreOpenMaxFrameSize')
+            ->willReturnCallback(function (int $size) use (&$events): void {
+                $events[] = ['setPreOpenMaxFrameSize', $size];
+            });
+        $streamConnection->method('setOutgoingMaxFrameSize')
+            ->willReturnCallback(function (int $size) use (&$events): void {
+                $events[] = ['setOutgoingMaxFrameSize', $size];
+            });
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$events): void {
+                $events[] = ['sendMessage', $request::class];
+            });
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        // The pre-Open ceiling must be seeded before the first handshake frame,
+        // and the negotiated cap must only be applied after the readMessage()
+        // that returned OpenResponseV1 (#379). The full ordered log pins that.
+        $this->assertSame([
+            ['setPreOpenMaxFrameSize', StreamConnection::DEFAULT_INITIAL_FRAME_SIZE],
+            ['sendMessage', PeerPropertiesRequestV1::class],
+            ['readMessage', PeerPropertiesResponseV1::class],
+            ['sendMessage', SaslHandshakeRequestV1::class],
+            ['readMessage', SaslHandshakeResponseV1::class],
+            ['sendMessage', SaslAuthenticateRequestV1::class],
+            ['readMessage', SaslAuthenticateResponseV1::class],
+            ['readMessage', TuneRequestV1::class],
+            ['sendMessage', TuneResponseV1::class],
+            ['sendMessage', OpenRequestV1::class],
+            ['readMessage', OpenResponseV1::class],
+            ['setOutgoingMaxFrameSize', 131072],
+            ['setPreOpenMaxFrameSize', 0],
+        ], $events);
+
+        unset($connection);
+    }
+
+    public function testCreateUsesConfiguredInitialFrameMaxForPreOpenCeiling(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                new PeerPropertiesResponseV1(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(131072, 60),
+                new OpenResponseV1(),
+            );
+
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+
+        $preOpenCalls = [];
+        $streamConnection->expects($this->exactly(2))
+            ->method('setPreOpenMaxFrameSize')
+            ->willReturnCallback(function (int $size) use (&$preOpenCalls): void {
+                $preOpenCalls[] = $size;
+            });
+
+        $streamConnection->expects($this->once())
+            ->method('setOutgoingMaxFrameSize')
+            ->with(131072);
+
+        $connection = Connection::create(
+            streamConnection: $streamConnection,
+            initialFrameMax: 65536,
+        );
+
+        $this->assertSame([65536, 0], $preOpenCalls);
 
         unset($connection);
     }
