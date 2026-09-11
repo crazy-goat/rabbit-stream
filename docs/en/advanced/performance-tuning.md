@@ -551,6 +551,13 @@ Pass `0` to restore the old unlimited/fire-and-forget behavior. Use
 `getPendingConfirms(): int` to inspect the current outstanding count, e.g. for
 metrics or custom throttling logic.
 
+> **Memory note:** outstanding publishes are tracked per publishing id (since
+> #521), so each unconfirmed id keeps a small array entry until its confirm or
+> error is drained. Under a positive cap this is bounded by
+> `maxPendingConfirms`; with `0` (unlimited) it is bounded only by how much you
+> drain, so a publish-and-never-read workload should either set a cap or call
+> `waitForConfirms()`/`readLoop()` periodically.
+
 **Guidelines:**
 - **Low (100-1,000):** Memory-constrained environments, slow consumers
 - **Medium (10,000, default):** Good default for most workloads

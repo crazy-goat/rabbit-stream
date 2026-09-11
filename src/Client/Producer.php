@@ -58,7 +58,15 @@ class Producer implements ProducerInterface
     private const CLOSE_CONFIRM_DRAIN_TIMEOUT = 2.0;
 
     private int $publishingId = 0;
-    private int $pendingConfirms = 0;
+
+    /**
+     * Publishing ids that have been sent but not yet confirmed (nor reported as
+     * failed). Keyed by id so a duplicate confirm for an already-confirmed id is
+     * a no-op instead of drifting a bare counter (GitHub #521).
+     *
+     * @var array<int, true>
+     */
+    private array $pendingConfirms = [];
 
     private readonly ?\Closure $onConfirm;
 
@@ -112,12 +120,15 @@ class Producer implements ProducerInterface
         $this->stale = true;
         $this->staleCode = $code;
         // The broker forgot the publisher together with its unconfirmed
-        // messages: they will never be confirmed. Report them as failed so the
-        // application can resend, and stop counting them against back-pressure.
-        $lost = $this->pendingConfirms;
-        $this->pendingConfirms = 0;
-        if ($lost > 0 && $this->onConfirm instanceof \Closure) {
-            for ($id = $this->publishingId - $lost; $id < $this->publishingId; $id++) {
+        // messages: they will never be confirmed. Report exactly the ids that
+        // are still outstanding as failed so the application can resend, and
+        // stop counting them against back-pressure. Reporting the raw set (not
+        // a synthesised publishingId-lost..publishingId-1 range) means ids that
+        // were already confirmed are never double-reported (GitHub #521).
+        $lost = array_keys($this->pendingConfirms);
+        $this->pendingConfirms = [];
+        if ($this->onConfirm instanceof \Closure) {
+            foreach ($lost as $id) {
                 ($this->onConfirm)(new ConfirmationStatus(false, errorCode: $code, publishingId: $id));
             }
         }
@@ -193,29 +204,43 @@ class Producer implements ProducerInterface
         $this->connection->registerPublisher(
             $this->publisherId,
             onConfirm: function (array $publishingIds): void {
-                $this->pendingConfirms = max(0, $this->pendingConfirms - count($publishingIds));
-                if ($this->onConfirm instanceof \Closure) {
-                    foreach ($publishingIds as $id) {
+                foreach ($publishingIds as $id) {
+                    // A duplicate confirm for an id that is no longer
+                    // outstanding is ignored: decrementing a bare counter for
+                    // it used to drift pendingConfirms far enough that
+                    // waitForConfirms() could return before every real publish
+                    // was confirmed (GitHub #521).
+                    if (!isset($this->pendingConfirms[$id])) {
+                        continue;
+                    }
+                    unset($this->pendingConfirms[$id]);
+                    if ($this->onConfirm instanceof \Closure) {
                         ($this->onConfirm)(new ConfirmationStatus(true, publishingId: $id));
                     }
                 }
             },
             onError: function (array $errors): void {
-                $this->pendingConfirms = max(0, $this->pendingConfirms - count($errors));
                 $fatal = null;
                 foreach ($errors as $error) {
-                    if ($this->onConfirm instanceof \Closure) {
-                        ($this->onConfirm)(new ConfirmationStatus(
-                            false,
-                            errorCode: $error->getCode(),
-                            publishingId: $error->getPublishingId()
-                        ));
-                    }
                     if (
                         $error->getCode() === ResponseCodeEnum::PUBLISHER_NOT_EXIST->value
                         || $error->getCode() === ResponseCodeEnum::STREAM_NOT_AVAILABLE->value
                     ) {
                         $fatal = $error->getCode();
+                    }
+                    $publishingId = $error->getPublishingId();
+                    // A duplicate error for an id that is no longer outstanding
+                    // has already been reported; ignore it (GitHub #521).
+                    if (!isset($this->pendingConfirms[$publishingId])) {
+                        continue;
+                    }
+                    unset($this->pendingConfirms[$publishingId]);
+                    if ($this->onConfirm instanceof \Closure) {
+                        ($this->onConfirm)(new ConfirmationStatus(
+                            false,
+                            errorCode: $error->getCode(),
+                            publishingId: $publishingId
+                        ));
                     }
                 }
                 // The broker does not know this publisher any more (we may have
@@ -265,8 +290,8 @@ class Producer implements ProducerInterface
             $this->publisherId,
             new PublishedMessage($this->publishingId, AmqpMessageEncoder::encodeDataSection($message))
         ), $timeout);
+        $this->pendingConfirms[$this->publishingId] = true;
         $this->publishingId++;
-        $this->pendingConfirms++;
     }
 
     /**
@@ -301,8 +326,8 @@ class Producer implements ProducerInterface
                 AmqpMessageEncoder::encodeDataSection($message)
             )
         ), $timeout);
+        $this->pendingConfirms[$this->publishingId] = true;
         $this->publishingId++;
-        $this->pendingConfirms++;
     }
 
     /**
@@ -326,8 +351,10 @@ class Producer implements ProducerInterface
         }
         // Counters advance only after a successful write — see send() (#395).
         $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published), $timeout);
+        for ($id = $this->publishingId; $id < $publishingId; $id++) {
+            $this->pendingConfirms[$id] = true;
+        }
         $this->publishingId = $publishingId;
-        $this->pendingConfirms += count($published);
     }
 
     /**
@@ -339,17 +366,17 @@ class Producer implements ProducerInterface
      */
     private function applyBackpressure(?float $timeout): void
     {
-        if ($this->maxPendingConfirms <= 0 || $this->pendingConfirms < $this->maxPendingConfirms) {
+        if ($this->maxPendingConfirms <= 0 || count($this->pendingConfirms) < $this->maxPendingConfirms) {
             return;
         }
 
         $deadline = microtime(true) + ($timeout ?? self::DEFAULT_BACKPRESSURE_TIMEOUT);
-        while ($this->pendingConfirms >= $this->maxPendingConfirms) {
+        while (($pending = count($this->pendingConfirms)) >= $this->maxPendingConfirms) {
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 throw new TimeoutException(
                     "Timed out waiting for pending confirms to drop below {$this->maxPendingConfirms} " .
-                    "(currently {$this->pendingConfirms})"
+                    "(currently {$pending})"
                 );
             }
             $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
@@ -415,7 +442,7 @@ class Producer implements ProducerInterface
     private function drainUntilZero(float $timeout): bool
     {
         $deadline = microtime(true) + $timeout;
-        while ($this->pendingConfirms > 0) {
+        while (count($this->pendingConfirms) > 0) {
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 return false;
@@ -434,13 +461,13 @@ class Producer implements ProducerInterface
 
     public function waitForConfirms(float $timeout = 5.0): void
     {
-        if ($this->pendingConfirms === 0) {
+        if ($this->pendingConfirms === []) {
             return;
         }
 
         if (!$this->drainUntilZero($timeout)) {
             throw new TimeoutException(
-                "Timed out waiting for {$this->pendingConfirms} publish confirms"
+                'Timed out waiting for ' . count($this->pendingConfirms) . ' publish confirms'
             );
         }
     }
@@ -452,7 +479,7 @@ class Producer implements ProducerInterface
 
     public function getPendingConfirms(): int
     {
-        return $this->pendingConfirms;
+        return count($this->pendingConfirms);
     }
 
     public function querySequence(): int
