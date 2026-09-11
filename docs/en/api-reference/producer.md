@@ -358,6 +358,7 @@ echo $producer->getPendingConfirms(); // 0
 
 - Decremented as `onConfirm`/publish-error frames arrive, whether observed via `waitForConfirms()`, the `onConfirm` callback, or the `maxPendingConfirms` back-pressure drain in `send()`/`sendBatch()`
 - Incremented only once the frame has actually been written: a `send()` that throws leaves the count (and the publishing ID) untouched, so a later `waitForConfirms()` is never blocked by a message the broker never received
+- Tracked per publishing id, not as a bare counter (since #521): a duplicate or late `PublishConfirm`/`PublishError` for an id that has already been retired is ignored, so `waitForConfirms()` cannot return while messages are still unconfirmed and an `isStale()` `MetadataUpdate` reports exactly the still-outstanding ids as failed
 - Useful for custom throttling or metrics alongside `maxPendingConfirms`
 
 ---
