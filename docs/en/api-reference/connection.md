@@ -23,6 +23,8 @@ class Connection
         ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
         ?float $socketTimeout = null,
+        ?TlsConfig $tls = null,
+        ?int $initialFrameMax = null,
     ): self;
     
     // Stream management
@@ -114,6 +116,8 @@ public static function create(
     ?int $maxDeliverFrameSize = null,
     ?StreamConnection $streamConnection = null,
     ?float $socketTimeout = null,
+    ?TlsConfig $tls = null,
+    ?int $initialFrameMax = null,
 ): self
 ```
 
@@ -133,6 +137,8 @@ public static function create(
 | `$maxDeliverFrameSize` | `?int` | No | Max size in bytes for incoming **Deliver** frames (key `0x0008`), which the broker does not bound by the negotiated `frame_max` — see [Deliver frames need their own cap](#deliver-frames-need-their-own-cap) below. Default: `null` (`StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE`, 64MB) |
 | `$streamConnection` | `?StreamConnection` | No | Pre-configured stream connection (advanced use). Default: `null` |
 | `$socketTimeout` | `?float` | No | `SO_RCVTIMEO`/`SO_SNDTIMEO` in seconds — bounds a single blocking socket call so a stalled peer cannot hang the client. Must be > 0. Ignored when `$streamConnection` is supplied (configure it there). Default: `null` (`StreamConnection::DEFAULT_SOCKET_TIMEOUT`, 30 s) |
+| `$tls` | `?TlsConfig` | No | TLS transport options (`CrazyGoat\RabbitStream\VO\TlsConfig`); passing one selects the encrypted `ssl://` transport (RabbitMQ stream TLS listener) instead of plaintext `tcp://`, with peer and hostname verification on by default. Ignored when `$streamConnection` is supplied (configure it there). Default: `null`. |
+| `$initialFrameMax` | `?int` | No | Maximum frame size in bytes the client allows on frames it sends **before `Open` completes**. Mirrors the broker's `stream.initial_frame_max` (RabbitMQ 4.3 caps incoming frames at 8192 bytes until Open, regardless of the value later negotiated at Tune). Default: `null`, which applies `StreamConnection::DEFAULT_INITIAL_FRAME_SIZE` (8192). The value is applied to the connection — including a supplied `$streamConnection` — and overrides any pre-Open cap already set on it. Pass `initialFrameMax` to choose a different value, or `0` to disable the client-side pre-Open check. |
 
 ### Return Value
 
@@ -140,7 +146,8 @@ public static function create(
 
 ### Exceptions
 
-- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, or `maxDeliverFrameSize` is negative, or if `socketTimeout` is not positive. This is `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`, which implements `RabbitStreamExceptionInterface` while still extending the native `\InvalidArgumentException`
+- `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, `maxDeliverFrameSize`, or `initialFrameMax` is negative, or if `socketTimeout` is not positive. This is `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`, which implements `RabbitStreamExceptionInterface` while still extending the native `\InvalidArgumentException`
+- `ProtocolException` - If a request sent before `Open` completes serializes to a payload larger than `initialFrameMax` (the broker enforces `stream.initial_frame_max` until then); the exception names the offending command
 - `AuthenticationException` - If PLAIN SASL mechanism is not supported or credentials are invalid
 - `UnexpectedResponseException` - If the server returns an unexpected response during handshake
 - `ConnectionException` - If the TCP connection cannot be established
@@ -165,15 +172,25 @@ cap above `StreamConnection::DEFAULT_MAX_FRAME_SIZE` — the negotiated value is
 only ever used to *lower* it. Pass `requestedFrameMax` explicitly to raise (or
 lower) the cap deliberately.
 
-### Outgoing frames over frame_max fail fast
+### Outgoing frames over the limit fail fast
 
-A frame larger than the negotiated `frame_max` is now rejected before
-anything is written to the socket, raising
-`CrazyGoat\RabbitStream\Exception\InvalidArgumentException` with the frame
-size and the limit in the message — the connection stays connected and
-usable. Previously the oversized frame was written, the broker closed the
-connection, and the failure surfaced later as an unrelated-looking "Cannot
-read: socket is not connected".
+Two distinct windows apply, with two distinct exceptions:
+
+- **Before `Open` completes**, the broker enforces its own low
+  `stream.initial_frame_max` (8192 bytes by default) on every incoming frame,
+  regardless of the value negotiated at Tune. A request that serializes above
+  the client-side `initialFrameMax` is rejected before anything is written,
+  raising `CrazyGoat\RabbitStream\Exception\ProtocolException` naming the
+  command (e.g. `SaslAuthenticateRequestV1`), instead of letting the broker
+  drop the connection with an opaque "Frame too large".
+- **After `Open` completes**, frames are bound by the negotiated `frame_max`.
+  An oversized frame is rejected before anything is written, raising
+  `CrazyGoat\RabbitStream\Exception\InvalidArgumentException` with the frame
+  size and the limit in the message.
+
+In both cases the connection stays connected and usable. Previously the
+oversized frame was written, the broker closed the connection, and the failure
+surfaced later as an unrelated-looking "Cannot read: socket is not connected".
 
 ### Connection Handshake Flow
 

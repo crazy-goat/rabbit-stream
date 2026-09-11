@@ -177,6 +177,11 @@ use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 $stream = new StreamConnection('127.0.0.1', 5552);
 $stream->connect();
 
+// RabbitMQ caps incoming frames at stream.initial_frame_max (8192 by default)
+// for the whole handshake, regardless of what is negotiated at Tune, so seed
+// the pre-Open ceiling before the first handshake frame is sent.
+$stream->setPreOpenMaxFrameSize(StreamConnection::DEFAULT_INITIAL_FRAME_SIZE);
+
 // 2. PeerProperties
 $stream->sendMessage(new PeerPropertiesRequestV1());
 $peerResponse = $stream->readMessage();
@@ -211,11 +216,6 @@ if ($negotiatedFrameMax > 0) {
     $stream->setMaxFrameSize($negotiatedFrameMax);
 }
 
-// Outgoing frames larger than the negotiated frame_max now fail fast
-// (InvalidArgumentException, before anything is written), instead of being
-// written and having the broker close the connection.
-$stream->setOutgoingMaxFrameSize($negotiatedFrameMax);
-
 // Deliver frames (key 0x0008) are NOT bounded by frame_max on the broker
 // side — a stream chunk is sent whole. Give them their own, larger cap
 // instead of reusing $negotiatedFrameMax (default: 64MB either way).
@@ -225,6 +225,15 @@ $stream->setMaxDeliverFrameSize(StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE
 $stream->sendMessage(new OpenRequestV1('/'));
 $openResponse = $stream->readMessage();
 assert($openResponse instanceof OpenResponseV1);
+
+// Open completed, so the pre-Open ceiling no longer applies. Outgoing frames
+// are now bound by the negotiated frame_max: larger frames fail fast
+// (InvalidArgumentException, before anything is written) instead of being
+// written and having the broker close the connection.
+$stream->setOutgoingMaxFrameSize($negotiatedFrameMax);
+// The setters are independent: lift the pre-Open ceiling explicitly now that
+// Open has completed.
+$stream->setPreOpenMaxFrameSize(0);
 
 // Connection is now ready!
 ```

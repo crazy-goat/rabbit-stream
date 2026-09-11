@@ -104,6 +104,29 @@ class StreamConnection
     public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
 
     /**
+     * Outgoing frame size ceiling enforced by the broker until Open completes.
+     *
+     * RabbitMQ 4.3 enforces a low frame_max on incoming frames (8192 bytes by
+     * default, configurable server-side via stream.initial_frame_max) for the
+     * whole handshake, regardless of the value negotiated at Tune. A pre-Open
+     * frame above it makes the broker drop the connection with an opaque
+     * "Frame too large" instead of a client-side error, so the client seeds its
+     * outgoing cap with this value before the first handshake frame and lifts it
+     * to the negotiated frame_max only once OpenResponseV1 succeeded (see #379).
+     *
+     * Two distinct windows, two distinct exceptions:
+     *  - pre-Open oversize (before OpenResponseV1) is rejected by
+     *    {@see sendMessage()} with a {@see ProtocolException} naming the
+     *    offending command, using {@see setPreOpenMaxFrameSize()};
+     *  - post-Open oversize is rejected by {@see sendFrame()} with an
+     *    {@see InvalidArgumentException}, using {@see setOutgoingMaxFrameSize()}.
+     *
+     * A bare StreamConnection defaults to 0 (no limit) on both caps; the high
+     * level {@see \CrazyGoat\RabbitStream\Client\Connection} seeds them.
+     */
+    public const DEFAULT_INITIAL_FRAME_SIZE = 8192;
+
+    /**
      * Default SO_RCVTIMEO/SO_SNDTIMEO applied to the socket in connect().
      *
      * Without it every blocking socket_recv()/socket_write() waits forever, so a
@@ -127,6 +150,18 @@ class StreamConnection
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
     private int $maxDeliverFrameSize = self::DEFAULT_MAX_DELIVER_FRAME_SIZE;
     private int $outgoingMaxFrameSize = 0;
+
+    /**
+     * Pre-Open outgoing frame size ceiling (0 = no client-side check).
+     *
+     * Applies only until Open completes, mirroring the broker's
+     * stream.initial_frame_max, and must be lifted by the caller (pass 0)
+     * once the negotiated frame_max takes over. Kept separate from
+     * {@see $outgoingMaxFrameSize} so a pre-Open oversize can be reported as a
+     * {@see ProtocolException} naming the command without changing the post-Open
+     * {@see InvalidArgumentException} contract (see #379).
+     */
+    private int $preOpenMaxFrameSize = 0;
 
     /**
      * @param string                $host     RabbitMQ stream server hostname
@@ -431,6 +466,10 @@ class StreamConnection
      * to the socket, instead of being written and having the broker close the
      * connection.
      *
+     * This setter is pure: it does not touch the pre-Open ceiling. When the
+     * pre-Open window ends (after Open), call
+     * {@see setPreOpenMaxFrameSize()} with 0 explicitly.
+     *
      * @param int $outgoingMaxFrameSize Maximum outgoing frame size in bytes (0 = no limit)
      * @throws InvalidArgumentException If the value is negative
      */
@@ -452,6 +491,43 @@ class StreamConnection
     public function getOutgoingMaxFrameSize(): int
     {
         return $this->outgoingMaxFrameSize;
+    }
+
+    /**
+     * Set the outgoing frame size ceiling enforced until Open completes.
+     *
+     * RabbitMQ caps incoming frames at stream.initial_frame_max (8192 bytes by
+     * default) for the whole handshake, regardless of the frame_max negotiated
+     * at Tune. A request serialized above this limit is rejected by
+     * {@see sendMessage()} with a {@see ProtocolException} naming the command,
+     * before anything is written to the socket, instead of letting the broker
+     * drop the connection with an opaque "Frame too large" (see #379).
+     *
+     * The ceiling stays in force for the connection until the caller ends the
+     * pre-Open window by calling this method with 0 — do that after Open
+     * completes, when the broker's stream.initial_frame_max no longer applies.
+     *
+     * @param int $size Pre-Open maximum frame size in bytes (0 = no client-side check)
+     * @throws InvalidArgumentException If the value is negative
+     */
+    public function setPreOpenMaxFrameSize(int $size): void
+    {
+        if ($size < 0) {
+            throw new InvalidArgumentException(
+                "Pre-Open max frame size must be >= 0 (0 = no limit), got {$size}"
+            );
+        }
+        $this->preOpenMaxFrameSize = $size;
+    }
+
+    /**
+     * Get the current pre-Open outgoing frame size ceiling in bytes.
+     *
+     * @return int Pre-Open maximum frame size (0 = no client-side check)
+     */
+    public function getPreOpenMaxFrameSize(): int
+    {
+        return $this->preOpenMaxFrameSize;
     }
 
     /**
@@ -608,16 +684,39 @@ class StreamConnection
      * @param float|null $timeout Optional write timeout in seconds
      * @throws ConnectionException      If the socket is not connected
      * @throws InvalidArgumentException If the request does not implement ToStreamBufferInterface
+     * @throws ProtocolException        If the serialized request exceeds the pre-Open frame size ceiling
+     *                                  ({@see setPreOpenMaxFrameSize()} — the broker enforces
+     *                                  stream.initial_frame_max until Open completes)
      * @throws TimeoutException         If the write times out
      */
     public function sendMessage(object $request, ?float $timeout = null): void
     {
         if ($request instanceof CorrelationInterface) {
+            // The correlation id must be assigned before serialization so it
+            // lands on the wire. This means an oversized pre-Open request burns
+            // one id before the guard below rejects it; that gap is harmless
+            // (ids only need to be unique per in-flight request) and is
+            // preferable to serializing twice or breaking correlation.
             $this->correlationId++;
             $request->withCorrelationId($this->correlationId);
         }
 
         $content = $this->serializer->serialize($request);
+        $payloadSize = strlen($content);
+
+        // Pre-Open ceiling: command-aware so the error names the offending
+        // command, instead of the broker closing the socket with an opaque
+        // "Frame too large" (#379). Post-Open frames are bounded by
+        // sendFrame()'s negotiated cap and raise InvalidArgumentException.
+        if ($this->preOpenMaxFrameSize > 0 && $payloadSize > $this->preOpenMaxFrameSize) {
+            throw new ProtocolException(sprintf(
+                '%s payload of %d bytes exceeds the pre-Open maximum frame size of %d bytes '
+                . '(the broker enforces stream.initial_frame_max until Open completes)',
+                $request::class,
+                $payloadSize,
+                $this->preOpenMaxFrameSize
+            ));
+        }
 
         $this->sendFrame($this->wrapFrame($content), $timeout);
     }
@@ -630,6 +729,8 @@ class StreamConnection
      * @return int Number of bytes written
      * @throws ConnectionException      If the socket is not connected or a write error occurs
      * @throws InvalidArgumentException If the frame exceeds the negotiated outgoing frame size limit
+     *                                  ({@see setOutgoingMaxFrameSize()} — post-Open only; a pre-Open
+     *                                  oversize is a {@see ProtocolException} from {@see sendMessage()})
      * @throws TimeoutException         If the socket is not ready for writing within the timeout
      */
     public function sendFrame(string $frame, ?float $timeout = null): int

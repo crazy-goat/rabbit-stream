@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests;
 
+use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
+use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
@@ -379,6 +384,9 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552);
 
         $this->assertEquals(0, $connection->getOutgoingMaxFrameSize());
+        // A bare StreamConnection applies no pre-Open check until Connection::create()
+        // seeds it (#379, finding #8).
+        $this->assertEquals(0, $connection->getPreOpenMaxFrameSize());
     }
 
     public function testOutgoingMaxFrameSizeCanBeChanged(): void
@@ -398,6 +406,38 @@ class StreamConnectionTest extends TestCase
         $this->expectExceptionMessage('Outgoing max frame size must be >= 0');
 
         $connection->setOutgoingMaxFrameSize(-1);
+    }
+
+    public function testPreOpenMaxFrameSizeCanBeChanged(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setPreOpenMaxFrameSize(4096);
+
+        $this->assertEquals(4096, $connection->getPreOpenMaxFrameSize());
+    }
+
+    public function testSetPreOpenMaxFrameSizeRejectsNegativeValues(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Pre-Open max frame size must be >= 0');
+
+        $connection->setPreOpenMaxFrameSize(-1);
+    }
+
+    public function testSetOutgoingMaxFrameSizeDoesNotClearPreOpenCeiling(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        $connection->setPreOpenMaxFrameSize(4096);
+        $this->assertSame(4096, $connection->getPreOpenMaxFrameSize());
+
+        // Pure setters: only setPreOpenMaxFrameSize() ends the pre-Open window.
+        $connection->setOutgoingMaxFrameSize(1024 * 1024);
+
+        $this->assertSame(4096, $connection->getPreOpenMaxFrameSize());
     }
 
     public function testSendFrameThrowsInvalidArgumentExceptionWhenFrameExceedsOutgoingMaxFrameSize(): void
@@ -427,10 +467,10 @@ class StreamConnectionTest extends TestCase
                 $chunk === false || $chunk === '',
                 'no bytes should have been written to the socket'
             );
+            // Always release both ends, even when the assertion above throws.
+            fclose($serverSocket);
+            fclose($clientSocket);
         }
-
-        fclose($serverSocket);
-        fclose($clientSocket);
     }
 
     public function testSendFrameAllowsFrameWithinOutgoingMaxFrameSize(): void
@@ -468,6 +508,156 @@ class StreamConnectionTest extends TestCase
         $written = $connection->sendFrame($frame);
 
         $this->assertEquals(strlen($frame), $written);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testSendMessageRejectsOversizedPreOpenRequestBeforeWriting(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setPreOpenMaxFrameSize(StreamConnection::DEFAULT_INITIAL_FRAME_SIZE);
+
+        // A SASL PLAIN payload carrying a large token is exactly the pre-Open
+        // frame the broker's 8192-byte ceiling rejects (#379); the client must
+        // fail fast and name the command instead of letting the broker drop
+        // the connection with an opaque "Frame too large".
+        $request = new SaslAuthenticateRequestV1('PLAIN', 'user', str_repeat('x', 20000));
+
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessageMatches(
+            '/SaslAuthenticateRequestV1 payload of \d+ bytes exceeds the pre-Open '
+            . 'maximum frame size of 8192 bytes/'
+        );
+
+        try {
+            $connection->sendMessage($request);
+        } finally {
+            // Nothing must have been written, and the connection stays usable:
+            // this is a fail-fast validation error, not a socket failure.
+            $this->assertTrue($connection->isConnected());
+            stream_set_blocking($serverSocket, false);
+            $chunk = @fread($serverSocket, 1);
+            $this->assertTrue(
+                $chunk === false || $chunk === '',
+                'no bytes should have been written to the socket'
+            );
+            fclose($serverSocket);
+            fclose($clientSocket);
+        }
+    }
+
+    public function testSendMessageAllowsPreOpenPayloadExactlyAtTheCeiling(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $this->enlargeSocketPairBuffers($serverSocket, $clientSocket);
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setPreOpenMaxFrameSize(StreamConnection::DEFAULT_INITIAL_FRAME_SIZE);
+
+        try {
+            // Exactly at the ceiling is allowed: the guard is strict (payload > cap).
+            $request = $this->fixedSizeRequest(StreamConnection::DEFAULT_INITIAL_FRAME_SIZE);
+
+            $connection->sendMessage($request);
+
+            // The frame actually reached the socket: length prefix + payload.
+            $payload = $this->readResponse($serverSocket);
+            $this->assertNotNull($payload);
+            $this->assertSame(
+                StreamConnection::DEFAULT_INITIAL_FRAME_SIZE,
+                strlen($payload)
+            );
+        } finally {
+            fclose($serverSocket);
+            fclose($clientSocket);
+        }
+    }
+
+    public function testSendMessageRejectsPreOpenPayloadOneByteOverTheCeiling(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setPreOpenMaxFrameSize(StreamConnection::DEFAULT_INITIAL_FRAME_SIZE);
+
+        $request = $this->fixedSizeRequest(StreamConnection::DEFAULT_INITIAL_FRAME_SIZE + 1);
+
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessageMatches('/exceeds the pre-Open maximum frame size of 8192 bytes/');
+
+        try {
+            $connection->sendMessage($request);
+        } finally {
+            $this->assertTrue($connection->isConnected());
+            stream_set_blocking($serverSocket, false);
+            $chunk = @fread($serverSocket, 1);
+            $this->assertTrue(
+                $chunk === false || $chunk === '',
+                'no bytes should have been written to the socket'
+            );
+            fclose($serverSocket);
+            fclose($clientSocket);
+        }
+    }
+
+    public function testSendMessagePostOpenOversizeThrowsInvalidArgumentExceptionFromSendFrame(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Post-Open: only the negotiated cap is set and the pre-Open ceiling is
+        // 0, so the command-aware ProtocolException guard must NOT fire. The
+        // oversized frame is rejected by sendFrame()'s InvalidArgumentException
+        // instead — the BC contract for post-Open traffic (#379).
+        $connection->setOutgoingMaxFrameSize(1024);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches(
+            '/Frame size \d+ exceeds negotiated maximum frame size of 1024/'
+        );
+
+        try {
+            $connection->sendMessage($this->fixedSizeRequest(2048));
+        } finally {
+            $this->assertTrue($connection->isConnected());
+            stream_set_blocking($serverSocket, false);
+            $chunk = @fread($serverSocket, 1);
+            $this->assertTrue(
+                $chunk === false || $chunk === '',
+                'no bytes should have been written to the socket'
+            );
+            fclose($serverSocket);
+            fclose($clientSocket);
+        }
+    }
+
+    public function testSendMessageAllowsRequestWithinOutgoingMaxFrameSize(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->setOutgoingMaxFrameSize(StreamConnection::DEFAULT_INITIAL_FRAME_SIZE);
+
+        $connection->sendMessage(new SaslHandshakeRequestV1());
+
+        $payload = $this->readResponse($serverSocket);
+        $this->assertNotNull($payload);
+        $key = unpack('n', substr($payload, 0, 2));
+        $this->assertNotFalse($key);
+        $this->assertSame(KeyEnum::SASL_HANDSHAKE->value, $key[1]);
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -1372,10 +1562,56 @@ class StreamConnectionTest extends TestCase
         $connectedProp->setValue($connection, true);
     }
 
+    /**
+     * Raise both ends' kernel buffers so a pre-Open boundary frame (8196 bytes)
+     * fits without a concurrent reader. macOS defaults an AF_UNIX socketpair to
+     * an 8192-byte send buffer, which would otherwise make the write of the
+     * 4-byte length prefix stall.
+     *
+     * @param resource $serverSocket
+     * @param resource $clientSocket
+     */
+    private function enlargeSocketPairBuffers($serverSocket, $clientSocket): void
+    {
+        if (!function_exists('socket_import_stream')) {
+            // ext-sockets is optional; without it the (smaller) default buffers
+            // still carry the boundary frames on platforms with a large enough
+            // AF_UNIX default, so this is best-effort.
+            return;
+        }
+
+        $importedServer = socket_import_stream($serverSocket);
+        if ($importedServer instanceof \Socket) {
+            socket_set_option($importedServer, SOL_SOCKET, SO_RCVBUF, 1 << 20);
+        }
+        $importedClient = socket_import_stream($clientSocket);
+        if ($importedClient instanceof \Socket) {
+            socket_set_option($importedClient, SOL_SOCKET, SO_SNDBUF, 1 << 20);
+        }
+    }
+
     private function buildFrame(int $key, int $version, string $content = ''): string
     {
         $payload = pack('nn', $key, $version) . $content;
         return pack('N', strlen($payload)) . $payload;
+    }
+
+    /**
+     * A ToStreamBufferInterface request whose serialized payload is exactly
+     * $size bytes, so the pre-Open frame-size boundary can be hit precisely.
+     */
+    private function fixedSizeRequest(int $size): ToStreamBufferInterface
+    {
+        return new class ($size) implements ToStreamBufferInterface {
+            public function __construct(private readonly int $size)
+            {
+            }
+
+            public function toStreamBuffer(): WriteBuffer
+            {
+                return new WriteBuffer(str_repeat('x', $this->size));
+            }
+        };
     }
 
     /**

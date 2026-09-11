@@ -102,6 +102,7 @@ class Connection implements ConnectionInterface
         ?StreamConnection $streamConnection = null,
         ?float $socketTimeout = null,
         ?TlsConfig $tls = null,
+        ?int $initialFrameMax = null,
     ): self {
         if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
             throw new InvalidArgumentException('requestedFrameMax must not be negative');
@@ -114,6 +115,9 @@ class Connection implements ConnectionInterface
         }
         if ($socketTimeout !== null && $socketTimeout <= 0) {
             throw new InvalidArgumentException('socketTimeout must be greater than 0');
+        }
+        if ($initialFrameMax !== null && $initialFrameMax < 0) {
+            throw new InvalidArgumentException('initialFrameMax must not be negative');
         }
 
         $logger ??= new NullLogger();
@@ -130,6 +134,15 @@ class Connection implements ConnectionInterface
             );
             $streamConnection->connect();
         }
+
+        // Until Open completes, RabbitMQ 4.3 caps incoming frames at
+        // stream.initial_frame_max (8192 by default) regardless of the value
+        // later negotiated at Tune, so seed the pre-Open ceiling before the first
+        // handshake frame is sent (see #379). It is lifted once OpenResponseV1
+        // succeeds.
+        $streamConnection->setPreOpenMaxFrameSize(
+            $initialFrameMax ?? StreamConnection::DEFAULT_INITIAL_FRAME_SIZE
+        );
 
         // 1. PeerProperties
         $streamConnection->sendMessage(new PeerPropertiesRequestV1());
@@ -194,17 +207,20 @@ class Connection implements ConnectionInterface
             $maxDeliverFrameSize ?? StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE
         );
 
-        // Frames we send are bound by the actual negotiated frame_max: writing a
-        // larger frame would just get the connection closed by the broker, so
-        // reject it fast and clearly instead (see sendFrame()).
-        $streamConnection->setOutgoingMaxFrameSize($negotiatedFrameMax);
-
         // 6. Open
         $streamConnection->sendMessage(new OpenRequestV1($vhost));
         $openResponse = $streamConnection->readMessage();
         if (!$openResponse instanceof OpenResponseV1) {
             throw UnexpectedResponseException::create(OpenResponseV1::class, $openResponse);
         }
+
+        // Open completed, so the broker's pre-Open ceiling no longer applies:
+        // frames we send are now bound by the actual negotiated frame_max.
+        // Writing a larger frame would just get the connection closed by the
+        // broker, so reject it fast and clearly instead (see sendFrame()).
+        $streamConnection->setOutgoingMaxFrameSize($negotiatedFrameMax);
+        // The pre-Open window has ended; lift its ceiling explicitly.
+        $streamConnection->setPreOpenMaxFrameSize(0);
 
         return new self($streamConnection, $logger);
     }

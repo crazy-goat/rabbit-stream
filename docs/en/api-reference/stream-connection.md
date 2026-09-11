@@ -101,6 +101,7 @@ public function sendMessage(object $request, ?float $timeout = null): void
 
 **Throws:**
 - `ConnectionException` - If socket is not connected or write fails
+- `ProtocolException` - If the serialized request exceeds the pre-Open frame size ceiling set with `setPreOpenMaxFrameSize()` (the broker enforces `stream.initial_frame_max` until Open completes); the exception names the offending command
 - `TimeoutException` - If write timeout expires
 
 **Example:**
@@ -372,6 +373,41 @@ public function getMaxFrameSize(): int
 ```
 
 **Returns:** Maximum frame size in bytes (0 = unlimited)
+
+### setPreOpenMaxFrameSize()
+
+Sets the outgoing frame size ceiling enforced **until `Open` completes** — the
+client-side mirror of the broker's `stream.initial_frame_max` (8192 bytes by
+default in RabbitMQ 4.3). A request serialized above it is rejected by
+`sendMessage()` with a `ProtocolException` naming the command, before anything
+is written to the socket.
+
+This setter and `setOutgoingMaxFrameSize()` are independent: the ceiling stays
+in force until you end the pre-Open window by calling this method with `0`.
+`Connection::create()` does that right after Open completes, once the negotiated
+`frame_max` has been applied.
+
+```php
+public function setPreOpenMaxFrameSize(int $size): void
+```
+
+**Parameters:**
+- `$size` - Pre-Open maximum frame size in bytes (0 = no client-side check)
+
+**Throws:**
+- `InvalidArgumentException` - If size is negative
+
+### getPreOpenMaxFrameSize()
+
+Returns the current pre-Open outgoing frame size ceiling.
+
+```php
+public function getPreOpenMaxFrameSize(): int
+```
+
+**Returns:** Pre-Open maximum frame size in bytes (0 = no client-side check).
+A bare `StreamConnection` defaults to 0; `Connection::create()` seeds it with
+`DEFAULT_INITIAL_FRAME_SIZE` before the first handshake frame.
 
 ### setSocketTimeout()
 
