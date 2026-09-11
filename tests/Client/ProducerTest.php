@@ -1187,4 +1187,79 @@ class ProducerTest extends TestCase
         $this->assertSame([1, 2], $failedIds, 'markStale() must report exactly the still-outstanding ids as failed');
         $this->assertSame(0, $producer->getPendingConfirms());
     }
+
+    public function testDuplicatePublishErrorIsReportedOnceAndLateErrorAfterConfirmIsIgnored(): void
+    {
+        // Regression guard for #521: the onError path retires ids through the
+        // same per-id set as confirms. A duplicate PublishError must not report
+        // the same id twice, and an error for an already-confirmed id must be
+        // ignored (the application already saw that publish succeed).
+        [$connection, , $errorCallbacks, $confirmCallbacks] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var CapturedObjects<ConfirmationStatus> $statuses */
+        $statuses = new CapturedObjects();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use ($statuses): void {
+                $statuses->add($status);
+            },
+        );
+
+        $producer->send('a'); // publishingId 0
+        $producer->send('b'); // publishingId 1
+
+        $confirmCallbacks->at()([0]); // id 0 confirmed
+        $errorCallbacks->at()([
+            new PublishingError(1, ResponseCodeEnum::INTERNAL_ERROR->value),
+            new PublishingError(1, ResponseCodeEnum::INTERNAL_ERROR->value), // duplicate
+            new PublishingError(0, ResponseCodeEnum::INTERNAL_ERROR->value), // already confirmed
+        ]);
+
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(2, $statuses->count(), 'each publish reported exactly once');
+        $this->assertTrue($statuses->at(0)->isConfirmed());
+        $this->assertSame(0, $statuses->at(0)->getPublishingId());
+        $this->assertFalse($statuses->at(1)->isConfirmed());
+        $this->assertSame(1, $statuses->at(1)->getPublishingId());
+    }
+
+    public function testBatchConfirmWithDuplicateIdRetiresEachIdOnce(): void
+    {
+        // Regression guard for #521: sendBatch() registers every id of the
+        // batch; a confirm frame carrying a duplicate id must retire each id
+        // exactly once and leave the genuinely unconfirmed ones outstanding.
+        [$connection, , , $confirmCallbacks] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var CapturedObjects<ConfirmationStatus> $statuses */
+        $statuses = new CapturedObjects();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use ($statuses): void {
+                $statuses->add($status);
+            },
+        );
+
+        $producer->sendBatch(['a', 'b', 'c']); // publishingIds 0, 1, 2
+        $this->assertSame(3, $producer->getPendingConfirms());
+
+        $confirmCallbacks->at()([1, 2, 2]); // id 2 duplicated
+
+        $this->assertSame(1, $producer->getPendingConfirms(), 'only id 0 stays outstanding');
+        $confirmedIds = [];
+        foreach ($statuses->all() as $status) {
+            if ($status->isConfirmed()) {
+                $confirmedIds[] = $status->getPublishingId();
+            }
+        }
+        sort($confirmedIds);
+        $this->assertSame([1, 2], $confirmedIds, 'each confirmed id reported exactly once');
+    }
 }
