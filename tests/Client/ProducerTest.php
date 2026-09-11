@@ -765,18 +765,20 @@ class ProducerTest extends TestCase
 
     /**
      * Producer wired to a mock connection that captures the per-stream
-     * MetadataUpdate handler and the publisher error callback.
+     * MetadataUpdate handler and the publisher confirm/error callbacks.
      *
      * @return array{
      *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
      *     1: CapturedClosures,
-     *     2: CapturedClosures
+     *     2: CapturedClosures,
+     *     3: CapturedClosures
      * }
      */
     private function connectionCapturingHandlers(): array
     {
         $metadataHandlers = new CapturedClosures();
         $errorCallbacks = new CapturedClosures();
+        $confirmCallbacks = new CapturedClosures();
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())
             ->method('registerMetadataUpdateHandler')
@@ -788,12 +790,20 @@ class ProducerTest extends TestCase
         $connection->expects($this->any())
             ->method('registerPublisher')
             ->willReturnCallback(
-                function (int $id, \Closure $onConfirm, \Closure $onError) use ($errorCallbacks): void {
+                function (
+                    int $id,
+                    \Closure $onConfirm,
+                    \Closure $onError
+                ) use (
+                    $confirmCallbacks,
+                    $errorCallbacks
+                ): void {
+                    $confirmCallbacks->add($onConfirm);
                     $errorCallbacks->add($onError);
                 }
             );
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
-        return [$connection, $metadataHandlers, $errorCallbacks];
+        return [$connection, $metadataHandlers, $errorCallbacks, $confirmCallbacks];
     }
 
     public function testMetadataUpdateMarksProducerStaleAndNextSendRedeclares(): void
@@ -1074,5 +1084,107 @@ class ProducerTest extends TestCase
 
         $this->assertSame(1, $producer->getPendingConfirms(), 'the unconfirmed message stays pending');
         $this->assertLessThan(5.0, $elapsed, 'close() must not wait much longer than the 2s drain timeout');
+    }
+
+    public function testDuplicateConfirmDoesNotLetWaitForConfirmsReturnEarly(): void
+    {
+        // Regression guard for #521: a duplicate confirm used to decrement the
+        // bare pendingConfirms counter, so waitForConfirms() returned after a
+        // single confirm frame even though another publish was still unconfirmed.
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
+        $registeredCallbacks = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $onConfirm, $onError) use (&$registeredCallbacks): void {
+                $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        $readLoopCallCount = 0;
+        $connection->expects($this->exactly(2))
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$registeredCallbacks, &$readLoopCallCount): int {
+                $readLoopCallCount++;
+                $this->assertNotNull($registeredCallbacks, 'registerPublisher callback must have been called');
+                if ($readLoopCallCount === 1) {
+                    // Duplicate id 0 within one frame: only the first occurrence
+                    // may retire the publish, the second must be ignored.
+                    ($registeredCallbacks['onConfirm'])([0, 0]);
+                } else {
+                    ($registeredCallbacks['onConfirm'])([1]);
+                }
+                return 1;
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('msg1'); // publishingId 0
+        $producer->send('msg2'); // publishingId 1
+
+        $producer->waitForConfirms(timeout: 5);
+
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(
+            2,
+            $readLoopCallCount,
+            'waitForConfirms() must keep draining until the still-outstanding id 1 is confirmed'
+        );
+    }
+
+    public function testMarkStaleReportsExactlyTheStillOutstandingIds(): void
+    {
+        // Regression guard for #521: markStale() synthesised the failed range
+        // publishingId-pendingConfirms..publishingId-1. With out-of-order (or
+        // duplicate) confirms that range reports already-confirmed ids as
+        // failed and misses genuinely outstanding ones. It must report exactly
+        // the ids still awaiting a confirm.
+        [$connection, $metadataHandlers, , $confirmCallbacks] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var CapturedObjects<ConfirmationStatus> $statuses */
+        $statuses = new CapturedObjects();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use ($statuses): void {
+                $statuses->add($status);
+            },
+        );
+
+        $producer->send('a'); // publishingId 0
+        $producer->send('b'); // publishingId 1
+        $producer->send('c'); // publishingId 2
+        $producer->send('d'); // publishingId 3
+
+        $confirm = $confirmCallbacks->at();
+        $confirm([3]); // out-of-order confirm
+        $confirm([0]); // another confirm
+        $confirm([0]); // duplicate: must be ignored
+
+        $this->assertSame(2, $producer->getPendingConfirms(), 'ids 1 and 2 are still outstanding');
+
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+
+        $confirmedIds = [];
+        $failedIds = [];
+        foreach ($statuses->all() as $status) {
+            if ($status->isConfirmed()) {
+                $confirmedIds[] = $status->getPublishingId();
+            } else {
+                $failedIds[] = $status->getPublishingId();
+            }
+        }
+        sort($confirmedIds);
+        sort($failedIds);
+
+        $this->assertSame([0, 3], $confirmedIds, 'both real confirms reach the application, the duplicate only once');
+        $this->assertSame([1, 2], $failedIds, 'markStale() must report exactly the still-outstanding ids as failed');
+        $this->assertSame(0, $producer->getPendingConfirms());
     }
 }
