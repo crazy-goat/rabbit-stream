@@ -122,5 +122,46 @@ in-tree caller breaks.
   `TYPE_INTERVAL` and rejected for `TYPE_NONE`/`TYPE_FIRST`/`TYPE_LAST`/
   `TYPE_NEXT`, in both the parameter table and the Throws list.
 
-Gates after the fix pass: unit 1134 tests / 8510 assertions OK; `composer lint`
+Gates after the fix pass: unit 1134 tests OK; `composer lint`
 (PHPCS + Rector dry-run + PHPStan level 9 + kb-lint + docs links) clean.
+
+## Review 3
+
+Round 3 re-verified every item against HEAD `f0a8d78`. Full detail in
+`review-3.md`. Gates all green: unit 1134 tests / **8506** assertions, focused
+`OffsetSpecTest` 30 tests / 56 assertions, PHPStan level 9 clean (271 files),
+PHPCS clean (277 files), Rector dry-run clean, `composer lint` (incl. kb-lint
+and `docs/en` link check) clean. Wire bytes re-verified for all seven types.
+
+### R1/R2 verdicts (R3)
+
+- **R1-1 — fixed.** `TYPE_INTERVAL` in `VALUE_TYPES`; `new OffsetSpec(TYPE_INTERVAL)` throws.
+- **R1-2 — fixed.** `ALL_TYPES` deleted; invalid-type check is the union of the
+  two disjoint lists (`!in_array(VALUELESS) && !in_array(VALUE)`). Drift fails
+  closed; no stray value can be silently dropped.
+- **R1-3 — fixed / not a real defect.** Type-first branch
+  (`src/VO/OffsetSpec.php:110-113`); the residual null guard is unreachable at
+  runtime but required by PHPStan level 9 (`?int` cannot be passed to
+  `addInt64(int)`/`addUInt64(int)`). Documented in the comment.
+- **R1-4 — fixed.** Zero/non-null value-less rejection, interval-null and
+  `toArray()`-for-none coverage all present.
+- **R1-5 — fixed.** `CHANGELOG.md:18` `[Unreleased]` `### Fixed` bullet.
+- **R2-1 — fixed.** `docs/en/api-reference/value-objects.md:40` and `:44` now
+  match the enforced constructor; no `#468` "not yet enforced" text remains in
+  `docs/en`.
+- **R1-6 — still present (out of scope).** `ConsumerUpdateReplyV1.php:49-50`
+  `addUInt64()` for `TYPE_TIMESTAMP`; `-1000` throws. Accurately described.
+- **R1-7 — still present (out of scope).** Non-zero offset for a value-less type
+  retained but nulled in `toArray()` and omitted on the wire. Accurately described.
+- **R1-8 — still present (out of scope).** `StreamConnection.php:1132` unvalidated
+  callback destructure. Accurately described.
+- **R1-9 — still present (nit, out of scope).** `none()` docblock not enforced.
+  Accurately described (cited lines are a few off; substance correct).
+
+### New findings (R3)
+
+None in scope. Non-blocking record note: `findings-review.md:125` records the
+post-fix gate as 8510 assertions; the actual count is 8506 (`f0a8d78` changed
+no test file). The gate is green; only the recorded number is off.
+
+Verdict: **Code looks good, no issues to fix.**
