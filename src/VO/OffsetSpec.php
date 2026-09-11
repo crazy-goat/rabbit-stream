@@ -19,17 +19,6 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
     public const TYPE_TIMESTAMP = 0x0005;
     public const TYPE_INTERVAL = 0x0006;
 
-    /** @var list<int> */
-    private const ALL_TYPES = [
-        self::TYPE_NONE,
-        self::TYPE_FIRST,
-        self::TYPE_LAST,
-        self::TYPE_NEXT,
-        self::TYPE_OFFSET,
-        self::TYPE_TIMESTAMP,
-        self::TYPE_INTERVAL,
-    ];
-
     /**
      * Types that encode as the 2-byte type field only — no 8-byte value.
      *
@@ -57,7 +46,10 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         private readonly int $type,
         private readonly ?int $value = null
     ) {
-        if (!in_array($type, self::ALL_TYPES, true)) {
+        if (
+            !in_array($type, self::VALUELESS_TYPES, true)
+            && !in_array($type, self::VALUE_TYPES, true)
+        ) {
             throw new InvalidArgumentException("Invalid offset spec type: $type");
         }
 
@@ -118,10 +110,16 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         $buffer = new WriteBuffer();
         $buffer->addUInt16($this->type);
 
-        // Value-less types (none/first/last/next) encode the type field only —
-        // they are rejected in the constructor and guarded by the type check
-        // below. Only offset/timestamp/interval carry an 8-byte value.
-        if ($this->value === null || !in_array($this->type, self::VALUE_TYPES, true)) {
+        // Value-less types (none/first/last/next) encode the type field only;
+        // only offset/timestamp/interval carry an 8-byte value. The constructor
+        // guarantees a value is present for every value-carrying type.
+        if (!in_array($this->type, self::VALUE_TYPES, true)) {
+            return $buffer;
+        }
+
+        // The constructor guarantees a value for every value-carrying type;
+        // this guard only keeps a null out of the int-typed buffer calls.
+        if ($this->value === null) {
             return $buffer;
         }
 

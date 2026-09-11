@@ -49,3 +49,78 @@ Status: open — out of scope for #520; to be verified in step 14.
 `none()` is documented as ConsumerUpdate-only but the class cannot enforce it; `SubscribeRequestV1`/`ResolveOffsetSpecRequestV1` accept any `OffsetSpec`.
 Severity: nit
 Status: open — out of scope for #520; to be verified in step 14.
+
+## Review 2
+
+Round 2 re-verified every R1 finding against the current HEAD (`0403ba4`) and
+hunted for new issues. Full detail in `review-2.md`. Gates all green:
+unit 1134 tests / 8506 assertions, PHPStan level 9 clean, PHPCS clean, Rector
+clean, `composer lint` clean. Wire bytes verified for all seven types.
+
+### R1 verdicts (R2)
+
+- **R1-1 — fixed.** `TYPE_INTERVAL` is in `VALUE_TYPES`
+  (`src/VO/OffsetSpec.php:50-54`); guard `:64` throws on `new OffsetSpec(TYPE_INTERVAL)`;
+  `testIntervalWithoutValueThrows` (`tests/VO/OffsetSpecTest.php:120`) passes.
+- **R1-2 — partially fixed / still present as residual duplication (nit).**
+  Positive `VALUE_TYPES` now drives both guard (`:64`) and serializer (`:124`),
+  so the 8-byte-for-value-less wire defect cannot recur from drift. But the
+  invalid-type check still keys on the third literal `ALL_TYPES` (`:22-31`,
+  guard `:60`), and `VALUELESS_TYPES` (`:38-43`) remains separate, so a stray
+  value could still be silently accepted-and-dropped under drift. The accepted
+  set could be derived from the other two lists and `ALL_TYPES` deleted.
+- **R1-3 — still present (nit).** The clause is now
+  `!in_array($this->type, VALUE_TYPES)` (`:124`), still unreachable behind the
+  leading `$this->value === null` disjunct given the constructor invariants.
+  Comment at `:121-123` misleadingly credits the type check. True type-keyed
+  form: `if (!in_array($this->type, self::VALUE_TYPES, true)) { return $buffer; }`.
+- **R1-4 — fixed.** `testValueLessTypeRejectsZeroValue` (`:91`),
+  `testIntervalWithoutValueThrows` (`:120`), `testToArrayForNone` (`:165`) all
+  present; test file 30 tests / 56 assertions OK. `0` covered in both directions.
+- **R1-5 — fixed.** `CHANGELOG.md:18` adds the `[Unreleased]` `### Fixed` bullet
+  for #520, accurately naming `offset`/`timestamp`/`interval` as value-carrying.
+- **R1-6 — still present (out of scope).** `ConsumerUpdateReplyV1.php:49-50`
+  still `addUInt64()` for `TYPE_TIMESTAMP`; reproduced: offset `-1000` throws
+  `Value -1000 is out of range for uint64`. Follow-up issue candidate.
+- **R1-7 — still present (out of scope).**
+  `new ConsumerUpdateReplyV1(0x0001, TYPE_FIRST, 123)` reports `offset => null`
+  while the constructor keeps `123` and the wire omits it. Follow-up candidate.
+- **R1-8 — still present (out of scope).** `src/StreamConnection.php:1132`
+  still array-destructures the `onConsumerUpdate(callable)` return with no shape
+  check; a short array emits `Undefined array key` warnings. Follow-up candidate.
+- **R1-9 — still present (nit, out of scope).** `none()` docblock
+  (`src/VO/OffsetSpec.php:78-84`) claims ConsumerUpdate-only use but the class
+  cannot enforce it.
+
+### R2 new finding
+
+- **R2-1 — `docs/en/api-reference/value-objects.md:40` (and `:44`) | low.**
+  The public API reference still says the `TYPE_INTERVAL` value requirement "is
+  not yet enforced (see issue #468)" and that only `TYPE_OFFSET`/`TYPE_TIMESTAMP`
+  are enforced, but `0403ba4` enforces interval (`OffsetSpec.php:53`, `:64`) and
+  rejects a value for value-less types (`:70`). Suggested fix: update the
+  description and Throws list to match the code. No automated check catches
+  prose drift.
+
+Result: R2-1 (low, docs) is the only new issue. The core fix is correct and no
+in-tree caller breaks.
+
+## Fix pass after Review 2
+
+- **R1-2 (residual duplication) — fixed.** `ALL_TYPES` is deleted; the
+  invalid-type check now derives the accepted set from the two disjoint
+  category lists: `!in_array($type, VALUELESS_TYPES, true) && !in_array($type,
+  VALUE_TYPES, true)`. Every type is now classified in exactly one list, and
+  both validation and serialization follow from those two.
+- **R1-3 (serializer guard order) — fixed.** `toStreamBuffer()` now branches on
+  the type first (`if (!in_array($this->type, self::VALUE_TYPES, true))`) and
+  only then on the nullable value; the type is the primary emission rule. The
+  null check remains solely to satisfy PHPStan at level 9 (it cannot infer the
+  constructor invariant) and is commented as such.
+- **R2-1 (docs drift) — fixed.** `docs/en/api-reference/value-objects.md`
+  now states a value is required for `TYPE_OFFSET`/`TYPE_TIMESTAMP`/
+  `TYPE_INTERVAL` and rejected for `TYPE_NONE`/`TYPE_FIRST`/`TYPE_LAST`/
+  `TYPE_NEXT`, in both the parameter table and the Throws list.
+
+Gates after the fix pass: unit 1134 tests / 8510 assertions OK; `composer lint`
+(PHPCS + Rector dry-run + PHPStan level 9 + kb-lint + docs links) clean.
