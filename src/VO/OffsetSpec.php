@@ -19,6 +19,17 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
     public const TYPE_TIMESTAMP = 0x0005;
     public const TYPE_INTERVAL = 0x0006;
 
+    /** @var list<int> */
+    private const ALL_TYPES = [
+        self::TYPE_NONE,
+        self::TYPE_FIRST,
+        self::TYPE_LAST,
+        self::TYPE_NEXT,
+        self::TYPE_OFFSET,
+        self::TYPE_TIMESTAMP,
+        self::TYPE_INTERVAL,
+    ];
+
     /**
      * Types that encode as the 2-byte type field only — no 8-byte value.
      *
@@ -31,34 +42,28 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         self::TYPE_NEXT,
     ];
 
+    /**
+     * Types whose wire form is the 2-byte type field plus an 8-byte value.
+     *
+     * @var list<int>
+     */
+    private const VALUE_TYPES = [
+        self::TYPE_OFFSET,
+        self::TYPE_TIMESTAMP,
+        self::TYPE_INTERVAL,
+    ];
+
     public function __construct(
         private readonly int $type,
         private readonly ?int $value = null
     ) {
-        if (
-            !in_array(
-                $type,
-                [
-                    self::TYPE_NONE,
-                    self::TYPE_FIRST,
-                    self::TYPE_LAST,
-                    self::TYPE_NEXT,
-                    self::TYPE_OFFSET,
-                    self::TYPE_TIMESTAMP,
-                    self::TYPE_INTERVAL,
-                ],
-                true
-            )
-        ) {
+        if (!in_array($type, self::ALL_TYPES, true)) {
             throw new InvalidArgumentException("Invalid offset spec type: $type");
         }
 
-        if (
-            ($type === self::TYPE_OFFSET || $type === self::TYPE_TIMESTAMP)
-            && $value === null
-        ) {
+        if (in_array($type, self::VALUE_TYPES, true) && $value === null) {
             throw new InvalidArgumentException(
-                "Offset spec type $type requires a value (offset/timestamp)"
+                "Offset spec type $type requires a value (offset/timestamp/interval)"
             );
         }
 
@@ -113,14 +118,16 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         $buffer = new WriteBuffer();
         $buffer->addUInt16($this->type);
 
-        if ($this->value === null || in_array($this->type, self::VALUELESS_TYPES, true)) {
+        // Value-less types (none/first/last/next) encode the type field only —
+        // they are rejected in the constructor and guarded by the type check
+        // below. Only offset/timestamp/interval carry an 8-byte value.
+        if ($this->value === null || !in_array($this->type, self::VALUE_TYPES, true)) {
             return $buffer;
         }
 
         // The value field is uint64 for offset (and interval) and int64 for
         // timestamp, so a pre-1970 (negative) timestamp is encoded as two's
-        // complement. Value-less types (none/first/last/next) never reach here:
-        // they are rejected in the constructor and short-circuited above.
+        // complement.
         if ($this->type === self::TYPE_TIMESTAMP) {
             $buffer->addInt64($this->value);
         } else {

@@ -88,6 +88,17 @@ class OffsetSpecTest extends TestCase
     /**
      * @dataProvider valueLessTypeProvider
      */
+    public function testValueLessTypeRejectsZeroValue(int $type): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Offset spec type $type does not accept a value");
+
+        new OffsetSpec($type, 0);
+    }
+
+    /**
+     * @dataProvider valueLessTypeProvider
+     */
     public function testValueLessTypeSerializesTypeFieldOnly(int $type): void
     {
         $binary = (new OffsetSpec($type))->toStreamBuffer()->getContents();
@@ -104,6 +115,14 @@ class OffsetSpecTest extends TestCase
 
         $expected = pack('n', OffsetSpec::TYPE_INTERVAL) . pack('J', 3600);
         $this->assertSame($expected, $binary);
+    }
+
+    public function testIntervalWithoutValueThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Offset spec type 6 requires a value');
+
+        new OffsetSpec(OffsetSpec::TYPE_INTERVAL);
     }
 
     public function testToStreamBufferWithValue(): void
@@ -141,6 +160,12 @@ class OffsetSpecTest extends TestCase
     {
         $spec = OffsetSpec::first();
         $this->assertSame(['type' => 1, 'value' => null], $spec->toArray());
+    }
+
+    public function testToArrayForNone(): void
+    {
+        $spec = OffsetSpec::none();
+        $this->assertSame(['type' => OffsetSpec::TYPE_NONE, 'value' => null], $spec->toArray());
     }
 
     public function testNegativeTimestampUsesSigned64BitEncoding(): void
