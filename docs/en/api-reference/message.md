@@ -11,7 +11,7 @@ class Message
 {
     // Constructor (internal, created by AMQP decoder)
     /**
-     * @param array<int, mixed>|string|int|float|bool|null $body
+     * @param array<int|string, mixed>|string|int|float|bool|null $body
      * @param array<string, mixed> $properties
      * @param array<string, mixed> $applicationProperties
      * @param array<string, mixed> $messageAnnotations
@@ -29,7 +29,7 @@ class Message
     public function getOffset(): int;
     public function getStream(): ?string;
     public function getTimestamp(): int;
-    /** @return array<int, mixed>|string|int|float|bool|null */
+    /** @return array<int|string, mixed>|string|int|float|bool|null */
     public function getBody(): string|int|float|bool|array|null;
     
     // AMQP properties
@@ -56,7 +56,7 @@ The `Message` class is instantiated internally by the AMQP message decoder. You 
 
 ```php
 /**
- * @param array<int, mixed>|string|int|float|bool|null $body
+ * @param array<int|string, mixed>|string|int|float|bool|null $body
  * @param array<string, mixed> $properties
  * @param array<string, mixed> $applicationProperties
  * @param array<string, mixed> $messageAnnotations
@@ -201,7 +201,7 @@ Get the message body content.
 
 ```php
 /**
- * @return array<int, mixed>|string|int|float|bool|null
+ * @return array<int|string, mixed>|string|int|float|bool|null
  */
 public function getBody(): string|int|float|bool|array|null
 ```
