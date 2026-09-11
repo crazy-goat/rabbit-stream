@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\VO;
 
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
@@ -95,5 +96,39 @@ class OffsetSpecTest extends TestCase
     {
         $spec = OffsetSpec::first();
         $this->assertSame(['type' => 1, 'value' => null], $spec->toArray());
+    }
+
+    public function testNegativeTimestampUsesSigned64BitEncoding(): void
+    {
+        $binary = OffsetSpec::timestamp(-1000)->toStreamBuffer()->getContents();
+
+        // Two's complement of -1000 as a big-endian 64-bit value.
+        $expected = pack('n', OffsetSpec::TYPE_TIMESTAMP) . pack('J', -1000);
+        $this->assertSame($expected, $binary);
+    }
+
+    public function testNegativeTimestampRoundTrips(): void
+    {
+        $binary = OffsetSpec::timestamp(-1000)->toStreamBuffer()->getContents();
+
+        $buffer = new ReadBuffer($binary);
+        $this->assertSame(OffsetSpec::TYPE_TIMESTAMP, $buffer->getUint16());
+        $this->assertSame(-1000, $buffer->getInt64());
+    }
+
+    public function testOffsetWithoutValueThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Offset spec type 4 requires a value');
+
+        new OffsetSpec(OffsetSpec::TYPE_OFFSET);
+    }
+
+    public function testTimestampWithoutValueThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Offset spec type 5 requires a value');
+
+        new OffsetSpec(OffsetSpec::TYPE_TIMESTAMP);
     }
 }

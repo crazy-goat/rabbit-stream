@@ -40,6 +40,15 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         ) {
             throw new InvalidArgumentException("Invalid offset spec type: $type");
         }
+
+        if (
+            ($type === self::TYPE_OFFSET || $type === self::TYPE_TIMESTAMP)
+            && $value === null
+        ) {
+            throw new InvalidArgumentException(
+                "Offset spec type $type requires a value (offset/timestamp)"
+            );
+        }
     }
 
     /**
@@ -86,7 +95,15 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         $buffer = new WriteBuffer();
         $buffer->addUInt16($this->type);
 
-        if ($this->value !== null) {
+        if ($this->value === null) {
+            return $buffer;
+        }
+
+        // The value field is uint64 for offset and int64 for timestamp, so a
+        // pre-1970 (negative) timestamp is encoded as two's complement.
+        if ($this->type === self::TYPE_TIMESTAMP) {
+            $buffer->addInt64($this->value);
+        } else {
             $buffer->addUInt64($this->value);
         }
 
