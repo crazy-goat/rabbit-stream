@@ -14,7 +14,7 @@ class Message
      * lazily-decoded one that defers AMQP section decoding until the first
      * accessor call.
      *
-     * @param array<int, mixed>|string|int|float|bool|null $body
+     * @param array<int|string, mixed>|string|int|float|bool|null $body
      * @param array<string, mixed> $properties
      * @param array<string, mixed> $applicationProperties
      * @param array<string, mixed> $messageAnnotations
@@ -223,9 +223,10 @@ class Message
     private function applyDecodedSections(array $sections): void
     {
         $rawBody = $sections['body'] ?? null;
-        if (is_array($rawBody)) {
-            $body = array_values($rawBody);
-        } elseif ($rawBody === null || is_scalar($rawBody)) {
+        if (is_array($rawBody) || $rawBody === null || is_scalar($rawBody)) {
+            // Keep the decoded value as-is: an AmqpValue (0x77) body may be a map
+            // (array<int|string, mixed>) and re-indexing it with array_values()
+            // would silently drop its keys (#462). Lists are already sequential.
             $body = $rawBody;
         } else {
             $body = null;
@@ -262,7 +263,7 @@ class Message
         return $this->timestamp;
     }
 
-    /** @return array<int, mixed>|string|int|float|bool|null */
+    /** @return array<int|string, mixed>|string|int|float|bool|null */
     public function getBody(): string|int|float|bool|array|null
     {
         $this->ensureDecoded();

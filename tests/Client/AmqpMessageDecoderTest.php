@@ -119,6 +119,15 @@ class AmqpMessageDecoderTest extends TestCase
         return "\x00\x53\x74" . $mapData;
     }
 
+    /**
+     * Helper to build an AmqpValue section (0x77) from an already-encoded AMQP value.
+     */
+    private function buildAmqpValueSection(string $valueData): string
+    {
+        // 0x00 + smallulong 0x77 (AmqpValue) + value
+        return "\x00\x53\x77" . $valueData;
+    }
+
     // ========== Test cases ==========
 
     public function testDecodeSimpleChunkEntry(): void
@@ -423,6 +432,49 @@ class AmqpMessageDecoderTest extends TestCase
         $message = AmqpMessageDecoder::decode($entry);
 
         $this->assertNull($message->getBody());
+    }
+
+    public function testDecodeAmqpValueWithMapBodyPreservesKeys(): void
+    {
+        // AmqpValue body that is an AMQP map8 {"a": 1, "b": 2} (#462).
+        // map8: 0xc1 + size (count byte + content) + count (pairs * 2) + pairs;
+        // each pair is str8 key (\xa1 <len> <utf8>) + smalluint value (\x52 <byte>).
+        $mapItems = "\xa1\x01a\x52\x01" . "\xa1\x01b\x52\x02";
+        $mapSize = strlen($mapItems) + 1; // +1 for the count byte
+        $amqpData = $this->buildAmqpValueSection(
+            "\xc1" . chr($mapSize) . chr(4) . $mapItems
+        );
+
+        $entry = new ChunkEntry(
+            offset: 1002,
+            data: $amqpData,
+            timestamp: 3333333333
+        );
+
+        $message = AmqpMessageDecoder::decode($entry);
+
+        $this->assertSame(['a' => 1, 'b' => 2], $message->getBody());
+    }
+
+    public function testDecodeAmqpValueWithListBodyReturnsSequentialList(): void
+    {
+        // Guard the pre-#462 behaviour: a list-valued AmqpValue body stays a
+        // plain sequential list. list8: 0xc0 + size + count + smalluint items.
+        $listItems = "\x52\x01\x52\x02\x52\x03";
+        $listSize = strlen($listItems) + 1; // +1 for the count byte
+        $amqpData = $this->buildAmqpValueSection(
+            "\xc0" . chr($listSize) . chr(3) . $listItems
+        );
+
+        $entry = new ChunkEntry(
+            offset: 1003,
+            data: $amqpData,
+            timestamp: 4444444444
+        );
+
+        $message = AmqpMessageDecoder::decode($entry);
+
+        $this->assertSame([1, 2, 3], $message->getBody());
     }
 
     public function testMaxDepthIsPassedThroughToTheDecodedMessages(): void
