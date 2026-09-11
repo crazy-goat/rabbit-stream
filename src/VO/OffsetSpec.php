@@ -19,6 +19,18 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
     public const TYPE_TIMESTAMP = 0x0005;
     public const TYPE_INTERVAL = 0x0006;
 
+    /**
+     * Types that encode as the 2-byte type field only — no 8-byte value.
+     *
+     * @var list<int>
+     */
+    private const VALUELESS_TYPES = [
+        self::TYPE_NONE,
+        self::TYPE_FIRST,
+        self::TYPE_LAST,
+        self::TYPE_NEXT,
+    ];
+
     public function __construct(
         private readonly int $type,
         private readonly ?int $value = null
@@ -47,6 +59,12 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         ) {
             throw new InvalidArgumentException(
                 "Offset spec type $type requires a value (offset/timestamp)"
+            );
+        }
+
+        if (in_array($type, self::VALUELESS_TYPES, true) && $value !== null) {
+            throw new InvalidArgumentException(
+                "Offset spec type $type does not accept a value (value-less type)"
             );
         }
     }
@@ -95,12 +113,14 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         $buffer = new WriteBuffer();
         $buffer->addUInt16($this->type);
 
-        if ($this->value === null) {
+        if ($this->value === null || in_array($this->type, self::VALUELESS_TYPES, true)) {
             return $buffer;
         }
 
-        // The value field is uint64 for offset and int64 for timestamp, so a
-        // pre-1970 (negative) timestamp is encoded as two's complement.
+        // The value field is uint64 for offset (and interval) and int64 for
+        // timestamp, so a pre-1970 (negative) timestamp is encoded as two's
+        // complement. Value-less types (none/first/last/next) never reach here:
+        // they are rejected in the constructor and short-circuited above.
         if ($this->type === self::TYPE_TIMESTAMP) {
             $buffer->addInt64($this->value);
         } else {

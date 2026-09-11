@@ -61,6 +61,51 @@ class OffsetSpecTest extends TestCase
         new OffsetSpec(999);
     }
 
+    /**
+     * @return array<string, array{int}>
+     */
+    public static function valueLessTypeProvider(): array
+    {
+        return [
+            'none' => [OffsetSpec::TYPE_NONE],
+            'first' => [OffsetSpec::TYPE_FIRST],
+            'last' => [OffsetSpec::TYPE_LAST],
+            'next' => [OffsetSpec::TYPE_NEXT],
+        ];
+    }
+
+    /**
+     * @dataProvider valueLessTypeProvider
+     */
+    public function testValueLessTypeRejectsNonNullValue(int $type): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Offset spec type $type does not accept a value");
+
+        new OffsetSpec($type, 123);
+    }
+
+    /**
+     * @dataProvider valueLessTypeProvider
+     */
+    public function testValueLessTypeSerializesTypeFieldOnly(int $type): void
+    {
+        $binary = (new OffsetSpec($type))->toStreamBuffer()->getContents();
+
+        $this->assertSame(2, strlen($binary));
+        $this->assertSame(pack('n', $type), $binary);
+    }
+
+    public function testIntervalSerializesTypeAndUint64Value(): void
+    {
+        $binary = OffsetSpec::interval(3600)->toStreamBuffer()->getContents();
+
+        $this->assertSame(10, strlen($binary));
+
+        $expected = pack('n', OffsetSpec::TYPE_INTERVAL) . pack('J', 3600);
+        $this->assertSame($expected, $binary);
+    }
+
     public function testToStreamBufferWithValue(): void
     {
         $spec = OffsetSpec::offset(42);
