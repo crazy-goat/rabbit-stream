@@ -42,7 +42,6 @@ public function __construct(
 **Throws:**
 
 - `InvalidArgumentException` - If an invalid type is provided, or if `TYPE_OFFSET`/`TYPE_TIMESTAMP` is used without a value
-- `InvalidArgumentException` - If a `TYPE_TIMESTAMP` value is negative and cannot be encoded as a signed 64-bit integer
 
 > `TYPE_TIMESTAMP` is encoded as a signed `int64` (milliseconds since the Unix
 > epoch), so negative (pre-1970) timestamps round-trip correctly. `TYPE_OFFSET`
