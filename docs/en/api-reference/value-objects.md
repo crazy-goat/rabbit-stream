@@ -37,11 +37,15 @@ public function __construct(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `$type` | `int` | Yes | One of the `TYPE_*` constants |
-| `$value` | `?int` | No | Offset value (required for `TYPE_OFFSET`, `TYPE_TIMESTAMP`, `TYPE_INTERVAL`) |
+| `$value` | `?int` | No | Offset value; required (and enforced) for `TYPE_OFFSET` and `TYPE_TIMESTAMP`. `TYPE_INTERVAL` also needs a value at the protocol level, but that is not yet enforced (see issue #468). |
 
 **Throws:**
 
-- `InvalidArgumentException` - If an invalid type is provided
+- `InvalidArgumentException` - If an invalid type is provided, or if `TYPE_OFFSET`/`TYPE_TIMESTAMP` is used without a value
+
+> `TYPE_TIMESTAMP` is encoded as a signed `int64` (milliseconds since the Unix
+> epoch), so negative (pre-1970) timestamps round-trip correctly. `TYPE_OFFSET`
+> is encoded as an unsigned `uint64`.
 
 ### Factory Methods
 
