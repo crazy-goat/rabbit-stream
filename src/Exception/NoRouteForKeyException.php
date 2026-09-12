@@ -15,7 +15,7 @@ namespace CrazyGoat\RabbitStream\Exception;
  * use CrazyGoat\RabbitStream\Exception\NoRouteForKeyException;
  *
  * try {
- *     $producer->send($routingKey, $message);
+ *     $producer->send($message, $routingKey);
  * } catch (NoRouteForKeyException $e) {
  *     error_log(sprintf(
  *         'No partition for key "%s" on super stream "%s"',

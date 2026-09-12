@@ -80,8 +80,10 @@ RabbitStreamExceptionInterface (interface, extends \Throwable)
 
 Every throwable the library raises implements `RabbitStreamExceptionInterface`,
 so a single `catch (RabbitStreamExceptionInterface $e)` around a publish or
-consume loop is enough — no native `\Exception`, `\ValueError` or
-`\LengthException` escapes from `src/`, and a unit test enforces that
+consume loop is enough — `src/` never throws a *bare* native class
+(`\Exception`, `\ValueError`, `\LengthException`); the only native classes it
+raises are its own `InvalidArgumentException` and `LengthException`, which
+extend the native ones and implement the interface. A unit test enforces that
 (`tests/Exception/ExceptionHierarchyTest.php`).
 
 > **Important — the two native-shadowing exceptions are not
@@ -266,12 +268,12 @@ try {
 
 #### A connection closed mid-frame cannot be retried
 
-Every socket call is bounded by `SO_RCVTIMEO`/`SO_SNDTIMEO` (the
-`socketTimeout` of `Connection::create()`, 30 s by default). When one of them
-expires with **part of a frame** already read or written, the client closes the
-connection and throws `ConnectionException` — the consumed bytes cannot be put
-back on the socket, and the peer cannot resynchronise mid-frame, so continuing
-would mean parsing payload as framing.
+Every read and write is driven by a non-blocking `stream_select()` with a
+deadline (the `socketTimeout` of `Connection::create()`, 30 s by default). When
+the deadline expires with **part of a frame** already read or written, the
+client closes the connection and throws `ConnectionException` — the consumed
+bytes cannot be put back on the socket, and the peer cannot resynchronise
+mid-frame, so continuing would mean parsing payload as framing.
 
 ```php
 try {
@@ -353,7 +355,7 @@ routing key and super stream that failed are carried on the exception:
 use CrazyGoat\RabbitStream\Exception\NoRouteForKeyException;
 
 try {
-    $producer->send($routingKey, $message);
+    $producer->send($message, $routingKey);
 } catch (NoRouteForKeyException $e) {
     error_log(sprintf(
         'No partition for key "%s" on super stream "%s"',

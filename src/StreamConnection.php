@@ -127,12 +127,13 @@ class StreamConnection
     public const DEFAULT_INITIAL_FRAME_SIZE = 8192;
 
     /**
-     * Default SO_RCVTIMEO/SO_SNDTIMEO applied to the socket in connect().
+     * Default per-I/O-call timeout, enforced by the stream_select() deadline in
+     * connect()/readBytes()/writeAll().
      *
-     * Without it every blocking socket_recv()/socket_write() waits forever, so a
-     * peer that stops mid-frame hangs the client and every documented timeout
+     * Without it every read or write waits forever, so a peer that stops
+     * mid-frame hangs the client and every documented timeout
      * (Consumer::read(), readFrame(), readLoop()) silently becomes infinite
-     * (GitHub #402). This bounds a single socket call, not a whole operation:
+     * (GitHub #402). This bounds a single I/O call, not a whole operation:
      * the per-call timeouts remain the ones the caller asks for.
      */
     public const DEFAULT_SOCKET_TIMEOUT = 30.0;
@@ -168,9 +169,9 @@ class StreamConnection
      * @param int                   $port     RabbitMQ stream server port
      * @param LoggerInterface       $logger   PSR-3 logger (defaults to NullLogger)
      * @param BinarySerializerInterface $serializer Serializer for request/response frames
-     * @param float                 $socketTimeout Per-socket-call receive/send timeout in
-     *                                        seconds (SO_RCVTIMEO/SO_SNDTIMEO), applied in
-     *                                        connect(); must be > 0
+     * @param float                 $socketTimeout Per-I/O-call timeout in seconds,
+     *                                        enforced by a stream_select() deadline;
+     *                                        must be > 0
      * @param TlsConfig|null        $tls     TLS transport options; null (default) uses
      *                                        the plaintext tcp:// transport. Passing a
      *                                        config selects the ssl:// transport (TLS
@@ -796,7 +797,7 @@ class StreamConnection
      *
      * @return int Number of bytes written (always strlen($frame) on success)
      * @throws ConnectionException If the write fails or a partial frame cannot be completed
-     * @throws TimeoutException    If nothing at all could be written before SO_SNDTIMEO expired
+     * @throws TimeoutException    If nothing at all could be written before the $socketTimeout deadline expired
      */
     private function writeAll(string $frame): int
     {

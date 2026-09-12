@@ -12,7 +12,7 @@ namespace CrazyGoat\RabbitStream\Exception;
  * {@see \CrazyGoat\RabbitStream\Buffer\WriteBuffer}, an unknown offset type in
  * `OffsetSpec`, an unknown partition in
  * {@see \CrazyGoat\RabbitStream\Client\SuperStreamConsumer}, an empty partition
- * list in the hash routing strategy, a non-positive buffer/credit/timeout
+ * list in the hash routing strategy, a negative or out-of-range buffer/credit/timeout
  * option in {@see \CrazyGoat\RabbitStream\Client\Consumer},
  * {@see \CrazyGoat\RabbitStream\Client\Producer} or
  * {@see \CrazyGoat\RabbitStream\StreamConnection}, and an uncorrelated request

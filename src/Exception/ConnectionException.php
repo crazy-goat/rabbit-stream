@@ -21,6 +21,7 @@ namespace CrazyGoat\RabbitStream\Exception;
  * first, since it extends this class.
  *
  * ```php
+ * use CrazyGoat\RabbitStream\Client\Connection;
  * use CrazyGoat\RabbitStream\Exception\ConnectionException;
  *
  * try {

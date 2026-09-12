@@ -15,6 +15,7 @@ namespace CrazyGoat\RabbitStream\Exception;
  * every entry point that decodes wire data refuses to run (#458).
  *
  * ```php
+ * use CrazyGoat\RabbitStream\Client\Connection;
  * use CrazyGoat\RabbitStream\Exception\UnsupportedPlatformException;
  *
  * try {
