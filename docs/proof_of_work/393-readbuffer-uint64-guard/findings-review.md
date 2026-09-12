@@ -1,4 +1,15 @@
-# Findings — review — issue #393 (round 1)
+# Findings — review — issue #393
+
+## Round 2 (commit `ea78275`)
+
+Reviewer round 2 for `feature/issue-393-readbuffer-uint64-guard` at
+`ea782754b9f9aadaaec715be59d3aeaa5e4969a4`. Round-1 findings are re-adjudicated
+below with the round-2 status inline; full analysis in `review-2.md`. New issue
+`REV-393-7` was added. Gates on HEAD: `composer cs`, `composer phpstan`,
+`composer rector` (dry-run), `./vendor/bin/phpunit --testsuite unit`
+(`OK (1151 tests, 8542 assertions)`) and `composer lint` all pass, exit 0.
+
+## Round 1 (commit `e1340fb`)
 
 Reviewer round 1 for `feature/issue-393-readbuffer-uint64-guard` at `e1340fb`.
 No earlier `findings-review.md` existed, so there are no prior findings to
@@ -19,7 +30,10 @@ Status values: `open` (needs action), `deferred` (agreed out of scope),
   Handling section and its message-format list were not updated either. The
   "Returns: 0 to PHP_INT_MAX" line (`:101`) is now accurate.
 - **Severity:** medium
-- **Status:** open
+- **Status:** **fixed (round 2)** — `docs/en/api-reference/read-buffer.md:105`
+  (Throws bullet), `:402` (Error Handling condition) and `:410` (message-format
+  block) now document the over-`PHP_INT_MAX` throw; the documented format matches
+  `src/Buffer/ReadBuffer.php:117` and the `Returns` line is accurate.
 
 ## REV-393-2 — `PublishConfirmResponseV1` bypasses the guard
 
@@ -32,7 +46,13 @@ Status values: `open` (needs action), `deferred` (agreed out of scope),
   separate issue. The coder disclosed it in `code-decision-1.md` and
   `findings-coder.md` §1.
 - **Severity:** medium
-- **Status:** deferred (separate follow-up issue recommended)
+- **Status:** **deferred (round 2 — deferral defensible, but follow-up is not yet
+  tracked)**. Code unchanged at `src/Response/PublishConfirmResponseV1.php:59`.
+  #393's acceptance criteria and "Fix" section are scoped to
+  `ReadBuffer::getUint64()`, so expanding this PR is not warranted; the coder
+  disclosed it. Condition: the main session must file a dedicated follow-up issue
+  (`gh issue list --search "PublishConfirm"` currently returns none) so the gap
+  named by the issue is not lost.
 
 ## REV-393-3 — missing `PHP_INT_MAX + 1` boundary test
 
@@ -44,7 +64,13 @@ Status values: `open` (needs action), `deferred` (agreed out of scope),
   `PHP_INT_MAX`/`PHP_INT_MAX+1` split, a one-line case would pin it. The
   all-ones case already pins the `-1` end, so this is coverage polish.
 - **Severity:** low
-- **Status:** open
+- **Status:** **fixed (round 2)** —
+  `tests/Buffer/ReadBufferTest.php:327-335`
+  (`testGetUint64WithPhpIntMaxPlusOneThrows`) feeds
+  `"\x80\x00\x00\x00\x00\x00\x00\x00"` (`PHP_INT_MAX + 1` =
+  `0x8000000000000000`) and asserts `DeserializationException` with
+  `0x8000000000000000`. The unit suite went from 1150 to 1151 tests, confirming
+  the case runs.
 
 ## REV-393-4 — missing CHANGELOG entry
 
@@ -53,7 +79,10 @@ Status values: `open` (needs action), `deferred` (agreed out of scope),
   Feature Branch" step 3 requires it; the task notes the main session handles
   step 8, so this is flagged only so it is not lost.
 - **Severity:** low
-- **Status:** open (expected to be handled by the main session at merge)
+- **Status:** **fixed (round 2)** — `CHANGELOG.md:15` adds the `#393` bullet at
+  the top of `[Unreleased] → ### Fixed`, accurately stating the pre-fix wrap, the
+  new typed rejection with raw bytes + position, and that `getInt64()` is
+  unchanged.
 
 ## REV-393-5 — discarded chunk `epoch` can now reject a frame
 
@@ -66,7 +95,8 @@ Status values: `open` (needs action), `deferred` (agreed out of scope),
   informational. If a narrower failure surface is wanted, read it with
   `getInt64()` instead.
 - **Severity:** low
-- **Status:** informational
+- **Status:** informational (round 2: still present; `OsirisChunkParser.php:325`
+  unchanged, no action for #393)
 
 ## REV-393-6 — pre-existing dead branch in `getInt64()`
 
@@ -77,7 +107,24 @@ Status values: `open` (needs action), `deferred` (agreed out of scope),
   Pre-existing, and the issue explicitly requires `getInt64()` to stay
   unchanged.
 - **Severity:** nit
-- **Status:** informational (do not change as part of #393)
+- **Status:** **still present, informational (round 2)** — `ReadBuffer.php:135`
+  unchanged (dead `>= 0x8000000000000000` branch, float literal/64-bit). The
+  issue requires `getInt64()` to stay unchanged; correctly untouched. Not a #393
+  action.
+
+## REV-393-7 — no windowed-buffer test for the guard message (new in round 2)
+
+- **file:line:** `tests/Buffer/ReadBufferTest.php:306-335`
+- **What is wrong:** The guard's raw-byte message uses
+  `bin2hex(substr($this->buffer, $this->offset + $this->position, 8))`
+  (`src/Buffer/ReadBuffer.php:118`), but every new test constructs a whole-buffer
+  `ReadBuffer` (`offset === 0`), so the `+ $this->offset` term is never exercised
+  by the suite. Re-verified empirically on HEAD: a windowed
+  `ReadBuffer("\xAA\xBB\x80\x00\x00\x00\x00\x00\x00\x00", 2, 8)` throws with the
+  correct bytes (`0x8000000000000000`) and `position 0`, so this is a coverage
+  gap, not a defect.
+- **Severity:** low (informational)
+- **Status:** informational (optional one-line test; not a merge blocker)
 
 ---
 
@@ -97,5 +144,6 @@ Status values: `open` (needs action), `deferred` (agreed out of scope),
 - All `src/` callers treat the result as a non-negative offset/sequence; none
   relies on the wrapped value. NO_OFFSET is a response code, checked before the
   `getUint64()` read, so no sentinel is lost.
-- `composer cs`, `composer phpstan`, `composer rector` (dry-run), and
-  `./vendor/bin/phpunit --testsuite unit` all pass on the clean tree.
+- `composer cs`, `composer phpstan`, `composer rector` (dry-run),
+  `./vendor/bin/phpunit --testsuite unit` and `composer lint` all pass on the
+  clean tree at `ea78275` (`OK (1151 tests, 8542 assertions)`, exit 0 each).

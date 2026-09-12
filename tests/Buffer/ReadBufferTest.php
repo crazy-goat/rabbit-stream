@@ -334,6 +334,21 @@ class ReadBufferTest extends TestCase
         $buf->getUint64();
     }
 
+    public function testGetUint64AbovePhpIntMaxInWindowedBufferReportsWindowPosition(): void
+    {
+        // The raw-bytes read must account for the window offset, and the reported
+        // position is relative to the window start, not the backing string.
+        $buf = new ReadBuffer("\xAA\xBB\x80\x00\x00\x00\x00\x00\x00\x00", 2, 8);
+        try {
+            $buf->getUint64();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0x8000000000000000', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+        $this->assertSame(0, $buf->getPosition());
+    }
+
     public function testGetInt16Negative(): void
     {
         $buf = new ReadBuffer("\xFF\xFF");
