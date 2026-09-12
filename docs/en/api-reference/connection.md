@@ -148,7 +148,7 @@ public static function create(
 
 - `InvalidArgumentException` - If `requestedFrameMax`, `requestedHeartbeat`, `maxDeliverFrameSize`, or `initialFrameMax` is negative, or if `socketTimeout` is not positive. This is `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`, which implements `RabbitStreamExceptionInterface` while still extending the native `\InvalidArgumentException`
 - `ProtocolException` - If a request sent before `Open` completes serializes to a payload larger than `initialFrameMax` (the broker enforces `stream.initial_frame_max` until then); the exception names the offending command
-- `AuthenticationException` - If PLAIN SASL mechanism is not supported or credentials are invalid
+- `AuthenticationException` - If the server does not offer the PLAIN SASL mechanism. Invalid credentials are not reported as this type: the non-OK `SaslAuthenticate` response code is asserted during deserialization and raises a `ProtocolException` (of which `AuthenticationException` is a subclass)
 - `UnexpectedResponseException` - If the server returns an unexpected response during handshake
 - `ConnectionException` - If the TCP connection cannot be established
 
@@ -680,7 +680,12 @@ public function storeOffset(string $reference, string $stream, int $offset): voi
 
 #### Exceptions
 
-- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ConnectionException` - If the socket is not connected or the write fails
+- `TimeoutException` - If the frame cannot be written within the socket timeout
+
+#### Notes
+
+- `StoreOffset` is a **one-way** command: the protocol defines no response for it, so no round trip is awaited and a broker error is not reported here.
 
 #### Example
 
@@ -999,12 +1004,12 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 
 #### Return Value
 
-`void`
+`int` - Number of frames dispatched; `0` means the loop ended on timeout, `stop()` or disconnect without handling a frame
 
 #### Exceptions
 
 - `ConnectionException` - If the connection is lost
-- `TimeoutException` - If the timeout is reached (when specified)
+- `DeserializationException` - If a server-push frame cannot be deserialized
 
 #### Example
 
