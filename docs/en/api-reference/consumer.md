@@ -82,7 +82,7 @@ $consumer = $connection->createConsumer(
 | `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`, and for `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Number of messages between automatic offset commits. `0` disables auto-commit. |
 | `$initialCredit` | `int` | No | Initial number of flow control credits. **Chunk-granular**: 1 credit = 1 future chunk delivery, and this is the starting and **minimum** in-flight chunk target; `$creditWindowBytes` may raise it when chunks turn out to be small. Must be 1–32767. |
-| `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — once the buffer is full no new credit is granted, but every chunk already granted (in flight) is still accepted in full (messages are never dropped), so the buffer can exceed this by the chunks in flight (≤ `creditTarget`), not by a single chunk's worth. |
+| `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — once the buffer is full no new credit is granted, but every chunk already granted (in flight) is still accepted in full (messages are never dropped), so the buffer can exceed this by the chunks in flight (each granted within the target in force then, ≤ `MAX_CREDIT`; a later shrink of `creditTarget` does not revoke them), not by a single chunk's worth. |
 | `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (sent as `filter.0`, `filter.1`, ... properties). Filtering is **chunk-granular** (bloom filter per chunk) — see [Stream Filtering](../guide/consuming.md#7-stream-filtering). |
 | `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver chunks containing messages published with no filter value. |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer: the broker activates exactly one consumer per `$name` group at a time. Requires `$name`; throws `InvalidArgumentException` otherwise. See [Single Active Consumer](../guide/consuming.md#8-single-active-consumer). |
@@ -653,7 +653,7 @@ $consumer = $connection->createConsumer(
     'events',
     OffsetSpec::first(),
     name: 'batch-processor',
-    initialCredit: 100  // Request 100 messages at a time
+    initialCredit: 100  // Request 100 chunks at a time
 );
 
 $batch = [];
@@ -716,7 +716,9 @@ Because a delivered chunk is never split or dropped (at-least-once delivery —
 no message is ever discarded once it arrives), once the buffer is full no new
 credit is granted, yet every chunk already granted (in flight) still lands in
 full, so the buffer can transiently hold more than `maxBufferSize` messages by
-the chunks in flight (at most `creditTarget`, not a single chunk's worth). What
+the chunks in flight — each granted within the target in force then
+(≤ `MAX_CREDIT`); a later shrink of `creditTarget` does not revoke them, so
+in-flight can transiently exceed the current target. What
 `maxBufferSize` actually controls is credit: once the unread count reaches or
 exceeds it, no further credit is granted, so the server stops delivering new
 chunks until the buffer drains back below the limit.
@@ -725,7 +727,7 @@ chunks until the buffer drains back below the limit.
 
 RabbitMQ Streams uses a credit-based flow control system:
 
-1. **Initial Credit** - Specified when creating the consumer (`initialCredit` parameter); it is the floor of the adaptive `creditTarget`, which caps outstanding (in-flight, i.e. sent-but-not-yet-consumed) credit — the server can never have more than `creditTarget` chunks in flight at once (`creditTarget` is `min(32767, max(initialCredit, ceil(creditWindowBytes / avgChunk)))`)
+1. **Initial Credit** - Specified when creating the consumer (`initialCredit` parameter); it is the floor of the adaptive `creditTarget` (`min(32767, max(initialCredit, ceil(creditWindowBytes / avgChunk)))`). Outstanding (in-flight, i.e. sent-but-not-yet-consumed) credit is bounded by `creditTarget` only at the moment each chunk's credit is granted (≤ `MAX_CREDIT`); `observeChunkSize()` may later shrink the target below the in-flight count and granted credit is not revocable, so in-flight can transiently exceed the current target
 2. **Credits Consumed** - Each delivered chunk consumes one credit, no matter how many messages it contains
 3. **Credits Replenished** - The client automatically sends more credit as the buffer drains, one credit per chunk's worth of headroom that reopens
 4. **Backpressure** - While the unread count is at or over `maxBufferSize`, no new credit is granted at all; credit withheld this way is remembered and granted once the buffer drains
@@ -752,7 +754,7 @@ When the consumer cannot keep up with the message rate:
 $consumer = $connection->createConsumer(
     'high-volume-stream',
     OffsetSpec::last(),
-    initialCredit: 100,  // Request 100 messages at a time
+    initialCredit: 100,  // Request 100 chunks at a time
     // maxBufferSize is 1000 by default
 );
 
@@ -760,7 +762,7 @@ $consumer = $connection->createConsumer(
 $slowConsumer = $connection->createConsumer(
     'slow-stream',
     OffsetSpec::last(),
-    initialCredit: 1,  // Request one message at a time
+    initialCredit: 1,  // Request one chunk at a time
     // maxBufferSize is 1000 by default
 );
 ```

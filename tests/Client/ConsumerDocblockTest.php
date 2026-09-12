@@ -129,6 +129,35 @@ class ConsumerDocblockTest extends TestCase
     }
 
     /**
+     * Regression for the generic-type case: a type such as
+     * `array<string, string>` must be consumed as a whole (spaces inside the
+     * angle brackets included) before deciding whether prose remains. The old
+     * regex split on the inner space and treated `string>` as a description.
+     */
+    public function testReturnDescriptionHandlesGenericTypesWithSpaces(): void
+    {
+        $method = new \ReflectionMethod(self::class, 'hasReturnDescription');
+
+        $bare = "/**\n * @return array<string, string>\n */";
+        $this->assertFalse(
+            $method->invoke($this, $bare),
+            'A bare @return with a spaced generic type has no description.'
+        );
+
+        $inline = "/**\n * @return array<string, string> Map of filter name to value.\n */";
+        $this->assertTrue(
+            $method->invoke($this, $inline),
+            'A @return with a spaced generic type and inline prose has a description.'
+        );
+
+        $nextLine = "/**\n * @return array<string, string>\n * Map of filter name to value.\n */";
+        $this->assertTrue(
+            $method->invoke($this, $nextLine),
+            'A description on the line after the @return type counts.'
+        );
+    }
+
+    /**
      * The prose description: the docblock text before the first `@tag`.
      */
     private function description(string $docblock): string
@@ -163,10 +192,10 @@ class ConsumerDocblockTest extends TestCase
 
         foreach ($lines as $index => $line) {
             $line = trim(ltrim(trim($line), '*'));
-            if (preg_match('/^@return\s+(\S+)\s*(.*)$/', $line, $matches) !== 1) {
+            if (preg_match('/^@return\s+(?:\S*<[^>]*>|\S*\{[^}]*\}|\S+)\s*(.*)$/', $line, $matches) !== 1) {
                 continue;
             }
-            if (trim($matches[2]) !== '') {
+            if (trim($matches[1]) !== '') {
                 return true;
             }
             for ($next = $index + 1, $count = count($lines); $next < $count; $next++) {

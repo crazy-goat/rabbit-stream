@@ -37,18 +37,20 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
  * more than `maxBufferSize` messages: no new credit is granted once the buffer
  * is full, but every chunk already granted (in flight) still arrives in full,
  * so the overshoot is bounded by the chunks in flight — at most `creditsInFlight`
- * chunks, itself bounded by the adaptive `creditTarget` — not by a single
- * chunk. What `maxBufferSize` actually controls is credit: once the unread
- * count reaches or exceeds it, no further credit is granted, so the server
- * stops delivering new chunks until the buffer drains back below the limit.
- * Credits withheld this way are remembered (`pendingCredits`, itself a
- * chunk-granular counter) and granted back — one credit per chunk's worth of
- * headroom that reopens — as the application drains the buffer via read()/
- * readOne(). Outstanding (in-flight, i.e. sent-but-not-yet-consumed) credit is
- * capped at the adaptive `creditTarget` (≤ `MAX_CREDIT`, and never below
- * `initialCredit`, which acts as the floor), so the server can never have more
- * than `creditTarget` chunks in flight at once, independent of how large those
- * chunks turn out to be.
+ * chunks, each granted while it was within the target in force at grant time
+ * (≤ `MAX_CREDIT`) — not by a single chunk. What `maxBufferSize` actually
+ * controls is credit: once the unread count reaches or exceeds it, no further
+ * credit is granted, so the server stops delivering new chunks until the buffer
+ * drains back below the limit. Credits withheld this way are remembered
+ * (`pendingCredits`, itself a chunk-granular counter) and granted back — one
+ * credit per chunk's worth of headroom that reopens — as the application drains
+ * the buffer via read()/readOne(). Outstanding (in-flight, i.e.
+ * sent-but-not-yet-consumed) credit is bounded by the adaptive `creditTarget`
+ * only at the moment each chunk's credit is granted: `observeChunkSize()` may
+ * later shrink `creditTarget` below `creditsInFlight` (a larger chunk raises the
+ * average and lowers the target), and granted credit is not revocable, so
+ * in-flight can transiently exceed the current target (it stays ≤ `MAX_CREDIT`).
+ * `initialCredit` is the floor of the target.
  */
 class Consumer implements ConsumerInterface
 {
@@ -147,7 +149,9 @@ class Consumer implements ConsumerInterface
      *                            dropped, so no new credit is granted once the
      *                            buffer is full, yet every chunk already granted
      *                            (in flight) still lands in full: the buffer may
-     *                            exceed this by the chunks in flight (≤ creditTarget),
+     *                            exceed this by the chunks in flight (each granted
+     *                            within the target in force then, ≤ MAX_CREDIT; a
+     *                            later shrink of creditTarget does not revoke them),
      *                            not by a single chunk. When the unread count reaches
      *                            or exceeds this value no further credit is granted,
      *                            so the server stops delivering new chunks until
@@ -323,6 +327,11 @@ class Consumer implements ConsumerInterface
      *                            error other than STREAM_NOT_EXIST / STREAM_NOT_AVAILABLE.
      * @throws UnexpectedResponseException If the StreamStats reply used to pick the
      *                            resume offset is not a StreamStats response.
+     * @throws ConnectionException If the socket is not connected or a re-subscribe
+     *                            write/read fails.
+     * @throws DeserializationException If a re-subscribe response frame cannot be
+     *                            deserialized.
+     * @throws TimeoutException If a re-subscribe response does not arrive in time.
      */
     public function resubscribeIfLost(): bool
     {
@@ -559,8 +568,8 @@ class Consumer implements ConsumerInterface
      * @throws DeserializationException If a delivered chunk or server-push frame cannot
      *                            be deserialized.
      * @throws TimeoutException If a credit or heartbeat frame cannot be written within
-     *                            the socket timeout, or the StreamStats request sent
-     *                            while re-subscribing does not get a reply in time.
+     *                            the socket timeout, or a re-subscribe Subscribe/StreamStats
+     *                            request does not get a reply in time.
      */
     public function read(float $timeout = 5.0): array
     {
@@ -674,8 +683,8 @@ class Consumer implements ConsumerInterface
      * @throws DeserializationException If a delivered chunk or server-push frame cannot
      *                            be deserialized.
      * @throws TimeoutException If a credit or heartbeat frame cannot be written within
-     *                            the socket timeout, or the StreamStats request sent
-     *                            while re-subscribing does not get a reply in time.
+     *                            the socket timeout, or a re-subscribe Subscribe/StreamStats
+     *                            request does not get a reply in time.
      */
     public function readOne(float $timeout = 5.0): ?Message
     {

@@ -536,7 +536,7 @@ RabbitMQ Streams uses a credit-based flow control system to prevent consumers fr
 $consumer = $connection->createConsumer(
     'events',
     OffsetSpec::last(),
-    initialCredit: 100  // Request 100 messages at a time
+    initialCredit: 100  // Request 100 chunks at a time
 );
 ```
 
