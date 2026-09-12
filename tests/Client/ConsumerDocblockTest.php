@@ -17,8 +17,9 @@ use PHPUnit\Framework\TestCase;
  * Subscribe request, delivered-chunk parsing and re-subscribe, which a
  * reflection test cannot see. What reflection can see is checked here: every
  * public method has a non-empty prose description, every declared parameter has
- * a matching `@param`, every method with a non-void return type has an
- * `@return`, and every documented `@throws` names a class that actually exists.
+ * a matching `@param`, every method with a non-void return type has a
+ * descriptive `@return` (one Rector's DEAD_CODE set will not strip — FAQ-008),
+ * and every documented `@throws` names a class that actually exists.
  */
 class ConsumerDocblockTest extends TestCase
 {
@@ -54,7 +55,7 @@ class ConsumerDocblockTest extends TestCase
                 }
             }
 
-            if ($this->needsReturnTag($method) && preg_match('/@return\b/', $docblock) !== 1) {
+            if ($this->needsReturnTag($method) && !$this->hasReturnDescription($docblock)) {
                 $missingReturn[] = $label;
             }
         }
@@ -78,17 +79,17 @@ class ConsumerDocblockTest extends TestCase
         $this->assertSame(
             [],
             $missingReturn,
-            "Public methods on Consumer whose non-void return type has no @return tag:\n"
+            "Public methods on Consumer whose non-void return type has a missing or description-less @return tag:\n"
                 . implode("\n", $missingReturn)
         );
     }
 
     /**
-     * A documented `@throws Foo` that names a non-existent class is worse than
-     * no tag at all: it sends a caller looking for an exception the library
-     * cannot raise. Names are resolved as written first, then against the
-     * library exception namespace, so both `@throws ProtocolException` and
-     * `@throws \RuntimeException` are accepted.
+     * A documented `@throws Foo` that names a non-existent class or interface
+     * is worse than no tag at all: it sends a caller looking for an exception
+     * the library cannot raise. Names are resolved as written first, then
+     * against the library exception namespace, so both `@throws
+     * ProtocolException` and `@throws \RuntimeException` are accepted.
      */
     public function testEveryDocumentedThrowsNamesARealClass(): void
     {
@@ -106,7 +107,13 @@ class ConsumerDocblockTest extends TestCase
                 if (class_exists($name)) {
                     continue;
                 }
+                if (interface_exists($name)) {
+                    continue;
+                }
                 if (class_exists(self::EXCEPTION_NAMESPACE . $name)) {
+                    continue;
+                }
+                if (interface_exists(self::EXCEPTION_NAMESPACE . $name)) {
                     continue;
                 }
 
@@ -140,6 +147,38 @@ class ConsumerDocblockTest extends TestCase
         }
 
         return trim(implode(' ', $prose));
+    }
+
+    /**
+     * Whether the docblock has an `@return` tag carrying a description after
+     * its type. A bare `@return <type>` whose type merely repeats the native
+     * return type is removed by Rector's DEAD_CODE set (FAQ-008), so tag
+     * presence alone is not enough — the gate must require prose too. A
+     * description may sit on the tag line or on the continuation line(s).
+     */
+    private function hasReturnDescription(string $docblock): bool
+    {
+        $body = preg_replace('~^/\*\*|\*/$~', '', trim($docblock)) ?? '';
+        $lines = explode("\n", $body);
+
+        foreach ($lines as $index => $line) {
+            $line = trim(ltrim(trim($line), '*'));
+            if (preg_match('/^@return\s+(\S+)\s*(.*)$/', $line, $matches) !== 1) {
+                continue;
+            }
+            if (trim($matches[2]) !== '') {
+                return true;
+            }
+            for ($next = $index + 1, $count = count($lines); $next < $count; $next++) {
+                $continuation = trim(ltrim(trim($lines[$next]), '*'));
+                if ($continuation === '' || str_starts_with($continuation, '@')) {
+                    break;
+                }
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function needsReturnTag(\ReflectionMethod $method): bool

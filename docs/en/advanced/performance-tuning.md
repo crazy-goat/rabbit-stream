@@ -286,14 +286,17 @@ $consumer = new Consumer(
 **Behavior:**
 - A delivered chunk is always accepted into the buffer in full — messages are
   never dropped (at-least-once delivery) — even if that overshoots
-  `maxBufferSize`; the buffer can transiently hold up to one chunk's worth more
-  than the configured bound right after a chunk lands
+  `maxBufferSize`; the buffer can transiently hold more than the configured
+  bound by the chunks already granted (in flight) when it filled up, not by a
+  single chunk's worth
 - Once the unread count reaches or exceeds `maxBufferSize`, no *new* credit is
   granted; withheld credit is remembered and granted back — one credit per
   chunk's worth of headroom that reopens — as the buffer drains via
   `read()`/`readOne()`
-- Outstanding (in-flight) credit is additionally capped at `initialCredit`, so
-  the server can never have more than `initialCredit` chunks in flight at once
+- Outstanding (in-flight) credit is capped at the adaptive `creditTarget`
+  (`min(32767, max(initialCredit, ceil(creditWindowBytes / avgChunk)))`), not
+  at `initialCredit`, so the server can have more than `initialCredit` chunks
+  in flight once small chunks grow the window
 - Server stops delivering new chunks once it runs out of un-replenished credit
 - Prevents unbounded memory growth on slow consumers, bounded by chunk size
   rather than message size alone
