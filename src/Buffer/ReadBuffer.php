@@ -98,10 +98,11 @@ class ReadBuffer
     }
 
     /**
-     * uint64 is read as a native 64-bit PHP int, so values above PHP_INT_MAX wrap
-     * to negative (tracked separately as #393); on a 32-bit build unpack('J')
-     * would instead return a float for most values, which is why the constructor
-     * rejects that platform outright (#458).
+     * uint64 is read as a native 64-bit PHP int, so values above PHP_INT_MAX
+     * cannot be represented: they would wrap to negative, and are rejected
+     * instead of being silently returned as a bogus offset. On a 32-bit build
+     * unpack('J') would return a float for most values, which is why the
+     * constructor rejects that platform outright (#458).
      */
     public function getUint64(): int
     {
@@ -109,6 +110,15 @@ class ReadBuffer
         $data = unpack('J', $this->buffer, $this->offset + $this->position);
         if ($data === false) {
             throw new DeserializationException('Failed to unpack uint64 at position ' . $this->position);
+        }
+        if ($data[1] < 0) {
+            throw new DeserializationException(
+                sprintf(
+                    'uint64 value 0x%s at position %d exceeds PHP_INT_MAX',
+                    bin2hex(substr($this->buffer, $this->offset + $this->position, 8)),
+                    $this->position
+                )
+            );
         }
         $this->position += 8;
         return $data[1];

@@ -303,11 +303,25 @@ class ReadBufferTest extends TestCase
         $this->assertSame(12345678901234, $buf->getUint64());
     }
 
-    public function testGetUint64WithMaxValue(): void
+    public function testGetUint64WithValueAbovePhpIntMaxThrows(): void
     {
+        // Regression guard for #393: 0xFFFFFFFFFFFFFFFF used to wrap to -1, a
+        // bogus offset that then flowed into comparisons far from the parse site.
         $buf = new ReadBuffer("\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
-        // On 64-bit PHP, 0xFFFFFFFFFFFFFFFF unpacks as -1 due to signed integer overflow
-        $this->assertSame(-1, $buf->getUint64());
+        try {
+            $buf->getUint64();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0xffffffffffffffff', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+        $this->assertSame(0, $buf->getPosition(), 'position must not move on a rejected uint64');
+    }
+
+    public function testGetUint64WithMaxRepresentableValue(): void
+    {
+        $buf = new ReadBuffer(pack('J', PHP_INT_MAX));
+        $this->assertSame(PHP_INT_MAX, $buf->getUint64());
     }
 
     public function testGetInt16Negative(): void
