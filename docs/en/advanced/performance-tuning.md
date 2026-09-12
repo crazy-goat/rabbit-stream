@@ -219,7 +219,7 @@ $consumer = new Consumer(
     stream: 'my-stream',
     subscriptionId: 1,
     offset: OffsetSpec::next(),
-    initialCredit: 100,  // Request 100 messages upfront
+    initialCredit: 100,  // Request 100 chunks upfront
 );
 ```
 
@@ -240,13 +240,14 @@ and the buffer-full check they're gated on compares against `unreadCount`
 $this->pendingCredits++;
 
 // ...and sent back only while there's message-level headroom in the buffer,
-// bounded by how much chunk-level credit initialCredit still allows outstanding.
+// bounded by how much chunk-level credit the adaptive creditTarget still allows
+// outstanding.
 private function sendPendingCredits(): void
 {
     if ($this->pendingCredits <= 0 || $this->unreadCount >= $this->maxBufferSize) {
         return;
     }
-    $creditsToSend = min($this->pendingCredits, $this->initialCredit - $this->creditsInFlight, self::MAX_UINT16);
+    $creditsToSend = min($this->pendingCredits, $this->creditTarget - $this->creditsInFlight, self::MAX_CREDIT);
     // ... send $creditsToSend, decrement pendingCredits, increment creditsInFlight
 }
 ```
@@ -286,14 +287,19 @@ $consumer = new Consumer(
 **Behavior:**
 - A delivered chunk is always accepted into the buffer in full — messages are
   never dropped (at-least-once delivery) — even if that overshoots
-  `maxBufferSize`; the buffer can transiently hold up to one chunk's worth more
-  than the configured bound right after a chunk lands
+  `maxBufferSize`; the buffer can transiently hold more than the configured
+  bound by the chunks already granted (in flight) when it filled up, not by a
+  single chunk's worth
 - Once the unread count reaches or exceeds `maxBufferSize`, no *new* credit is
   granted; withheld credit is remembered and granted back — one credit per
   chunk's worth of headroom that reopens — as the buffer drains via
   `read()`/`readOne()`
-- Outstanding (in-flight) credit is additionally capped at `initialCredit`, so
-  the server can never have more than `initialCredit` chunks in flight at once
+- The adaptive `creditTarget`
+  (`min(32767, max(initialCredit, ceil(creditWindowBytes / avgChunk)))`) bounds
+  outstanding (in-flight) credit only at grant time, not at `initialCredit`, so
+  the server can have more than `initialCredit` chunks in flight once small
+  chunks grow the window; a later shrink of the target does not revoke credit
+  already granted, so in-flight can transiently exceed the current target
 - Server stops delivering new chunks once it runs out of un-replenished credit
 - Prevents unbounded memory growth on slow consumers, bounded by chunk size
   rather than message size alone

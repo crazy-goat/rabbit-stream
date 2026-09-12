@@ -1102,10 +1102,11 @@ class ConsumerTest extends TestCase
         $this->assertSame(70000 - 32767, $this->getPendingCredits($consumer));
     }
 
-    public function testCreditsCappedAtInitialCreditHeadroom(): void
+    public function testCreditsCappedAtCreditTargetHeadroom(): void
     {
-        // #473: outstanding (in-flight) credit must never exceed initialCredit,
-        // regardless of how many credit units are owed or how big the buffer is.
+        // #473: outstanding (in-flight) credit must never exceed the credit
+        // target, regardless of how many credit units are owed or how big the
+        // buffer is.
         $capturedRequest = null;
 
         $connection = $this->createMock(StreamConnection::class);
@@ -1139,7 +1140,7 @@ class ConsumerTest extends TestCase
         $this->assertSame(
             99,
             $capturedRequest->toArray()['credit'],
-            'Credits should be capped at initialCredit - creditsInFlight'
+            'Credits should be capped at creditTarget - creditsInFlight'
         );
         $this->assertSame(200 - 99, $this->getPendingCredits($consumer));
     }
@@ -1217,7 +1218,7 @@ class ConsumerTest extends TestCase
         $this->assertSame(3, $this->getPendingCredits($consumer), 'pendingCredits should remain unchanged');
 
         // Buffer drains below the bound: owed credits are now granted, bounded
-        // by the initialCredit headroom (10 - 7 = 3).
+        // by the creditTarget headroom (10 - 7 = 3).
         $unreadCountProp->setValue($consumer, 2);
         $sendPendingCredits->invoke($consumer);
 

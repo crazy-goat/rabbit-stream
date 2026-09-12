@@ -957,7 +957,7 @@ public function createSuperStreamConsumer(
 | `$autoCommit` | `int` | No | Auto-commit interval (messages), passed through to every partition's `Consumer` |
 | `$initialCredit` | `int` | No | Initial flow control credits, passed through to every partition's `Consumer` |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer per partition. Requires `$name`. |
-| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). Passed through to every partition's `Consumer`, which keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 65,535. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). Passed through to every partition's `Consumer`, which keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 
 #### Return Value
 

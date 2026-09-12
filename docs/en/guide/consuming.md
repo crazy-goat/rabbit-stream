@@ -526,9 +526,9 @@ RabbitMQ Streams uses a credit-based flow control system to prevent consumers fr
 ### How It Works
 
 1. **Initial Credit**: Specified when creating the consumer
-2. **Credit Consumption**: Each delivered message consumes one credit
-3. **Credit Replenishment**: The client automatically sends more credits as messages are processed
-4. **Backpressure**: When credits run out, the server stops sending messages
+2. **Credit Consumption**: Each delivered **chunk** consumes one credit, no matter how many messages it contains
+3. **Credit Replenishment**: The client automatically sends more credits as buffered chunks are drained
+4. **Backpressure**: When credits run out, the server stops sending **chunks**
 
 ### Configuration
 
@@ -536,7 +536,7 @@ RabbitMQ Streams uses a credit-based flow control system to prevent consumers fr
 $consumer = $connection->createConsumer(
     'events',
     OffsetSpec::last(),
-    initialCredit: 100  // Request 100 messages at a time
+    initialCredit: 100  // Request 100 chunks at a time
 );
 ```
 
