@@ -31,6 +31,18 @@ blocks the branch.
    returns a hit even though no executable `strrev` remains. Could confuse a
    future textual search. | nit | not-a-finding — descriptive comment only.
 
+6. `tests/E2E/AmqpMessageDecoderE2ETest.php:403` | **CI e2e failure (round 1
+   run 34711268300).** `testDecodeMultipleMessages` asserts
+   `assertSame(3, $confirmedCount)` after a single `readLoop(maxFrames: 1)`. A
+   `PublishConfirm` frame may carry only a subset of the three publishing ids
+   (or the broker may emit more than one confirm frame), so the single
+   dispatched frame can account for 2 of 3 confirms. Failed with "Failed
+   asserting that 2 is identical to 3". Unrelated to this test-only branch
+   (`git diff origin/main...HEAD` touches only `tests/Client/AmqpDecoderTest.php`
+   + changelog + proof-of-work). | medium (pre-existing flake) | open — job
+   re-run; candidate for a follow-up issue (make the wait drain confirms until
+   the count reaches 3, or drop `maxFrames: 1`).
+
 ## Changed-test audit (the actual subject of the PR)
 
 - `numericBoundaryProvider` / `testDecodeNumericBoundary`: all 27 cases use the
