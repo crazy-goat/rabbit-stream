@@ -32,7 +32,7 @@ public function __construct(
 | `$port` | `int` | `5552` | RabbitMQ Stream protocol port |
 | `$logger` | `LoggerInterface` | `NullLogger` | PSR-3 logger for debug output |
 | `$serializer` | `BinarySerializerInterface` | `PhpBinarySerializer` | Binary serializer for frame encoding |
-| `$socketTimeout` | `float` | `30.0` | `SO_RCVTIMEO`/`SO_SNDTIMEO` in seconds, applied in `connect()`. Must be > 0 |
+| `$socketTimeout` | `float` | `30.0` | Per-I/O-call timeout in seconds, enforced by a non-blocking `stream_select()` deadline. Must be > 0 |
 
 **Throws:**
 - `InvalidArgumentException` - If `$socketTimeout` is not positive
@@ -48,7 +48,7 @@ public function connect(): void
 ```
 
 **Throws:**
-- `ConnectionException` - If socket creation or connection fails, or if the socket timeout cannot be set
+- `ConnectionException` - If socket creation or connection fails, or if the stream cannot be put in non-blocking mode
 
 **Example:**
 ```php
@@ -56,10 +56,10 @@ $connection = new StreamConnection('localhost', 5552);
 $connection->connect();
 ```
 
-`connect()` sets `SO_RCVTIMEO` and `SO_SNDTIMEO` to `$socketTimeout`. Without
-them a peer that stops mid-frame blocks the client forever and every documented
-timeout (`Consumer::read()`, `readFrame()`, `readLoop()`) silently becomes
-infinite.
+The socket is kept non-blocking; every read and write is driven by an explicit
+`stream_select()` bounded by `$socketTimeout`. Without that deadline a peer
+that stops mid-frame blocks the client forever and every documented timeout
+(`Consumer::read()`, `readFrame()`, `readLoop()`) silently becomes infinite.
 
 ### close()
 
@@ -126,7 +126,7 @@ public function sendFrame(string $frame, ?float $timeout = null): int
 
 **Throws:**
 - `ConnectionException` - If socket is not connected, the write fails, or a partial frame could not be completed (the connection is closed in that case: the broker cannot resynchronise mid-frame)
-- `TimeoutException` - If the `$timeout` select expires, or `SO_SNDTIMEO` expires before *any* byte was written (the frame never started, so it is safe to retry)
+- `TimeoutException` - If the `$timeout` select expires, or the `$socketTimeout` write deadline expires before *any* byte was written (the frame never started, so it is safe to retry)
 
 The whole frame is written, looping over partial writes: `socket_write()` may
 accept fewer bytes than requested under send-buffer pressure, and a frame left
@@ -175,7 +175,7 @@ socket is then still at a frame boundary, so calling again is safe
 **Throws:**
 - `ConnectionException` - If socket error occurs
 - `ConnectionException` - If frame size exceeds `maxFrameSize`
-- `ConnectionException` - If the peer stopped mid-frame (`SO_RCVTIMEO` expired with part of a frame consumed). The connection is closed: the consumed bytes cannot be pushed back, so a retry would read payload as framing
+- `ConnectionException` - If the peer stopped mid-frame (the `$socketTimeout` read deadline expired with part of a frame consumed). The connection is closed: the consumed bytes cannot be pushed back, so a retry would read payload as framing
 
 ## Server-Push Registration Methods
 
@@ -411,7 +411,7 @@ A bare `StreamConnection` defaults to 0; `Connection::create()` seeds it with
 
 ### setSocketTimeout()
 
-Sets `SO_RCVTIMEO`/`SO_SNDTIMEO`, applied immediately when the socket is open.
+Sets the per-I/O-call timeout enforced by the `stream_select()` deadline, applied immediately when the socket is open.
 
 ```php
 public function setSocketTimeout(float $socketTimeout): void
@@ -422,11 +422,11 @@ public function setSocketTimeout(float $socketTimeout): void
 
 **Throws:**
 - `InvalidArgumentException` - If the value is not positive
-- `ConnectionException` - If the option cannot be set on an open socket
 
-**Note:** This is not an operation timeout. It bounds how long a single
-`socket_recv()`/`socket_write()` may block with no progress; per-call timeouts
-stay the ones the caller passes to `readFrame()`, `readLoop()` and friends.
+**Note:** This is not an operation timeout. It bounds how long a single read or
+write may wait with no progress (the `stream_select()` deadline in
+`readBytes()`/`writeAll()`); per-call timeouts stay the ones the caller passes
+to `readFrame()`, `readLoop()` and friends.
 
 ### getSocketTimeout()
 
@@ -448,7 +448,7 @@ public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024;
 
 ### DEFAULT_SOCKET_TIMEOUT
 
-Default `SO_RCVTIMEO`/`SO_SNDTIMEO`: 30 seconds.
+Default per-I/O-call timeout (the `stream_select()` deadline): 30 seconds.
 
 ```php
 public const DEFAULT_SOCKET_TIMEOUT = 30.0;

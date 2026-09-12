@@ -64,25 +64,59 @@ $code = ResponseCodeEnum::fromInt(0x02); // Returns STREAM_NOT_EXIST
 RabbitStream uses a structured exception hierarchy that allows precise error handling:
 
 ```
-RabbitStreamExceptionInterface (interface)
-└── RabbitStreamException (base RuntimeException)
-    ├── ProtocolException (has ResponseCodeEnum)
-    │   ├── AuthenticationException
-    │   └── UnexpectedResponseException (has expected/actual class info)
-    ├── ConnectionException
-    │   └── TimeoutException
-    ├── DeserializationException
-    ├── NoRouteForKeyException
-    ├── UnsupportedPlatformException
-    ├── InvalidArgumentException (extends \InvalidArgumentException)
-    └── LengthException (extends \LengthException)
+RabbitStreamExceptionInterface (interface, extends \Throwable)
+├── RabbitStreamException (extends \RuntimeException; never thrown directly)
+│   ├── ProtocolException (has ResponseCodeEnum)
+│   │   ├── AuthenticationException
+│   │   └── UnexpectedResponseException (has expected/actual class info)
+│   ├── ConnectionException
+│   │   └── TimeoutException
+│   ├── DeserializationException
+│   ├── NoRouteForKeyException
+│   └── UnsupportedPlatformException
+├── InvalidArgumentException (extends \InvalidArgumentException)
+└── LengthException (extends \LengthException)
 ```
 
 Every throwable the library raises implements `RabbitStreamExceptionInterface`,
 so a single `catch (RabbitStreamExceptionInterface $e)` around a publish or
-consume loop is enough — no native `\Exception`, `\ValueError` or
-`\LengthException` escapes from `src/`, and a unit test enforces that
+consume loop is enough — `src/` never throws a *bare* native class
+(`\Exception`, `\ValueError`, `\LengthException`); the only native classes it
+raises are its own `InvalidArgumentException` and `LengthException`, which
+extend the native ones and implement the interface. A unit test enforces that
 (`tests/Exception/ExceptionHierarchyTest.php`).
+
+> **Important — the two native-shadowing exceptions are not
+> `RabbitStreamException`s.** `InvalidArgumentException` extends the native
+> `\InvalidArgumentException` and `LengthException` extends the native
+> `\LengthException`; both only implement `RabbitStreamExceptionInterface`.
+> A `catch (RabbitStreamException $e)` therefore does **not** catch either of
+> them, and a malformed argument or an oversize payload can slip past a handler
+> that looks like it covers the library. Catch them explicitly, or catch the
+> interface for one clause that covers everything:
+>
+> ```php
+> use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+> use CrazyGoat\RabbitStream\Exception\LengthException;
+> use CrazyGoat\RabbitStream\Exception\RabbitStreamException;
+> use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
+>
+> // One clause for every library failure — including the two below.
+> try {
+>     $producer->send($message);
+> } catch (RabbitStreamExceptionInterface $e) {
+>     // ...
+> }
+>
+> // Or catch specific types. The base class alone is not enough:
+> try {
+>     $producer->send($message);
+> } catch (InvalidArgumentException | LengthException $e) {
+>     // argument / payload-size error
+> } catch (RabbitStreamException $e) {
+>     // every runtime failure
+> }
+> ```
 
 `InvalidArgumentException` and `LengthException` extend their native namesakes
 on purpose: joining the hierarchy is not a BC break, so code that already
@@ -90,7 +124,10 @@ catches `\InvalidArgumentException` (or `\LogicException`) keeps working.
 
 ### Base Exception: `RabbitStreamException`
 
-The root of all library-specific exceptions. Catching this handles any RabbitStream error:
+The base class for every exception the library throws. It is never thrown
+directly — a concrete subclass is — and it does **not** cover the two
+native-shadowing exceptions above. Catching it handles any other RabbitStream
+error:
 
 ```php
 use CrazyGoat\RabbitStream\Exception\RabbitStreamException;
@@ -147,7 +184,9 @@ try {
 
 #### AuthenticationException
 
-Specialized `ProtocolException` for authentication failures:
+Specialized `ProtocolException` thrown when the broker's SASL handshake does
+not advertise `PLAIN`, the only mechanism this client implements. The client
+aborts before sending credentials:
 
 ```php
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
@@ -161,8 +200,36 @@ try {
         password: $password,
     );
 } catch (AuthenticationException $e) {
-    // Handle invalid credentials
-    echo "Authentication failed: " . $e->getMessage();
+    // "PLAIN SASL mechanism not supported by server" — server misconfiguration
+    echo "Authentication unavailable: " . $e->getMessage();
+}
+```
+
+Wrong credentials are **not** this exception. The broker answers a bad SASL
+authenticate with `AUTHENTICATION_FAILURE`, which surfaces as a
+`ProtocolException` carrying that `ResponseCodeEnum` — catch it explicitly to
+tell "bad password" apart from "the server cannot authenticate us at all":
+
+```php
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+
+try {
+    $connection = Connection::create(
+        host: '127.0.0.1',
+        port: 5552,
+        user: $username,
+        password: $password,
+    );
+} catch (AuthenticationException $e) {
+    // Handshake does not offer PLAIN at all.
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE) {
+        // Wrong username or password.
+    } else {
+        throw $e;
+    }
 }
 ```
 
@@ -201,12 +268,12 @@ try {
 
 #### A connection closed mid-frame cannot be retried
 
-Every socket call is bounded by `SO_RCVTIMEO`/`SO_SNDTIMEO` (the
-`socketTimeout` of `Connection::create()`, 30 s by default). When one of them
-expires with **part of a frame** already read or written, the client closes the
-connection and throws `ConnectionException` — the consumed bytes cannot be put
-back on the socket, and the peer cannot resynchronise mid-frame, so continuing
-would mean parsing payload as framing.
+Every read and write is driven by a non-blocking `stream_select()` with a
+deadline (the `socketTimeout` of `Connection::create()`, 30 s by default). When
+the deadline expires with **part of a frame** already read or written, the
+client closes the connection and throws `ConnectionException` — the consumed
+bytes cannot be put back on the socket, and the peer cannot resynchronise
+mid-frame, so continuing would mean parsing payload as framing.
 
 ```php
 try {
@@ -278,6 +345,26 @@ try {
 }
 ```
 
+### NoRouteForKeyException
+
+Thrown by the key routing strategy when the broker's Route response for a
+routing key lists no partitions — no exchange binding matches the key. The
+routing key and super stream that failed are carried on the exception:
+
+```php
+use CrazyGoat\RabbitStream\Exception\NoRouteForKeyException;
+
+try {
+    $producer->send($message, $routingKey);
+} catch (NoRouteForKeyException $e) {
+    error_log(sprintf(
+        'No partition for key "%s" on super stream "%s"',
+        $e->getRoutingKey(),
+        $e->getSuperStream()
+    ));
+}
+```
+
 ### UnsupportedPlatformException
 
 Thrown when the library is loaded on a 32-bit PHP build. The protocol carries
@@ -288,10 +375,15 @@ wire data refuses to run instead; a 64-bit build is required.
 
 ### InvalidArgumentException
 
-Thrown for invalid method arguments:
+Thrown for invalid method arguments — an out-of-range integer, a non-UTF-8
+string, an unknown partition or option. Catch it explicitly: because it extends
+the native `\InvalidArgumentException` and not `RabbitStreamException`, a
+`catch (RabbitStreamException)` will not see it (see the note in the hierarchy
+above).
 
 ```php
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 
 $producer = $connection->createProducer('my-stream'); // unnamed producer
 
@@ -300,6 +392,13 @@ try {
     $producer->querySequence();
 } catch (InvalidArgumentException $e) {
     echo "Invalid argument: " . $e->getMessage();
+}
+
+// Or widen the catch to every library throwable in one clause:
+try {
+    $producer->querySequence();
+} catch (RabbitStreamExceptionInterface $e) {
+    echo "RabbitStream argument error: " . $e->getMessage();
 }
 ```
 
@@ -392,12 +491,15 @@ try {
         password: $password,
     );
 } catch (AuthenticationException $e) {
-    // Invalid credentials
-    echo "Login failed. Please check your username and password.";
+    // Server's SASL handshake does not offer PLAIN at all
+    echo "Authentication unavailable: " . $e->getMessage();
 } catch (ProtocolException $e) {
     $code = $e->getResponseCode();
     
     switch ($code) {
+        case ResponseCodeEnum::AUTHENTICATION_FAILURE:
+            echo "Login failed. Please check your username and password.";
+            break;
         case ResponseCodeEnum::SASL_MECHANISM_NOT_SUPPORTED:
             echo "Authentication mechanism not supported by server";
             break;

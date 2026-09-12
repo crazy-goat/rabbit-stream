@@ -146,9 +146,10 @@ examples/         # Working usage examples
 - `int`, `string`, `bool` — always use lowercase scalar types
 
 ### Error Handling
-- Throw `\Exception` for protocol errors (no custom exception hierarchy yet)
+- Throw a specific class from `src/Exception/` — never bare `\Exception` (see DEC-002 and `docs/en/guide/error-handling.md`)
+- `catch (RabbitStreamExceptionInterface)` covers every library throwable; `catch (RabbitStreamException)` does **not** cover `InvalidArgumentException`/`LengthException`, which shadow native types
 - Return `null` from `fromStreamBuffer()` when parsing fails gracefully
-- `assertResponseCodeOk()` in `CommandTrait` throws on non-OK response codes
+- `assertResponseCodeOk()` in `CommandTrait` throws `ProtocolException` on non-OK response codes
 
 ---
 

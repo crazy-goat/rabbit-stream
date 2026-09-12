@@ -8,6 +8,22 @@ namespace CrazyGoat\RabbitStream\Exception;
  * Thrown by {@see \CrazyGoat\RabbitStream\Client\Routing\KeyRoutingStrategy}
  * when the broker's Route response for a routing key contains no partitions
  * (no exchange binding matches the key).
+ *
+ * The key and super stream that failed are carried on the exception:
+ *
+ * ```php
+ * use CrazyGoat\RabbitStream\Exception\NoRouteForKeyException;
+ *
+ * try {
+ *     $producer->send($message, $routingKey);
+ * } catch (NoRouteForKeyException $e) {
+ *     error_log(sprintf(
+ *         'No partition for key "%s" on super stream "%s"',
+ *         $e->getRoutingKey(),
+ *         $e->getSuperStream()
+ *     ));
+ * }
+ * ```
  */
 class NoRouteForKeyException extends RabbitStreamException
 {

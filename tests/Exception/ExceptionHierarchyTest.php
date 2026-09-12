@@ -20,14 +20,7 @@ class ExceptionHierarchyTest extends TestCase
 
     public function testEveryExceptionClassImplementsTheLibraryInterface(): void
     {
-        $classes = [];
-        foreach (glob(self::SRC_DIR . '/Exception/*.php') ?: [] as $file) {
-            $name = basename($file, '.php');
-            if ($name === 'RabbitStreamExceptionInterface') {
-                continue;
-            }
-            $classes[] = 'CrazyGoat\\RabbitStream\\Exception\\' . $name;
-        }
+        $classes = $this->exceptionClasses();
 
         $this->assertNotEmpty($classes, 'No exception classes found in src/Exception');
         foreach ($classes as $class) {
@@ -36,6 +29,30 @@ class ExceptionHierarchyTest extends TestCase
                 $class . ' must implement RabbitStreamExceptionInterface'
             );
         }
+    }
+
+    /**
+     * Acceptance criterion #1 of #417: every exception the library ships is
+     * documented. A missing class docblock is easy to miss per class but shows
+     * up in generated API docs as an undocumented exception, so lock the whole
+     * directory down at once.
+     */
+    public function testEveryExceptionClassHasAClassDocblock(): void
+    {
+        $undocumented = [];
+        foreach ($this->exceptionClasses() as $class) {
+            $docComment = (new \ReflectionClass($class))->getDocComment();
+            if ($docComment === false || trim($docComment) === '') {
+                $undocumented[] = $class;
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $undocumented,
+            "Every class in src/Exception/ needs a non-empty class docblock:\n"
+                . implode("\n", $undocumented)
+        );
     }
 
     /**
@@ -96,6 +113,29 @@ class ExceptionHierarchyTest extends TestCase
     ): void {
         $this->assertTrue(is_a($library, $native, true), $library . ' must extend ' . $native);
         $this->assertTrue(is_a($library, RabbitStreamExceptionInterface::class, true));
+    }
+
+    /**
+     * Every concrete class in src/Exception/, read from the same directory
+     * glob the hierarchy test uses. The interface is the only non-class file.
+     *
+     * @return list<class-string>
+     */
+    private function exceptionClasses(): array
+    {
+        $classes = [];
+        foreach (glob(self::SRC_DIR . '/Exception/*.php') ?: [] as $file) {
+            $name = basename($file, '.php');
+            if ($name === 'RabbitStreamExceptionInterface') {
+                continue;
+            }
+            /** @var class-string $class */
+            $class = 'CrazyGoat\\RabbitStream\\Exception\\' . $name;
+            $classes[] = $class;
+        }
+        sort($classes);
+
+        return $classes;
     }
 
     /** @return list<string> */
