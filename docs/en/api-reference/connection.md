@@ -132,11 +132,11 @@ public static function create(
 | `$vhost` | `string` | No | Virtual host. Default: `/` |
 | `$serializer` | `?BinarySerializerInterface` | No | Custom binary serializer. Default: `PhpBinarySerializer` |
 | `$logger` | `?LoggerInterface` | No | PSR-3 logger for debugging. Default: `NullLogger` |
-| `$requestedFrameMax` | `?int` | No | Requested maximum frame size for the *outgoing* protocol negotiation. `0` means unlimited. Default: `null` (use server value, capped by `StreamConnection::DEFAULT_MAX_FRAME_SIZE` unless you pass this explicitly — see [negotiation caveat](#frame_max-negotiation-only-lowers-the-default) below) |
-| `$requestedHeartbeat` | `?int` | No | Requested heartbeat interval in seconds. `0` disables heartbeats. Default: `null` (use server value) |
+| `$requestedFrameMax` | `?int` | No | Requested control-frame max in bytes. `null` (default) accepts the server value but never raises the effective cap above `StreamConnection::DEFAULT_MAX_FRAME_SIZE`; `0` expresses no client preference, so the server value is used without that safety cap; a non-zero value is a deliberate raise or lower — see [negotiation caveat](#frame_max-negotiation-only-lowers-the-default) below |
+| `$requestedHeartbeat` | `?int` | No | Requested heartbeat interval in seconds. `null` (default) accepts the server value; `0` expresses no client preference, so the server value is used as well |
 | `$maxDeliverFrameSize` | `?int` | No | Max size in bytes for incoming **Deliver** frames (key `0x0008`), which the broker does not bound by the negotiated `frame_max` — see [Deliver frames need their own cap](#deliver-frames-need-their-own-cap) below. Default: `null` (`StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE`, 64MB) |
-| `$streamConnection` | `?StreamConnection` | No | Pre-configured stream connection (advanced use). Default: `null` |
-| `$socketTimeout` | `?float` | No | Per-I/O-call timeout in seconds, enforced by a non-blocking `stream_select()` deadline — bounds a single read or write so a stalled peer cannot hang the client. Must be > 0. Ignored when `$streamConnection` is supplied (configure it there). Default: `null` (`StreamConnection::DEFAULT_SOCKET_TIMEOUT`, 30 s) |
+| `$streamConnection` | `?StreamConnection` | No | Pre-connected stream connection to reuse (advanced use, principally a test injection seam). Default: `null`. When supplied it is not connected here, but the returned `Connection` still closes it in `close()`. |
+| `$socketTimeout` | `?float` | No | Per-I/O-call timeout in seconds, enforced by a non-blocking `stream_select()` deadline — bounds a single read or write so a stalled peer cannot hang the client. Must be > 0. Not used to build a connection when `$streamConnection` is supplied (configure the injected connection instead), but still validated. Default: `null` (`StreamConnection::DEFAULT_SOCKET_TIMEOUT`, 30 s) |
 | `$tls` | `?TlsConfig` | No | TLS transport options (`CrazyGoat\RabbitStream\VO\TlsConfig`); passing one selects the encrypted `ssl://` transport (RabbitMQ stream TLS listener) instead of plaintext `tcp://`, with peer and hostname verification on by default. Ignored when `$streamConnection` is supplied (configure it there). Default: `null`. |
 | `$initialFrameMax` | `?int` | No | Maximum frame size in bytes the client allows on frames it sends **before `Open` completes**. Mirrors the broker's `stream.initial_frame_max` (RabbitMQ 4.3 caps incoming frames at 8192 bytes until Open, regardless of the value later negotiated at Tune). Default: `null`, which applies `StreamConnection::DEFAULT_INITIAL_FRAME_SIZE` (8192). The value is applied to the connection — including a supplied `$streamConnection` — and overrides any pre-Open cap already set on it. Pass `initialFrameMax` to choose a different value, or `0` to disable the client-side pre-Open check. |
 
@@ -150,7 +150,9 @@ public static function create(
 - `ProtocolException` - If a request sent before `Open` completes serializes to a payload larger than `initialFrameMax` (the broker enforces `stream.initial_frame_max` until then); the exception names the offending command
 - `AuthenticationException` - If the server does not offer the PLAIN SASL mechanism. Invalid credentials are not reported as this type: the non-OK `SaslAuthenticate` response code is asserted during deserialization and raises a `ProtocolException` (of which `AuthenticationException` is a subclass)
 - `UnexpectedResponseException` - If the server returns an unexpected response during handshake
-- `ConnectionException` - If the TCP connection cannot be established
+- `DeserializationException` - If a handshake response frame cannot be deserialized
+- `TimeoutException` - If a handshake write does not complete within `$socketTimeout`, or a handshake response does not arrive within the read timeout (30 s)
+- `ConnectionException` - If the TCP connection cannot be established, or a read or write fails during the handshake
 
 ### Deliver frames need their own cap
 
@@ -1010,6 +1012,7 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 
 - `ConnectionException` - If the connection is lost
 - `DeserializationException` - If a server-push frame cannot be deserialized
+- `TimeoutException` - If a reply this loop must send (a heartbeat echo, a server-close acknowledgement or a ConsumerUpdate reply) cannot be written within the socket timeout
 
 #### Example
 

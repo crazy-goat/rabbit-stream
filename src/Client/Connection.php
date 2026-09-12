@@ -120,12 +120,14 @@ class Connection implements ConnectionInterface
      *                                 StreamConnection::DEFAULT_MAX_DELIVER_FRAME_SIZE.
      * @param StreamConnection|null $streamConnection Pre-connected connection to reuse,
      *                                 principally an injection seam for tests. When supplied,
-     *                                 $host/$port/$serializer/$socketTimeout/$tls are ignored
-     *                                 and connect() is not called; the caller owns that
-     *                                 connection's lifecycle.
+     *                                 $host/$port/$serializer/$socketTimeout/$tls are not used
+     *                                 to build one and connect() is not called, but this
+     *                                 Connection still closes it in close(). The caller owns
+     *                                 how it is constructed and connected.
      * @param float|null $socketTimeout Per-I/O-call timeout in seconds (> 0); `null` uses
-     *                                 StreamConnection::DEFAULT_SOCKET_TIMEOUT. Ignored when
-     *                                 $streamConnection is supplied.
+     *                                 StreamConnection::DEFAULT_SOCKET_TIMEOUT. Not used to
+     *                                 build a connection when $streamConnection is supplied,
+     *                                 but still validated.
      * @param TlsConfig|null $tls TLS options; a non-null value selects the encrypted `ssl://`
      *                                 transport. Ignored when $streamConnection is supplied.
      * @param int|null $initialFrameMax Max frame size allowed before Open completes; `null`
@@ -145,7 +147,9 @@ class Connection implements ConnectionInterface
      * @throws DeserializationException If a handshake response frame cannot be deserialized.
      * @throws UnexpectedResponseException If a handshake step receives an unexpected response
      *                                 type.
-     * @throws TimeoutException If a handshake response does not arrive within $socketTimeout.
+     * @throws TimeoutException If a handshake write does not complete within
+     *                                 $socketTimeout, or a handshake response does not arrive
+     *                                 within the read timeout (30 s).
      */
     public static function create(
         string $host = '127.0.0.1',
@@ -307,6 +311,8 @@ class Connection implements ConnectionInterface
      *                                 unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 Create response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -333,6 +339,8 @@ class Connection implements ConnectionInterface
      *                                 unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 DeleteStream response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -364,6 +372,8 @@ class Connection implements ConnectionInterface
      *                                 version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 CreateSuperStream response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -399,6 +409,8 @@ class Connection implements ConnectionInterface
      *                                 an unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 DeleteSuperStream response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -427,6 +439,8 @@ class Connection implements ConnectionInterface
      *                                 response has an unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 Route response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -453,6 +467,8 @@ class Connection implements ConnectionInterface
      *                                 command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 Partitions response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -483,6 +499,8 @@ class Connection implements ConnectionInterface
      * @throws ProtocolException If the response has an unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 Metadata response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -513,6 +531,8 @@ class Connection implements ConnectionInterface
      *                                 unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 StreamStats response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -543,6 +563,8 @@ class Connection implements ConnectionInterface
      * @throws ProtocolException If the response has an unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 Metadata response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -572,6 +594,8 @@ class Connection implements ConnectionInterface
      *                                 unexpected command or version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 QueryOffset response.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -703,7 +727,9 @@ class Connection implements ConnectionInterface
      *                                 this connection until the producer is closed.
      * @throws ConnectionException If the socket is not connected, a write or read fails, or
      *                                 all MAX_CONCURRENT_PUBLISHERS publisher ids are in use.
-     * @throws InvalidArgumentException If $redeclareTimeout is negative.
+     * @throws InvalidArgumentException If $redeclareTimeout is negative, or the serialized
+     *                                 DeclarePublisher request exceeds the negotiated outgoing
+     *                                 frame size.
      * @throws ProtocolException If the stream does not exist (the DeclarePublisher response
      *                                 code is asserted), or the response has an unexpected
      *                                 command or version.
@@ -828,7 +854,9 @@ class Connection implements ConnectionInterface
      *                                 use.
      * @throws InvalidArgumentException If $initialCredit is outside 1..Consumer::MAX_CREDIT,
      *                                 $creditWindowBytes is negative, $maxDecodeDepth is below
-     *                                 1, or $singleActiveConsumer is set without $name.
+     *                                 1, $singleActiveConsumer is set without $name, or the
+     *                                 serialized request exceeds the negotiated outgoing frame
+     *                                 size.
      * @throws ProtocolException If the broker rejects the Subscribe with a non-OK response
      *                                 code, or the response has an unexpected command or version.
      * @throws DeserializationException If a response frame cannot be deserialized.
@@ -903,6 +931,8 @@ class Connection implements ConnectionInterface
      * @throws ProtocolException If the super stream does not exist or has zero partitions,
      *                                 or a response has an unexpected command or version.
      * @throws UnexpectedResponseException If a partitions() response has an unexpected type.
+     * @throws InvalidArgumentException If a partitions() request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If a response frame cannot be deserialized.
      * @throws TimeoutException If a response does not arrive in time.
@@ -993,8 +1023,10 @@ class Connection implements ConnectionInterface
      * @throws ConnectionException If the socket is not connected, a write or read fails, or
      *                                 all MAX_CONCURRENT_SUBSCRIPTIONS subscription ids are in
      *                                 use.
-     * @throws InvalidArgumentException If a Consumer argument is out of range, or
-     *                                 $singleActiveConsumer is set without $name.
+     * @throws InvalidArgumentException If a Consumer argument is out of range,
+     *                                 $singleActiveConsumer is set without $name, or a
+     *                                 partitions() request exceeds the negotiated outgoing frame
+     *                                 size.
      * @throws DeserializationException If a response frame cannot be deserialized.
      * @throws TimeoutException If a response does not arrive in time.
      */
@@ -1051,6 +1083,9 @@ class Connection implements ConnectionInterface
      * @throws ConnectionException If the socket is not connected, `stream_select()` fails, or
      *                                 a read fails.
      * @throws DeserializationException If a server-push frame cannot be deserialized.
+     * @throws TimeoutException If a reply this loop must send (a heartbeat echo, a
+     *                                 server-close acknowledgement or a ConsumerUpdate reply)
+     *                                 cannot be written within the socket timeout.
      */
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
@@ -1068,6 +1103,8 @@ class Connection implements ConnectionInterface
      * @param string $stream Stream name.
      * @param int $offset Next offset to consume.
      * @throws ConnectionException If the socket is not connected or the write fails.
+     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     *                                 outgoing frame size.
      * @throws TimeoutException If the frame cannot be written within the socket timeout.
      */
     public function storeOffset(string $reference, string $stream, int $offset): void
