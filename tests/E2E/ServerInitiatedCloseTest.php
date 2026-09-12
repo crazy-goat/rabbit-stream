@@ -17,6 +17,15 @@ class ServerInitiatedCloseTest extends E2ETestCase
     private ?Connection $connection = null;
     private string $streamName;
 
+    /**
+     * Names of stream connections that already existed before this test opened
+     * its own connection. The test's connection is the one that is present
+     * afterwards but missing from this snapshot. Keyed by name for O(1) lookup.
+     *
+     * @var array<string, true>
+     */
+    private array $preExistingStreamConnectionNames = [];
+
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
@@ -25,6 +34,10 @@ class ServerInitiatedCloseTest extends E2ETestCase
 
     protected function setUp(): void
     {
+        // Snapshot existing stream connections BEFORE opening ours so the test
+        // can tell its own connection apart from unrelated/idle ones.
+        $this->preExistingStreamConnectionNames = $this->getStreamConnectionNames();
+
         $this->connection = $this->createConnection();
         $this->streamName = 'test-srv-close-' . uniqid();
         $this->connection->createStream($this->streamName);
@@ -94,51 +107,72 @@ class ServerInitiatedCloseTest extends E2ETestCase
         $start = time();
 
         while (time() - $start < $maxWait) {
-            $data = $this->curlGet(
-                sprintf('http://%s:%d/api/connections', self::$host, self::$managementPort)
-            );
-
-            if ($data === null) {
-                sleep(1);
-                continue;
-            }
-
-            $connections = json_decode($data, true);
-            if (!is_array($connections)) {
-                sleep(1);
-                continue;
-            }
-
-            foreach ($connections as $conn) {
-                if (!is_array($conn)) {
-                    continue;
+            foreach (array_keys($this->getStreamConnectionNames()) as $name) {
+                if (!isset($this->preExistingStreamConnectionNames[$name])) {
+                    return $name;
                 }
-                if (!isset($conn['port'])) {
-                    continue;
-                }
-                if ($conn['port'] !== self::$port) {
-                    continue;
-                }
-                if (!isset($conn['protocol'])) {
-                    continue;
-                }
-                if ($conn['protocol'] !== 'stream') {
-                    continue;
-                }
-                if (!isset($conn['name'])) {
-                    continue;
-                }
-                if (!is_string($conn['name'])) {
-                    continue;
-                }
-
-                return $conn['name'];
             }
 
             sleep(1);
         }
 
         return null;
+    }
+
+    /**
+     * Names of the stream-protocol connections currently registered with the
+     * broker, as reported by the management API.
+     *
+     * The `port` field in `/api/connections` is the broker-side port — every
+     * stream connection on this broker reports the same container-side 5552
+     * regardless of which client port it came from (the client's ephemeral
+     * port is `peer_port`). Matching on `port` therefore selects *any* stream
+     * connection, not this test's, so we do not use it. Instead the test takes
+     * a snapshot of existing connections in setUp() and later picks the
+     * stream connection whose name is new.
+     *
+     * @return array<string, true> connection names as a set
+     */
+    private function getStreamConnectionNames(): array
+    {
+        $data = $this->curlGet(
+            sprintf('http://%s:%d/api/connections', self::$host, self::$managementPort)
+        );
+
+        if ($data === null) {
+            return [];
+        }
+
+        $connections = json_decode($data, true);
+        if (!is_array($connections)) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($connections as $conn) {
+            if (!is_array($conn)) {
+                continue;
+            }
+            if (!isset($conn['protocol'])) {
+                continue;
+            }
+            if ($conn['protocol'] !== 'stream') {
+                continue;
+            }
+            if (!isset($conn['name'])) {
+                continue;
+            }
+            if (!is_string($conn['name'])) {
+                continue;
+            }
+            if ($conn['name'] === '') {
+                continue;
+            }
+
+            $names[$conn['name']] = true;
+        }
+
+        return $names;
     }
 
     private function forceCloseConnection(string $name): void
