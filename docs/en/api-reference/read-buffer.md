@@ -102,6 +102,7 @@ public function getUint64(): int
 
 **Throws:**
 - `DeserializationException` - If buffer underflow (less than 8 bytes available)
+- `DeserializationException` - If the value exceeds `PHP_INT_MAX`. A uint64 above the signed limit cannot be represented as a native int; the message includes the raw bytes (`uint64 value 0x... at position N exceeds PHP_INT_MAX`). This rejects a corrupt or hostile value instead of returning a wrapped negative offset.
 
 **Example:**
 ```php
@@ -398,6 +399,7 @@ Thrown for the following conditions:
 - **Unpack failure:** PHP's `unpack()` failed (rare, indicates corrupted data)
 - **Position past end:** Cursor position exceeds buffer length
 - **Object deserialization failure:** `fromStreamBuffer()` returned null
+- **uint64 out of range:** A `getUint64()` value exceeds `PHP_INT_MAX` and cannot be represented as a native signed int
 
 **Error Message Format:**
 ```
@@ -405,6 +407,7 @@ Buffer underflow: need {needed} bytes at position {position}, but only {availabl
 Buffer underflow: position {position} is past buffer end {end}
 Failed to unpack {type} at position {position}
 Failed to deserialize object of class {class}
+uint64 value 0x{raw bytes} at position {position} exceeds PHP_INT_MAX
 ```
 
 ## Examples

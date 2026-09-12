@@ -324,6 +324,16 @@ class ReadBufferTest extends TestCase
         $this->assertSame(PHP_INT_MAX, $buf->getUint64());
     }
 
+    public function testGetUint64WithPhpIntMaxPlusOneThrows(): void
+    {
+        // The exact threshold: 0x8000000000000000 is PHP_INT_MAX + 1 and the
+        // first value the signed unpack('J') would wrap to PHP_INT_MIN.
+        $buf = new ReadBuffer("\x80\x00\x00\x00\x00\x00\x00\x00");
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('0x8000000000000000');
+        $buf->getUint64();
+    }
+
     public function testGetInt16Negative(): void
     {
         $buf = new ReadBuffer("\xFF\xFF");
