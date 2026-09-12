@@ -48,7 +48,7 @@ public function connect(): void
 ```
 
 **Throws:**
-- `ConnectionException` - If socket creation or connection fails, or if the socket timeout cannot be set
+- `ConnectionException` - If socket creation or connection fails, or if the stream cannot be put in non-blocking mode
 
 **Example:**
 ```php
@@ -422,7 +422,6 @@ public function setSocketTimeout(float $socketTimeout): void
 
 **Throws:**
 - `InvalidArgumentException` - If the value is not positive
-- `ConnectionException` - If the option cannot be set on an open socket
 
 **Note:** This is not an operation timeout. It bounds how long a single read or
 write may wait with no progress (the `stream_select()` deadline in
