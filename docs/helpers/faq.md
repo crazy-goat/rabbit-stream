@@ -11,10 +11,16 @@ subagents *propose* candidate entries in their report — they never append
 ## Tag index
 
 <!-- kb-index:start -->
+- `conventions` — FAQ-008
+- `docblocks` — FAQ-008
+- `documentation` — FAQ-007
 - `e2e` — FAQ-001, FAQ-002, FAQ-004
+- `exceptions` — FAQ-007
 - `gh` — FAQ-003
+- `lint` — FAQ-008
 - `offset` — FAQ-004
-- `protocol` — FAQ-002, FAQ-004, FAQ-005, FAQ-006
+- `protocol` — FAQ-002, FAQ-004, FAQ-005, FAQ-006, FAQ-007
+- `rector` — FAQ-008
 - `socket` — FAQ-002, FAQ-005
 <!-- kb-index:end -->
 
@@ -109,3 +115,29 @@ trace the broker's send path (osiris `osiris_writer`/`osiris_log.erl`) — not
 just the on-disk format docs — and pin the wire contract with a test that
 carries a nonzero informational field with no bytes behind it
 (`testNonzeroTrailerLengthWithoutTrailerBytesParses`).
+
+### A `Connection` method's real `@throws` is asserted during response deserialization
+<!-- id=FAQ-007 date=2026-09-12 tags=exceptions,protocol,documentation trigger="when documenting or changing a Connection method that sends a request and reads a correlated response" hits=0 status=active -->
+
+Non-OK broker response codes are asserted inside
+`SimpleCorrelatedResponseV1::fromStreamBuffer()` (via
+`CommandTrait::assertResponseCodeOk()`), so they surface as a `ProtocolException`
+**before** the method's own `instanceof` check can run. "stream already exists",
+"no offset stored" (#467) and invalid SASL credentials all follow this path; the
+explicit `UnexpectedResponseException::create(...)` guards only catch a genuinely
+different response *type*. `readMessage()` adds `ConnectionException`,
+`DeserializationException` and `TimeoutException` transitively. `StoreOffset` is
+one-way (no response key in `KeyEnum`), so it throws none of the response-derived
+types. Document the real set per method — see `src/Client/Connection.php`
+(#414).
+
+### Rector strips a bare `@return` tag — give every one a description
+<!-- id=FAQ-008 date=2026-09-12 tags=conventions,docblocks,rector,lint trigger="when adding PHPDoc @return tags or a reflection-based docblock gate test" hits=0 status=active -->
+
+`RemoveUselessReturnTagRector` (Rector `DEAD_CODE` set, active in `rector.php`)
+deletes a `@return <type>` tag when the type merely repeats the native return
+type and the tag has **no description**;
+`RemoveVoidDocblockFromMagicMethodRector` deletes `@return void`. A reflection
+gate that only asserts tag *presence* therefore passes for a tag Rector then
+removes. Give every `@return` a one-line description and omit `@return void`
+entirely (`tests/Client/ConnectionDocblockTest.php`, #414).
