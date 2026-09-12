@@ -9,7 +9,10 @@ use CrazyGoat\RabbitStream\Client\Message;
 interface ConsumerInterface
 {
     /**
-     * @return Message[]
+     * Wait for messages and return everything received as a batch.
+     *
+     * @return Message[] Every buffered unread message, oldest first; an empty
+     *                            array when none arrived within $timeout.
      */
     public function read(float $timeout = 5.0): array;
 
@@ -23,10 +26,11 @@ interface ConsumerInterface
 
     /**
      * Non-blocking drain of whatever messages are already buffered, without
-     * performing any connection I/O. Returns an empty array if nothing is
-     * buffered.
+     * reading any incoming frames (no readLoop() call; it may still send a
+     * withheld-credit frame). Returns an empty array if nothing is buffered.
      *
-     * @return Message[]
+     * @return Message[] Every buffered unread message, oldest first; an empty
+     *                            array when the buffer is empty.
      */
     public function drain(): array;
 

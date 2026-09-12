@@ -332,6 +332,8 @@ class Consumer implements ConsumerInterface
      * @throws DeserializationException If a re-subscribe response frame cannot be
      *                            deserialized.
      * @throws TimeoutException If a re-subscribe response does not arrive in time.
+     * @throws InvalidArgumentException If the re-subscribe Subscribe frame exceeds the
+     *                            negotiated outgoing frame size.
      */
     public function resubscribeIfLost(): bool
     {
@@ -570,6 +572,8 @@ class Consumer implements ConsumerInterface
      * @throws TimeoutException If a credit or heartbeat frame cannot be written within
      *                            the socket timeout, or a re-subscribe Subscribe/StreamStats
      *                            request does not get a reply in time.
+     * @throws InvalidArgumentException If re-establishing a lost subscription builds a
+     *                            Subscribe frame that exceeds the negotiated outgoing frame size.
      */
     public function read(float $timeout = 5.0): array
     {
@@ -685,6 +689,8 @@ class Consumer implements ConsumerInterface
      * @throws TimeoutException If a credit or heartbeat frame cannot be written within
      *                            the socket timeout, or a re-subscribe Subscribe/StreamStats
      *                            request does not get a reply in time.
+     * @throws InvalidArgumentException If re-establishing a lost subscription builds a
+     *                            Subscribe frame that exceeds the negotiated outgoing frame size.
      */
     public function readOne(float $timeout = 5.0): ?Message
     {
