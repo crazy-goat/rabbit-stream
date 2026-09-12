@@ -183,6 +183,96 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame(17, $pos);
     }
 
+    // ========== Numeric boundary widths (issue #406) ==========
+
+    /**
+     * Every fixed-width numeric format decoded at both ends of its range, so the
+     * offset-form unpack() (and its manual sign correction for the 16/32-bit
+     * types) is pinned down for min/max, not just one representative value.
+     *
+     * @dataProvider numericBoundaryProvider
+     */
+    public function testDecodeNumericBoundary(string $what, string $encoded, int|float $expected): void
+    {
+        [$value, $pos] = AmqpDecoder::decodeValue($encoded, 0);
+
+        $this->assertSame($expected, $value, $what);
+        $this->assertSame(strlen($encoded), $pos, $what . ' must consume the whole fixture');
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string, 2: int|float}>
+     */
+    public static function numericBoundaryProvider(): array
+    {
+        return [
+            // ubyte (0x50): unsigned 8-bit
+            'ubyte min' => ['ubyte', "\x50" . pack('C', 0x00), 0],
+            'ubyte max' => ['ubyte', "\x50" . pack('C', 0xFF), 255],
+
+            // byte (0x51): signed 8-bit
+            'byte min' => ['byte', "\x51" . pack('c', -128), -128],
+            'byte max' => ['byte', "\x51" . pack('c', 127), 127],
+
+            // ushort (0x60): unsigned 16-bit
+            'ushort min' => ['ushort', "\x60" . pack('n', 0x0000), 0],
+            'ushort max' => ['ushort', "\x60" . pack('n', 0xFFFF), 65535],
+
+            // short (0x61): signed 16-bit
+            'short min' => ['short', "\x61" . pack('n', 0x8000), -32768],
+            'short max' => ['short', "\x61" . pack('n', 0x7FFF), 32767],
+            'short minus one' => ['short', "\x61" . pack('n', 0xFFFF), -1],
+
+            // uint (0x70): unsigned 32-bit
+            'uint min' => ['uint', "\x70" . pack('N', 0x00000000), 0],
+            'uint max' => ['uint', "\x70" . pack('N', 0xFFFFFFFF), 4294967295],
+
+            // int (0x71): signed 32-bit
+            'int min' => ['int', "\x71" . pack('N', 0x80000000), -2147483648],
+            'int max' => ['int', "\x71" . pack('N', 0x7FFFFFFF), 2147483647],
+            'int minus one' => ['int', "\x71" . pack('N', 0xFFFFFFFF), -1],
+
+            // ulong (0x80): unsigned 64-bit, representable (<= PHP_INT_MAX) values
+            'ulong min' => ['ulong', "\x80" . pack('J', 0), 0],
+            'ulong max representable' => ['ulong', "\x80" . pack('J', PHP_INT_MAX), PHP_INT_MAX],
+
+            // long (0x81): signed 64-bit
+            'long min' => ['long', "\x81" . pack('J', PHP_INT_MIN), PHP_INT_MIN],
+            'long max' => ['long', "\x81" . pack('J', PHP_INT_MAX), PHP_INT_MAX],
+            'long minus one' => ['long', "\x81" . pack('J', -1), -1],
+
+            // timestamp (0x83): signed 64-bit milliseconds, incl. pre-epoch values
+            'timestamp min' => ['timestamp', "\x83" . pack('J', PHP_INT_MIN), PHP_INT_MIN],
+            'timestamp negative' => ['timestamp', "\x83" . pack('J', -1000), -1000],
+            'timestamp zero' => ['timestamp', "\x83" . pack('J', 0), 0],
+            'timestamp max' => ['timestamp', "\x83" . pack('J', PHP_INT_MAX), PHP_INT_MAX],
+
+            // float (0x72): big-endian IEEE-754 single precision
+            'float negative' => ['float', "\x72" . pack('G', -1.5), -1.5],
+            'float one' => ['float', "\x72" . pack('G', 1.0), 1.0],
+
+            // double (0x82): big-endian IEEE-754 double precision
+            'double negative' => ['double', "\x82" . pack('E', -1.5), -1.5],
+            'double one' => ['double', "\x82" . pack('E', 1.0), 1.0],
+        ];
+    }
+
+    public function testDecodeNumericAtNonZeroOffset(): void
+    {
+        // Two consecutive int32 values: the second is read at a non-zero offset
+        // through unpack()'s offset form, with no substr()/strrev() slicing, and
+        // both ends of the signed 32-bit range are covered.
+        $data = "\x71" . pack('N', 0x7FFFFFFF) . "\x71" . pack('N', 0x80000000);
+
+        [$first, $position] = AmqpDecoder::decodeValue($data, 0);
+        $this->assertSame(2147483647, $first);
+        $this->assertSame(5, $position);
+
+        [$second, $position] = AmqpDecoder::decodeValue($data, $position);
+        $this->assertSame(-2147483648, $second);
+        $this->assertSame(10, $position);
+    }
+
     // ========== Variable-width types (8-bit length) ==========
 
     public function testDecodeVbin8(): void
