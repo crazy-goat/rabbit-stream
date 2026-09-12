@@ -6,8 +6,11 @@ namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
@@ -113,9 +116,48 @@ class Consumer implements ConsumerInterface
     private bool $closed = false;
 
     /**
+     * Create a consumer and immediately subscribe it.
+     *
+     * The Subscribe request is sent from the constructor, so a broker rejection
+     * or a transport failure surfaces here rather than on the first read(). The
+     * constructor only completes the Subscribe round trip; it never waits for
+     * messages.
+     *
+     * @param StreamConnection $connection Connection this consumer subscribes on.
+     * @param string $stream Stream to consume from.
+     * @param int $subscriptionId Subscription id already reserved on $connection.
+     * @param OffsetSpec $offset Initial offset to consume from (inclusive; see
+     *                            OffsetSpec::offset()).
+     * @param string|null $name Consumer name. Required by storeOffset()/queryOffset()
+     *                            and by single-active-consumer grouping; null for an
+     *                            anonymous consumer.
+     * @param int $autoCommit Store the next offset automatically after this many
+     *                            processed messages; `0` disables auto-commit.
+     * @param int $initialCredit Initial (and minimum) number of chunks in flight,
+     *                            1..MAX_CREDIT. Also caps outstanding (sent but not
+     *                            yet consumed) credit regardless of the adaptive window.
+     * @param int $maxBufferSize Message-bound back-pressure ceiling: the target
+     *                            maximum number of unread messages held in memory. A
+     *                            delivered chunk is atomic and is never split or
+     *                            dropped, so the buffer may briefly exceed this by up
+     *                            to one chunk's worth. When the unread count reaches
+     *                            or exceeds this value no further credit is granted,
+     *                            so the server stops delivering new chunks until
+     *                            read()/readOne() drains the buffer below the limit.
+     *                            Withheld credits are remembered (pendingCredits, a
+     *                            chunk-granular counter) and granted back one credit
+     *                            per re-opened chunk's worth of headroom. Must be
+     *                            positive; see the class docblock for the full
+     *                            chunk-vs-message and credit interaction.
      * @param array<int, string> $filterValues Stream filtering values (protocol
      *                            keys `filter.0`, `filter.1`, ... — broker-side,
      *                            chunk-granular; see Producer::sendWithFilter()).
+     * @param bool $matchUnfiltered When $filterValues is non-empty, also deliver
+     *                            messages published with no filter value.
+     * @param bool $singleActiveConsumer Join the broker's single-active-consumer
+     *                            group for $name (which is then required).
+     * @param string|null $superStream Name of the super stream this stream is a
+     *                            partition of, if any.
      * @param int $creditWindowBytes Target bytes in flight. Credit is chunk-granular
      *                            on the wire, and chunk size depends on how the
      *                            producer published (thousands of messages per chunk
@@ -137,11 +179,24 @@ class Consumer implements ConsumerInterface
      *                            only for a producer that legitimately nests deeper, and
      *                            keep in mind that a deeply nested frame costs one PHP
      *                            stack frame per level.
+     * @param callable|null $onClose Called with the subscription id once close()
+     *                            has run, so the owning Connection can reclaim it.
      * @param bool $verifyCrc Whether every delivered chunk's CRC-32 is verified
      *                            against its data section (#403). On by default;
      *                            disable only in throughput-critical deployments
      *                            that accept the risk of silently consuming
      *                            corrupted chunks.
+     * @throws InvalidArgumentException If $maxBufferSize is not positive, $initialCredit
+     *                            is outside 1..MAX_CREDIT, $creditWindowBytes is
+     *                            negative, $maxDecodeDepth is below 1, or
+     *                            $singleActiveConsumer is set without $name.
+     * @throws ProtocolException If the broker rejects the Subscribe with a non-OK
+     *                            response code.
+     * @throws ConnectionException If the socket is not connected or the Subscribe
+     *                            write/read fails.
+     * @throws DeserializationException If the Subscribe response frame cannot be
+     *                            deserialized.
+     * @throws TimeoutException If the Subscribe response does not arrive in time.
      */
     public function __construct(
         private readonly StreamConnection $connection,
@@ -196,6 +251,16 @@ class Consumer implements ConsumerInterface
         $this->consumerUpdateCallback = \Closure::fromCallable($callback);
     }
 
+    /**
+     * Whether this consumer is currently allowed to receive messages.
+     *
+     * Always true for a non-single-active-consumer subscription; for a
+     * single-active-consumer subscription it follows the broker's ConsumerUpdate
+     * and may be false while another group member holds the active slot.
+     *
+     * @return bool True when the broker has this consumer active, false while a
+     *                            single-active-consumer handover has it paused.
+     */
     public function isActive(): bool
     {
         return $this->active;
@@ -205,13 +270,20 @@ class Consumer implements ConsumerInterface
      * Whether the broker dropped this subscription (MetadataUpdate: stream
      * deleted or leader moved) and it has not been re-established yet. The
      * next read()/readOne() keeps trying to re-subscribe.
+     *
+     * @return bool True while the subscription is lost, false once it has been
+     *                            re-established (or was never lost).
      */
     public function isSubscriptionLost(): bool
     {
         return $this->subscriptionLost;
     }
 
-    /** Number of successful re-subscriptions after a MetadataUpdate. */
+    /**
+     * Number of successful re-subscriptions after a MetadataUpdate.
+     *
+     * @return int Count of times this consumer has re-established its subscription.
+     */
     public function getResubscribeCount(): int
     {
         return $this->resubscribeCount;
@@ -234,7 +306,11 @@ class Consumer implements ConsumerInterface
      * subscription is live again (or was never lost), false when the stream is
      * still missing/unavailable and the next attempt is scheduled (back-off).
      *
-     * @throws ProtocolException for any broker error other than STREAM_NOT_EXIST / STREAM_NOT_AVAILABLE
+     * @return bool True when the subscription is live again (or was never lost),
+     *                            false when the stream is still unavailable and a
+     *                            retry has been scheduled.
+     * @throws ProtocolException If the broker rejects the re-subscribe with any
+     *                            error other than STREAM_NOT_EXIST / STREAM_NOT_AVAILABLE.
      */
     public function resubscribeIfLost(): bool
     {
@@ -448,7 +524,27 @@ class Consumer implements ConsumerInterface
     }
 
     /**
-     * @return Message[]
+     * Wait for messages and return everything received as a batch.
+     *
+     * Blocks until at least one message is buffered or $timeout elapses, then
+     * drains the whole in-memory buffer in one call. Frames other than Deliver
+     * (heartbeats, a producer's publish confirms on the same connection,
+     * ConsumerUpdate) are handled transparently and do not end the wait. When
+     * nothing arrived within $timeout it returns an empty array — never null;
+     * use readOne() for the single-message form.
+     *
+     * @param float $timeout Seconds to wait for at least one message before
+     *                            returning whatever the buffer holds; `0` performs a
+     *                            single non-blocking check.
+     * @return Message[] Every buffered unread message, oldest first; an empty array
+     *                            when none arrived within $timeout.
+     * @throws ProtocolException If re-establishing a lost subscription fails with a
+     *                            non-retryable broker error.
+     * @throws ConnectionException If the socket is not connected or a read/write fails.
+     * @throws DeserializationException If a delivered chunk or server-push frame cannot
+     *                            be deserialized.
+     * @throws TimeoutException If a credit or heartbeat frame cannot be written within
+     *                            the socket timeout.
      */
     public function read(float $timeout = 5.0): array
     {
@@ -491,6 +587,9 @@ class Consumer implements ConsumerInterface
     /**
      * Whether at least one already-buffered, not-yet-read message is currently
      * held in memory (no I/O — purely a check against the in-process buffer).
+     *
+     * @return bool True when read()/readOne() can return a message without
+     *                            blocking or touching the socket.
      */
     public function hasUnread(): bool
     {
@@ -503,7 +602,11 @@ class Consumer implements ConsumerInterface
      * array if nothing is buffered — mirrors the tail of read() exactly, so
      * read() itself is defined in terms of this method.
      *
-     * @return Message[]
+     * @return Message[] Every buffered unread message, oldest first; an empty array
+     *                            when the buffer is empty.
+     * @throws ConnectionException If a withheld credit frame cannot be written.
+     * @throws TimeoutException If a withheld credit frame cannot be written within
+     *                            the socket timeout.
      */
     public function drain(): array
     {
@@ -532,6 +635,27 @@ class Consumer implements ConsumerInterface
         return $messages;
     }
 
+    /**
+     * Wait for a single message and return it.
+     *
+     * Blocks until at least one message is buffered or $timeout elapses, then
+     * removes and returns the oldest message. Frames other than Deliver
+     * (heartbeats, a producer's publish confirms, ConsumerUpdate) are handled
+     * transparently and do not end the wait. Unlike read(), which returns the
+     * whole batch, this returns one message or null on timeout.
+     *
+     * @param float $timeout Seconds to wait for a message before giving up; `0`
+     *                            performs a single non-blocking check.
+     * @return Message|null The oldest unread message, or null when none arrived
+     *                            within $timeout.
+     * @throws ProtocolException If re-establishing a lost subscription fails with a
+     *                            non-retryable broker error.
+     * @throws ConnectionException If the socket is not connected or a read/write fails.
+     * @throws DeserializationException If a delivered chunk or server-push frame cannot
+     *                            be deserialized.
+     * @throws TimeoutException If a credit or heartbeat frame cannot be written within
+     *                            the socket timeout.
+     */
     public function readOne(float $timeout = 5.0): ?Message
     {
         $this->waitForMessages($timeout);
@@ -572,6 +696,8 @@ class Consumer implements ConsumerInterface
      * redelivered that message on every resume.
      *
      * @param int $offset Next offset to consume
+     * @throws ProtocolException If this consumer has no name (offsets are
+     *                            name-scoped on the broker).
      */
     public function storeOffset(int $offset): void
     {
@@ -583,6 +709,20 @@ class Consumer implements ConsumerInterface
         );
     }
 
+    /**
+     * Query the offset stored on the broker for this consumer's name.
+     *
+     * @return int The stored next offset to consume (the value storeOffset()
+     *             wrote).
+     * @throws ProtocolException If this consumer has no name, or the broker returns a
+     *                            non-OK response code (for example NO_OFFSET when
+     *                            nothing has been stored yet).
+     * @throws UnexpectedResponseException If the server replies with something other
+     *                            than a QueryOffset response.
+     * @throws ConnectionException If the socket is not connected or the request fails.
+     * @throws DeserializationException If the response frame cannot be deserialized.
+     * @throws TimeoutException If the response does not arrive in time.
+     */
     public function queryOffset(): int
     {
         if ($this->name === null) {
@@ -602,6 +742,13 @@ class Consumer implements ConsumerInterface
      *
      * Idempotent: a second call is a no-op, so the subscription id cannot be
      * handed back twice (and then to two live consumers at once).
+     *
+     * @throws ProtocolException If the broker rejects the Unsubscribe with a non-OK
+     *                            response code.
+     * @throws ConnectionException If the socket is not connected or the exchange fails.
+     * @throws DeserializationException If the Unsubscribe response frame cannot be
+     *                            deserialized.
+     * @throws TimeoutException If the Unsubscribe response does not arrive in time.
      */
     public function close(): void
     {
@@ -637,7 +784,12 @@ class Consumer implements ConsumerInterface
         }
     }
 
-    /** Whether close() has already run. */
+    /**
+     * Whether close() has already run.
+     *
+     * @return bool True once close() has released the subscription; later calls to
+     *                            close() are then no-ops.
+     */
     public function isClosed(): bool
     {
         return $this->closed;
@@ -657,12 +809,10 @@ class Consumer implements ConsumerInterface
     }
 
     /**
-     * Grant back credit (chunk units) that was previously withheld, as far as
-     * buffer headroom (message units, checked as a threshold — see class docblock)
-     * and the initialCredit cap on outstanding (in-flight) credit allow.
-     */
-    /**
      * Current in-flight chunk target (see creditWindowBytes in the constructor).
+     *
+     * @return int Number of chunks the adaptive credit window currently wants in
+     *             flight (never below initialCredit, never above MAX_CREDIT).
      */
     public function getCreditTarget(): int
     {
@@ -693,6 +843,11 @@ class Consumer implements ConsumerInterface
         }
     }
 
+    /**
+     * Grant back credit (chunk units) that was previously withheld, as far as
+     * buffer headroom (message units, checked as a threshold — see class docblock)
+     * and the initialCredit cap on outstanding (in-flight) credit allow.
+     */
     private function sendPendingCredits(): void
     {
         if ($this->pendingCredits <= 0) {
