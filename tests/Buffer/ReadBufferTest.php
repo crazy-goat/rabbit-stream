@@ -303,11 +303,50 @@ class ReadBufferTest extends TestCase
         $this->assertSame(12345678901234, $buf->getUint64());
     }
 
-    public function testGetUint64WithMaxValue(): void
+    public function testGetUint64WithValueAbovePhpIntMaxThrows(): void
     {
+        // Regression guard for #393: 0xFFFFFFFFFFFFFFFF used to wrap to -1, a
+        // bogus offset that then flowed into comparisons far from the parse site.
         $buf = new ReadBuffer("\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
-        // On 64-bit PHP, 0xFFFFFFFFFFFFFFFF unpacks as -1 due to signed integer overflow
-        $this->assertSame(-1, $buf->getUint64());
+        try {
+            $buf->getUint64();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0xffffffffffffffff', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+        $this->assertSame(0, $buf->getPosition(), 'position must not move on a rejected uint64');
+    }
+
+    public function testGetUint64WithMaxRepresentableValue(): void
+    {
+        $buf = new ReadBuffer(pack('J', PHP_INT_MAX));
+        $this->assertSame(PHP_INT_MAX, $buf->getUint64());
+    }
+
+    public function testGetUint64WithPhpIntMaxPlusOneThrows(): void
+    {
+        // The exact threshold: 0x8000000000000000 is PHP_INT_MAX + 1 and the
+        // first value the signed unpack('J') would wrap to PHP_INT_MIN.
+        $buf = new ReadBuffer("\x80\x00\x00\x00\x00\x00\x00\x00");
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('0x8000000000000000');
+        $buf->getUint64();
+    }
+
+    public function testGetUint64AbovePhpIntMaxInWindowedBufferReportsWindowPosition(): void
+    {
+        // The raw-bytes read must account for the window offset, and the reported
+        // position is relative to the window start, not the backing string.
+        $buf = new ReadBuffer("\xAA\xBB\x80\x00\x00\x00\x00\x00\x00\x00", 2, 8);
+        try {
+            $buf->getUint64();
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0x8000000000000000', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+        $this->assertSame(0, $buf->getPosition());
     }
 
     public function testGetInt16Negative(): void
