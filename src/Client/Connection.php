@@ -1025,8 +1025,8 @@ class Connection implements ConnectionInterface
      *                                 use.
      * @throws InvalidArgumentException If a Consumer argument is out of range,
      *                                 $singleActiveConsumer is set without $name, or a
-     *                                 partitions() request exceeds the negotiated outgoing frame
-     *                                 size.
+     *                                 partitions() request — or a per-partition Subscribe
+     *                                 request — exceeds the negotiated outgoing frame size.
      * @throws DeserializationException If a response frame cannot be deserialized.
      * @throws TimeoutException If a response does not arrive in time.
      */
@@ -1083,6 +1083,8 @@ class Connection implements ConnectionInterface
      * @throws ConnectionException If the socket is not connected, `stream_select()` fails, or
      *                                 a read fails.
      * @throws DeserializationException If a server-push frame cannot be deserialized.
+     * @throws InvalidArgumentException If a registered ConsumerUpdate handler returns
+     *                                 an offset type outside the protocol's reply range (0-5).
      * @throws TimeoutException If a reply this loop must send (a heartbeat echo, a
      *                                 server-close acknowledgement or a ConsumerUpdate reply)
      *                                 cannot be written within the socket timeout.

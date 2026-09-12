@@ -86,8 +86,8 @@ class ConnectionDocblockTest extends TestCase
     /**
      * A documented `@throws Foo` that names a non-existent class is worse than
      * no tag at all: it sends a caller looking for an exception the library
-     * cannot raise. Short names are resolved against the library exception
-     * namespace first, then as written, so both `@throws ProtocolException` and
+     * cannot raise. Names are resolved as written first, then against the
+     * library exception namespace, so both `@throws ProtocolException` and
      * `@throws \RuntimeException` are accepted.
      */
     public function testEveryDocumentedThrowsNamesARealClass(): void

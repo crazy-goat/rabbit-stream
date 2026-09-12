@@ -683,6 +683,7 @@ public function storeOffset(string $reference, string $stream, int $offset): voi
 #### Exceptions
 
 - `ConnectionException` - If the socket is not connected or the write fails
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
 - `TimeoutException` - If the frame cannot be written within the socket timeout
 
 #### Notes
