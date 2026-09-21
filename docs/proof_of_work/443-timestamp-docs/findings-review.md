@@ -48,3 +48,43 @@ unit in the new `timestamp()` docblock — is required by #443 itself and leaves
 `composer lint` → OK (phpcs, rector, phpstan L9, kb-lint, check-docs-links,
 suite-coverage). `./vendor/bin/phpunit --testsuite unit` → OK (1242 tests,
 8793 assertions).
+
+---
+
+## Round 2 (commit ca8993f) — convergence
+
+Verification of round 1, plus a fresh grep sweep and `git diff main...HEAD`
+new-issue pass. No new HIGH/MEDIUM/LOW finding; the observation below is
+explicitly out of #443 scope. Full detail in `review-2.md`.
+
+| # | File:Line | What is wrong | Severity | What happened to it |
+|---|-----------|---------------|----------|-------------------|
+| 1 | `docs/en/examples/basic-consumer.md:253` | `OffsetSpec::timestamp(time() - 3600)` under "// From a specific timestamp" is the same client-clock/seconds class as the #418-deferred `consuming.md:220`, and was not enumerated among round 1's remaining seconds examples. It does **not** state per-message semantics, so it is not #443's chunk-granularity subject; it belongs with #418's ms/s unit fix. | observation (not a #443 finding) | **Open only as input to #418.** No change required for #443. Sweep for it when landing #418. |
+
+### Round-1 closure (verified)
+
+| Round-1 item | Severity | Verified disposition |
+|---|---|---|
+| LOW 1 — same-class claims | low | **Fixed.** All six locations (`value-objects.md:23/:971/:997`, `flow-control.md:633`, `consuming-commands.md:59`, `connection.md:869`) now state chunk granularity; none claims per-message. |
+| LOW 2 — `consuming.md:220` | low | **Deferred to #418**, still `OPEN` (verified `gh issue view 418`, milestone v1.5.0). Line unchanged as intended. |
+| LOW 3 — `message.md:530-531` | low | **Recorded** as a follow-up candidate in `code-decision-2.md` (LOW 3) and round-1 row 3 above; not #443, not #418. |
+| NIT 4 — E2E comment refs | nit | **Fixed.** `tests/E2E/ConsumerTest.php:432-434` now cites `OsirisChunkParser.php:324` (header read once), `:210`, `:264`, `:432`, `:483`; all match the code. |
+| NIT 5 — `connection.md:869` | nit | **Fixed** (same change as LOW 1). |
+
+### Grep / new-issue sweep (no open finding)
+
+- `grep` over `docs/`, `src/`, `README.md` (excluding `proof_of_work/`) finds no
+  remaining per-message / "published after" timestamp claim. Leftovers are
+  unrelated ("reprocess up to N messages after crash"), historical
+  (`CHANGELOG.md:75`, an old #155 release note), or #418's (`value-objects.md:124`
+  factory section, `basic-consumer.md:253`, `message.md:538` imprecise "when
+  received").
+- `git diff main...HEAD`: docs/PHPDoc/comment only; no executable line, no gate
+  weakened, no new bug.
+
+### Verdict
+
+**No open HIGH, MEDIUM or LOW finding for #443. Converged.**
+
+`composer lint` → OK. `./vendor/bin/phpunit --testsuite unit` → OK (1242 tests,
+8797 assertions).
