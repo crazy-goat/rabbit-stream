@@ -6,7 +6,12 @@ namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\SuperStreamConsumerInterface;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
+use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 
 /**
  * Consumes from every partition of a super stream through one object.
@@ -126,6 +131,27 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
         $this->consumerFor($partition)->storeOffset($offset);
     }
 
+    /**
+     * Query the offset stored on the broker for one partition.
+     *
+     * Offset tracking is per-partition: pass the partition stream name.
+     * `null` means nothing has been stored yet for this partition — the
+     * broker's `NO_OFFSET` (`0x13`) answer, which is normal on a first run
+     * rather than an error (#467). Any other non-OK response code still raises
+     * a ProtocolException.
+     *
+     * @return int|null The stored next offset to consume for this partition,
+     *              or null when no offset is stored.
+     * @throws InvalidArgumentException If $partition is not a partition of this
+     *                            super stream.
+     * @throws ProtocolException If the broker returns a non-OK response code
+     *                            other than NO_OFFSET.
+     * @throws UnexpectedResponseException If the server replies with something other
+     *                            than a QueryOffset response.
+     * @throws ConnectionException If the socket is not connected or the request fails.
+     * @throws DeserializationException If the response frame cannot be deserialized.
+     * @throws TimeoutException If the response does not arrive in time.
+     */
     public function queryOffset(string $partition): ?int
     {
         return $this->consumerFor($partition)->queryOffset();

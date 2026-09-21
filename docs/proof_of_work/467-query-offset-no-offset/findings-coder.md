@@ -68,3 +68,26 @@
    `Consumer::queryOffset()`), so the null semantics are only visible in the
    interface/API reference. Suggested fix: add a short docblock mirroring
    `Consumer::queryOffset()`; not required by any gate.
+
+---
+
+## Round 1 follow-up discoveries
+
+1. **No docblock-reflection gate covers `SuperStreamConsumer` (or `Connection`'s
+   client class).** `ConsumerDocblockTest`/`ConnectionDocblockTest` guard their
+   classes, but `SuperStreamConsumer` has no equivalent, so the docblock added
+   for Coder finding 4 / review R1-F4 can regress silently. Suggested follow-up:
+   generalise the reflection gate over the client classes (or add
+   `SuperStreamConsumerDocblockTest`). Out of scope for #467.
+
+2. **`FromArrayInterface` declares `@param array<string, mixed>`.** Narrowing the
+   override's docblock to a shape would be flagged as a redundant/looser
+   override, so the `fromArray()` documentation stays a prose note plus the
+   inherited `array<string, mixed>` tag. Recorded so a future contributor does
+   not "fix" it into a shape that then breaks on extra keys.
+
+3. **`ReadBuffer::getPosition()` is window-relative.** The full-frame assertion
+   in the NO_OFFSET test uses `strlen($raw)` rather than the buffer's absolute
+   offset because `ReadBuffer` is constructed with offset 0 there. If a future
+   test wraps a sub-window, the assertion must use the window length, not the
+   backing string length.

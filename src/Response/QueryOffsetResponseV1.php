@@ -52,6 +52,10 @@ class QueryOffsetResponseV1 implements
         $object->withCorrelationId($correlationId);
 
         if ($responseCode === ResponseCodeEnum::NO_OFFSET->value) {
+            // The offset field is always present on the wire (it is 0 for
+            // NO_OFFSET). Consume it even though the value is ignored, so the
+            // parser ends exactly at the frame boundary instead of mid-frame.
+            $buffer->getUint64();
             $object->offset = null;
             return $object;
         }
@@ -66,7 +70,16 @@ class QueryOffsetResponseV1 implements
         return KeyEnum::QUERY_OFFSET_RESPONSE->value;
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * Rebuild the response from a decoded array.
+     *
+     * A missing `offset` key is treated exactly like an explicit `null`: both
+     * mean "the broker answered NO_OFFSET", because `fromArray()` is only ever
+     * fed data this library produced (round-tripping a parsed response or a
+     * test fixture) and never untrusted wire input.
+     *
+     * @param array<string, mixed> $data
+     */
     public static function fromArray(array $data): static
     {
         $object = new static();

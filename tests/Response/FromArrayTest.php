@@ -138,6 +138,23 @@ class FromArrayTest extends TestCase
         $this->assertSame(12345, $response->getOffset());
     }
 
+    public function testQueryOffsetResponseFromArrayWithNullOffset(): void
+    {
+        $response = QueryOffsetResponseV1::fromArray(['correlationId' => 4, 'offset' => null]);
+        $this->assertSame(4, $response->getCorrelationId());
+        $this->assertNull($response->getOffset());
+    }
+
+    public function testQueryOffsetResponseFromArrayWithMissingOffsetIsNoOffset(): void
+    {
+        // Documented behaviour: a missing `offset` key means NO_OFFSET, exactly
+        // like an explicit null. fromArray() only ever round-trips data this
+        // library produced, never untrusted wire input.
+        $response = QueryOffsetResponseV1::fromArray(['correlationId' => 4]);
+        $this->assertSame(4, $response->getCorrelationId());
+        $this->assertNull($response->getOffset());
+    }
+
     public function testQueryPublisherSequenceResponseFromArray(): void
     {
         $response = QueryPublisherSequenceResponseV1::fromArray(['correlationId' => 5, 'sequence' => 99]);

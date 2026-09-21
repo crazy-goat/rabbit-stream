@@ -168,7 +168,7 @@ The `ResponseCodeEnum` is a backed enum (`int`) that defines all possible respon
 | 16 | `ACCESS_REFUSED` | 0x10 | Access refused (permissions) |
 | 17 | `PRECONDITION_FAILED` | 0x11 | Precondition failed |
 | 18 | `PUBLISHER_NOT_EXIST` | 0x12 | Publisher does not exist |
-| 19 | `NO_OFFSET` | 0x13 | No offset available |
+| 19 | `NO_OFFSET` | 0x13 | No offset stored yet (normal `QueryOffset` reply, not an error) |
 
 ### Methods
 
