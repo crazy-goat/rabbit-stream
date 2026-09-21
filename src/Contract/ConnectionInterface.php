@@ -8,7 +8,9 @@ use CrazyGoat\RabbitStream\Client\AmqpDecoder;
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 interface ConnectionInterface
@@ -114,6 +116,19 @@ interface ConnectionInterface
     ): SuperStreamConsumerInterface;
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
+
+    /**
+     * Whether the broker reported support for a given command version during
+     * the handshake (see Connection::supportsCommandVersion()).
+     */
+    public function supportsCommandVersion(KeyEnum $key, int $version): bool;
+
+    /**
+     * The per-command version ranges the broker reported, keyed by command key.
+     *
+     * @return array<int, CommandVersion>
+     */
+    public function getSupportedCommandVersions(): array;
 
     public function storeOffset(string $reference, string $stream, int $offset): void;
 }

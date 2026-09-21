@@ -24,6 +24,7 @@ use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
@@ -1964,5 +1965,131 @@ class StreamConnectionTest extends TestCase
 
         fclose($serverSocket);
         fclose($clientSocket);
+    }
+
+    // ---------------------------------------------------------------------
+    // ExchangeCommandVersions negotiation state (GitHub #381).
+    // ---------------------------------------------------------------------
+
+    public function testSupportsCommandVersionDefaultsToV1WhenNothingWasNegotiated(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        // Empty map is the "broker did not negotiate" state: v1 is the baseline
+        // every broker speaks, anything higher must be treated as unsupported.
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::CREATE, 2));
+    }
+
+    public function testSupportsCommandVersionUsesTheReportedRangeInclusively(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $connection->setCommandVersions([
+            KeyEnum::PUBLISH->value => new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
+            KeyEnum::CREATE->value => new CommandVersion(KeyEnum::CREATE->value, 2, 3),
+        ]);
+
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 3));
+
+        // The lower bound is inclusive too: a range that starts at 2 does not
+        // support v1.
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::CREATE, 1));
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::CREATE, 2));
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::CREATE, 3));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::CREATE, 4));
+
+        // An unrelated command keeps the v1-only default.
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::SUBSCRIBE, 1));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::SUBSCRIBE, 2));
+    }
+
+    public function testGetCommandVersionsReturnsWhatWasSet(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $range = new CommandVersion(KeyEnum::PUBLISH->value, 1, 2);
+        $connection->setCommandVersions([KeyEnum::PUBLISH->value => $range]);
+
+        $this->assertSame([KeyEnum::PUBLISH->value => $range], $connection->getCommandVersions());
+    }
+
+    public function testSupportsCommandVersionReturnsFalseForAMalformedRange(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        // min > max is not a valid range; the containment check naturally
+        // reports "not supported" for every version. Pinned so the behaviour is
+        // deliberate rather than accidental.
+        $connection->setCommandVersions([
+            KeyEnum::PUBLISH->value => new CommandVersion(KeyEnum::PUBLISH->value, 3, 1),
+        ]);
+
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 3));
+    }
+
+    public function testLateReplyForAnAbandonedCorrelationIdIsDiscarded(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // No reply: the request times out and its correlation id (1) is abandoned.
+        try {
+            $connection->request(new CreateRequestV1('a'), 0.05);
+            $this->fail('Expected TimeoutException');
+        } catch (TimeoutException) {
+            // expected
+        }
+        $connection->abandonCorrelation(1);
+
+        // The broker's late reply for correlation 1 must not be handed to the
+        // next caller as if it were theirs; the reply for correlation 2 is.
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('b'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertSame(2, $response->getCorrelationId());
+
+        // The stale frame was discarded, not parked for a later readMessage().
+        $this->expectException(TimeoutException::class);
+        $connection->readMessage(0.05);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testAbandonedCorrelationIdsAreClearedByClose(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $property = new \ReflectionProperty($connection, 'abandonedCorrelationIds');
+
+        $connection->abandonCorrelation(1);
+        $this->assertSame([1 => true], $property->getValue($connection));
+
+        // A closed connection can never read the late reply, so the id has no
+        // further use and must not be carried by a reused instance (R2-3).
+        $connection->close();
+        $this->assertSame([], $property->getValue($connection));
+    }
+
+    public function testAbandonedCorrelationIdsAreBounded(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $property = new \ReflectionProperty($connection, 'abandonedCorrelationIds');
+
+        for ($id = 1; $id <= 500; $id++) {
+            $connection->abandonCorrelation($id);
+        }
+
+        $abandoned = $property->getValue($connection);
+        $this->assertIsArray($abandoned);
+        $this->assertLessThanOrEqual(64, count($abandoned));
+        // Oldest-first eviction keeps the most recently abandoned id tracked.
+        $this->assertArrayHasKey(500, $abandoned);
     }
 }

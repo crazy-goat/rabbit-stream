@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\Contract\SuperStreamConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\SuperStreamProducerInterface;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
@@ -24,6 +25,7 @@ use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
+use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
@@ -40,6 +42,7 @@ use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
@@ -53,6 +56,7 @@ use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
@@ -67,6 +71,16 @@ class Connection implements ConnectionInterface
      */
     public const MAX_CONCURRENT_PUBLISHERS = 256;
     public const MAX_CONCURRENT_SUBSCRIPTIONS = 256;
+
+    /**
+     * Seconds to wait for the optional ExchangeCommandVersions reply.
+     *
+     * The exchange is the last handshake step and is not required for the
+     * connection to work: a broker that does not implement the command (or
+     * answers it with an error) must not hang connection setup, so the reply is
+     * read under this shorter bound and any failure falls back to protocol v1.
+     */
+    private const COMMAND_VERSION_EXCHANGE_TIMEOUT = 5.0;
 
     /**
      * Next id to try. Allocation walks forward from here and wraps, so a freed
@@ -94,9 +108,12 @@ class Connection implements ConnectionInterface
      * Connect to a broker, run the full handshake and return a ready connection.
      *
      * The handshake exchanges PeerProperties, negotiates SASL (PLAIN only),
-     * authenticates, negotiates frame max and heartbeat at Tune, and opens the
-     * virtual host. It is kept out of the constructor so a connection is never
-     * observable half-initialised.
+     * authenticates, negotiates frame max and heartbeat at Tune, opens the
+     * virtual host, and finally exchanges supported command versions (best
+     * effort — skipped on brokers older than RabbitMQ 3.11, which do not
+     * implement the command, and otherwise a broker that does not answer or
+     * rejects it leaves the connection on the v1 baseline). It is kept out of
+     * the constructor so a connection is never observable half-initialised.
      *
      * @param string $host Broker hostname or IP.
      * @param int $port Broker stream-protocol port.
@@ -285,7 +302,165 @@ class Connection implements ConnectionInterface
         // The pre-Open window has ended; lift its ceiling explicitly.
         $streamConnection->setPreOpenMaxFrameSize(0);
 
+        // 7. ExchangeCommandVersions — optional, and only sent to a broker new
+        // enough to implement it. RabbitMQ < 3.11 does not know the command and
+        // may answer an unknown frame by closing the connection; the reference
+        // Go/Java clients gate on the broker version for exactly this reason.
+        // Reading the version from the PeerProperties reply we already hold
+        // avoids that failure mode (and the 5 s wait against a broker that would
+        // silently ignore the frame). Never fails connection setup.
+        if (self::brokerSupportsCommandVersions($peerResponse)) {
+            $streamConnection->setCommandVersions(
+                self::negotiateCommandVersions($streamConnection, $logger)
+            );
+        } else {
+            $logger->debug(
+                'Broker is older than 3.11; skipping ExchangeCommandVersions and assuming v1'
+            );
+            $streamConnection->setCommandVersions([]);
+        }
+
         return new self($streamConnection, $logger);
+    }
+
+    /**
+     * Whether the broker's advertised version is new enough to implement
+     * ExchangeCommandVersions.
+     *
+     * The command was added in RabbitMQ 3.11. Older brokers do not merely
+     * ignore an unknown frame — RabbitMQ <= 3.10 answers it with a Close frame,
+     * which would leave create() holding a connection the broker is tearing
+     * down. The reference Go client skips the exchange unless the broker
+     * reports >= 3.11, and so do we. A missing or unparseable version is treated
+     * as "not supported", which keeps the fallback safe.
+     *
+     * @param PeerPropertiesResponseV1 $peerResponse Reply to the PeerProperties
+     *                                 step, which carries the broker's version.
+     * @return bool True when the broker reports RabbitMQ >= 3.11.
+     */
+    private static function brokerSupportsCommandVersions(PeerPropertiesResponseV1 $peerResponse): bool
+    {
+        foreach ($peerResponse->getPeerProperty() as $property) {
+            if ($property->getKey() !== 'version') {
+                continue;
+            }
+
+            $version = $property->getValue();
+            if ($version === null) {
+                return false;
+            }
+
+            // RabbitMQ reports e.g. "4.1.2"; the patch part is irrelevant to the
+            // 3.11 gate, so a missing one ("4.1") is accepted too. Anything
+            // without a numeric major.minor core is treated as "too old".
+            $parts = explode('.', $version);
+            if (count($parts) < 2 || !ctype_digit($parts[0]) || !ctype_digit($parts[1])) {
+                return false;
+            }
+
+            $major = (int) $parts[0];
+            $minor = (int) $parts[1];
+
+            return $major > 3 || ($major === 3 && $minor >= 11);
+        }
+
+        return false;
+    }
+
+    /**
+     * Ask the broker which versions of each command it supports.
+     *
+     * Runs after Open, so the negotiated outgoing frame cap is in force. This
+     * step is advisory: a time-out, a non-OK response code (asserted as a
+     * {@see ProtocolException} while the reply is deserialized), a malformed
+     * reply or a reply for a different command all leave the caller on the v1
+     * baseline. A genuinely broken socket ({@see ConnectionException}) is NOT
+     * swallowed — there is no connection left to fall back on.
+     *
+     * @param StreamConnection $streamConnection Open connection to negotiate on.
+     * @param LoggerInterface $logger Logger for the fallback path.
+     * @return array<int, CommandVersion> Supported ranges keyed by protocol command key,
+     *                                    empty when negotiation is unavailable.
+     */
+    private static function negotiateCommandVersions(
+        StreamConnection $streamConnection,
+        LoggerInterface $logger
+    ): array {
+        $request = new ExchangeCommandVersionsRequestV1(self::clientCommandVersions());
+
+        $sent = false;
+        try {
+            $streamConnection->sendMessage($request);
+            $sent = true;
+            $response = $streamConnection->readMessage(self::COMMAND_VERSION_EXCHANGE_TIMEOUT);
+        } catch (ProtocolException | DeserializationException | TimeoutException $e) {
+            if ($sent && $e instanceof TimeoutException) {
+                // The broker may still answer after the timeout. Mark the
+                // request's correlation id abandoned so that late frame is
+                // discarded by the next read instead of being handed to an
+                // unrelated caller as if it were their response (R1-2).
+                //
+                // Only a read-side timeout may leave a reply in flight: when
+                // sendMessage() itself times out the frame was never (fully)
+                // written, so no reply can ever arrive and abandoning would leak
+                // an entry that nothing can clear (R2-3).
+                $streamConnection->abandonCorrelation($request->getCorrelationId());
+            }
+
+            $logger->warning(
+                'ExchangeCommandVersions failed; assuming protocol version 1 for every command',
+                ['exception' => $e]
+            );
+
+            return [];
+        }
+
+        if (!$response instanceof ExchangeCommandVersionsResponseV1) {
+            $logger->warning(
+                'ExchangeCommandVersions received an unexpected response; assuming protocol version 1',
+                ['response' => $response::class]
+            );
+
+            return [];
+        }
+
+        $versions = [];
+        foreach ($response->getCommands() as $command) {
+            $versions[$command->getKey()] = $command;
+        }
+
+        return $versions;
+    }
+
+    /**
+     * The per-command version ranges this client advertises to the broker.
+     *
+     * Only commands the client implements more than one version of are
+     * advertised. For a v1-only command the advertisement buys nothing — the v1
+     * baseline already covers it — while it can actively break the connection:
+     * RabbitMQ's stream reader feeds every advertised key through
+     * `rabbit_stream_core:parse_command_id/1`, which has no clause for a key the
+     * running release never defined, and terminates the connection process with
+     * `error:function_clause`. Advertising `CREATE_SUPER_STREAM` /
+     * `DELETE_SUPER_STREAM` (`0x001d` / `0x001e`) crashes RabbitMQ 3.11–3.12 and
+     * `RESOLVE_OFFSET_SPEC` (`0x001f`) crashes 3.13–4.2; only 4.3+ tolerates the
+     * full list, which is why the single modern CI image did not catch it (R2-1).
+     * The reference Go client advertises only Publish for exactly this reason.
+     *
+     * Publish is the only multi-version command today: v2 adds the per-message
+     * filter value and was introduced in RabbitMQ 3.13. Every broker the version
+     * gate admits (>= 3.11) already knows the Publish key (`0x0002`), so
+     * advertising v1–v2 is safe everywhere — 3.11 and 3.12 simply answer with a
+     * Publish range of 1–1 and the client stays on v1. DELIVER is deliberately
+     * absent: nothing consumes its v2 CommittedChunkId yet, so it must stay v1.
+     *
+     * @return list<CommandVersion> Ranges to advertise.
+     */
+    private static function clientCommandVersions(): array
+    {
+        return [
+            new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
+        ];
     }
 
     private static function negotiatedMaxValue(int $clientValue, int $serverValue): int
@@ -682,6 +857,37 @@ class Connection implements ConnectionInterface
     public function isConnected(): bool
     {
         return $this->streamConnection->isConnected();
+    }
+
+    /**
+     * Whether the broker reported support for a given version of a command.
+     *
+     * The result comes from the ExchangeCommandVersions handshake run during
+     * {@see create()}. When the broker did not implement the command, rejected
+     * it, or did not answer it in time, the connection falls back to the v1
+     * baseline: this returns true for version 1 and false for anything higher.
+     *
+     * @param KeyEnum $key Command to check (for example KeyEnum::PUBLISH).
+     * @param int $version Version to check (1-based).
+     * @return bool True when the broker's reported range includes $version.
+     */
+    public function supportsCommandVersion(KeyEnum $key, int $version): bool
+    {
+        return $this->streamConnection->supportsCommandVersion($key, $version);
+    }
+
+    /**
+     * The per-command version ranges the broker reported during the handshake.
+     *
+     * Empty when ExchangeCommandVersions was rejected, unanswered or not
+     * implemented by the broker — callers should then assume v1 for every
+     * command (see {@see supportsCommandVersion()}).
+     *
+     * @return array<int, CommandVersion> Supported ranges keyed by protocol command key.
+     */
+    public function getSupportedCommandVersions(): array
+    {
+        return $this->streamConnection->getCommandVersions();
     }
 
     /**

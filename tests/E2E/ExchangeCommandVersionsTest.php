@@ -41,4 +41,42 @@ class ExchangeCommandVersionsTest extends E2ETestCase
 
         $connection->close();
     }
+
+    /**
+     * The high-level Connection::create() handshake must itself send
+     * ExchangeCommandVersions and expose the broker's negotiated ranges
+     * (GitHub #381).
+     */
+    public function testCreateNegotiatesCommandVersionsAgainstTheBroker(): void
+    {
+        $connection = $this->createConnection();
+
+        $versions = $connection->getSupportedCommandVersions();
+        $this->assertNotEmpty($versions, 'create() must exchange command versions and store the broker map');
+
+        foreach ($versions as $version) {
+            $this->assertGreaterThan(0, $version->getKey());
+            $this->assertGreaterThanOrEqual(1, $version->getMinVersion());
+            $this->assertGreaterThanOrEqual($version->getMinVersion(), $version->getMaxVersion());
+        }
+
+        // Publish is the only command the client advertises, so it is the one
+        // the broker must report back; v1 is universal. Publish v2 (per-message
+        // filter values) exists only on brokers with stream filtering (RabbitMQ
+        // 3.13+), so the high-level version selection is asserted against
+        // whatever range the broker actually reported rather than hard-coding
+        // v2 — this keeps the test valid across the supported broker matrix.
+        $this->assertArrayHasKey(KeyEnum::PUBLISH->value, $versions);
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+
+        $publish = $versions[KeyEnum::PUBLISH->value];
+        $this->assertSame(1, $publish->getMinVersion());
+        $this->assertSame(
+            $publish->getMaxVersion() >= 2,
+            $connection->supportsCommandVersion(KeyEnum::PUBLISH, 2),
+            'supportsCommandVersion(PUBLISH, 2) must follow the broker-reported range'
+        );
+
+        $connection->close();
+    }
 }

@@ -183,6 +183,7 @@ public function sendWithFilter(string $message, ?string $filterValue, ?float $ti
 #### Exceptions
 
 - `ConnectionException` - If the connection is lost
+- `ProtocolException` - If `$filterValue` is not null but the broker did not negotiate `Publish` v2 (stream filtering requires RabbitMQ 3.13+)
 
 #### Example
 

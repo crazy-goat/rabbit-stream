@@ -23,6 +23,7 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
@@ -163,6 +164,41 @@ class StreamConnection
      * {@see InvalidArgumentException} contract (see #379).
      */
     private int $preOpenMaxFrameSize = 0;
+
+    /**
+     * Per-command version ranges the broker reported in the
+     * ExchangeCommandVersions handshake, keyed by protocol command key.
+     *
+     * Empty until {@see setCommandVersions()} is called (and left empty when
+     * the handshake is unavailable), in which case every command is treated as
+     * version 1 only — see {@see supportsCommandVersion()}.
+     *
+     * @var array<int, CommandVersion>
+     */
+    private array $commandVersions = [];
+
+    /**
+     * Hard upper bound on {@see $abandonedCorrelationIds}.
+     *
+     * The set is only pruned when a matching late reply finally arrives, and
+     * correlation ids are monotonic (never reused), so without a bound a caller
+     * that abandons requests could grow it without limit. In practice only the
+     * single ExchangeCommandVersions handshake can abandon an id — and only on a
+     * read-side timeout — so this cap is never reached in normal use; it exists
+     * so the state cannot grow without bound. Oldest-first eviction is safe
+     * because the oldest id is the least likely to still have a reply in flight.
+     */
+    private const MAX_ABANDONED_CORRELATION_IDS = 64;
+
+    /**
+     * Correlation ids of requests that already timed out and whose reply, if it
+     * ever arrives, must be discarded rather than handed to another caller.
+     * Filled by {@see abandonCorrelation()}, consumed by {@see readResponse()}
+     * and cleared by {@see close()}.
+     *
+     * @var array<int, true>
+     */
+    private array $abandonedCorrelationIds = [];
 
     /**
      * @param string                $host     RabbitMQ stream server hostname
@@ -368,6 +404,9 @@ class StreamConnection
             $this->stream = null;
         }
         $this->connected = false;
+        // A closed connection cannot read a late reply, so the abandoned-id set
+        // has no further use and must not be carried by a reused instance (R2-3).
+        $this->abandonedCorrelationIds = [];
     }
 
     /**
@@ -529,6 +568,84 @@ class StreamConnection
     public function getPreOpenMaxFrameSize(): int
     {
         return $this->preOpenMaxFrameSize;
+    }
+
+    /**
+     * Record the per-command version ranges the broker reported.
+     *
+     * Called by the high-level {@see \CrazyGoat\RabbitStream\Client\Connection}
+     * after the ExchangeCommandVersions handshake succeeds; keyed by protocol
+     * command key (see {@see \CrazyGoat\RabbitStream\VO\CommandVersion::getKey()}).
+     * Passing an empty array is the "nothing negotiated" state, which
+     * {@see supportsCommandVersion()} reads as version 1 for every command.
+     *
+     * @param array<int, CommandVersion> $commandVersions Supported ranges keyed by protocol command key
+     */
+    public function setCommandVersions(array $commandVersions): void
+    {
+        $this->commandVersions = $commandVersions;
+    }
+
+    /**
+     * The per-command version ranges the broker reported.
+     *
+     * @return array<int, CommandVersion> Supported ranges keyed by protocol command key
+     */
+    public function getCommandVersions(): array
+    {
+        return $this->commandVersions;
+    }
+
+    /**
+     * Whether the broker reported support for a given version of a command.
+     *
+     * The version 1 baseline is assumed whenever a command was not negotiated
+     * — either because the broker never answered ExchangeCommandVersions, or
+     * simply did not list this command. This is what lets callers fall back to
+     * v1 on a broker that does not implement version negotiation.
+     *
+     * @param KeyEnum $key Command to check.
+     * @param int $version Version to check (1-based).
+     * @return bool True when the reported range includes $version.
+     */
+    public function supportsCommandVersion(KeyEnum $key, int $version): bool
+    {
+        $range = $this->commandVersions[$key->value] ?? null;
+        if ($range === null) {
+            return $version === 1;
+        }
+
+        return $version >= $range->getMinVersion() && $version <= $range->getMaxVersion();
+    }
+
+    /**
+     * Mark a request's correlation id as abandoned.
+     *
+     * A caller that times out waiting for a correlated reply can leave that
+     * reply in flight; when it eventually arrives it would otherwise be handed
+     * to the next `readMessage()`/`request()` as if it belonged to that call,
+     * desynchronising the stream. Recording the id here makes
+     * {@see readResponse()} discard the late frame instead (GitHub #381).
+     *
+     * This is an internal wiring seam for the handshake; callers outside the
+     * client layer have no reason to use it.
+     *
+     * The set is bounded by {@see MAX_ABANDONED_CORRELATION_IDS}: once full, the
+     * oldest id is evicted so a caller that abandons many requests cannot grow
+     * the state without limit (R2-3). It is also cleared by {@see close()}.
+     *
+     * @param int $correlationId Correlation id of the timed-out request
+     */
+    public function abandonCorrelation(int $correlationId): void
+    {
+        if (count($this->abandonedCorrelationIds) >= self::MAX_ABANDONED_CORRELATION_IDS) {
+            // The set is non-empty whenever the cap is reached, so the first
+            // key is always an int here.
+            $oldest = array_key_first($this->abandonedCorrelationIds);
+            unset($this->abandonedCorrelationIds[$oldest]);
+        }
+
+        $this->abandonedCorrelationIds[$correlationId] = true;
     }
 
     /**
@@ -971,6 +1088,25 @@ class StreamConnection
             }
 
             $response = $this->serializer->deserialize($frame->getRemainingBytes());
+
+            if (
+                $response instanceof CorrelationInterface
+                && isset($this->abandonedCorrelationIds[$response->getCorrelationId()])
+            ) {
+                // Reply to a request that already timed out (see
+                // abandonCorrelation()): dropping it keeps the next caller from
+                // misattributing it as their own response.
+                unset($this->abandonedCorrelationIds[$response->getCorrelationId()]);
+                $this->logger->warning(
+                    'Discarding a late reply for a request that already timed out',
+                    [
+                        'correlationId' => $response->getCorrelationId(),
+                        'response' => $response::class,
+                    ]
+                );
+                continue;
+            }
+
             if ($expectedCorrelationId === null) {
                 return $response;
             }
