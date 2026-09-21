@@ -613,8 +613,9 @@ function checkOffsetLag(
     $tempConsumer->close();
 
     if ($storedOffset === null) {
-        // Nothing stored yet.
-        return 0;
+        // Nothing consumed yet: the consumer resumes from the first offset,
+        // so the whole stream is "behind".
+        $storedOffset = 0;
     }
 
     $latestOffset = getLatestStreamOffset($connection, $stream);

@@ -144,8 +144,8 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
      *              or null when no offset is stored.
      * @throws InvalidArgumentException If $partition is not a partition of this
      *                            super stream.
-     * @throws ProtocolException If the broker returns a non-OK response code
-     *                            other than NO_OFFSET.
+     * @throws ProtocolException If this consumer has no name, or the broker
+     *                            returns a non-OK response code other than NO_OFFSET.
      * @throws UnexpectedResponseException If the server replies with something other
      *                            than a QueryOffset response.
      * @throws ConnectionException If the socket is not connected or the request fails.

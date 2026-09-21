@@ -169,3 +169,108 @@ None new. No regression introduced: `testThrowsOnErrorResponseCode` still
 passes with the malformed (offset-less) frame because `assertResponseCodeOk()`
 throws before the offset read, and the non-`NO_OFFSET` frame layout is
 unchanged.
+
+---
+
+# Findings — Issue #467 (Review round 2, convergence)
+
+Reviewed `git diff main...HEAD` at `61dbf0a` (round 1 was `5147ced`). Full
+narrative in [review-2.md](review-2.md).
+
+## Round-1 disposition (all fixed, re-verified)
+
+| ID | Status | Evidence |
+|----|--------|----------|
+| R1-F1 | **Fixed (accurate)** | `CHANGELOG.md:13` now states covariance correctly; callers named as the real impact. |
+| R1-F2 | **Fixed (correct)** | `QueryOffsetResponseV1.php:58` consumes the `uint64`; `rabbit_stream_core.erl` `response_body({query_offset,…}) -> <<Code:16, Offset:64>>` always emits it, and E2E passes. `getPosition()` is window-relative and the test uses offset 0, so `getPosition() === strlen($raw)` is a valid full-consumption assertion. |
+| R1-F3 | **Fixed** | `assertSame(0, …)` on `?int` distinguishes `0` from `null`. |
+| R1-F4 | **Fixed** | `SuperStreamConsumer.php:134-154` docblock present. |
+| R1-F5 | **Fixed** | Documented equivalence + two `FromArrayTest` cases. |
+| R1-F6 | **Fixed** | `enums.md:171` wording corrected. |
+| R1-F7 | **Fixed** | `getResponseCode() === STREAM_NOT_EXIST` asserted. |
+
+## New findings
+
+| ID | Location | Severity | Status | Check that could catch it |
+|----|----------|----------|--------|---------------------------|
+| R2-F1 | `docs/helpers/faq.md:126` | low | fixed (round 2) | grep docs for `NO_OFFSET` when its handling changes (kb-lint is semantic-blind) |
+| R2-F2 | `src/Client/SuperStreamConsumer.php:147-148` | nit | fixed (round 2) | docblock-completeness gate (absent; `ConsumerDocblockTest` only checks presence) |
+| R2-F3 | `docs/en/examples/offset-resume.md:616-617` vs `docs/en/guide/offset-tracking.md:589-590` | nit | fixed (round 2) | none (examples are not cross-checked) |
+
+### R2-F1 — FAQ-007 still says `NO_OFFSET` surfaces as `ProtocolException` (low)
+
+`docs/helpers/faq.md:126` lists `"no offset stored" (#467)` among the non-OK
+codes "asserted inside `SimpleCorrelatedResponseV1::fromStreamBuffer()`" that
+surface as a `ProtocolException`. After #467 that is false:
+`QueryOffsetResponseV1::fromStreamBuffer()` handles `0x13` before
+`assertResponseCodeOk()` and returns a `null` offset. The branch did not touch
+the file, but the behaviour change invalidated it. Fix: drop the example (or
+note the new normal-`null` reply). `kb-lint` only validates structure/tags.
+
+### R2-F2 — `SuperStreamConsumer::queryOffset()` docblock misses the unnamed-consumer throw (nit)
+
+`createSuperStreamConsumer()` allows `name: null`
+(`src/Client/Connection.php:1236`); a nameless consumer makes the delegated
+`Consumer::queryOffset()` throw `ProtocolException('Cannot query offset for
+unnamed consumer')` (`Consumer.php:767-769`). The new docblock documents only
+the broker non-OK case, while `docs/en/api-reference/super-stream-consumer.md:231`
+lists both. Add "or this consumer has no name" to the `@throws` text.
+
+### R2-F3 — offset-lag examples disagree when nothing is stored (nit)
+
+`offset-resume.md:616-617` returns `0` (nothing stored ⇒ caught up);
+`offset-tracking.md:589-590` maps `null → 0` and returns `latest - 0` (nothing
+stored ⇒ maximally behind). Both snippets were edited in this branch. Align
+them (the `offset-tracking.md` form is the more defensible one).
+
+### Pre-existing, not counted
+
+`docs/en/examples/error-handling-patterns.md:339,638` still teaches catching
+`NO_OFFSET`; the file is already unrunnable (`OffsetSpecification`,
+`StreamConnection::subscribe()` do not exist) and was logged out-of-scope by the
+coder. Not a regression from this branch.
+
+## Gate results (HEAD `61dbf0a`)
+
+| Gate | Result |
+|------|--------|
+| `composer cs` | ✅ clean (279 files) |
+| `composer phpstan` | ✅ no errors (level 9, `src` + `tests`) |
+| `composer rector` | ✅ no changes suggested |
+| `./vendor/bin/phpunit --testsuite unit` | ✅ 1222 tests, 8714 assertions |
+| `php bin/kb-lint.php` | ✅ 12 entries, 0 warnings, 0 stale |
+| `php bin/check-docs-links.php` | ✅ all relative links resolve |
+| `./run-e2e.sh` | ✅ 147 tests, 3059 assertions |
+
+## Verdict
+
+Converged. All round-1 findings fixed and broker-verified; no open source/test
+findings. Only R2-F1 (low doc accuracy) plus two doc nits remain, none
+blocking.
+
+---
+
+# Round 2 fix disposition
+
+Every R2 finding was actioned. See [code-decision-3.md](code-decision-3.md).
+
+| ID | Disposition | What changed |
+|----|-------------|--------------|
+| R2-F1 | **Fixed** | `docs/helpers/faq.md` FAQ-007 no longer lists "no offset stored" among the codes that surface as a `ProtocolException`. It now names `QueryOffset` as the exception: `QueryOffsetResponseV1::fromStreamBuffer()` intercepts `NO_OFFSET` (`0x13`) before `assertResponseCodeOk()` and returns a `null` offset (#467); all other non-OK codes still throw. |
+| R2-F2 | **Fixed** | `SuperStreamConsumer::queryOffset()` `@throws ProtocolException` now reads "If this consumer has no name, or the broker returns a non-OK response code other than NO_OFFSET", matching `docs/en/api-reference/super-stream-consumer.md:231`. |
+| R2-F3 | **Fixed** | `docs/en/examples/offset-resume.md` `checkOffsetLag()` now maps `null → $storedOffset = 0` and returns `$latestOffset - $storedOffset`, i.e. a never-consumed consumer is maximally behind — consistent with `docs/en/guide/offset-tracking.md`. The `offset-tracking.md` form was judged correct: from `null` the consumer resumes at `OffsetSpec::first()`, so the whole stream is unprocessed. |
+
+## Rationale for R2-F3 (which example was wrong)
+
+`queryOffset()` returns the **next offset to consume**. When it returns `null`
+the consumer resumes from `OffsetSpec::first()` (offset `0`), so every message
+up to the latest offset is still to be processed. `offset-tracking.md`'s
+`null → 0`, `latest - 0` therefore describes the real lag; `offset-resume.md`'s
+`return 0` (implying "caught up") was the incorrect one and was aligned.
+
+## Gate results after round-2 fixes
+
+| Gate | Result |
+|------|--------|
+| `./vendor/bin/phpunit --testsuite unit` | ✅ 1222 tests, 8722 assertions |
+| `composer lint` (PHPCS + Rector dry-run + PHPStan level 9 + kb-lint + docs links) | ✅ all clean (279 files, 273 PHPStan paths) |
