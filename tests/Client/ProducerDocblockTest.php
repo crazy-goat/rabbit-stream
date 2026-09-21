@@ -20,12 +20,82 @@ use PHPUnit\Framework\TestCase;
  * can see is checked here: every public method has a non-empty prose
  * description, every declared parameter has a matching `@param`, every method
  * with a non-void return type has a descriptive `@return` (one Rector's
- * DEAD_CODE set will not strip — FAQ-008), and every documented `@throws` names
- * a class that actually exists.
+ * DEAD_CODE set will not strip — FAQ-008), every documented `@throws` names
+ * a class that actually exists, and every throwing public method declares the
+ * exact `@throws` set its callers must handle (EXPECTED_THROWS).
  */
 class ProducerDocblockTest extends TestCase
 {
     private const EXCEPTION_NAMESPACE = 'CrazyGoat\\RabbitStream\\Exception\\';
+
+    /**
+     * The `@throws` classes each public Producer method must document, keyed
+     * by method name. This is the mechanical half of the "accuracy cannot be
+     * asserted reflexively" caveat: the sets were derived by tracing the real
+     * throw paths, and pinning them here makes removing a tag (e.g. the
+     * `ProtocolException` that `waitForConfirms()` can raise through
+     * `readLoop()` → `dispatchServerPush()` → `validateKeyVersion()`) fail the
+     * build instead of silently weakening the documentation.
+     *
+     * @var array<string, list<string>>
+     */
+    private const EXPECTED_THROWS = [
+        '__construct' => [
+            'ConnectionException',
+            'DeserializationException',
+            'InvalidArgumentException',
+            'ProtocolException',
+            'TimeoutException',
+            'UnexpectedResponseException',
+        ],
+        'close' => [
+            'ConnectionException',
+            'DeserializationException',
+            'ProtocolException',
+            'TimeoutException',
+        ],
+        'getLastPublishingId' => [],
+        'getLostConfirmCount' => [],
+        'getPendingConfirms' => [],
+        'getRedeclareCount' => [],
+        'isClosed' => [],
+        'isStale' => [],
+        'querySequence' => [
+            'ConnectionException',
+            'DeserializationException',
+            'InvalidArgumentException',
+            'ProtocolException',
+            'TimeoutException',
+            'UnexpectedResponseException',
+        ],
+        'send' => [
+            'ConnectionException',
+            'DeserializationException',
+            'InvalidArgumentException',
+            'ProtocolException',
+            'TimeoutException',
+        ],
+        'sendBatch' => [
+            'ConnectionException',
+            'DeserializationException',
+            'InvalidArgumentException',
+            'ProtocolException',
+            'TimeoutException',
+        ],
+        'sendWithFilter' => [
+            'ConnectionException',
+            'DeserializationException',
+            'InvalidArgumentException',
+            'ProtocolException',
+            'TimeoutException',
+        ],
+        'waitForConfirms' => [
+            'ConnectionException',
+            'DeserializationException',
+            'ProtocolException',
+            'TimeoutException',
+        ],
+    ];
 
     public function testEveryPublicMethodIsDocumented(): void
     {
@@ -127,6 +197,68 @@ class ProducerDocblockTest extends TestCase
             [],
             $unknown,
             "Documented @throws classes that do not exist:\n" . implode("\n", $unknown)
+        );
+    }
+
+    /**
+     * Pin the exact `@throws` set of every public method. This closes the
+     * "accuracy cannot be asserted reflexively" gap: a documented-but-wrong
+     * class is caught by testEveryDocumentedThrowsNamesARealClass, but a
+     * *missing* tag was previously invisible. Removing any expected tag (or
+     * adding an unexpected one) fails here, and a new public method without an
+     * entry in EXPECTED_THROWS fails too.
+     */
+    public function testEveryThrowingPublicMethodDeclaresItsExpectedThrows(): void
+    {
+        $actual = [];
+
+        foreach ((new \ReflectionClass(Producer::class))->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            $docblock = $method->getDocComment();
+            $throws = $docblock === false ? [] : $this->documentedThrows($docblock);
+            sort($throws);
+            $actual[$method->getName()] = $throws;
+        }
+        ksort($actual);
+
+        $expected = self::EXPECTED_THROWS;
+        foreach ($expected as &$throws) {
+            sort($throws);
+        }
+        unset($throws);
+        ksort($expected);
+
+        $mismatches = [];
+        foreach (array_unique(array_merge(array_keys($actual), array_keys($expected))) as $name) {
+            if (($actual[$name] ?? null) !== ($expected[$name] ?? null)) {
+                $mismatches[$name] = [
+                    'expected' => $expected[$name] ?? null,
+                    'actual' => $actual[$name] ?? null,
+                ];
+            }
+        }
+
+        $this->assertSame(
+            $expected,
+            $actual,
+            "Producer public methods whose documented @throws set does not match the expected set "
+                . "(update EXPECTED_THROWS if the real throw paths changed):\n"
+                . var_export($mismatches, true)
+        );
+    }
+
+    /**
+     * The `@throws` class names in a docblock, with a leading backslash
+     * stripped, in declaration order.
+     *
+     * @return list<string>
+     */
+    private function documentedThrows(string $docblock): array
+    {
+        preg_match_all('/@throws\s+([A-Za-z_\\\\][A-Za-z0-9_\\\\]*)/', $docblock, $matches);
+
+        return array_map(
+            static fn (string $name): string => ltrim($name, '\\'),
+            $matches[1]
         );
     }
 

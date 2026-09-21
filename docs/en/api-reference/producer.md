@@ -237,7 +237,6 @@ None
 
 - `ConnectionException` - If the socket is not connected or the `DeletePublisher` write/read fails
 - `DeserializationException` - If a response or server-push frame read while draining confirms cannot be deserialized
-- `InvalidArgumentException` - If the serialized `DeletePublisher` request exceeds the negotiated outgoing frame size
 - `ProtocolException` - If the `DeletePublisher` response has an unexpected version or command
 - `TimeoutException` - If the `DeletePublisher` response does not arrive in time
 
@@ -298,6 +297,7 @@ public function waitForConfirms(float $timeout = 5.0): void
 - `TimeoutException` - If timeout is reached before all confirms received
 - `ConnectionException` - If the socket is not connected or a read fails
 - `DeserializationException` - If a `PublishConfirm`/`PublishError` or other frame read while waiting cannot be deserialized
+- `ProtocolException` - If a server-push frame read while waiting has an unexpected version or command
 
 #### Example
 
@@ -348,14 +348,14 @@ before any `send()` (see Notes).
 ```php
 // Anonymous producer
 $producer->send('Message 1');
-$id1 = $producer->getLastPublishingId(); // 1
+$id1 = $producer->getLastPublishingId(); // 0
 
 $producer->send('Message 2');
-$id2 = $producer->getLastPublishingId(); // 2
+$id2 = $producer->getLastPublishingId(); // 1
 
 // Batch publishing
 $producer->sendBatch(['A', 'B', 'C']);
-$id3 = $producer->getLastPublishingId(); // 5 (2 + 3 messages)
+$id3 = $producer->getLastPublishingId(); // 4 (1 + 3 messages)
 ```
 
 #### Notes
@@ -367,7 +367,8 @@ $id3 = $producer->getLastPublishingId(); // 5 (2 + 3 messages)
   last confirmed sequence (`0` when the broker stored nothing) rather than
   `null`. It is `null` only for an anonymous producer that has not sent yet.
 - For named producers, this is automatically managed based on `querySequence()`
-- Publishing IDs start at 1 for unnamed producers
+- Publishing IDs start at 0 for unnamed producers (the first `send()` uses id
+  `0`, so `getLastPublishingId()` is `null` before it and `0` after)
 - Publishing IDs start at `querySequence() + 1` for named producers, which is
   why a named producer's first `send()` uses `querySequence() + 1` and dedup
   resumes correctly after a reconnect
@@ -519,7 +520,7 @@ None
 
 #### Exceptions
 
-- `InvalidArgumentException` - If called on an unnamed producer
+- `InvalidArgumentException` - If called on an unnamed producer (a `null` or `""` name)
 - `ConnectionException` - If the socket is not connected or the exchange fails
 - `DeserializationException` - If the response frame cannot be deserialized
 - `ProtocolException` - If the broker answers with a non-OK response code
@@ -539,7 +540,7 @@ echo "Server has confirmed up to ID: {$lastConfirmed}";
 
 #### Notes
 
-- Only available for named producers (throws exception for anonymous producers)
+- Only available for named producers (throws `InvalidArgumentException` for anonymous producers, i.e. a `null` or `""` name)
 - Automatically called during producer construction for named producers
 - Used for deduplication: messages with ID ≤ returned value are duplicates
 - Makes a round-trip to the server

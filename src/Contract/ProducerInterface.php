@@ -68,7 +68,6 @@ interface ProducerInterface
      * @throws ConnectionException If the socket is not connected or a write/read fails.
      * @throws DeserializationException If a frame read while draining confirms
      *                          cannot be deserialized.
-     * @throws InvalidArgumentException If the serialized request exceeds the frame size limit.
      * @throws ProtocolException If the broker sends an unexpected response frame.
      * @throws TimeoutException If the DeletePublisher response does not arrive in time.
      */
@@ -81,6 +80,7 @@ interface ProducerInterface
      * @throws TimeoutException If confirms are still outstanding when $timeout expires.
      * @throws ConnectionException If the socket is not connected or a read fails.
      * @throws DeserializationException If a frame read while waiting cannot be deserialized.
+     * @throws ProtocolException If a server-push frame read while waiting has an unexpected version or command.
      */
     public function waitForConfirms(float $timeout = 5.0): void;
 
@@ -100,7 +100,7 @@ interface ProducerInterface
      * Query the broker for this named producer's last confirmed publishing id.
      *
      * @return int Highest publishing id confirmed for this producer's name.
-     * @throws InvalidArgumentException If this is an anonymous producer (no name).
+     * @throws InvalidArgumentException If this is an anonymous producer (a `null` or `""` name).
      * @throws ConnectionException If the socket is not connected or the exchange fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws ProtocolException If the broker answers with a non-OK response code.

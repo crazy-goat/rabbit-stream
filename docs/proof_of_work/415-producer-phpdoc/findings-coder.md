@@ -59,8 +59,8 @@
   passes. It fails if a public `Producer` method loses its docblock, prose
   description, a `@param`, a described `@return`, or documents a `@throws`
   class/interface that does not exist.
-- Unit: `./vendor/bin/phpunit --testsuite unit` → OK (1240 tests, 8794
-  assertions).
+- Unit: `./vendor/bin/phpunit --testsuite unit` → OK (1240 tests, 8790
+  assertions at the time of writing; assertion counts vary by PHP version).
 - Lint: `composer lint` (PHPCS PSR-12 + Rector dry-run + PHPStan level 9 +
   kb-lint + docs link check + test-suite coverage) → OK. Rector's dry run
   made no changes, confirming the `@return` descriptions survive the
