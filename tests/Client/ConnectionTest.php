@@ -11,11 +11,15 @@ use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
+use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
+use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
+use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
+use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
@@ -1022,6 +1026,125 @@ class ConnectionTest extends TestCase
         $this->expectException(ConnectionException::class);
         $this->expectExceptionMessageMatches('/all 256 ids of this connection are in use/');
         $connection->createConsumer('stream', OffsetSpec::first());
+    }
+
+    // ---------------------------------------------------------------------
+    // A handle the user closed must not be closed a second time by
+    // Connection::close() (#463): the connection drops it from its map and the
+    // handle itself is idempotent, so no second DeletePublisher/Unsubscribe is
+    // ever put on the wire during an orderly shutdown.
+    // ---------------------------------------------------------------------
+
+    public function testConnectionCloseDoesNotReCloseAProducerTheUserAlreadyClosed(): void
+    {
+        $declares = 0;
+        $deletes = 0;
+        $closes = 0;
+
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerPublisher');
+        $streamConnection->method('registerMetadataUpdateHandler');
+        $streamConnection->method('unregisterPublisher');
+        $streamConnection->method('unregisterMetadataUpdateHandler');
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$declares, &$deletes, &$closes): void {
+                if ($request instanceof DeclarePublisherRequestV1) {
+                    $declares++;
+                }
+                if ($request instanceof DeletePublisherRequestV1) {
+                    $deletes++;
+                }
+                if ($request instanceof CloseRequestV1) {
+                    $closes++;
+                }
+            });
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $producer = $connection->createProducer('test-stream');
+        $this->assertInstanceOf(Producer::class, $producer);
+        $this->assertSame(1, $declares);
+
+        $producer->close();
+        $this->assertTrue($producer->isClosed());
+        $this->assertSame(1, $deletes, 'Closing the handle sends exactly one DeletePublisher');
+        $this->assertSame(
+            [],
+            $this->producersOf($connection),
+            'A user-closed producer must be dropped from the connection map'
+        );
+
+        // The regression under test: closing the connection iterates its handle
+        // map. If the map still held the closed producer, or the producer lacked
+        // its idempotency guard, a second DeletePublisher would go out here.
+        $connection->close();
+        $this->assertSame(1, $deletes, 'Connection::close() must not re-close a user-closed producer');
+        $this->assertSame(1, $closes, 'Connection::close() still performs its own Close exchange');
+
+        // A double handle close stays a no-op, even after the connection closed.
+        $producer->close();
+        $this->assertSame(1, $deletes, 'A second producer close() must not send another DeletePublisher');
+    }
+
+    public function testConnectionCloseDoesNotReCloseAConsumerTheUserAlreadyClosed(): void
+    {
+        $subscribes = 0;
+        $unsubscribes = 0;
+        $closes = 0;
+
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerSubscriber');
+        $streamConnection->method('registerMetadataUpdateHandler');
+        $streamConnection->method('unregisterSubscriber');
+        $streamConnection->method('unregisterMetadataUpdateHandler');
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use (&$subscribes, &$unsubscribes): CloseResponseV1 {
+                if ($request instanceof SubscribeRequestV1) {
+                    $subscribes++;
+                }
+                if ($request instanceof UnsubscribeRequestV1) {
+                    $unsubscribes++;
+                }
+                return new CloseResponseV1();
+            });
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$closes): void {
+                if ($request instanceof CloseRequestV1) {
+                    $closes++;
+                }
+            });
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $consumer = $connection->createConsumer('test-stream', OffsetSpec::first());
+        $this->assertInstanceOf(Consumer::class, $consumer);
+        $this->assertSame(1, $subscribes);
+
+        $consumer->close();
+        $this->assertTrue($consumer->isClosed());
+        $this->assertSame(1, $unsubscribes, 'Closing the handle sends exactly one Unsubscribe');
+        $this->assertSame(
+            [],
+            $this->consumersOf($connection),
+            'A user-closed consumer must be dropped from the connection map'
+        );
+
+        // The regression under test: closing the connection iterates its handle
+        // map. If the map still held the closed consumer, or the consumer lacked
+        // its idempotency guard, a second Unsubscribe would go out here.
+        $connection->close();
+        $this->assertSame(1, $unsubscribes, 'Connection::close() must not re-close a user-closed consumer');
+        $this->assertSame(1, $closes, 'Connection::close() still performs its own Close exchange');
+
+        // A double handle close stays a no-op, even after the connection closed.
+        $consumer->close();
+        $this->assertSame(1, $unsubscribes, 'A second consumer close() must not send another Unsubscribe');
     }
 
     private function mockForProducers(): StreamConnection
