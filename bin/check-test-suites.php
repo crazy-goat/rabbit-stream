@@ -18,8 +18,17 @@ declare(strict_types=1);
  * that no longer exists on disk — so a rename cannot silently leave the suite
  * pointing at nothing.
  *
- * Usage: php bin/check-test-suites.php [phpunit.xml]
- * Exit codes: 0 clean, 1 uncovered/stale paths, 2 usage error.
+ * Usage: php bin/check-test-suites.php [phpunit.xml | directory]
+ * Exit codes: 0 clean, 1 uncovered/stale paths, 2 usage/config error.
+ *
+ * Config resolution matches PHPUnit's own precedence: `phpunit.xml` wins over
+ * `phpunit.xml.dist`. An explicit argument is used as-is when it names a file;
+ * when it names a directory, the `phpunit.xml` / `phpunit.xml.dist` pair is
+ * looked up inside it. With no argument the same lookup runs against the
+ * repository root (the script's parent directory), so the script is
+ * independent of the current working directory. Relative `<directory>`/`<file>`
+ * entries and the `tests/` discovery root are resolved against the config's own
+ * directory, not the repository root.
  *
  * Assumes the repository's conventions: tests live under `tests/`, are named
  * `*Test.php`, and the allow-lists are plain `<directory>`/`<file>` entries
@@ -28,13 +37,35 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__);
-$configPath = $argv[1] ?? $root . '/phpunit.xml';
 
-if (!is_file($configPath)) {
-    fwrite(STDERR, "check-test-suites: phpunit config not found: {$configPath}\n");
-    fwrite(STDERR, "Usage: php bin/check-test-suites.php [phpunit.xml]\n");
+/**
+ * Prefer `phpunit.xml`, fall back to `phpunit.xml.dist` (PHPUnit precedence).
+ * Returns null when neither exists directly under $base.
+ */
+$resolveConfig = static function (string $base): ?string {
+    $base = rtrim($base, '/');
+    foreach (['phpunit.xml', 'phpunit.xml.dist'] as $name) {
+        if (is_file($base . '/' . $name)) {
+            return $base . '/' . $name;
+        }
+    }
+    return null;
+};
+
+$configArg = $argv[1] ?? null;
+$configPath = $configArg === null
+    ? $resolveConfig($root)
+    : (is_dir($configArg) ? $resolveConfig($configArg) : $configArg);
+
+if ($configPath === null || !is_file($configPath)) {
+    $requested = $configArg ?? $root;
+    fwrite(STDERR, "check-test-suites: phpunit config not found for {$requested}\n");
+    fwrite(STDERR, "Usage: php bin/check-test-suites.php [phpunit.xml | directory]\n");
     exit(2);
 }
+
+$configPath = realpath($configPath) ?: $configPath;
+$configDir = dirname($configPath);
 
 $dom = new DOMDocument();
 if (!@$dom->load($configPath)) {
@@ -98,9 +129,9 @@ $isCovered = static function (string $file, array $allowList): bool {
     return false;
 };
 
-$testsDir = $root . '/tests';
+$testsDir = $configDir . '/tests';
 if (!is_dir($testsDir)) {
-    fwrite(STDERR, "check-test-suites: no tests/ directory under {$root}\n");
+    fwrite(STDERR, "check-test-suites: no tests/ directory under {$configDir}\n");
     exit(2);
 }
 
@@ -117,7 +148,7 @@ foreach ($iterator as $file) {
         continue;
     }
     $discovered[] = ltrim(
-        str_replace('\\', '/', substr($file->getPathname(), strlen($root))),
+        str_replace('\\', '/', substr($file->getPathname(), strlen($configDir))),
         '/'
     );
 }
@@ -130,7 +161,7 @@ $uncovered = array_values(array_filter(
 
 $stale = [];
 foreach ($allowList as $entry) {
-    $absolute = $root . '/' . $entry['path'];
+    $absolute = $configDir . '/' . $entry['path'];
     $exists = $entry['type'] === 'file' ? is_file($absolute) : is_dir($absolute);
     if (!$exists) {
         $stale[] = sprintf(

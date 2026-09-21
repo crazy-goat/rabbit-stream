@@ -70,9 +70,17 @@ The script parses `phpunit.xml` and diffs the union of all suites'
 Parsing the config instead of hard-coding paths keeps the gate in sync
 automatically. Runs inside `composer lint` and as a step in the CI `lint` job.
 
+Config resolution follows PHPUnit's precedence: `phpunit.xml` wins over
+`phpunit.xml.dist`. An explicit argument may name a config file, or a directory
+in which the `phpunit.xml` / `phpunit.xml.dist` pair is looked up. Relative
+`<directory>`/`<file>` entries and the `tests/` discovery root resolve against
+the config's own directory, so the invocation is independent of the current
+working directory.
+
 ```bash
-php bin/check-test-suites.php                  # uses ./phpunit.xml
+php bin/check-test-suites.php                  # repo root, phpunit.xml then .dist
 php bin/check-test-suites.php path/to/phpunit.xml
+php bin/check-test-suites.php path/to/config-dir
 ```
 
 Exit codes: `0` clean, `1` uncovered test file(s) or stale allow-list

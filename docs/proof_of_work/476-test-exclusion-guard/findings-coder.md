@@ -69,9 +69,14 @@ php bin/check-test-suites.php
 php bin/check-test-suites.php /tmp/phpunit-copy.xml
   → phpunit.xml allow-list entries that do not exist on disk: tests/DoesNotExist (exit 1)
 
-./vendor/bin/phpunit --testsuite unit  → OK (1234 tests, 8775 assertions)
+./vendor/bin/phpunit --testsuite unit  → OK (1234 tests, 8779 assertions)
 composer lint                          → OK (phpcs, rector, phpstan L9, kb-lint, docs links, suite coverage)
 ```
+
+> Correction (round-1 review NIT): the assertion count above is **8779**, not
+> 8775. The 1234 test count was correct. Round-1 verification adds
+> `tests/Util/CheckTestSuitesScriptTest.php` (3 tests), so the final branch runs
+> **1237 tests / 8782 assertions**.
 
 ## Candidate knowledge-base entries (for the retro; not written here)
 
