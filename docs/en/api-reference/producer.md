@@ -404,11 +404,12 @@ if ($producer->getLostConfirmCount() > 0) {
   `PublishConfirm`/`PublishError` frames. Anything still outstanding when that
   expires can never be confirmed, because the publisher id is released — the
   confirms are lost. Previously this happened silently (#522).
-- Each timeout also emits a `warning` log line naming the producer, stream and
-  the affected publishing ids, so operators can tell "the broker stopped
-  confirming" from "everything drained".
-- The counter is cumulative and survives repeated drains; `close()` is
-  idempotent, so it cannot double-count.
+- Each timeout also emits a `warning` log line naming the producer and stream,
+  the number of affected publishing ids, and a bounded prefix of them (at most
+  10 ids in the log context, regardless of how many were outstanding), so
+  operators can tell "the broker stopped confirming" from "everything drained".
+- The counter is not reset by `close()`; `close()` is idempotent, so it cannot
+  double-count.
 - The stranded ids are still visible through `getPendingConfirms()` after
   `close()`.
 - `waitForConfirms()` timing out does **not** increment this counter: those

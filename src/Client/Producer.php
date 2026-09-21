@@ -473,27 +473,38 @@ class Producer implements ProducerInterface
         // Bounded drain: leftover confirms after the timeout are lost. Do not
         // let them vanish silently — the caller is closing the producer and
         // will never see an onConfirm for them, so count them and log the
-        // count plus the affected publishing ids (GitHub #522).
+        // count plus a bounded prefix of the affected publishing ids (GitHub
+        // #522). The full id list can be unbounded in fire-and-forget mode
+        // (maxPendingConfirms: 0), so it must never reach the logger verbatim.
         if ($this->drainUntilZero(self::CLOSE_CONFIRM_DRAIN_TIMEOUT)) {
             return;
         }
 
         $lost = array_keys($this->pendingConfirms);
-        $this->lostConfirmCount += count($lost);
+        $lostCount = count($lost);
+        $this->lostConfirmCount += $lostCount;
+        $message = sprintf(
+            'Producer %d on stream "%s" closed after the %.1fs drain timeout with %d publish(es) '
+            . 'still unconfirmed; their confirms are lost',
+            $this->publisherId,
+            $this->stream,
+            self::CLOSE_CONFIRM_DRAIN_TIMEOUT,
+            $lostCount
+        );
+        if ($lostCount > StreamConnection::MAX_LOGGED_PUBLISHING_IDS) {
+            $message .= sprintf(
+                ' (%d publishing ids in total; only the first %d are logged)',
+                $lostCount,
+                StreamConnection::MAX_LOGGED_PUBLISHING_IDS
+            );
+        }
         $this->logger->warning(
-            sprintf(
-                'Producer %d on stream "%s" closed after the %.1fs drain timeout with %d publish(es) '
-                . 'still unconfirmed; their confirms are lost',
-                $this->publisherId,
-                $this->stream,
-                self::CLOSE_CONFIRM_DRAIN_TIMEOUT,
-                count($lost)
-            ),
+            $message,
             [
                 'publisherId' => $this->publisherId,
                 'stream' => $this->stream,
-                'lostCount' => count($lost),
-                'publishingIds' => $lost,
+                'lostCount' => $lostCount,
+                'publishingIds' => array_slice($lost, 0, StreamConnection::MAX_LOGGED_PUBLISHING_IDS),
             ]
         );
     }

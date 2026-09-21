@@ -928,6 +928,43 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    public function testUnregisteredPublishConfirmWarningContextIsBounded(): void
+    {
+        // F1 review round 1: a late PublishConfirm can be huge (8 bytes per id
+        // against an 8 MiB frame cap). The warning must carry the count plus a
+        // bounded prefix, never the whole list.
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        $total = StreamConnection::MAX_LOGGED_PUBLISHING_IDS * 4;
+        $content = pack('C', 99) . pack('N', $total);
+        for ($i = 0; $i < $total; ++$i) {
+            $content .= pack('J', 1000 + $i);
+        }
+        $frame = $this->buildFrame(0x0003, 1, $content);
+        fwrite($serverSocket, $frame);
+
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $contexts = $logger->warningContexts();
+        $this->assertCount(1, $contexts);
+        $this->assertSame($total, $contexts[0]['publishingIdCount']);
+        $ids = $contexts[0]['publishingIds'] ?? null;
+        assert(is_array($ids));
+        $this->assertCount(StreamConnection::MAX_LOGGED_PUBLISHING_IDS, $ids);
+        $this->assertSame(
+            range(1000, 1000 + StreamConnection::MAX_LOGGED_PUBLISHING_IDS - 1),
+            $ids
+        );
+        $this->assertStringContainsString('only the first', $logger->warningMessages()[0]);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
     public function testDispatchPublishErrorInvokesRegisteredCallback(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
@@ -1004,6 +1041,41 @@ class StreamConnectionTest extends TestCase
         $this->assertCount(1, $warnings);
         $this->assertStringContainsString('unregistered publisher id', $warnings[0]);
         $this->assertStringContainsString('PublishError', $warnings[0]);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testUnregisteredPublishErrorWarningContextIsBounded(): void
+    {
+        // F1 review round 1: same bound for the PublishError tombstone warning.
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        $total = StreamConnection::MAX_LOGGED_PUBLISHING_IDS * 4;
+        $content = pack('C', 99) . pack('N', $total);
+        for ($i = 0; $i < $total; ++$i) {
+            $content .= pack('J', 2000 + $i) . pack('n', 0x0002);
+        }
+        $frame = $this->buildFrame(0x0004, 1, $content);
+        fwrite($serverSocket, $frame);
+
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $contexts = $logger->warningContexts();
+        $this->assertCount(1, $contexts);
+        $this->assertSame($total, $contexts[0]['publishingIdCount']);
+        $ids = $contexts[0]['publishingIds'] ?? null;
+        assert(is_array($ids));
+        $this->assertCount(StreamConnection::MAX_LOGGED_PUBLISHING_IDS, $ids);
+        $this->assertSame(
+            range(2000, 2000 + StreamConnection::MAX_LOGGED_PUBLISHING_IDS - 1),
+            $ids
+        );
+        $this->assertStringContainsString('only the first', $logger->warningMessages()[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);

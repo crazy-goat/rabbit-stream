@@ -50,6 +50,22 @@ class RecordingLogger extends AbstractLogger
     }
 
     /**
+     * Return the PSR-3 context array of every warning-level record, in order.
+     *
+     * @return list<array<mixed>>
+     */
+    public function warningContexts(): array
+    {
+        return array_values(array_map(
+            static fn (array $r): array => $r['context'],
+            array_filter(
+                $this->records,
+                static fn (array $r): bool => $r['level'] === 'warning'
+            )
+        ));
+    }
+
+    /**
      * @return array<string>
      */
     private function messagesAtLevel(string $level): array

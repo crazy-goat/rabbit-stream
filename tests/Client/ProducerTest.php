@@ -1225,6 +1225,44 @@ class ProducerTest extends TestCase
         $this->assertStringContainsString('test-stream', $warnings[0]);
     }
 
+    public function testDrainTimeoutWarningContextIsBounded(): void
+    {
+        // F1 review round 1: in fire-and-forget mode (maxPendingConfirms: 0)
+        // the pending set is unbounded, so the warning must log the count plus
+        // only a bounded prefix of the stranded ids.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('registerMetadataUpdateHandler');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->atLeastOnce())->method('readLoop')->willReturn(0);
+
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            maxPendingConfirms: 0,
+            logger: $logger,
+        );
+
+        $total = StreamConnection::MAX_LOGGED_PUBLISHING_IDS * 3;
+        for ($i = 0; $i < $total; ++$i) {
+            $producer->send('msg' . $i);
+        }
+
+        $producer->close();
+
+        $this->assertSame($total, $producer->getLostConfirmCount());
+        $contexts = $logger->warningContexts();
+        $this->assertCount(1, $contexts);
+        $this->assertSame($total, $contexts[0]['lostCount']);
+        $ids = $contexts[0]['publishingIds'] ?? null;
+        assert(is_array($ids));
+        $this->assertCount(StreamConnection::MAX_LOGGED_PUBLISHING_IDS, $ids);
+        $this->assertStringContainsString('only the first', $logger->warningMessages()[0]);
+    }
+
     public function testDuplicateConfirmDoesNotLetWaitForConfirmsReturnEarly(): void
     {
         // Regression guard for #521: a duplicate confirm used to decrement the
