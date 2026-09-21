@@ -126,3 +126,53 @@ wrong, severity, what happened to it. Nothing is deleted.
 Round-2 gate: `bin/check-test-suites.php` exit `0` (149 files / 15 entries);
 `composer lint` exit `0`; `./vendor/bin/phpunit --testsuite unit` OK
 (1237 tests, 8782 assertions).
+
+## Round 2 — reviewer verification (HEAD `04a1d6f`)
+
+Full detail in `review-2.md`. Per-finding outcome:
+
+- **R1-1 (medium, pre-existing):** re-confirmed and **answered as out of scope**
+  — `ci.yml:85-95` still runs only `cs`/`rector`/`phpstan`/`test:suite-coverage`;
+  `grep -rn 'kb-lint\|check-docs-links' .github/` → no match. The #476 gate
+  **does** run in CI (`ci.yml:94-95`). Follow-up recorded.
+- **R1-2 (low, pre-existing):** re-confirmed and **answered as out of scope** —
+  `phpcs.xml.dist` files = `src`/`tests`/`examples`, `phpstan.neon` paths =
+  `src`/`tests`; no `bin/`.
+- **R1-3 (low, doc):** **fixed, verified** — `bin/check-test-suites.php:22` now
+  "`2` usage/config error", consistent with `bin/README.md:86-87` and the
+  exit-2 sources (`:60-65`, `:71-74`, `:105-108`, `:133-136`).
+- **R1-4 (low, latent):** **fixed, verified** — `.xml` precedence reproduced
+  (empty `.xml` beats valid `.dist` → exit 2); directory argument reproduced
+  (`php … <dir>` with `.dist`-only tree → exit 0); config-relative resolution
+  via `$configDir` at `:68/:132/:151/:164`; cwd independence reproduced from
+  `/tmp`. New test `tests/Util/CheckTestSuitesScriptTest.php` genuinely
+  discriminates and is itself inside `<directory>tests/Util</directory>`
+  (`phpunit.xml:17`); `find tests -name '*Test.php'` = 149 = gate count, so no
+  self-exemption. Standalone: `OK (3 tests, 7 assertions)`.
+- **R1-NIT (nit):** **corrected, verified** — `findings-coder.md:72-79` records
+  8779; base branch (`unit` minus new test) re-measured `1234 tests / 8779
+  assertions`. Caveat: the assertion total is nondeterministic (four runs:
+  8782/8786/8786/8782), isolated to the pre-existing, unrelated
+  `ConsumerTest::testReadWaitsThroughResubscribeBackoffAfterLostSubscription`
+  (143 vs 147 assertions). Test count 1237 is stable. Informational only.
+
+New-issue sweep (`git diff main...HEAD`): the `./`-strip, boundary match, union
+semantics, `<file>` exact match, reverse stale-check and `suffix`/`prefix`
+absence are unchanged and correct. Only informational nits, none high/medium/low:
+
+- **N2-1 (nit):** `<directory>/</directory>` rtrims to `''`, and `:125` then
+  covers everything. Pathological config, not present.
+- **N2-2 (nit):** absolute `<directory>`/`<file>` entries (legal PHPUnit) are
+  treated as config-relative and would neither be reported stale nor cover
+  anything. Not present; docblock could say "relative entries".
+- **N2-3 (nit):** the pre-existing nondeterministic assertion count in NIT
+  above.
+
+Independent failure proof re-run: uncovered temp file → lists the file, `1 test
+file(s) would never run in CI`, exit `1`; removal restores `149 … / 15 …`,
+exit `0`; `git status --porcelain` clean. `composer lint` exit `0`;
+`./vendor/bin/phpunit --testsuite unit` OK (1237 tests).
+
+**Open findings:** no new high/medium/low introduced by this PR. The only open
+items are the two accepted pre-existing out-of-scope follow-ups R1-1 (medium)
+and R1-2 (low); everything else is resolved or informational.
