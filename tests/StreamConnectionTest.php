@@ -854,7 +854,8 @@ class StreamConnectionTest extends TestCase
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
-        $connection = new StreamConnection('127.0.0.1', 5552);
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
 
         $receivedIds = [];
@@ -877,6 +878,11 @@ class StreamConnectionTest extends TestCase
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         $this->assertEquals([100, 200], $receivedIds);
+        $this->assertSame(
+            [],
+            $logger->warningMessages(),
+            'a confirm for a registered publisher must not warn (#522 regression guard)'
+        );
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -886,7 +892,8 @@ class StreamConnectionTest extends TestCase
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
-        $connection = new StreamConnection('127.0.0.1', 5552);
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
 
         $invokedCount = 0;
@@ -905,9 +912,17 @@ class StreamConnectionTest extends TestCase
         $frame = $this->buildFrame(0x0003, 1, $content);
         fwrite($serverSocket, $frame);
 
-        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        // The tombstone guard still drops the frame (no crash, no callback)...
+        $dispatched = $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
+        $this->assertSame(1, $dispatched, 'the frame must still be counted as dispatched');
         $this->assertEquals(0, $invokedCount);
+
+        // ...but GitHub #522 makes the drop observable instead of silent.
+        $warnings = $logger->warningMessages();
+        $this->assertCount(1, $warnings);
+        $this->assertStringContainsString('unregistered publisher id', $warnings[0]);
+        $this->assertStringContainsString('PublishConfirm', $warnings[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -917,7 +932,8 @@ class StreamConnectionTest extends TestCase
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
-        $connection = new StreamConnection('127.0.0.1', 5552);
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
 
         $receivedErrors = null;
@@ -943,6 +959,11 @@ class StreamConnectionTest extends TestCase
         $this->assertCount(1, $receivedErrors);
         $this->assertEquals(50, $receivedErrors[0]->getPublishingId());
         $this->assertEquals(0x0002, $receivedErrors[0]->getCode());
+        $this->assertSame(
+            [],
+            $logger->warningMessages(),
+            'an error for a registered publisher must not warn (#522 regression guard)'
+        );
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -952,7 +973,8 @@ class StreamConnectionTest extends TestCase
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
-        $connection = new StreamConnection('127.0.0.1', 5552);
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
 
         $callbackInvoked = false;
@@ -972,9 +994,16 @@ class StreamConnectionTest extends TestCase
         $frame = $this->buildFrame(0x0004, 1, $content);
         fwrite($serverSocket, $frame);
 
-        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        $dispatched = $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
+        $this->assertSame(1, $dispatched, 'the frame must still be counted as dispatched');
         $this->assertFalse($callbackInvoked);
+
+        // GitHub #522: the tombstone drop is now logged, not silent.
+        $warnings = $logger->warningMessages();
+        $this->assertCount(1, $warnings);
+        $this->assertStringContainsString('unregistered publisher id', $warnings[0]);
+        $this->assertStringContainsString('PublishError', $warnings[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);

@@ -25,6 +25,7 @@ use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\VO\PublishingError;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -1282,7 +1283,17 @@ class StreamConnection
         $publisherId = $confirm->getPublisherId();
         if (isset($this->publisherCallbacks[$publisherId])) {
             ($this->publisherCallbacks[$publisherId]['onConfirm'])($confirm->getPublishingIds());
+            return;
         }
+        // Intentional tombstone guard: the publisher id was unregistered (e.g.
+        // Producer::close() released it) or was never declared on this
+        // connection. The frame is not dispatched, but it must not vanish
+        // silently — every confirm on it is a lost confirm (GitHub #522).
+        $this->logger->warning('Dropping PublishConfirm frame for unregistered publisher id', [
+            'publisherId' => $publisherId,
+            'frame' => 'PublishConfirm',
+            'publishingIds' => $confirm->getPublishingIds(),
+        ]);
     }
 
     private function handlePublishError(ReadBuffer $frame): void
@@ -1294,7 +1305,18 @@ class StreamConnection
         $publisherId = $error->getPublisherId();
         if (isset($this->publisherCallbacks[$publisherId])) {
             ($this->publisherCallbacks[$publisherId]['onError'])($error->getErrors());
+            return;
         }
+        // See handlePublishConfirm(): intentional tombstone guard, logged so a
+        // dropped error frame is visible instead of silent (GitHub #522).
+        $this->logger->warning('Dropping PublishError frame for unregistered publisher id', [
+            'publisherId' => $publisherId,
+            'frame' => 'PublishError',
+            'publishingIds' => array_map(
+                static fn (PublishingError $e): int => $e->getPublishingId(),
+                $error->getErrors()
+            ),
+        ]);
     }
 
     private function handleDeliver(ReadBuffer $frame): void

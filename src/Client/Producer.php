@@ -21,6 +21,8 @@ use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * High-level publisher for one stream.
@@ -75,6 +77,16 @@ class Producer implements ProducerInterface
     private readonly ?\Closure $onClose;
     private bool $closed = false;
 
+    /**
+     * Cumulative number of unconfirmed publishes abandoned by a bounded
+     * close() drain timeout. Those confirms can never arrive (the publisher id
+     * is released), so they are reported here and at warning level instead of
+     * disappearing silently (GitHub #522).
+     */
+    private int $lostConfirmCount = 0;
+
+    private readonly LoggerInterface $logger;
+
     /** Set by a MetadataUpdate for our stream (or a fatal PublishError): the broker no longer knows this publisher. */
     private bool $stale = false;
     private ?int $staleCode = null;
@@ -89,12 +101,14 @@ class Producer implements ProducerInterface
         private readonly int $maxPendingConfirms = self::DEFAULT_MAX_PENDING_CONFIRMS,
         private readonly float $redeclareTimeout = self::DEFAULT_REDECLARE_TIMEOUT,
         ?callable $onClose = null,
+        ?LoggerInterface $logger = null,
     ) {
         if ($this->redeclareTimeout < 0) {
             throw new InvalidArgumentException('redeclareTimeout must be >= 0');
         }
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
+        $this->logger = $logger ?? new NullLogger();
         $this->declare();
         $this->initializePublishingId();
     }
@@ -450,13 +464,38 @@ class Producer implements ProducerInterface
      * frames decrement pendingConfirms instead of being dropped.
      *
      * Bounded: if the broker never confirms the in-flight messages within
-     * CLOSE_CONFIRM_DRAIN_TIMEOUT, close() gives up rather than hanging —
-     * the confirms for those messages are then simply lost.
+     * CLOSE_CONFIRM_DRAIN_TIMEOUT, close() gives up rather than hanging. The
+     * abandoned confirms are then lost, but they are counted in
+     * getLostConfirmCount() and logged at warning level (GitHub #522).
      */
     private function drainPendingConfirms(): void
     {
-        // Bounded drain: leftover confirms after the timeout are simply lost.
-        $this->drainUntilZero(self::CLOSE_CONFIRM_DRAIN_TIMEOUT);
+        // Bounded drain: leftover confirms after the timeout are lost. Do not
+        // let them vanish silently — the caller is closing the producer and
+        // will never see an onConfirm for them, so count them and log the
+        // count plus the affected publishing ids (GitHub #522).
+        if ($this->drainUntilZero(self::CLOSE_CONFIRM_DRAIN_TIMEOUT)) {
+            return;
+        }
+
+        $lost = array_keys($this->pendingConfirms);
+        $this->lostConfirmCount += count($lost);
+        $this->logger->warning(
+            sprintf(
+                'Producer %d on stream "%s" closed after the %.1fs drain timeout with %d publish(es) '
+                . 'still unconfirmed; their confirms are lost',
+                $this->publisherId,
+                $this->stream,
+                self::CLOSE_CONFIRM_DRAIN_TIMEOUT,
+                count($lost)
+            ),
+            [
+                'publisherId' => $this->publisherId,
+                'stream' => $this->stream,
+                'lostCount' => count($lost),
+                'publishingIds' => $lost,
+            ]
+        );
     }
 
     /**
@@ -504,6 +543,23 @@ class Producer implements ProducerInterface
     public function getPendingConfirms(): int
     {
         return count($this->pendingConfirms);
+    }
+
+    /**
+     * Cumulative number of publishes whose confirms were abandoned by a
+     * bounded close() drain timeout (GitHub #522).
+     *
+     * close() waits up to CLOSE_CONFIRM_DRAIN_TIMEOUT for in-flight
+     * PublishConfirm/PublishError frames; anything still outstanding when that
+     * expires can never be confirmed because the publisher id is released.
+     * Each such publish is logged at warning level and counted here, so an
+     * operator can tell "the broker stopped confirming" from "everything
+     * drained". The set of stranded ids is also still reported by
+     * getPendingConfirms() after close().
+     */
+    public function getLostConfirmCount(): int
+    {
+        return $this->lostConfirmCount;
     }
 
     public function querySequence(): int

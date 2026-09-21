@@ -19,6 +19,9 @@ class Producer
     public function getLastPublishingId(): ?int;
     public function querySequence(): int;
     public function getPendingConfirms(): int;
+    public function getLostConfirmCount(): int;
+    public function isStale(): bool;
+    public function getRedeclareCount(): int;
 }
 ```
 
@@ -362,6 +365,54 @@ echo $producer->getPendingConfirms(); // 0
 - Tracked per publishing id, not as a bare counter (since #521): a duplicate or late `PublishConfirm`/`PublishError` for an id that has already been retired is ignored, so `waitForConfirms()` cannot return while messages are still unconfirmed and a `MetadataUpdate` that makes the producer stale (`isStale()` returns `true`) reports exactly the still-outstanding ids as failed
 - Tracked as a set, so bookkeeping is O(outstanding) rather than O(1): with `maxPendingConfirms: 0` it grows until confirms are drained (see [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms))
 - Useful for custom throttling or metrics alongside `maxPendingConfirms`
+
+---
+
+### getLostConfirmCount()
+
+Cumulative number of publishes whose confirms were abandoned by the bounded
+`close()` drain timeout (since #522).
+
+```php
+public function getLostConfirmCount(): int
+```
+
+#### Parameters
+
+None
+
+#### Return Value
+
+`int` - Total number of publishes lost to drain timeouts over this producer's
+lifetime (0 in normal operation)
+
+#### Example
+
+```php
+$producer->send('Message 1');
+$producer->close();
+
+if ($producer->getLostConfirmCount() > 0) {
+    // The broker stopped confirming before the 2 s drain expired: these
+    // publishes may or may not have reached the broker.
+}
+```
+
+#### Notes
+
+- `close()` waits up to 2 s (`CLOSE_CONFIRM_DRAIN_TIMEOUT`) for in-flight
+  `PublishConfirm`/`PublishError` frames. Anything still outstanding when that
+  expires can never be confirmed, because the publisher id is released — the
+  confirms are lost. Previously this happened silently (#522).
+- Each timeout also emits a `warning` log line naming the producer, stream and
+  the affected publishing ids, so operators can tell "the broker stopped
+  confirming" from "everything drained".
+- The counter is cumulative and survives repeated drains; `close()` is
+  idempotent, so it cannot double-count.
+- The stranded ids are still visible through `getPendingConfirms()` after
+  `close()`.
+- `waitForConfirms()` timing out does **not** increment this counter: those
+  confirms belong to a still-open producer and can still arrive.
 
 ---
 

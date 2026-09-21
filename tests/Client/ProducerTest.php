@@ -21,6 +21,7 @@ use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedClosures;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedObjects;
+use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
 use CrazyGoat\RabbitStream\VO\PublishingError;
 use PHPUnit\Framework\TestCase;
 
@@ -1184,7 +1185,8 @@ class ProducerTest extends TestCase
     {
         // Review round 1 finding: the timeout path of the bounded drain was
         // untested — a broker that stops confirming must not hang close()
-        // forever, and the leftover pendingConfirms are silently lost.
+        // forever. GitHub #522 added the observability that turns the silent
+        // loss into a warning log plus a counter.
         $connection = $this->createMock(StreamConnection::class);
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
@@ -1201,8 +1203,11 @@ class ProducerTest extends TestCase
             ->method('readLoop')
             ->willReturn(0);
 
-        $producer = new Producer($connection, 'test-stream', 1);
+        $logger = new RecordingLogger();
+        $producer = new Producer($connection, 'test-stream', 1, logger: $logger);
         $producer->send('msg1');
+
+        $this->assertSame(0, $producer->getLostConfirmCount(), 'nothing lost before close()');
 
         $start = microtime(true);
         $producer->close();
@@ -1210,6 +1215,14 @@ class ProducerTest extends TestCase
 
         $this->assertSame(1, $producer->getPendingConfirms(), 'the unconfirmed message stays pending');
         $this->assertLessThan(5.0, $elapsed, 'close() must not wait much longer than the 2s drain timeout');
+
+        // GitHub #522: the abandoned confirm is counted and logged.
+        $this->assertSame(1, $producer->getLostConfirmCount(), 'the drained-out confirm must be recorded');
+        $warnings = $logger->warningMessages();
+        $this->assertCount(1, $warnings, 'the drain timeout must emit exactly one warning');
+        $this->assertStringContainsString('drain timeout', $warnings[0]);
+        $this->assertStringContainsString('unconfirmed', $warnings[0]);
+        $this->assertStringContainsString('test-stream', $warnings[0]);
     }
 
     public function testDuplicateConfirmDoesNotLetWaitForConfirmsReturnEarly(): void

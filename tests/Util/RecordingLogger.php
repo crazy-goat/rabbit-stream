@@ -36,12 +36,30 @@ class RecordingLogger extends AbstractLogger
      */
     public function debugMessages(): array
     {
-        return array_map(
+        return $this->messagesAtLevel('debug');
+    }
+
+    /**
+     * Return all warning-level message strings in order.
+     *
+     * @return array<string>
+     */
+    public function warningMessages(): array
+    {
+        return $this->messagesAtLevel('warning');
+    }
+
+    /**
+     * @return array<string>
+     */
+    private function messagesAtLevel(string $level): array
+    {
+        return array_values(array_map(
             static fn (array $r): string => $r['message'],
             array_filter(
                 $this->records,
-                static fn (array $r): bool => $r['level'] === 'debug'
+                static fn (array $r): bool => $r['level'] === $level
             )
-        );
+        ));
     }
 }
