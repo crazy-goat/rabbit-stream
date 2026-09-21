@@ -193,3 +193,72 @@ All five findings and the nit are addressed. See
 
 **Verdict: converged — all round-1 findings resolved.**
 
+---
+
+## Round 2 — review verification
+
+Reviewed HEAD `e7004c1`. Full evidence in `review-2.md`. All five findings and
+the nit were re-verified against the current tree.
+
+- `src/Client/Producer.php:688-691` + `docs/en/api-reference/producer.md:355-374`
+  + `CHANGELOG.md` | **RESOLVED (round-1 medium).** Anonymous publishing ids are
+  now documented **0-based** everywhere: docblock first publish id `0`, example
+  `id1 // 0` / `id2 // 1` / `id3 // 4`, "Publishing IDs start at 0 for unnamed
+  producers". Matches `ProducerTest.php:289/292` (`0`/`1`) and
+  `E2E/ProducerTest.php:86/89` (`0`/`2`). Repo-wide grep finds no remaining
+  "start at 1" claim. | — | Closed.
+- `src/Client/Producer.php:666-667`, `src/Contract/ProducerInterface.php:79`,
+  `producer.md:298` | **RESOLVED (round-1 low).** `waitForConfirms()` now
+  declares `ProtocolException` in class, interface, API reference and CHANGELOG;
+  `EXPECTED_THROWS` pins it. | — | Closed.
+- `src/Client/Producer.php:528-536`, `ProducerInterface.php:64-67`,
+  `producer.md:237-240` | **RESOLVED (round-1 low).** `close()` no longer
+  declares `InvalidArgumentException` anywhere. | — | Closed.
+- `src/Client/Producer.php:757` | **RESOLVED (round-1 low).** `querySequence()`
+  rejects `null` and `''`; consistent with `initializePublishingId()` (`:268`)
+  and wire-safe because `DeclarePublisherRequestV1` serializes
+  `null` as `''` (`DeclarePublisherRequestV1.php:38`). New test
+  `ProducerTest::testQuerySequenceThrowsForEmptyNameProducer` pins it. | — |
+  Closed.
+- `tests/Client/ProducerDocblockTest.php:42-98,211-247` | **RESOLVED (round-1
+  low).** New `testEveryThrowingPublicMethodDeclaresItsExpectedThrows` +
+  `EXPECTED_THROWS` map compares the exact `@throws` set per public method with
+  `assertSame`. Verified in a throwaway copy: removing `ProtocolException` from
+  `waitForConfirms()`, removing `InvalidArgumentException` from `send()`, and
+  adding an unexpected tag each fail. | — | Closed.
+- `docs/proof_of_work/415-producer-phpdoc/findings-coder.md:62` /
+  `code-decision-2.md:82` | Measured **1242 tests, 8793 assertions**; the docs
+  say 8790 / 8797. Test count matches; assertion count varies by PHP version
+  (PHP 8.5.10 here). | **nit** | Open; cosmetic, no action.
+
+### New-issue sweep
+
+No new high/medium/low. The only production change is the one-condition
+`querySequence()` fix (§4), correctly recorded under `### Fixed` in the
+CHANGELOG and covered by a test. `createProducer()`'s documented signature
+matches `Connection.php:949-955`, the referenced constants are public
+(`Producer.php:54-55`), and all new docs anchors pass the link checker. The
+dated `docs/plans/**` design sketches still use the old `-1` sentinel but
+predate the branch and are outside the deliverable.
+
+### Local QA (HEAD `e7004c1`, clean tree)
+
+- `composer lint` — passed (PHPCS PSR-12, Rector dry-run 0 changes, PHPStan
+  level 9, kb-lint, docs links, suite coverage).
+- `./vendor/bin/phpunit --testsuite unit` — passed (1242 tests, 8793
+  assertions, ~9.5 s).
+- `./vendor/bin/phpunit tests/Client/ProducerDocblockTest.php` — passed (4 tests,
+  9 assertions).
+- `./run-e2e.sh` (Docker available) — passed (147 tests, 3059 assertions).
+- Mutation checks in a throwaway copy — required `@throws` omissions/additions
+  fail the new gate.
+
+## Round 2 summary
+
+- high: 0
+- medium: 0
+- low: 0
+- nit: 1 (assertion counts; PHP-version variance)
+
+**Verdict: CONVERGED — no open high/medium/low findings.**
+
