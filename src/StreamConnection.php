@@ -25,6 +25,7 @@ use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\VO\PublishingError;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -103,6 +104,20 @@ class StreamConnection
     ];
 
     public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
+
+    /**
+     * Maximum number of publishing ids embedded in a PSR-3 warning context.
+     *
+     * A late PublishConfirm/PublishError can carry roughly 1,000,000 ids within
+     * DEFAULT_MAX_FRAME_SIZE, so the complete list must never reach the logger:
+     * a single record would scale with the frame and can spike log processors
+     * or in-memory handlers. The warning logs the total count plus this bounded
+     * prefix, which is enough to diagnose a dropped frame (#522).
+     *
+     * Producer::drainPendingConfirms() reuses this bound so both log sites stay
+     * consistent.
+     */
+    public const MAX_LOGGED_PUBLISHING_IDS = 10;
 
     /**
      * Outgoing frame size ceiling enforced by the broker until Open completes.
@@ -1282,7 +1297,24 @@ class StreamConnection
         $publisherId = $confirm->getPublisherId();
         if (isset($this->publisherCallbacks[$publisherId])) {
             ($this->publisherCallbacks[$publisherId]['onConfirm'])($confirm->getPublishingIds());
+            return;
         }
+        // Intentional tombstone guard: the publisher id was unregistered (e.g.
+        // Producer::close() released it) or was never declared on this
+        // connection. The frame is not dispatched, but it must not vanish
+        // silently — every confirm on it is a lost confirm (GitHub #522).
+        $publishingIds = $confirm->getPublishingIds();
+        $count = count($publishingIds);
+        $this->logger->warning(
+            'Dropping PublishConfirm frame for unregistered publisher id'
+            . $this->publishingIdTruncationNote($count),
+            [
+                'publisherId' => $publisherId,
+                'frame' => 'PublishConfirm',
+                'publishingIdCount' => $count,
+                'publishingIds' => array_slice($publishingIds, 0, self::MAX_LOGGED_PUBLISHING_IDS),
+            ]
+        );
     }
 
     private function handlePublishError(ReadBuffer $frame): void
@@ -1294,7 +1326,42 @@ class StreamConnection
         $publisherId = $error->getPublisherId();
         if (isset($this->publisherCallbacks[$publisherId])) {
             ($this->publisherCallbacks[$publisherId]['onError'])($error->getErrors());
+            return;
         }
+        // See handlePublishConfirm(): intentional tombstone guard, logged so a
+        // dropped error frame is visible instead of silent (GitHub #522).
+        $errors = $error->getErrors();
+        $count = count($errors);
+        $this->logger->warning(
+            'Dropping PublishError frame for unregistered publisher id'
+            . $this->publishingIdTruncationNote($count),
+            [
+                'publisherId' => $publisherId,
+                'frame' => 'PublishError',
+                'publishingIdCount' => $count,
+                'publishingIds' => array_map(
+                    static fn (PublishingError $e): int => $e->getPublishingId(),
+                    array_slice($errors, 0, self::MAX_LOGGED_PUBLISHING_IDS)
+                ),
+            ]
+        );
+    }
+
+    /**
+     * Human-readable suffix for a dropped-frame warning: empty while every id
+     * fits in the context, otherwise states how many were left out (#522).
+     */
+    private function publishingIdTruncationNote(int $count): string
+    {
+        if ($count <= self::MAX_LOGGED_PUBLISHING_IDS) {
+            return '';
+        }
+
+        return sprintf(
+            ' (%d publishing ids in total; only the first %d are logged)',
+            $count,
+            self::MAX_LOGGED_PUBLISHING_IDS
+        );
     }
 
     private function handleDeliver(ReadBuffer $frame): void

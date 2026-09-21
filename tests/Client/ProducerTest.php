@@ -21,6 +21,7 @@ use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedClosures;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedObjects;
+use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
 use CrazyGoat\RabbitStream\VO\PublishingError;
 use PHPUnit\Framework\TestCase;
 
@@ -1184,7 +1185,8 @@ class ProducerTest extends TestCase
     {
         // Review round 1 finding: the timeout path of the bounded drain was
         // untested — a broker that stops confirming must not hang close()
-        // forever, and the leftover pendingConfirms are silently lost.
+        // forever. GitHub #522 added the observability that turns the silent
+        // loss into a warning log plus a counter.
         $connection = $this->createMock(StreamConnection::class);
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
@@ -1201,8 +1203,11 @@ class ProducerTest extends TestCase
             ->method('readLoop')
             ->willReturn(0);
 
-        $producer = new Producer($connection, 'test-stream', 1);
+        $logger = new RecordingLogger();
+        $producer = new Producer($connection, 'test-stream', 1, logger: $logger);
         $producer->send('msg1');
+
+        $this->assertSame(0, $producer->getLostConfirmCount(), 'nothing lost before close()');
 
         $start = microtime(true);
         $producer->close();
@@ -1210,6 +1215,52 @@ class ProducerTest extends TestCase
 
         $this->assertSame(1, $producer->getPendingConfirms(), 'the unconfirmed message stays pending');
         $this->assertLessThan(5.0, $elapsed, 'close() must not wait much longer than the 2s drain timeout');
+
+        // GitHub #522: the abandoned confirm is counted and logged.
+        $this->assertSame(1, $producer->getLostConfirmCount(), 'the drained-out confirm must be recorded');
+        $warnings = $logger->warningMessages();
+        $this->assertCount(1, $warnings, 'the drain timeout must emit exactly one warning');
+        $this->assertStringContainsString('drain timeout', $warnings[0]);
+        $this->assertStringContainsString('unconfirmed', $warnings[0]);
+        $this->assertStringContainsString('test-stream', $warnings[0]);
+    }
+
+    public function testDrainTimeoutWarningContextIsBounded(): void
+    {
+        // F1 review round 1: in fire-and-forget mode (maxPendingConfirms: 0)
+        // the pending set is unbounded, so the warning must log the count plus
+        // only a bounded prefix of the stranded ids.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('registerMetadataUpdateHandler');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->atLeastOnce())->method('readLoop')->willReturn(0);
+
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            maxPendingConfirms: 0,
+            logger: $logger,
+        );
+
+        $total = StreamConnection::MAX_LOGGED_PUBLISHING_IDS * 3;
+        for ($i = 0; $i < $total; ++$i) {
+            $producer->send('msg' . $i);
+        }
+
+        $producer->close();
+
+        $this->assertSame($total, $producer->getLostConfirmCount());
+        $contexts = $logger->warningContexts();
+        $this->assertCount(1, $contexts);
+        $this->assertSame($total, $contexts[0]['lostCount']);
+        $ids = $contexts[0]['publishingIds'] ?? null;
+        assert(is_array($ids));
+        $this->assertCount(StreamConnection::MAX_LOGGED_PUBLISHING_IDS, $ids);
+        $this->assertStringContainsString('only the first', $logger->warningMessages()[0]);
     }
 
     public function testDuplicateConfirmDoesNotLetWaitForConfirmsReturnEarly(): void

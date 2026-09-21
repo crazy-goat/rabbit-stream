@@ -986,6 +986,7 @@ class Connection implements ConnectionInterface
             onClose: function (int $id): void {
                 unset($this->producers[$id]);
             },
+            logger: $this->logger,
         );
         $this->producers[$publisherId] = $producer;
         return $producer;

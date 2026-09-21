@@ -207,6 +207,17 @@ $connection->registerPublisher(
 );
 ```
 
+**Dropped frames for unregistered publishers (since #522):** a
+`PublishConfirm` or `PublishError` whose publisher id was unregistered (for
+example the id was released by `Producer::close()`) or was never declared is
+**not** dispatched — the `isset()` guard is intentional, so a tombstoned
+producer cannot receive a late frame. The frame is not silently discarded any
+more: `StreamConnection` logs it at `warning` level with the publisher id and
+the frame type (`PublishConfirm`/`PublishError`) plus the affected publishing
+ids. A healthy tombstone race and a real dispatch problem can therefore be
+told apart from the logs. The guard and the dispatch order are otherwise
+unchanged; the frame still counts as dispatched by `readLoop()`.
+
 ### registerSubscriber()
 
 Registers a callback for message delivery frames.
