@@ -23,6 +23,7 @@ use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
@@ -163,6 +164,18 @@ class StreamConnection
      * {@see InvalidArgumentException} contract (see #379).
      */
     private int $preOpenMaxFrameSize = 0;
+
+    /**
+     * Per-command version ranges the broker reported in the
+     * ExchangeCommandVersions handshake, keyed by protocol command key.
+     *
+     * Empty until {@see setCommandVersions()} is called (and left empty when
+     * the handshake is unavailable), in which case every command is treated as
+     * version 1 only — see {@see supportsCommandVersion()}.
+     *
+     * @var array<int, CommandVersion>
+     */
+    private array $commandVersions = [];
 
     /**
      * @param string                $host     RabbitMQ stream server hostname
@@ -529,6 +542,54 @@ class StreamConnection
     public function getPreOpenMaxFrameSize(): int
     {
         return $this->preOpenMaxFrameSize;
+    }
+
+    /**
+     * Record the per-command version ranges the broker reported.
+     *
+     * Called by the high-level {@see \CrazyGoat\RabbitStream\Client\Connection}
+     * after the ExchangeCommandVersions handshake succeeds; keyed by protocol
+     * command key (see {@see \CrazyGoat\RabbitStream\VO\CommandVersion::getKey()}).
+     * Passing an empty array is the "nothing negotiated" state, which
+     * {@see supportsCommandVersion()} reads as version 1 for every command.
+     *
+     * @param array<int, CommandVersion> $commandVersions Supported ranges keyed by protocol command key
+     */
+    public function setCommandVersions(array $commandVersions): void
+    {
+        $this->commandVersions = $commandVersions;
+    }
+
+    /**
+     * The per-command version ranges the broker reported.
+     *
+     * @return array<int, CommandVersion> Supported ranges keyed by protocol command key
+     */
+    public function getCommandVersions(): array
+    {
+        return $this->commandVersions;
+    }
+
+    /**
+     * Whether the broker reported support for a given version of a command.
+     *
+     * The version 1 baseline is assumed whenever a command was not negotiated
+     * — either because the broker never answered ExchangeCommandVersions, or
+     * simply did not list this command. This is what lets callers fall back to
+     * v1 on a broker that does not implement version negotiation.
+     *
+     * @param KeyEnum $key Command to check.
+     * @param int $version Version to check (1-based).
+     * @return bool True when the reported range includes $version.
+     */
+    public function supportsCommandVersion(KeyEnum $key, int $version): bool
+    {
+        $range = $this->commandVersions[$key->value] ?? null;
+        if ($range === null) {
+            return $version === 1;
+        }
+
+        return $version >= $range->getMinVersion() && $version <= $range->getMaxVersion();
     }
 
     /**

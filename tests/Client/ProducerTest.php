@@ -15,6 +15,7 @@ use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\Request\PublishRequestV2;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -700,6 +701,8 @@ class ProducerTest extends TestCase
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
         $connection->expects($this->any())->method('sendMessage');
+        // Publish v2 was negotiated, so sendWithFilter() may carry a filter value.
+        $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
 
         $producer = new Producer($connection, 'test-stream', 1);
         $producer->send('one');
@@ -708,6 +711,129 @@ class ProducerTest extends TestCase
 
         $this->assertSame(4, $producer->getPendingConfirms());
         $this->assertSame(3, $producer->getLastPublishingId(), 'Publishing ids stay contiguous: 0..3');
+    }
+
+    /**
+     * Publish-frame version selection from the negotiated command versions
+     * (GitHub #381).
+     */
+    public function testSendWithFilterUsesV2WhenTheBrokerNegotiatedIt(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
+
+        $captured = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$captured): void {
+                if ($request instanceof PublishRequestV2) {
+                    $captured = $request;
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->sendWithFilter('hello', 'eu');
+
+        $this->assertInstanceOf(PublishRequestV2::class, $captured);
+    }
+
+    public function testSendWithFilterUsesV1WhenTheFilterValueIsNullEvenIfV2IsNegotiated(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
+
+        $captured = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$captured): void {
+                if ($request instanceof PublishRequestV1) {
+                    $captured = $request;
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->sendWithFilter('hello', null);
+
+        $this->assertInstanceOf(PublishRequestV1::class, $captured);
+    }
+
+    public function testSendWithFilterUsesV1WhenTheBrokerDidNotNegotiateV2(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(false);
+
+        $captured = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$captured): void {
+                if ($request instanceof PublishRequestV1) {
+                    $captured = $request;
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->sendWithFilter('hello', null);
+
+        $this->assertInstanceOf(PublishRequestV1::class, $captured);
+    }
+
+    public function testSendWithFilterRejectsANonNullFilterValueWhenV2IsNotNegotiated(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(false);
+
+        $published = 0;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$published): void {
+                if ($request instanceof PublishRequestV1 || $request instanceof PublishRequestV2) {
+                    $published++;
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+
+        try {
+            $producer->sendWithFilter('hello', 'eu');
+            $this->fail('A filter value on a broker without Publish v2 must not be silently dropped');
+        } catch (ProtocolException $e) {
+            $this->assertStringContainsString('Publish v2', $e->getMessage());
+        }
+
+        // Nothing was written and no publishing id was consumed.
+        $this->assertSame(0, $published);
+        $this->assertNull($producer->getLastPublishingId());
+    }
+
+    public function testPlainSendStaysOnV1EvenWhenV2IsNegotiated(): void
+    {
+        // The protocol says to use v1 when there is no filter value.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
+
+        $captured = null;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$captured): void {
+                if ($request instanceof PublishRequestV1) {
+                    $captured = $request;
+                }
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1);
+        $producer->send('hello');
+
+        $this->assertInstanceOf(PublishRequestV1::class, $captured);
     }
 
     public function testCloseIsIdempotentAndReleasesThePublisherIdOnce(): void

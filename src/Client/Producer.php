@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Client;
 
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
@@ -297,14 +298,19 @@ class Producer implements ProducerInterface
     /**
      * Publish a single message tagged with a stream-filtering value.
      *
-     * Uses the Publish v2 frame (`PublishRequestV2`/`PublishedMessageV2`) which carries
-     * a per-message `filterValue` the broker hashes into a per-chunk bloom filter.
-     * A consumer subscribing with matching `filterValues` (see
-     * `Connection::createConsumer()`) asks the broker to only deliver chunks whose
-     * bloom filter may contain that value — filtering is CHUNK-granular, not
-     * message-granular: a delivered chunk can still contain non-matching messages,
-     * so callers that need exact filtering must also post-filter on the consume
-     * side using the same filter value convention.
+     * The frame version is chosen from the broker's negotiated command
+     * versions: a non-null $filterValue needs Publish v2
+     * (`PublishRequestV2`/`PublishedMessageV2`), which carries the per-message
+     * `filterValue` the broker hashes into a per-chunk bloom filter. With a
+     * null filter value, and on a broker that never negotiated Publish v2, the
+     * plain v1 frame is sent instead — v1 has no filter field. Asking for a
+     * non-null filter on such a broker is a hard error rather than a silent
+     * unfiltered publish.
+     *
+     * Filtering is CHUNK-granular, not message-granular: a delivered chunk can
+     * still contain non-matching messages, so callers that need exact filtering
+     * must also post-filter on the consume side using the same filter value
+     * convention.
      *
      * @param string      $message    plain payload (see send())
      * @param string|null $filterValue value hashed into the chunk's bloom filter;
@@ -312,20 +318,38 @@ class Producer implements ProducerInterface
      *                                 matches an active filter, always delivered
      *                                 when `matchUnfiltered` is enabled)
      * @param ?float      $timeout    socket write timeout in seconds; null uses connection default
+     * @throws ProtocolException If $filterValue is not null but the broker does
+     *                                 not support Publish v2.
      */
     public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void
     {
         $this->ensureDeclared();
         $this->applyBackpressure($timeout);
+
+        if ($filterValue !== null && !$this->connection->supportsCommandVersion(KeyEnum::PUBLISH, 2)) {
+            throw new ProtocolException(
+                'The broker does not support Publish v2 (per-message filter values); '
+                . 'cannot publish a message with a filter value'
+            );
+        }
+
         // Counters advance only after a successful write — see send() (#395).
-        $this->connection->sendMessage(new PublishRequestV2(
-            $this->publisherId,
-            new PublishedMessageV2(
-                $this->publishingId,
-                $filterValue ?? '',
-                AmqpMessageEncoder::encodeDataSection($message)
-            )
-        ), $timeout);
+        if ($filterValue === null) {
+            // Publish v1 per the protocol: use it when there is no filter value.
+            $this->connection->sendMessage(new PublishRequestV1(
+                $this->publisherId,
+                new PublishedMessage($this->publishingId, AmqpMessageEncoder::encodeDataSection($message))
+            ), $timeout);
+        } else {
+            $this->connection->sendMessage(new PublishRequestV2(
+                $this->publisherId,
+                new PublishedMessageV2(
+                    $this->publishingId,
+                    $filterValue,
+                    AmqpMessageEncoder::encodeDataSection($message)
+                )
+            ), $timeout);
+        }
         $this->pendingConfirms[$this->publishingId] = true;
         $this->publishingId++;
     }

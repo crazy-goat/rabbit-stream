@@ -24,6 +24,7 @@ use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Util\RecordingLogger;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
@@ -1964,5 +1965,53 @@ class StreamConnectionTest extends TestCase
 
         fclose($serverSocket);
         fclose($clientSocket);
+    }
+
+    // ---------------------------------------------------------------------
+    // ExchangeCommandVersions negotiation state (GitHub #381).
+    // ---------------------------------------------------------------------
+
+    public function testSupportsCommandVersionDefaultsToV1WhenNothingWasNegotiated(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+
+        // Empty map is the "broker did not negotiate" state: v1 is the baseline
+        // every broker speaks, anything higher must be treated as unsupported.
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::CREATE, 2));
+    }
+
+    public function testSupportsCommandVersionUsesTheReportedRangeInclusively(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $connection->setCommandVersions([
+            KeyEnum::PUBLISH->value => new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
+            KeyEnum::CREATE->value => new CommandVersion(KeyEnum::CREATE->value, 2, 3),
+        ]);
+
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 3));
+
+        // The lower bound is inclusive too: a range that starts at 2 does not
+        // support v1.
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::CREATE, 1));
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::CREATE, 2));
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::CREATE, 3));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::CREATE, 4));
+
+        // An unrelated command keeps the v1-only default.
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::SUBSCRIBE, 1));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::SUBSCRIBE, 2));
+    }
+
+    public function testGetCommandVersionsReturnsWhatWasSet(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $range = new CommandVersion(KeyEnum::PUBLISH->value, 1, 2);
+        $connection->setCommandVersions([KeyEnum::PUBLISH->value => $range]);
+
+        $this->assertSame([KeyEnum::PUBLISH->value => $range], $connection->getCommandVersions());
     }
 }

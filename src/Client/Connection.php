@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\Contract\SuperStreamConsumerInterface;
 use CrazyGoat\RabbitStream\Contract\SuperStreamProducerInterface;
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
@@ -24,6 +25,7 @@ use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\CreateSuperStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteSuperStreamRequestV1;
+use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
@@ -40,6 +42,7 @@ use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
+use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
@@ -53,6 +56,7 @@ use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
@@ -67,6 +71,16 @@ class Connection implements ConnectionInterface
      */
     public const MAX_CONCURRENT_PUBLISHERS = 256;
     public const MAX_CONCURRENT_SUBSCRIPTIONS = 256;
+
+    /**
+     * Seconds to wait for the optional ExchangeCommandVersions reply.
+     *
+     * The exchange is the last handshake step and is not required for the
+     * connection to work: a broker that does not implement the command (or
+     * answers it with an error) must not hang connection setup, so the reply is
+     * read under this shorter bound and any failure falls back to protocol v1.
+     */
+    private const COMMAND_VERSION_EXCHANGE_TIMEOUT = 5.0;
 
     /**
      * Next id to try. Allocation walks forward from here and wraps, so a freed
@@ -94,9 +108,11 @@ class Connection implements ConnectionInterface
      * Connect to a broker, run the full handshake and return a ready connection.
      *
      * The handshake exchanges PeerProperties, negotiates SASL (PLAIN only),
-     * authenticates, negotiates frame max and heartbeat at Tune, and opens the
-     * virtual host. It is kept out of the constructor so a connection is never
-     * observable half-initialised.
+     * authenticates, negotiates frame max and heartbeat at Tune, opens the
+     * virtual host, and finally exchanges supported command versions (best
+     * effort — a broker that does not implement the command leaves the
+     * connection on the v1 baseline). It is kept out of the constructor so a
+     * connection is never observable half-initialised.
      *
      * @param string $host Broker hostname or IP.
      * @param int $port Broker stream-protocol port.
@@ -285,7 +301,116 @@ class Connection implements ConnectionInterface
         // The pre-Open window has ended; lift its ceiling explicitly.
         $streamConnection->setPreOpenMaxFrameSize(0);
 
+        // 7. ExchangeCommandVersions — optional. The broker reports the version
+        // range it supports per command; a broker that does not implement the
+        // command (or rejects it) leaves the map empty and every command falls
+        // back to v1. Never fails connection setup.
+        $streamConnection->setCommandVersions(
+            self::negotiateCommandVersions($streamConnection, $logger)
+        );
+
         return new self($streamConnection, $logger);
+    }
+
+    /**
+     * Ask the broker which versions of each command it supports.
+     *
+     * Runs after Open, so the negotiated outgoing frame cap is in force. This
+     * step is advisory: a time-out, a non-OK response code (asserted as a
+     * {@see ProtocolException} while the reply is deserialized), a malformed
+     * reply or a reply for a different command all leave the caller on the v1
+     * baseline. A genuinely broken socket ({@see ConnectionException}) is NOT
+     * swallowed — there is no connection left to fall back on.
+     *
+     * @param StreamConnection $streamConnection Open connection to negotiate on.
+     * @param LoggerInterface $logger Logger for the fallback path.
+     * @return array<int, CommandVersion> Supported ranges keyed by protocol command key,
+     *                                    empty when negotiation is unavailable.
+     */
+    private static function negotiateCommandVersions(
+        StreamConnection $streamConnection,
+        LoggerInterface $logger
+    ): array {
+        try {
+            $streamConnection->sendMessage(
+                new ExchangeCommandVersionsRequestV1(self::clientCommandVersions())
+            );
+            $response = $streamConnection->readMessage(self::COMMAND_VERSION_EXCHANGE_TIMEOUT);
+        } catch (ProtocolException | DeserializationException | TimeoutException $e) {
+            $logger->warning(
+                'ExchangeCommandVersions failed; assuming protocol version 1 for every command',
+                ['exception' => $e]
+            );
+
+            return [];
+        }
+
+        if (!$response instanceof ExchangeCommandVersionsResponseV1) {
+            $logger->warning(
+                'ExchangeCommandVersions received an unexpected response; assuming protocol version 1',
+                ['response' => $response::class]
+            );
+
+            return [];
+        }
+
+        $versions = [];
+        foreach ($response->getCommands() as $command) {
+            $versions[$command->getKey()] = $command;
+        }
+
+        return $versions;
+    }
+
+    /**
+     * The per-command version ranges this client implements, advertised to the
+     * broker.
+     *
+     * PUBLISH is the only command with more than one version so far: v2 adds
+     * the per-message filter value. DELIVER is advertised at v1 only on
+     * purpose — {@see \CrazyGoat\RabbitStream\Response\DeliverResponseV1} can
+     * parse a v2 frame, but nothing consumes its CommittedChunkId yet, so the
+     * broker must keep sending v1. Every other entry is a v1-only command the
+     * library can send or receive.
+     *
+     * @return list<CommandVersion> Ranges to advertise.
+     */
+    private static function clientCommandVersions(): array
+    {
+        /** @var array<int, int> $maxVersions Command key => highest version implemented */
+        $maxVersions = [
+            KeyEnum::DECLARE_PUBLISHER->value => 1,
+            KeyEnum::PUBLISH->value => 2,
+            KeyEnum::PUBLISH_CONFIRM->value => 1,
+            KeyEnum::PUBLISH_ERROR->value => 1,
+            KeyEnum::QUERY_PUBLISHER_SEQUENCE->value => 1,
+            KeyEnum::DELETE_PUBLISHER->value => 1,
+            KeyEnum::SUBSCRIBE->value => 1,
+            KeyEnum::DELIVER->value => 1,
+            KeyEnum::CREDIT->value => 1,
+            KeyEnum::STORE_OFFSET->value => 1,
+            KeyEnum::QUERY_OFFSET->value => 1,
+            KeyEnum::UNSUBSCRIBE->value => 1,
+            KeyEnum::CREATE->value => 1,
+            KeyEnum::DELETE->value => 1,
+            KeyEnum::METADATA->value => 1,
+            KeyEnum::METADATA_UPDATE->value => 1,
+            KeyEnum::ROUTE->value => 1,
+            KeyEnum::PARTITIONS->value => 1,
+            KeyEnum::CONSUMER_UPDATE->value => 1,
+            KeyEnum::EXCHANGE_COMMAND_VERSIONS->value => 1,
+            KeyEnum::STREAM_STATS->value => 1,
+            KeyEnum::CREATE_SUPER_STREAM->value => 1,
+            KeyEnum::DELETE_SUPER_STREAM->value => 1,
+            KeyEnum::RESOLVE_OFFSET_SPEC->value => 1,
+        ];
+
+        $versions = [];
+        foreach ($maxVersions as $key => $maxVersion) {
+            $versions[] = new CommandVersion($key, 1, $maxVersion);
+        }
+
+        return $versions;
     }
 
     private static function negotiatedMaxValue(int $clientValue, int $serverValue): int
@@ -682,6 +807,37 @@ class Connection implements ConnectionInterface
     public function isConnected(): bool
     {
         return $this->streamConnection->isConnected();
+    }
+
+    /**
+     * Whether the broker reported support for a given version of a command.
+     *
+     * The result comes from the ExchangeCommandVersions handshake run during
+     * {@see create()}. When the broker did not implement the command, rejected
+     * it, or did not answer it in time, the connection falls back to the v1
+     * baseline: this returns true for version 1 and false for anything higher.
+     *
+     * @param KeyEnum $key Command to check (for example KeyEnum::PUBLISH).
+     * @param int $version Version to check (1-based).
+     * @return bool True when the broker's reported range includes $version.
+     */
+    public function supportsCommandVersion(KeyEnum $key, int $version): bool
+    {
+        return $this->streamConnection->supportsCommandVersion($key, $version);
+    }
+
+    /**
+     * The per-command version ranges the broker reported during the handshake.
+     *
+     * Empty when ExchangeCommandVersions was rejected, unanswered or not
+     * implemented by the broker — callers should then assume v1 for every
+     * command (see {@see supportsCommandVersion()}).
+     *
+     * @return array<int, CommandVersion> Supported ranges keyed by protocol command key.
+     */
+    public function getSupportedCommandVersions(): array
+    {
+        return $this->streamConnection->getCommandVersions();
     }
 
     /**

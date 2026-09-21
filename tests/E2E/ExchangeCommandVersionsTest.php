@@ -41,4 +41,31 @@ class ExchangeCommandVersionsTest extends E2ETestCase
 
         $connection->close();
     }
+
+    /**
+     * The high-level Connection::create() handshake must itself send
+     * ExchangeCommandVersions and expose the broker's negotiated ranges
+     * (GitHub #381).
+     */
+    public function testCreateNegotiatesCommandVersionsAgainstTheBroker(): void
+    {
+        $connection = $this->createConnection();
+
+        $versions = $connection->getSupportedCommandVersions();
+        $this->assertNotEmpty($versions, 'create() must exchange command versions and store the broker map');
+
+        foreach ($versions as $version) {
+            $this->assertGreaterThan(0, $version->getKey());
+            $this->assertGreaterThanOrEqual(1, $version->getMinVersion());
+            $this->assertGreaterThanOrEqual($version->getMinVersion(), $version->getMaxVersion());
+        }
+
+        // Publish is the command the negotiation gates today: a modern broker
+        // supports v2 (per-message filter values), which Producer relies on.
+        $this->assertArrayHasKey(KeyEnum::PUBLISH->value, $versions);
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+
+        $connection->close();
+    }
 }

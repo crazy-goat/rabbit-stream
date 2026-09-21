@@ -38,6 +38,16 @@ class ExchangeCommandVersionsRequestV1 implements
             ->addArray(...$this->commands);
     }
 
+    /**
+     * The command ranges advertised in this request.
+     *
+     * @return CommandVersion[]
+     */
+    public function getCommands(): array
+    {
+        return $this->commands;
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {

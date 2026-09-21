@@ -203,6 +203,32 @@ When `create()` is called, it performs the following protocol handshake:
 3. **SaslAuthenticate** - Authenticate with username/password
 4. **Tune** - Negotiate frame max and heartbeat settings
 5. **Open** - Open the virtual host
+6. **ExchangeCommandVersions** - Negotiate per-command versions (best effort; see below)
+
+### Version negotiation
+
+After `Open`, `create()` sends `ExchangeCommandVersions` (`0x001b`) advertising
+the per-command versions this client implements (Publish v1–v2; everything else
+v1) and stores the broker's reply for the lifetime of the connection.
+
+The step is **best effort**: a broker that does not implement the command, does
+not answer within 5 seconds, or rejects it leaves the connection on the v1
+baseline. There is no exception and no failure — check the result with:
+
+```php
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+
+// True only when the broker's reported range includes the version.
+$connection->supportsCommandVersion(KeyEnum::PUBLISH, 2);
+
+// The raw broker ranges, keyed by protocol command key (empty on fallback).
+$ranges = $connection->getSupportedCommandVersions();
+```
+
+`Producer::sendWithFilter()` uses this automatically: a non-null filter value
+requires Publish v2 and throws a `ProtocolException` when the broker did not
+negotiate it, while a null filter value (and every broker without v2) publishes
+with the plain v1 frame.
 
 ### Examples
 
@@ -1034,6 +1060,74 @@ $connection->readLoop();
 - Dispatches deliver frames to registered consumers
 - Dispatches confirm/error frames to registered producers
 - This method blocks until the specified condition is met
+
+---
+
+### supportsCommandVersion()
+
+Whether the broker reported support for a given version of a command during
+the `ExchangeCommandVersions` handshake.
+
+```php
+public function supportsCommandVersion(KeyEnum $key, int $version): bool;
+```
+
+When the handshake was unavailable (or the broker did not list the command),
+the v1 baseline is assumed: `true` for version 1, `false` for anything higher.
+
+#### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `$key` | `KeyEnum` | Command to check, e.g. `KeyEnum::PUBLISH` |
+| `$version` | `int` | Version to check (1-based) |
+
+#### Return Value
+
+`bool` — `true` when the broker's reported range includes `$version`.
+
+#### Example
+
+```php
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+
+if ($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2)) {
+    $producer->sendWithFilter('order created', filterValue: 'region-eu');
+}
+```
+
+---
+
+### getSupportedCommandVersions()
+
+The per-command version ranges the broker reported during the handshake.
+
+```php
+/** @return array<int, CommandVersion> keyed by protocol command key */
+public function getSupportedCommandVersions(): array;
+```
+
+Empty when `ExchangeCommandVersions` was rejected, unanswered or not
+implemented by the broker; callers should then assume v1 for every command.
+
+#### Parameters
+
+None
+
+#### Return Value
+
+`array<int, CommandVersion>` — supported ranges keyed by protocol command key.
+
+#### Example
+
+```php
+use CrazyGoat\RabbitStream\Enum\KeyEnum;
+
+$ranges = $connection->getSupportedCommandVersions();
+if (isset($ranges[KeyEnum::PUBLISH->value])) {
+    echo "Publish up to v{$ranges[KeyEnum::PUBLISH->value]->getMaxVersion()}\n";
+}
+```
 
 ---
 
