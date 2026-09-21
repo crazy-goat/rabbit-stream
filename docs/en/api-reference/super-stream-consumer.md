@@ -16,7 +16,7 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
     public function readOne(float $timeout = 5.0): ?Message;
 
     public function storeOffset(string $partition, int $offset): void;
-    public function queryOffset(string $partition): int;
+    public function queryOffset(string $partition): ?int;
 
     /** @return list<string> */
     public function getPartitions(): array;
@@ -211,7 +211,7 @@ $consumer->storeOffset($message->getStream(), $message->getOffset() + 1);
 Query the last stored offset for one partition.
 
 ```php
-public function queryOffset(string $partition): int
+public function queryOffset(string $partition): ?int
 ```
 
 #### Parameters
@@ -222,23 +222,22 @@ public function queryOffset(string $partition): int
 
 #### Return Value
 
-`int` - the last stored offset for this consumer's `$name` on that partition
+`int|null` - the last stored offset for this consumer's `$name` on that
+partition, or `null` when nothing has been stored yet for it (`NO_OFFSET`).
 
 #### Exceptions
 
 - `InvalidArgumentException` - If `$partition` is not one of this consumer's partitions
-- `ProtocolException` - If this consumer was created without a `$name`
+- `ProtocolException` - If this consumer was created without a `$name`, or the broker
+  returns a non-OK code other than `NO_OFFSET`
 - `UnexpectedResponseException` - If the server returns an unexpected response
 
 #### Example
 
 ```php
 foreach ($consumer->getPartitions() as $partition) {
-    try {
-        echo "{$partition}: {$consumer->queryOffset($partition)}\n";
-    } catch (\Exception $e) {
-        echo "{$partition}: no stored offset\n";
-    }
+    $offset = $consumer->queryOffset($partition);
+    echo "{$partition}: " . ($offset ?? 'no stored offset') . "\n";
 }
 ```
 

@@ -758,15 +758,17 @@ class Connection implements ConnectionInterface
      * Query the offset last stored for a named consumer on a stream.
      *
      * The returned value is the next offset to consume (last processed + 1).
-     * Having no stored offset is reported as a ProtocolException, not as a
-     * sentinel value.
+     * `null` means nothing has been stored for this reference/stream pair yet
+     * (the broker answered `NO_OFFSET`, `0x13`) — a normal first-run outcome,
+     * not an error (#467). Any other non-OK response code still raises a
+     * ProtocolException.
      *
      * @param string $reference Consumer name the offset was stored under.
      * @param string $stream Stream name.
-     * @return int The stored offset.
-     * @throws ProtocolException If the broker returns a non-OK response code (for example no
-     *                                 offset is stored for this pair), or the response has an
-     *                                 unexpected command or version.
+     * @return int|null The stored next offset to consume, or null when no offset is stored.
+     * @throws ProtocolException If the broker returns a non-OK response code other than
+     *                                 NO_OFFSET, or the response has an unexpected command or
+     *                                 version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 QueryOffset response.
      * @throws InvalidArgumentException If the serialized request exceeds the negotiated
@@ -775,7 +777,7 @@ class Connection implements ConnectionInterface
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
      */
-    public function queryOffset(string $reference, string $stream): int
+    public function queryOffset(string $reference, string $stream): ?int
     {
         $this->streamConnection->sendMessage(new QueryOffsetRequestV1($reference, $stream));
         $response = $this->streamConnection->readMessage();

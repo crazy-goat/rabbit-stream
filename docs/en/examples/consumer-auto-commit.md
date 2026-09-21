@@ -106,15 +106,16 @@ class ConsumerAutoCommitExample
             name: $this->consumerName
         );
         
-        try {
-            $lastOffset = $tempConsumer->queryOffset();
-            echo "  ✓ Found stored offset: {$lastOffset}\n";
-            echo "  ℹ Will resume from offset " . ($lastOffset + 1) . "\n\n";
-        } catch (\Exception $e) {
+        $lastOffset = $tempConsumer->queryOffset();
+
+        if ($lastOffset === null) {
             echo "  ℹ No stored offset found (first run)\n\n";
-        } finally {
-            $tempConsumer->close();
+        } else {
+            echo "  ✓ Found stored offset: {$lastOffset}\n";
+            echo "  ℹ Will resume from offset " . $lastOffset . "\n\n";
         }
+
+        $tempConsumer->close();
     }
     
     private function createConsumer(): \CrazyGoat\RabbitStream\Client\Consumer
@@ -314,15 +315,16 @@ $tempConsumer = $connection->createConsumer(
 );
 
 $startOffset = OffsetSpec::first();
-try {
-    $lastOffset = $tempConsumer->queryOffset();
+$lastOffset = $tempConsumer->queryOffset();
+
+if ($lastOffset === null) {
+    echo "Starting from beginning\n";
+} else {
     $startOffset = OffsetSpec::offset($lastOffset);
     echo "Resuming from offset: {$lastOffset}\n";
-} catch (\Exception $e) {
-    echo "Starting from beginning\n";
-} finally {
-    $tempConsumer->close();
 }
+
+$tempConsumer->close();
 
 // Create consumer with auto-commit
 $consumer = $connection->createConsumer(
@@ -486,21 +488,20 @@ function checkOffsetLag(Connection $connection, string $stream, string $consumer
         name: $consumerName
     );
     
-    try {
-        $storedOffset = $tempConsumer->queryOffset();
+    $storedOffset = $tempConsumer->queryOffset();
+
+    if ($storedOffset !== null) {
         // Get latest offset from stream stats
         $latestOffset = getLatestStreamOffset($connection, $stream);
-        
+
         $lag = $latestOffset - $storedOffset;
-        
+
         if ($lag > 1000) {
             alert("Consumer {$consumerName} is {$lag} messages behind!");
         }
-    } catch (\Exception $e) {
-        // No offset stored yet
-    } finally {
-        $tempConsumer->close();
     }
+
+    $tempConsumer->close();
 }
 ```
 

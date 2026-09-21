@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Response;
 
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use PHPUnit\Framework\TestCase;
 
@@ -25,6 +26,21 @@ class QueryOffsetResponseV1Test extends TestCase
         $this->assertSame(123456, $response->getOffset());
     }
 
+    public function testNoOffsetParsesAsNullOffset(): void
+    {
+        $raw = pack('n', 0x800b)    // key
+            . pack('n', 1)          // version
+            . pack('N', 9)          // correlationId
+            . pack('n', 0x0013)     // responseCode NO_OFFSET
+            . pack('J', 0);         // offset (uint64 big-endian, present but ignored)
+
+        $response = QueryOffsetResponseV1::fromStreamBuffer(new ReadBuffer($raw));
+
+        $this->assertInstanceOf(QueryOffsetResponseV1::class, $response);
+        $this->assertSame(9, $response->getCorrelationId());
+        $this->assertNull($response->getOffset());
+    }
+
     public function testThrowsOnErrorResponseCode(): void
     {
         $raw = pack('n', 0x800b)
@@ -32,7 +48,8 @@ class QueryOffsetResponseV1Test extends TestCase
             . pack('N', 1)
             . pack('n', 0x0002); // Stream does not exist
 
-        $this->expectException(\Exception::class);
+        $this->expectException(ProtocolException::class);
+        $this->expectExceptionMessage('0x0002');
         QueryOffsetResponseV1::fromStreamBuffer(new ReadBuffer($raw));
     }
 }

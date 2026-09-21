@@ -39,7 +39,7 @@ class Consumer
     
     // Offset management
     public function storeOffset(int $offset): void;
-    public function queryOffset(): int;
+    public function queryOffset(): ?int;
     
     // Single active consumer
     public function isActive(): bool;
@@ -352,7 +352,7 @@ foreach ($messages as $message) {
 Query the last stored offset for this consumer.
 
 ```php
-public function queryOffset(): int
+public function queryOffset(): ?int
 ```
 
 #### Parameters
@@ -361,11 +361,14 @@ None
 
 #### Return Value
 
-`int` - The last stored offset for this consumer on this stream
+`int|null` - The last stored offset for this consumer on this stream, or `null`
+when nothing has been stored yet (the broker's `NO_OFFSET`, `0x13`). `null` is
+a normal first-run outcome, not an error.
 
 #### Exceptions
 
-- `ProtocolException` - If called on an unnamed consumer
+- `ProtocolException` - If called on an unnamed consumer, or if the broker returns
+  any non-OK response code **other than** `NO_OFFSET`
 - `UnexpectedResponseException` - If the server returns an unexpected response
 
 #### Example
@@ -378,11 +381,12 @@ $consumer = $connection->createConsumer(
     name: 'my-consumer'
 );
 
-try {
-    $lastOffset = $consumer->queryOffset();
-    echo "Resuming from offset: {$lastOffset}\n";
-} catch (\Exception $e) {
+$lastOffset = $consumer->queryOffset();
+
+if ($lastOffset === null) {
     echo "No stored offset found, starting from beginning\n";
+} else {
+    echo "Resuming from offset: {$lastOffset}\n";
 }
 ```
 
@@ -390,6 +394,7 @@ try {
 
 - Requires a named consumer (name parameter in constructor)
 - Returns the offset last stored via `storeOffset()` or auto-commit — the **next** offset to consume, so it can be passed straight to `OffsetSpec::offset()`
+- Returns `null` (never throws) when no offset has been stored for this name/stream pair
 - Useful for resuming consumption after restart
 - Makes a round-trip to the server
 
@@ -422,8 +427,9 @@ value becomes the reply sent to the broker's `ConsumerUpdate` query
 
 Default behavior (used when no callback is registered):
 - **Activation** (`$active === true`): calls `queryOffset()` for the
-  consumer's `name` and replies `OffsetSpec::offset($stored)`; if nothing
-  is stored yet, replies with the consumer's initial `OffsetSpec`.
+  consumer's `name` and replies `OffsetSpec::offset($stored)`; if `null` is
+  returned (nothing stored yet, `NO_OFFSET`), replies with the consumer's
+  initial `OffsetSpec`.
 - **Deactivation** (`$active === false`): if `autoCommit > 0` and at least one
   message was processed, stores `lastProcessedOffset + 1` so the next active
   consumer resumes without gaps and without a duplicate; replies `null` (keep
@@ -577,15 +583,15 @@ $consumer = $connection->createConsumer(
     name: 'event-processor'
 );
 
-try {
-    // Query last stored offset
-    $lastOffset = $consumer->queryOffset();
+// Query last stored offset (null = nothing stored yet)
+$lastOffset = $consumer->queryOffset();
+
+if ($lastOffset === null) {
+    echo "Starting from beginning\n";
+} else {
     echo "Resuming from offset: {$lastOffset}\n";
-    
     // Note: In a real implementation, you'd recreate the consumer
     // with OffsetSpec::offset($lastOffset) here
-} catch (\Exception $e) {
-    echo "Starting from beginning\n";
 }
 
 // Process and track offsets
@@ -837,14 +843,15 @@ function consumeWithRetry(
         try {
             // Try to resume from last offset
             $offset = OffsetSpec::first();
-            try {
-                $tempConsumer = $connection->createConsumer($stream, $offset, name: $consumerName);
-                $lastOffset = $tempConsumer->queryOffset();
-                $tempConsumer->close();
+            $tempConsumer = $connection->createConsumer($stream, $offset, name: $consumerName);
+            $lastOffset = $tempConsumer->queryOffset();
+            $tempConsumer->close();
+
+            if ($lastOffset === null) {
+                echo "Starting from beginning\n";
+            } else {
                 $offset = OffsetSpec::offset($lastOffset);
                 echo "Resuming from offset: {$lastOffset}\n";
-            } catch (\Exception $e) {
-                echo "Starting from beginning\n";
             }
             
             $consumer = $connection->createConsumer($stream, $offset, name: $consumerName);

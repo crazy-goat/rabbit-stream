@@ -35,7 +35,7 @@ class Connection
     public function getMetadata(array $streams): MetadataResponseV1;
     
     // Offset management
-    public function queryOffset(string $reference, string $stream): int;
+    public function queryOffset(string $reference, string $stream): ?int;
     public function storeOffset(string $reference, string $stream, int $offset): void;
     
     // Super streams
@@ -662,7 +662,7 @@ foreach ($partitions as $partition) {
 Query the last stored offset for a named consumer.
 
 ```php
-public function queryOffset(string $reference, string $stream): int
+public function queryOffset(string $reference, string $stream): ?int
 ```
 
 #### Parameters
@@ -674,18 +674,26 @@ public function queryOffset(string $reference, string $stream): int
 
 #### Return Value
 
-`int` - The last stored offset for this consumer on this stream
+`int|null` - The last stored offset for this consumer on this stream, or `null`
+when nothing has been stored yet for the pair (the broker's `NO_OFFSET`,
+`0x13`). `null` is a normal first-run outcome, not an error.
 
 #### Exceptions
 
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If no offset is stored for this reference/stream combination
+- `ProtocolException` - If the broker returns any non-OK response code **other than**
+  `NO_OFFSET` (for example `STREAM_NOT_EXIST`)
 
 #### Example
 
 ```php
 $offset = $connection->queryOffset('my-consumer', 'my-stream');
-echo "Last consumed offset: {$offset}\n";
+
+if ($offset === null) {
+    echo "No offset stored yet\n";
+} else {
+    echo "Last consumed offset: {$offset}\n";
+}
 ```
 
 ---

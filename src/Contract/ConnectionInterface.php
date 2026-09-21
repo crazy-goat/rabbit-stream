@@ -52,7 +52,7 @@ interface ConnectionInterface
     /** @param array<int, string> $streams */
     public function getMetadata(array $streams): MetadataResponseV1;
 
-    public function queryOffset(string $reference, string $stream): int;
+    public function queryOffset(string $reference, string $stream): ?int;
 
     public function close(): void;
 

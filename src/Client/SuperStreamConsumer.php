@@ -126,7 +126,7 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
         $this->consumerFor($partition)->storeOffset($offset);
     }
 
-    public function queryOffset(string $partition): int
+    public function queryOffset(string $partition): ?int
     {
         return $this->consumerFor($partition)->queryOffset();
     }

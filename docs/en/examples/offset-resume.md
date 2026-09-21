@@ -109,21 +109,20 @@ class OffsetResumeExample
         
         $startOffset = OffsetSpec::first();
         $resumeInfo = "Starting from beginning (no stored offset)";
-        
-        try {
-            $lastOffset = $tempConsumer->queryOffset();
-            $tempConsumer->close();
-            
+
+        $lastOffset = $tempConsumer->queryOffset();
+        $tempConsumer->close();
+
+        if ($lastOffset === null) {
+            echo "  ℹ No stored offset found (first run or offset expired)\n";
+            echo "  ℹ {$resumeInfo}\n";
+        } else {
             // The stored value already is the next offset to consume
             $startOffset = OffsetSpec::offset($lastOffset);
             $resumeInfo = "Resuming from offset {$lastOffset}";
-            
+
             echo "  ✓ Found stored offset: {$lastOffset}\n";
             echo "  ✓ {$resumeInfo}\n";
-        } catch (\Exception $e) {
-            $tempConsumer->close();
-            echo "  ℹ No stored offset found (first run or offset expired)\n";
-            echo "  ℹ {$resumeInfo}\n";
         }
         
         // Create the actual consumer with the determined offset
@@ -259,18 +258,15 @@ The complete resume pattern involves three steps:
 $tempConsumer = $connection->createConsumer($stream, OffsetSpec::first(), name: $consumerName);
 
 $startOffset = OffsetSpec::first();
-try {
-    $lastOffset = $tempConsumer->queryOffset();
-    $tempConsumer->close();
-    
-    // 2. Resume at the stored offset — it already points past the last
-    //    processed message
+$lastOffset = $tempConsumer->queryOffset();
+$tempConsumer->close();
+
+// 2. Resume at the stored offset — it already points past the last
+//    processed message
+if ($lastOffset !== null) {
     $startOffset = OffsetSpec::offset($lastOffset);
-} catch (\Exception $e) {
-    $tempConsumer->close();
-    // 3. No stored offset - start from beginning
-    $startOffset = OffsetSpec::first();
 }
+// 3. null = no stored offset, so keep the from-beginning startOffset
 
 // Create consumer with determined offset
 $consumer = $connection->createConsumer($stream, $startOffset, name: $consumerName);
@@ -349,17 +345,18 @@ This ensures exactly-once processing semantics.
 
 ### Handling Missing Offsets
 
-On first run (or if offsets expire), `queryOffset()` will throw an exception:
+On first run (or if offsets expire), `queryOffset()` returns `null`:
 
 ```php
-try {
-    $lastOffset = $consumer->queryOffset();
-    $startOffset = OffsetSpec::offset($lastOffset);
-    echo "Resuming from offset: {$lastOffset}\n";
-} catch (\Exception $e) {
+$lastOffset = $consumer->queryOffset();
+
+if ($lastOffset === null) {
     // No stored offset - this is normal for first run
     $startOffset = OffsetSpec::first();
     echo "Starting from beginning\n";
+} else {
+    $startOffset = OffsetSpec::offset($lastOffset);
+    echo "Resuming from offset: {$lastOffset}\n";
 }
 ```
 
@@ -376,16 +373,13 @@ function createResumingConsumer(
     string $consumerName
 ): Consumer {
     $tempConsumer = $connection->createConsumer($stream, OffsetSpec::first(), name: $consumerName);
-    
-    $startOffset = OffsetSpec::first();
-    try {
-        $lastOffset = $tempConsumer->queryOffset();
-        $tempConsumer->close();
-        $startOffset = OffsetSpec::offset($lastOffset);
-    } catch (\Exception $e) {
-        $tempConsumer->close();
-    }
-    
+
+    $lastOffset = $tempConsumer->queryOffset();
+    $tempConsumer->close();
+
+    // null = no stored offset, so start from the beginning
+    $startOffset = $lastOffset === null ? OffsetSpec::first() : OffsetSpec::offset($lastOffset);
+
     return $connection->createConsumer($stream, $startOffset, name: $consumerName);
 }
 ```
@@ -615,16 +609,17 @@ function checkOffsetLag(
         name: $consumerName
     );
     
-    try {
-        $storedOffset = $tempConsumer->queryOffset();
-        $latestOffset = getLatestStreamOffset($connection, $stream);
-        
-        return $latestOffset - $storedOffset;
-    } catch (\Exception $e) {
+    $storedOffset = $tempConsumer->queryOffset();
+    $tempConsumer->close();
+
+    if ($storedOffset === null) {
+        // Nothing stored yet.
         return 0;
-    } finally {
-        $tempConsumer->close();
     }
+
+    $latestOffset = getLatestStreamOffset($connection, $stream);
+
+    return $latestOffset - $storedOffset;
 }
 ```
 
@@ -681,18 +676,14 @@ $consumer = $connection->createConsumer(
 );
 ```
 
-### 3. Not Handling Missing Offset Exception
+### 3. Not Handling a Missing Offset
 
 ```php
-// Wrong: exception on first run
-$lastOffset = $consumer->queryOffset();  // Throws if no offset stored!
+// Wrong: passing null straight into OffsetSpec::offset()
+$lastOffset = $consumer->queryOffset();  // null if no offset stored!
 
-// Right: handle missing offset gracefully
-try {
-    $lastOffset = $consumer->queryOffset();
-} catch (\Exception $e) {
-    $lastOffset = -1;  // No offset stored yet
-}
+// Right: handle the null sentinel
+$lastOffset = $consumer->queryOffset() ?? -1;  // No offset stored yet
 ```
 
 ## See Also

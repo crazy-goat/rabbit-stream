@@ -197,10 +197,11 @@ what `storeOffset()` expects, and what the Java, Go and .NET clients store, so
 offsets are portable between clients and resuming needs no arithmetic:
 
 ```php
-$stored = $consumer->queryOffset();               // e.g. 42
+$stored = $consumer->queryOffset();               // e.g. 42, or null if none
+$offset = $stored === null ? OffsetSpec::first() : OffsetSpec::offset($stored);
 $consumer = $connection->createConsumer(
     'events',
-    OffsetSpec::offset($stored),                  // inclusive: starts AT 42
+    $offset,                                       // inclusive: starts AT 42
     name: 'payment-processor-v1'
 );
 ```
@@ -277,18 +278,19 @@ $consumer = $connection->createConsumer(
     name: 'my-consumer'
 );
 
-try {
-    $lastOffset = $consumer->queryOffset();
-    echo "Last stored offset: {$lastOffset}\n";
-} catch (\Exception $e) {
+$lastOffset = $consumer->queryOffset();
+
+if ($lastOffset === null) {
     echo "No stored offset found\n";
+} else {
+    echo "Last stored offset: {$lastOffset}\n";
 }
 ```
 
 **Important Notes:**
 - Requires a named consumer
 - Returns the offset last stored via `storeOffset()` or auto-commit — the **next** offset to consume, so it can be passed straight to `OffsetSpec::offset()`
-- Throws exception if no offset has been stored
+- Returns `null` when no offset has been stored (the broker's `NO_OFFSET`) — no exception
 - Makes a round-trip to the server
 
 ## Resume Patterns
@@ -316,27 +318,18 @@ function createResumingConsumer(
         OffsetSpec::first(),
         name: $consumerName
     );
-    
-    try {
-        $lastOffset = $tempConsumer->queryOffset();
-        $tempConsumer->close();
-        
-        // Resume from next offset
-        return $connection->createConsumer(
-            $stream,
-            OffsetSpec::offset($lastOffset),
-            name: $consumerName
-        );
-    } catch (\Exception $e) {
-        $tempConsumer->close();
-        
-        // No stored offset, start from beginning
-        return $connection->createConsumer(
-            $stream,
-            OffsetSpec::first(),
-            name: $consumerName
-        );
-    }
+
+    $lastOffset = $tempConsumer->queryOffset();
+    $tempConsumer->close();
+
+    // No stored offset (null): start from the beginning
+    $resumeAt = $lastOffset === null ? OffsetSpec::first() : OffsetSpec::offset($lastOffset);
+
+    return $connection->createConsumer(
+        $stream,
+        $resumeAt,
+        name: $consumerName
+    );
 }
 
 // Usage
@@ -409,15 +402,16 @@ $tempConsumer = $connection->createConsumer(
 );
 
 $startOffset = OffsetSpec::first();
-try {
-    $lastOffset = $tempConsumer->queryOffset();
+$lastOffset = $tempConsumer->queryOffset();
+
+if ($lastOffset === null) {
+    echo "Starting from beginning\n";
+} else {
     $startOffset = OffsetSpec::offset($lastOffset);
     echo "Resuming from offset: {$lastOffset}\n";
-} catch (\Exception $e) {
-    echo "Starting from beginning\n";
-} finally {
-    $tempConsumer->close();
 }
+
+$tempConsumer->close();
 
 // Create consumer with auto-commit
 $consumer = $connection->createConsumer(
@@ -462,14 +456,13 @@ $tempConsumer = $connection->createConsumer(
 );
 
 $startOffset = OffsetSpec::first();
-try {
-    $lastOffset = $tempConsumer->queryOffset();
+$lastOffset = $tempConsumer->queryOffset();
+
+if ($lastOffset !== null) {
     $startOffset = OffsetSpec::offset($lastOffset);
-} catch (\Exception $e) {
-    // No stored offset
-} finally {
-    $tempConsumer->close();
 }
+
+$tempConsumer->close();
 
 $consumer = $connection->createConsumer(
     'events',
@@ -566,13 +559,8 @@ foreach ($messages as $message) {
 ### 4. Handle Missing Offsets Gracefully
 
 ```php
-try {
-    $lastOffset = $consumer->queryOffset();
-    $startOffset = OffsetSpec::offset($lastOffset);
-} catch (\Exception $e) {
-    // No stored offset - this is normal for first run
-    $startOffset = OffsetSpec::first();
-}
+$lastOffset = $consumer->queryOffset();
+$startOffset = $lastOffset === null ? OffsetSpec::first() : OffsetSpec::offset($lastOffset);
 ```
 
 ### 5. Use Auto-Commit for High Throughput
@@ -596,11 +584,16 @@ function getOffsetLag(Connection $connection, string $stream, string $consumerNa
     $tempConsumer = $connection->createConsumer($stream, OffsetSpec::first(), name: $consumerName);
     $storedOffset = $tempConsumer->queryOffset();
     $tempConsumer->close();
-    
+
+    if ($storedOffset === null) {
+        // Nothing consumed yet: the whole stream is "behind".
+        $storedOffset = 0;
+    }
+
     // Get latest offset (would need to query stream stats)
     // This is a simplified example
     $latestOffset = getLatestStreamOffset($connection, $stream);
-    
+
     return $latestOffset - $storedOffset;
 }
 
@@ -682,18 +675,15 @@ $consumer = $connection->createConsumer(
 );
 ```
 
-### 4. Not Handling Missing Offset Exception
+### 4. Not Handling a Missing Offset
 
 ```php
-// Wrong: exception on first run
-$lastOffset = $consumer->queryOffset();  // Throws if no offset stored!
+// Wrong: treating null as a real offset
+$lastOffset = $consumer->queryOffset();  // null if no offset stored!
+$start = OffsetSpec::offset($lastOffset); // TypeError / bogus offset
 
-// Right: handle missing offset gracefully
-try {
-    $lastOffset = $consumer->queryOffset();
-} catch (\Exception $e) {
-    $lastOffset = -1;  // No offset stored yet
-}
+// Right: treat null as "no offset stored yet"
+$lastOffset = $consumer->queryOffset() ?? -1;  // No offset stored yet
 ```
 
 ## Low-Level Offset Operations

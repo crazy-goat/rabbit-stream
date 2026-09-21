@@ -632,17 +632,16 @@ if ($consumer === null) {
     return;
 }
 
-// Handling NO_OFFSET on first consumer run
-// (this is how queryOffset() reports that nothing was stored yet)
-try {
-    $lastOffset = $consumer->queryOffset();
-} catch (ProtocolException $e) {
-    if ($e->getResponseCode() === ResponseCodeEnum::NO_OFFSET) {
-        // First time consuming - start from beginning or latest
-        $consumer = $connection->createConsumer('my-stream', OffsetSpec::first()); // or OffsetSpec::last()
-    } else {
-        throw $e;
-    }
+// Handling a missing offset on first consumer run
+// (queryOffset() returns null rather than throwing — #467)
+$lastOffset = $consumer->queryOffset();
+
+if ($lastOffset === null) {
+    // First time consuming - start from beginning or latest
+    $consumer = $connection->createConsumer('my-stream', OffsetSpec::first()); // or OffsetSpec::last()
+} else {
+    // Resume from the stored next offset
+    $consumer = $connection->createConsumer('my-stream', OffsetSpec::offset($lastOffset));
 }
 ```
 
@@ -720,14 +719,13 @@ $producer = $connection->createProducer(
 );
 ```
 
-### 3. Handle NO_OFFSET Gracefully
+### 3. Handle a Missing Offset Gracefully
 
-First-time consumers need special handling:
+First-time consumers need special handling. `queryOffset()` returns `null`
+instead of throwing when nothing has been stored (`NO_OFFSET`, `0x13`):
 
 ```php
 use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\Exception\ProtocolException;
-use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 function createConsumerWithOffsetFallback(
@@ -735,17 +733,18 @@ function createConsumerWithOffsetFallback(
     string $stream,
     string $consumerName
 ): \CrazyGoat\RabbitStream\Client\Consumer {
-    try {
-        // OffsetSpec::next() resumes from the stored offset, but the server
-        // answers NO_OFFSET when nothing has been stored yet
-        return $connection->createConsumer($stream, OffsetSpec::next(), name: $consumerName);
-    } catch (ProtocolException $e) {
-        if ($e->getResponseCode() === ResponseCodeEnum::NO_OFFSET) {
-            // No stored offset - start from the beginning
-            return $connection->createConsumer($stream, OffsetSpec::first(), name: $consumerName);
-        }
-        throw $e;
-    }
+    // A temporary named consumer is enough to query the stored offset. It
+    // returns null when nothing has been stored yet, so no exception handling
+    // is needed.
+    $probe = $connection->createConsumer($stream, OffsetSpec::first(), name: $consumerName);
+    $stored = $probe->queryOffset();
+    $probe->close();
+
+    return $connection->createConsumer(
+        $stream,
+        $stored === null ? OffsetSpec::first() : OffsetSpec::offset($stored),
+        name: $consumerName
+    );
 }
 ```
 

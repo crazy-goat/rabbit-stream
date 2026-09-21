@@ -371,7 +371,7 @@ partition a message in the aggregated `read()`/`readOne()` result came from.
 | `read(float $timeout = 5.0): array` | See above |
 | `readOne(float $timeout = 5.0): ?Message` | See above |
 | `storeOffset(string $partition, int $offset): void` | Store an offset for one partition |
-| `queryOffset(string $partition): int` | Query the stored offset for one partition |
+| `queryOffset(string $partition): ?int` | Query the stored offset for one partition (`null` = none stored) |
 | `getPartitions(): array` | The super stream's partition names |
 | `getConsumers(): array` | `array<string, ConsumerInterface>`, partition name => the underlying `Consumer` |
 | `isActive(string $partition): bool` | Single-active-consumer activation state for one partition |
