@@ -247,7 +247,10 @@ $lastId = $producer->getLastPublishingId();
 echo "Last published ID: {$lastId}";
 ```
 
-Returns `null` if no messages have been published yet.
+Returns `null` only for an anonymous producer that has not published yet. A
+**named** producer is initialised from the broker's last confirmed sequence, so
+`getLastPublishingId()` already returns a non-null id (`0` when the broker
+stored nothing) before the first `send()`.
 
 ## Deduplication Flow Diagram
 

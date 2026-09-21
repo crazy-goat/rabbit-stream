@@ -253,7 +253,11 @@ $lastId = $producer->getLastPublishingId();
 echo "Last published ID: {$lastId}\n";
 ```
 
-This returns the highest publishing ID that was sent (not necessarily confirmed).
+This returns the highest publishing ID that was sent (not necessarily
+confirmed). For a **named** producer it can be non-null before any `send()`:
+the constructor queries the broker's last confirmed sequence and resumes from
+`sequence + 1`, so it returns that sequence (`0` when nothing was stored)
+immediately. See [getLastPublishingId()](../api-reference/producer.md#getlastpublishingid).
 
 ### Deduplication Example
 
