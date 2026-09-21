@@ -274,3 +274,57 @@ up to the latest offset is still to be processed. `offset-tracking.md`'s
 |------|--------|
 | `./vendor/bin/phpunit --testsuite unit` | ✅ 1222 tests, 8722 assertions |
 | `composer lint` (PHPCS + Rector dry-run + PHPStan level 9 + kb-lint + docs links) | ✅ all clean (279 files, 273 PHPStan paths) |
+
+---
+
+# Findings — Issue #467 (Review round 3, convergence)
+
+Reviewed `git diff 61dbf0a..HEAD` (HEAD `90bf9b9`; round 2 was `61dbf0a`). Full
+narrative in [review-3.md](review-3.md). The round-2→3 delta is documentation
+only: `docs/helpers/faq.md`, `docs/en/examples/offset-resume.md`, a `@throws`
+docblock line in `src/Client/SuperStreamConsumer.php`, and the PoW files.
+
+## Round-2 disposition (all fixed, re-verified at HEAD)
+
+| ID | Severity | Status | Evidence |
+|----|----------|--------|----------|
+| R2-F1 | low | **Fixed (accurate)** | `faq.md:122-136` no longer lists "no offset stored" as a `ProtocolException`; it names `QueryOffsetResponseV1::fromStreamBuffer()` as the `NO_OFFSET` exception and keeps "stream already exists" / invalid SASL. Matches `QueryOffsetResponseV1.php:54-65`. |
+| R2-F2 | nit | **Fixed (accurate)** | `SuperStreamConsumer.php:147-148` now says "If this consumer has no name, or the broker returns a non-OK response code other than NO_OFFSET"; matches `Consumer.php:767-769` and `super-stream-consumer.md:231-232`. |
+| R2-F3 | nit | **Fixed (consistent + correct)** | `offset-resume.md:615-623` now maps `null → 0` and returns `latest - 0`, identical to `offset-tracking.md:588-597`. Correct given `Consumer.php:455-461` (null resumes at the initial `OffsetSpec`; the examples use `OffsetSpec::first()`). |
+
+## Round-1 findings (re-verified at HEAD)
+
+All still fixed: R1-F1 (`CHANGELOG.md:13` covariance note), R1-F2
+(`QueryOffsetResponseV1.php:58` consumes the `uint64`; full-frame assertion at
+`QueryOffsetResponseV1Test.php:46`), R1-F3 (`assertSame(0, …)` at `:49-64`),
+R1-F4 (docblock present), R1-F5 (`FromArrayTest.php:141-155`), R1-F6
+(`enums.md:171`), R1-F7 (`getResponseCode()` asserted at `:77`).
+
+## New findings
+
+None. No source/test behaviour changed in the delta and no doc/code drift was
+introduced.
+
+### Pre-existing, informational, not counted
+
+`TestReadWaitsThroughResubscribeBackoffAfterLostSubscription`
+(`tests/Client/ConsumerTest.php:308-376`, from #461 / `bb9c5bb`, **not touched
+by #467**) asserts inside `foreach ($forwarded as …)` where the slice count is
+bounded by a 0.05 s wall-clock deadline, so the unit suite's assertion total is
+nondeterministic: repeated runs report 8710 / 8714 / 8718 assertions while the
+test count stays 1222. This is why the round-2 PoW table recorded "8722
+assertions" and this round observes 8714. The test always passes; only the
+metric varies. Out of scope for #467.
+
+## Gate results (HEAD `90bf9b9`)
+
+| Gate | Result |
+|------|--------|
+| `composer lint` (PHPCS 279 files + Rector dry-run + PHPStan level 9, 273 paths + kb-lint 12 entries/0 warnings/0 stale + docs links) | ✅ all clean |
+| `./vendor/bin/phpunit --testsuite unit` | ✅ `OK (1222 tests, 8714 assertions)` |
+
+## Verdict
+
+**Converged. No open high, medium, low or nit findings remain for #467.** All
+round-1 and round-2 findings are fixed and re-verified; the round-3 delta is
+documentation-only and correct. Recommended: merge.
