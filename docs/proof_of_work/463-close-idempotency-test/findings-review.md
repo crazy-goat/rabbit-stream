@@ -139,3 +139,23 @@ issues. See `review-2.md` for the full record.
 - Gates at HEAD: `--testsuite unit` OK (1244 tests, 8813 assertions);
   `composer lint` OK (PHPCS 281/281, Rector, PHPStan level 9 275/275, kb-lint,
   docs links, suite coverage).
+
+## Round 3 (final convergence)
+
+See `review-3.md` for the full record.
+
+### R3 — stale embedded line refs for the review-2 mock citation (round 2)
+- **Verified fixed.** `review-1.md:139` and `findings-review.md:51` now cite
+  `tests/Client/ConnectionTest.php:1049-1050,1105-1106`, and those coordinates
+  resolve at HEAD to the producer `readMessage` stub (1049–1050) and the consumer
+  `request` stub (1105–1106). **Closed.**
+
+### Round 3 status summary
+- Round-1 findings (review-1 low, review-2 nit): **closed**.
+- Round-2 finding (R3 low): **closed, fixed**.
+- New-issue sweep over `git diff main...HEAD` (tests + docs only): **no new
+  findings**.
+- **No open high, medium, low, or nit findings.** The diff is merge-ready.
+- Gates at HEAD: `--testsuite unit` OK (1244 tests, 8813 assertions);
+  `composer lint` OK (PHPCS 281/281, Rector, PHPStan level 9 275/275, kb-lint
+  12 entries/0 stale, docs links, suite coverage).
