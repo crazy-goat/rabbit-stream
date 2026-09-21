@@ -60,11 +60,22 @@ class ExchangeCommandVersionsTest extends E2ETestCase
             $this->assertGreaterThanOrEqual($version->getMinVersion(), $version->getMaxVersion());
         }
 
-        // Publish is the command the negotiation gates today: a modern broker
-        // supports v2 (per-message filter values), which Producer relies on.
+        // Publish is the only command the client advertises, so it is the one
+        // the broker must report back; v1 is universal. Publish v2 (per-message
+        // filter values) exists only on brokers with stream filtering (RabbitMQ
+        // 3.13+), so the high-level version selection is asserted against
+        // whatever range the broker actually reported rather than hard-coding
+        // v2 — this keeps the test valid across the supported broker matrix.
         $this->assertArrayHasKey(KeyEnum::PUBLISH->value, $versions);
         $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
-        $this->assertTrue($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+
+        $publish = $versions[KeyEnum::PUBLISH->value];
+        $this->assertSame(1, $publish->getMinVersion());
+        $this->assertSame(
+            $publish->getMaxVersion() >= 2,
+            $connection->supportsCommandVersion(KeyEnum::PUBLISH, 2),
+            'supportsCommandVersion(PUBLISH, 2) must follow the broker-reported range'
+        );
 
         $connection->close();
     }

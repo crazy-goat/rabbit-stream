@@ -118,3 +118,212 @@ Gates (all run on the reviewed commit):
 | nit | 4 | R1-7, R1-8, R1-9, R1-10 |
 
 No `high` findings. The wire format, key/version handling, range-containment semantics and v1 fallback are correct and verified against the protocol spec and a real RabbitMQ 4 broker.
+
+---
+
+# Findings — review round 2 (#381 ExchangeCommandVersions handshake)
+
+Reviewer: REVIEW-CRITICAL subagent, round 2. Branch
+`feature/issue-381-version-negotiation` @ `8c30501`, diff vs `main`.
+Read-only w.r.t. source. Round-1 entries above are unchanged; the entries below
+are new. Full narrative and evidence in `review-2.md`.
+
+Round-1 disposition (see `review-2.md` §2): R1-1 **fixed for < 3.11
+(verified on real RabbitMQ 3.10.25) but leaves R2-1**; R1-2 **fixed** (residual
+R2-3, weak test R2-4); R1-3 **fixed** (gaps R2-2); R1-4 **fixed/moot**;
+R1-5, R1-6, R1-7, R1-11 **fixed**; R1-8, R1-9, R1-10 **still present,
+deliberately out of scope / accepted**.
+
+Gates at `8c30501`: `composer cs` PASS (279 files); `composer phpstan` PASS
+(273 files, level 9); `composer rector` PASS; unit `1212 tests / 8767
+assertions` PASS; full E2E `147 tests / 3059 assertions` PASS against
+`rabbitmq:4-management` (4.3.6). Manual broker matrix (this round):
+RabbitMQ 3.10.25 SKIP/OK, 3.11–4.2 **crash**, 4.3.6 OK.
+
+## R2-1 — Advertised command keys crash RabbitMQ 3.11–4.2 and fail `create()`
+
+- **file:line**: `src/Client/Connection.php:441-469` (`clientCommandVersions()`),
+  entries at `:466-468` (`CREATE_SUPER_STREAM` `0x001d`,
+  `DELETE_SUPER_STREAM` `0x001e`, `RESOLVE_OFFSET_SPEC` `0x001f`); sent at `:389`
+- **Severity**: `high`
+- **What is wrong**: The round-1 version gate decides only *whether* to send
+  `ExchangeCommandVersions`, never *what to advertise*. `clientCommandVersions()`
+  advertises every key the library implements, including commands that exist only
+  in newer RabbitMQ. The broker's
+  `rabbit_stream_core:parse_command_id/1` has no clause for an unknown key and
+  terminates the connection process with `error:function_clause`. Verified on
+  real images by running `Connection::create()`:
+  - RabbitMQ **3.11.28 / 3.12.x** → `ConnectionException`, broker crash
+    `parse_command_id(29)` (`0x001d`);
+  - RabbitMQ **3.13.x / 4.0.x / 4.1.x / 4.2.x** → `ConnectionException`, broker
+    crash `parse_command_id(31)` (`0x001f`);
+  - RabbitMQ **4.3.6** (the only CI/E2E image) → OK.
+  So on the entire range the gate newly admits (`>= 3.11`) there is no graceful
+  fallback: `create()` throws and the broker's stream reader dies (repeated
+  connects reach `reached_max_restart_intensity`). R1-1's `< 3.11` hole is closed,
+  but the failure moved up to 3.11–4.2 and got worse. The reference Go client
+  avoids this by advertising only `Publish`.
+- **What happened to it**: new in round 2; not present before this feature
+  (the command was never sent).
+- **Check that could have caught it**: an E2E matrix over broker versions (3.11
+  and one of 4.0/4.2), or a unit/fake-broker test asserting the advertised key
+  set is a subset of the keys the oldest supported broker knows. CI pins a single
+  floating `rabbitmq:4-management`. The R1-3 drift guard cannot catch it and in
+  fact blesses the offending keys.
+
+## R2-2 — Drift guard permits over-advertising
+
+- **file:line**: `tests/Client/ConnectionHandshakeTest.php:1113-1121`
+- **Severity**: `nit`
+- **What is wrong**: the guard asserts `maxVersion >= getVersion()` but never the
+  reverse, so an advertised max above any implemented class (e.g. `PUBLISH` 1..5
+  with only V1/V2 classes) passes. It also has no notion of broker support, so it
+  endorses the R2-1 keys.
+- **Check that could have caught it**: the same test, asserting equality with the
+  highest implemented `getVersion()`.
+
+## R2-3 — `abandonedCorrelationIds` is unbounded and survives a write-side timeout
+
+- **file:line**: `src/StreamConnection.php:187`, `:618-621`, `:1064-1080`
+- **Severity**: `low`
+- **What is wrong**: the set only shrinks when a matching late reply arrives.
+  `negotiateCommandVersions()` also abandons when `sendMessage()` itself throws
+  `TimeoutException` (frame never sent → no reply ever), leaving a permanent
+  entry. Ids are never reused, so this is a small leak, not a wrong discard.
+- **Check that could have caught it**: a unit test asserting no entry is added
+  on a write-side timeout; or cap/clear the set in `close()`.
+
+## R2-4 — Abandon test does not assert the wire correlation id
+
+- **file:line**: `tests/Client/ConnectionHandshakeTest.php:958-991`
+- **Severity**: `nit`
+- **What is wrong**: `sendMessage` is mocked, so the request keeps the default
+  correlation id `0` and the test asserts `abandonCorrelation(0)`. It pins that
+  the call happens, not that the abandoned id matches the id assigned on the wire
+  (`1` in production), so a wrong-id regression would pass.
+- **Check that could have caught it**: the same test, having the `sendMessage`
+  mock assign a correlation id and asserting it.
+
+## R2-5 — Docs promise "no failure" for a step that now throws on 3.11–4.2
+
+- **file:line**: `docs/en/api-reference/connection.md:209-214`;
+  `docs/en/guide/connection-lifecycle.md:150-155`
+- **Severity**: `low`
+- **What is wrong**: the docs state the step is best-effort with "no exception and
+  no failure", which is false on RabbitMQ 3.11–4.2 (R2-1). Consequence of R2-1.
+- **Check that could have caught it**: none (doc review); fixing R2-1 restores the
+  documented contract.
+
+## Round-2 summary by severity
+
+| Severity | Count | IDs |
+|----------|-------|-----|
+| high | 1 | R2-1 |
+| medium | 0 | — |
+| low | 2 | R2-3, R2-5 |
+| nit | 2 | R2-2, R2-4 |
+
+---
+
+# Round 2 fixes — coder dispositions (#381)
+
+Coder: CODER subagent. Branch `feature/issue-381-version-negotiation`, on top of
+`8c30501`. Every round-2 finding has a disposition below; the round-1 entries and
+the round-2 reviewer entries above are unchanged.
+
+## R2-1 — advertised key crashes RabbitMQ 3.11–4.2 (high) — FIXED
+
+`Connection::clientCommandVersions()` (`src/Client/Connection.php`) no longer
+advertises every implemented command. It now returns exactly one range:
+`Publish` v1–v2. Single-version commands (`CREATE_SUPER_STREAM` `0x001d`,
+`DELETE_SUPER_STREAM` `0x001e`, `RESOLVE_OFFSET_SPEC` `0x001f`, and every other
+v1-only key) are no longer sent, so a broker whose `parse_command_id/1` has no
+clause for them can never be reached. `Publish` (`0x0002`) is known to every
+broker the 3.11 gate admits, and a v1–v2 range is harmless on 3.11–3.12 (the
+broker answers 1–1; the client stays on v1). The rule implemented is "advertise
+only commands the client implements more than one version of".
+
+Evidence (real brokers; `Connection::create()` exercised through
+`tests/E2E/ExchangeCommandVersionsTest.php`) — all **PASS**:
+
+| Broker | `create()` | negotiated map |
+|--------|-----------|----------------|
+| 3.11.28 | OK | non-empty (Publish 1–1) |
+| 3.12.14 | OK | non-empty (Publish 1–1) |
+| 3.13.7 | OK | non-empty (Publish 1–2) |
+| 4.0.9 | OK | non-empty |
+| 4.1.8 | OK | non-empty |
+| 4.2.9 | OK | non-empty |
+| 4.3.6 | OK | non-empty |
+
+No `function_clause` and no stream-reader restart on any of them. Full E2E suite
+also green: **147 tests PASS on 4.3.6, 4.2.9 and 3.13.7**.
+
+Discovered while verifying: `Publish` v2 (per-message filter values) is a
+**RabbitMQ 3.13** feature, not 3.11 — the round-2 report's "Go client advertises
+only Publish" note did not imply a version, but the old docblock claimed 3.11 and
+the E2E asserted v2 unconditionally. Both corrected; the E2E now asserts the
+negotiated range and `supportsCommandVersion(PUBLISH, 2)` agree (true on 3.13+,
+false on 3.11/3.12). Regression pinned by
+`testClientCommandVersionsAdvertisesOnlyImplementedMultiVersionCommands` (drift
+guard) and `testCreateExchangesCommandVersionsAndStoresThem` (advertised set is
+exactly `Publish`).
+
+## R2-2 — drift guard permits over-advertising (nit) — FIXED
+
+`tests/Client/ConnectionHandshakeTest.php` drift guard rewritten: it derives the
+highest implemented version per client-initiated request key from the
+`src/Request/*.php` classes, then asserts (a) the advertised key set equals the
+set of keys whose implemented max is > 1, (b) each advertised min is 1, and
+(c) each advertised max **equals** (not `>=`) the highest implemented
+`getVersion()`. Over-advertising (`Publish` 1..5 with only V1/V2) now fails, as
+does advertising a v1-only key.
+
+## R2-3 — unbounded abandonedCorrelationIds (low) — FIXED
+
+Three changes in `src/StreamConnection.php`:
+
+1. `abandonCorrelation()` is bounded by `MAX_ABANDONED_CORRELATION_IDS = 64`
+   (oldest-first eviction). The set is otherwise only pruned by a matching late
+   reply, so a bound is the only hard guarantee; 64 is far above the single id a
+   real handshake can abandon, so eviction never happens in practice.
+2. `close()` clears the set, so nothing is retained after a reset/reuse.
+3. `Connection::negotiateCommandVersions()` abandons **only on a read-side
+   timeout** (tracked with a `$sent` flag), so a write-side timeout that never
+   put a frame on the wire cannot leak an entry.
+
+Pinned by `testCreateDoesNotAbandonWhenTheExchangeWriteTimesOut`,
+`testAbandonedCorrelationIdsAreClearedByClose`,
+`testAbandonedCorrelationIdsAreBounded`.
+
+## R2-4 — abandon test asserted id 0 (nit) — FIXED
+
+`testCreateAbandonsTheExchangeCorrelationIdWhenItTimesOut` now has the
+`sendMessage` mock assign correlation id `42` to the request (the same mutation
+the real `StreamConnection::sendMessage()` performs) and asserts
+`abandonCorrelation(42)`. A wrong-id regression now fails the test.
+
+## R2-5 — docs promised "no failure" (low) — FIXED
+
+With R2-1 fixed the documented contract holds, and the wording was made accurate
+rather than left implying a full advertised list:
+
+- `docs/en/api-reference/connection.md` — the step documents that only
+  multi-version commands (currently Publish v1–v2) are advertised and why; the
+  best-effort/fallback wording is retained (now true).
+- `docs/en/guide/connection-lifecycle.md` — step 6 explains the
+  multi-version-only advertisement.
+- `docs/en/protocol/connection-management-commands.md` — example advertises only
+  Publish (Deliver v1 line removed).
+- `docs/en/api-reference/producer.md` — `sendWithFilter()` documents the
+  `ProtocolException` and the RabbitMQ 3.13+ requirement for filtering.
+- `src/Client/Connection.php` docblock corrected: Publish v2 is 3.13+, not 3.11.
+
+## Round-1 findings — unchanged dispositions
+
+- **R1-8** (`PublishRequestV2` range check in `toStreamBuffer()`) — **not fixed,
+  deliberately out of scope (#404)**, unchanged.
+- **R1-9** (`setCommandVersions()` public setter) — **accepted by design**;
+  `abandonCorrelation()` remains the same documented wiring-seam pattern.
+- **R1-10** (two E2E tests for the same command) — **accepted**, both tests
+  remain meaningful (raw request/response vs. handshake wiring).

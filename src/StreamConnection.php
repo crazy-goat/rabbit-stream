@@ -178,9 +178,23 @@ class StreamConnection
     private array $commandVersions = [];
 
     /**
+     * Hard upper bound on {@see $abandonedCorrelationIds}.
+     *
+     * The set is only pruned when a matching late reply finally arrives, and
+     * correlation ids are monotonic (never reused), so without a bound a caller
+     * that abandons requests could grow it without limit. In practice only the
+     * single ExchangeCommandVersions handshake can abandon an id — and only on a
+     * read-side timeout — so this cap is never reached in normal use; it exists
+     * so the state cannot grow without bound. Oldest-first eviction is safe
+     * because the oldest id is the least likely to still have a reply in flight.
+     */
+    private const MAX_ABANDONED_CORRELATION_IDS = 64;
+
+    /**
      * Correlation ids of requests that already timed out and whose reply, if it
      * ever arrives, must be discarded rather than handed to another caller.
-     * Filled by {@see abandonCorrelation()}, consumed by {@see readResponse()}.
+     * Filled by {@see abandonCorrelation()}, consumed by {@see readResponse()}
+     * and cleared by {@see close()}.
      *
      * @var array<int, true>
      */
@@ -390,6 +404,9 @@ class StreamConnection
             $this->stream = null;
         }
         $this->connected = false;
+        // A closed connection cannot read a late reply, so the abandoned-id set
+        // has no further use and must not be carried by a reused instance (R2-3).
+        $this->abandonedCorrelationIds = [];
     }
 
     /**
@@ -613,10 +630,21 @@ class StreamConnection
      * This is an internal wiring seam for the handshake; callers outside the
      * client layer have no reason to use it.
      *
+     * The set is bounded by {@see MAX_ABANDONED_CORRELATION_IDS}: once full, the
+     * oldest id is evicted so a caller that abandons many requests cannot grow
+     * the state without limit (R2-3). It is also cleared by {@see close()}.
+     *
      * @param int $correlationId Correlation id of the timed-out request
      */
     public function abandonCorrelation(int $correlationId): void
     {
+        if (count($this->abandonedCorrelationIds) >= self::MAX_ABANDONED_CORRELATION_IDS) {
+            // The set is non-empty whenever the cap is reached, so the first
+            // key is always an int here.
+            $oldest = array_key_first($this->abandonedCorrelationIds);
+            unset($this->abandonedCorrelationIds[$oldest]);
+        }
+
         $this->abandonedCorrelationIds[$correlationId] = true;
     }
 

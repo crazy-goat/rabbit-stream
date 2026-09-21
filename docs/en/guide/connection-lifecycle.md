@@ -137,9 +137,13 @@ The final mandatory step selects the virtual host (namespace) to use. The defaul
 ### 6. ExchangeCommandVersions (0x001b / 0x801b) — RabbitMQ 3.11+
 
 An optional step that lets the client advertise the protocol command versions it
-implements and learn which ones the broker supports. The broker replies with a
-per-command `minVersion`/`maxVersion` range; the client uses it to decide, for
-example, whether it may send `Publish` v2 (per-message filter values).
+implements and learn which ones the broker supports. It advertises only the
+commands it implements more than one version of (today only `Publish` v1–v2); a
+v1-only command is already covered by the baseline, and advertising a command
+key the broker's release does not define terminates the broker's stream
+connection process. The broker replies with a per-command
+`minVersion`/`maxVersion` range; the client uses it to decide, for example,
+whether it may send `Publish` v2 (per-message filter values).
 
 **Purpose:**
 - Negotiate per-command protocol versions

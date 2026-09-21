@@ -102,3 +102,31 @@
   which `negotiateCommandVersions()` does not catch. No code change was needed
   for that half of R1-1 — only a test/decision note.
 
+## Round 2 review follow-up (new observations)
+
+- **`Publish` v2 is a RabbitMQ 3.13 feature, not 3.11.** Stream filtering
+  (per-message filter values) landed in 3.13. The round-1/2 code and docs
+  assumed 3.11; the first real run against 3.11.28 and 3.12.14 exposed it:
+  `ExchangeCommandVersionsTest::testCreateNegotiates...` failed because it
+  asserted `supportsCommandVersion(PUBLISH, 2)` unconditionally, and
+  `PublishV2Test`/`SubscribeFilterE2ETest` legitimately error on those brokers
+  because `Producer::sendWithFilter()` refuses a non-null filter without v2.
+  Advertising `Publish` v1–v2 is still safe on 3.11/3.12 (the broker answers
+  1–1), so the fix is only to make the documentation and the one E2E assertion
+  version-aware.
+- **The E2E suite is not self-contained.** Several tests resolve a durable
+  `test-stream` through the management API, and `run-e2e.sh` pre-creates it via
+  `PUT /api/queues/%2F/test-stream`. Running `phpunit --testsuite e2e` against a
+  broker started by hand (without the management port exposed and the stream
+  created) produces `STREAM_NOT_EXIST` errors and a
+  `ServerInitiatedCloseTest` "stream connection not found" failure. Any broker
+  matrix must replicate `run-e2e.sh`'s setup step.
+- **Full E2E on 3.13.7 / 4.2.9 skips the same 3 `ResolveOffsetSpec` data rows**
+  (feature gate), everything else passes. On 4.3.6 all 147 pass. This is useful
+  evidence that the R2-1 crash was the only thing blocking older brokers.
+- **The drift guard's "advertise exactly the multi-version keys" rule is now the
+  safety net for R2-1.** It is worth remembering that the rule is an invariant
+  (multi-version commands are assumed known to every supported broker), not a
+  per-broker proof; the code comment in `clientCommandVersions()` records the
+  crash mechanism so a future addition is a deliberate decision.
+

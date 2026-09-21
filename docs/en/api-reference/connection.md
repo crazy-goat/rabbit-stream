@@ -208,12 +208,16 @@ When `create()` is called, it performs the following protocol handshake:
 ### Version negotiation
 
 After `Open`, `create()` sends `ExchangeCommandVersions` (`0x001b`) advertising
-the per-command versions this client implements (Publish v1–v2; everything else
-v1) and stores the broker's reply for the lifetime of the connection.
+the per-command versions this client implements, and stores the broker's reply
+for the lifetime of the connection. Only commands with more than one version are
+advertised — today only Publish (v1–v2) — because a single-version command is
+already covered by the v1 baseline, and RabbitMQ terminates the stream connection
+process when an advertised command key is one its release does not define.
 
-The step is **best effort**: a broker that does not implement the command, does
-not answer within 5 seconds, or rejects it leaves the connection on the v1
-baseline. There is no exception and no failure — check the result with:
+The step is **best effort**: on a broker that does not implement the command
+(RabbitMQ < 3.11, where it is skipped entirely), does not answer within 5
+seconds, or rejects it, the connection stays on the v1 baseline and `create()`
+succeeds. Check the result with:
 
 ```php
 use CrazyGoat\RabbitStream\Enum\KeyEnum;

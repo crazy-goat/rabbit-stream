@@ -274,11 +274,12 @@ use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 
-// Send supported versions
+// Send the versions this client implements. Only advertise commands with more
+// than one version: a v1-only command is covered by the baseline, and an
+// unknown command key terminates the broker's stream connection process.
 $stream->sendMessage(new ExchangeCommandVersionsRequestV1(
     commands: [
         new CommandVersion(key: 0x0002, minVersion: 1, maxVersion: 2),  // Publish v1-v2
-        new CommandVersion(key: 0x0008, minVersion: 1, maxVersion: 1),  // Deliver v1 only
     ]
 ));
 

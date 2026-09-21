@@ -2062,4 +2062,34 @@ class StreamConnectionTest extends TestCase
         fclose($serverSocket);
         fclose($clientSocket);
     }
+
+    public function testAbandonedCorrelationIdsAreClearedByClose(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $property = new \ReflectionProperty($connection, 'abandonedCorrelationIds');
+
+        $connection->abandonCorrelation(1);
+        $this->assertSame([1 => true], $property->getValue($connection));
+
+        // A closed connection can never read the late reply, so the id has no
+        // further use and must not be carried by a reused instance (R2-3).
+        $connection->close();
+        $this->assertSame([], $property->getValue($connection));
+    }
+
+    public function testAbandonedCorrelationIdsAreBounded(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $property = new \ReflectionProperty($connection, 'abandonedCorrelationIds');
+
+        for ($id = 1; $id <= 500; $id++) {
+            $connection->abandonCorrelation($id);
+        }
+
+        $abandoned = $property->getValue($connection);
+        $this->assertIsArray($abandoned);
+        $this->assertLessThanOrEqual(64, count($abandoned));
+        // Oldest-first eviction keeps the most recently abandoned id tracked.
+        $this->assertArrayHasKey(500, $abandoned);
+    }
 }

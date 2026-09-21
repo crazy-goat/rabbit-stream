@@ -388,15 +388,22 @@ class Connection implements ConnectionInterface
     ): array {
         $request = new ExchangeCommandVersionsRequestV1(self::clientCommandVersions());
 
+        $sent = false;
         try {
             $streamConnection->sendMessage($request);
+            $sent = true;
             $response = $streamConnection->readMessage(self::COMMAND_VERSION_EXCHANGE_TIMEOUT);
         } catch (ProtocolException | DeserializationException | TimeoutException $e) {
-            if ($e instanceof TimeoutException) {
+            if ($sent && $e instanceof TimeoutException) {
                 // The broker may still answer after the timeout. Mark the
                 // request's correlation id abandoned so that late frame is
                 // discarded by the next read instead of being handed to an
                 // unrelated caller as if it were their response (R1-2).
+                //
+                // Only a read-side timeout may leave a reply in flight: when
+                // sendMessage() itself times out the frame was never (fully)
+                // written, so no reply can ever arrive and abandoning would leak
+                // an entry that nothing can clear (R2-3).
                 $streamConnection->abandonCorrelation($request->getCorrelationId());
             }
 
@@ -426,54 +433,34 @@ class Connection implements ConnectionInterface
     }
 
     /**
-     * The per-command version ranges this client implements, advertised to the
-     * broker.
+     * The per-command version ranges this client advertises to the broker.
      *
-     * PUBLISH is the only command with more than one version so far: v2 adds
-     * the per-message filter value. DELIVER is advertised at v1 only on
-     * purpose — {@see \CrazyGoat\RabbitStream\Response\DeliverResponseV1} can
-     * parse a v2 frame, but nothing consumes its CommittedChunkId yet, so the
-     * broker must keep sending v1. Every other entry is a v1-only command the
-     * library can send or receive.
+     * Only commands the client implements more than one version of are
+     * advertised. For a v1-only command the advertisement buys nothing — the v1
+     * baseline already covers it — while it can actively break the connection:
+     * RabbitMQ's stream reader feeds every advertised key through
+     * `rabbit_stream_core:parse_command_id/1`, which has no clause for a key the
+     * running release never defined, and terminates the connection process with
+     * `error:function_clause`. Advertising `CREATE_SUPER_STREAM` /
+     * `DELETE_SUPER_STREAM` (`0x001d` / `0x001e`) crashes RabbitMQ 3.11–3.12 and
+     * `RESOLVE_OFFSET_SPEC` (`0x001f`) crashes 3.13–4.2; only 4.3+ tolerates the
+     * full list, which is why the single modern CI image did not catch it (R2-1).
+     * The reference Go client advertises only Publish for exactly this reason.
+     *
+     * Publish is the only multi-version command today: v2 adds the per-message
+     * filter value and was introduced in RabbitMQ 3.13. Every broker the version
+     * gate admits (>= 3.11) already knows the Publish key (`0x0002`), so
+     * advertising v1–v2 is safe everywhere — 3.11 and 3.12 simply answer with a
+     * Publish range of 1–1 and the client stays on v1. DELIVER is deliberately
+     * absent: nothing consumes its v2 CommittedChunkId yet, so it must stay v1.
      *
      * @return list<CommandVersion> Ranges to advertise.
      */
     private static function clientCommandVersions(): array
     {
-        /** @var array<int, int> $maxVersions Command key => highest version implemented */
-        $maxVersions = [
-            KeyEnum::DECLARE_PUBLISHER->value => 1,
-            KeyEnum::PUBLISH->value => 2,
-            KeyEnum::PUBLISH_CONFIRM->value => 1,
-            KeyEnum::PUBLISH_ERROR->value => 1,
-            KeyEnum::QUERY_PUBLISHER_SEQUENCE->value => 1,
-            KeyEnum::DELETE_PUBLISHER->value => 1,
-            KeyEnum::SUBSCRIBE->value => 1,
-            KeyEnum::DELIVER->value => 1,
-            KeyEnum::CREDIT->value => 1,
-            KeyEnum::STORE_OFFSET->value => 1,
-            KeyEnum::QUERY_OFFSET->value => 1,
-            KeyEnum::UNSUBSCRIBE->value => 1,
-            KeyEnum::CREATE->value => 1,
-            KeyEnum::DELETE->value => 1,
-            KeyEnum::METADATA->value => 1,
-            KeyEnum::METADATA_UPDATE->value => 1,
-            KeyEnum::ROUTE->value => 1,
-            KeyEnum::PARTITIONS->value => 1,
-            KeyEnum::CONSUMER_UPDATE->value => 1,
-            KeyEnum::EXCHANGE_COMMAND_VERSIONS->value => 1,
-            KeyEnum::STREAM_STATS->value => 1,
-            KeyEnum::CREATE_SUPER_STREAM->value => 1,
-            KeyEnum::DELETE_SUPER_STREAM->value => 1,
-            KeyEnum::RESOLVE_OFFSET_SPEC->value => 1,
+        return [
+            new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
         ];
-
-        $versions = [];
-        foreach ($maxVersions as $key => $maxVersion) {
-            $versions[] = new CommandVersion($key, 1, $maxVersion);
-        }
-
-        return $versions;
     }
 
     private static function negotiatedMaxValue(int $clientValue, int $serverValue): int

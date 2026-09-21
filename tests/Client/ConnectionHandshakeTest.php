@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
@@ -716,8 +717,9 @@ class ConnectionHandshakeTest extends TestCase
         $this->assertSame(2, $storedVersions[KeyEnum::PUBLISH->value]->getMaxVersion());
         $this->assertArrayHasKey(KeyEnum::CREATE->value, $storedVersions);
 
-        // The advertised request must list what the client implements, with
-        // Publish as the only multi-version command.
+        // The advertised request must list exactly the client's multi-version
+        // commands — Publish only — so it cannot carry a command key an older
+        // broker's parse_command_id/1 would reject (R2-1).
         $exchangeRequests = array_values(array_filter(
             $capturedRequests,
             fn(object $r): bool => $r instanceof ExchangeCommandVersionsRequestV1
@@ -730,9 +732,11 @@ class ConnectionHandshakeTest extends TestCase
         foreach ($exchangeRequest->getCommands() as $command) {
             $advertised[$command->getKey()] = [$command->getMinVersion(), $command->getMaxVersion()];
         }
-        $this->assertSame([1, 2], $advertised[KeyEnum::PUBLISH->value] ?? null);
-        $this->assertSame([1, 1], $advertised[KeyEnum::DELIVER->value] ?? null);
-        $this->assertSame([1, 1], $advertised[KeyEnum::CREATE->value] ?? null);
+        $this->assertSame(
+            [KeyEnum::PUBLISH->value => [1, 2]],
+            $advertised,
+            'only multi-version commands are advertised'
+        );
 
         unset($connection);
     }
@@ -975,13 +979,52 @@ class ConnectionHandshakeTest extends TestCase
                     default => throw new \RuntimeException('readMessage() called more times than expected'),
                 };
             });
-        // sendMessage is mocked, so the request keeps its default correlation
-        // id of 0; the production path assigns a real one before reading.
-        $streamConnection->method('sendMessage');
+        // sendMessage is mocked, but it assigns a real correlation id to the
+        // request exactly as StreamConnection::sendMessage() would, so the test
+        // pins that the abandoned id is the one on the wire (R2-4), not the
+        // default 0. Ids are assigned before the read, so a regression passing
+        // the wrong id to abandonCorrelation() fails here.
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (object $request): void {
+                if ($request instanceof CorrelationInterface) {
+                    $request->withCorrelationId(42);
+                }
+            });
         $streamConnection->method('setMaxFrameSize');
         $streamConnection->method('close');
         $streamConnection->expects($this->once())->method('setCommandVersions')->with([]);
-        $streamConnection->expects($this->once())->method('abandonCorrelation')->with(0);
+        $streamConnection->expects($this->once())->method('abandonCorrelation')->with(42);
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        $this->assertSame([], $connection->getSupportedCommandVersions());
+
+        unset($connection);
+    }
+
+    public function testCreateDoesNotAbandonWhenTheExchangeWriteTimesOut(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                $this->peerPropertiesResponse(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(131072, 60),
+                new OpenResponseV1(),
+            );
+        // The write itself never completes, so no reply can ever arrive.
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (object $request): void {
+                if ($request instanceof ExchangeCommandVersionsRequestV1) {
+                    throw new TimeoutException('Write timeout');
+                }
+            });
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+        $streamConnection->expects($this->once())->method('setCommandVersions')->with([]);
+        // Recording the id would leak an entry nothing can clear (R2-3).
+        $streamConnection->expects($this->never())->method('abandonCorrelation');
 
         $connection = Connection::create(streamConnection: $streamConnection);
 
@@ -1055,16 +1098,25 @@ class ConnectionHandshakeTest extends TestCase
     }
 
     /**
-     * Drift guard (R1-3): clientCommandVersions() is a hand-kept list next to
-     * the request classes' getKey()/getVersion(). This fails if a request class
-     * is added, or a version bumped, without updating the advertised ranges.
+     * Drift guard: clientCommandVersions() is a hand-kept list next to the
+     * request classes' getKey()/getVersion(). It must advertise exactly the
+     * client-initiated commands the library implements more than one version
+     * of, with the advertised max equal to the highest implemented version
+     * (R1-3, R2-1, R2-2).
+     *
+     * Advertising a v1-only command is not merely pointless — it can crash
+     * RabbitMQ 3.11–4.2, whose stream reader has no parse_command_id/1 clause
+     * for command keys the running release never defined (R2-1). Advertising a
+     * max above any implemented class would let the broker send a version the
+     * client cannot parse (R2-2).
      */
-    public function testClientCommandVersionsCoversEveryClientInitiatedRequestClass(): void
+    public function testClientCommandVersionsAdvertisesOnlyImplementedMultiVersionCommands(): void
     {
         $method = new \ReflectionMethod(Connection::class, 'clientCommandVersions');
         /** @var list<CommandVersion> $ranges */
         $ranges = $method->invoke(null);
 
+        /** @var array<int, CommandVersion> $advertised */
         $advertised = [];
         foreach ($ranges as $range) {
             $advertised[$range->getKey()] = $range;
@@ -1085,6 +1137,8 @@ class ConnectionHandshakeTest extends TestCase
         $files = glob(dirname(__DIR__, 2) . '/src/Request/*.php');
         $this->assertIsArray($files);
 
+        /** @var array<int, int> $implementedMax Highest implemented version per client-initiated key */
+        $implementedMax = [];
         $scanned = 0;
         foreach ($files as $file) {
             /** @var class-string<KeyVersionInterface> $class */
@@ -1107,23 +1161,42 @@ class ConnectionHandshakeTest extends TestCase
             }
 
             $scanned++;
-            $this->assertArrayHasKey(
-                $key,
-                $advertised,
-                $class . ' is not advertised by clientCommandVersions()'
-            );
-            $this->assertSame(
-                1,
-                $advertised[$key]->getMinVersion(),
-                $class . ' must be advertised from v1'
-            );
-            $this->assertGreaterThanOrEqual(
-                $class::getVersion(),
-                $advertised[$key]->getMaxVersion(),
-                $class . ' v' . $class::getVersion() . ' exceeds the advertised max version'
-            );
+            $implementedMax[$key] = max($implementedMax[$key] ?? 0, $class::getVersion());
         }
 
         $this->assertGreaterThan(0, $scanned, 'Drift guard scanned no request classes');
+
+        // Expected = client-initiated commands with more than one implemented
+        // version. Advertising a single-version command adds nothing and risks
+        // crashing a broker that does not know the key (R2-1).
+        $expectedKeys = array_keys(array_filter(
+            $implementedMax,
+            static fn (int $max): bool => $max > 1
+        ));
+        sort($expectedKeys);
+        $advertisedKeys = array_keys($advertised);
+        sort($advertisedKeys);
+
+        $this->assertSame(
+            $expectedKeys,
+            $advertisedKeys,
+            'clientCommandVersions() must advertise exactly the keys with more than one implemented version'
+        );
+
+        foreach ($advertised as $key => $range) {
+            $this->assertSame(
+                1,
+                $range->getMinVersion(),
+                sprintf('command 0x%04x must be advertised from v1', $key)
+            );
+            // R2-2: equality, not just >=, so the advertised max can neither
+            // exceed the implemented version (the broker would send an
+            // unparseable frame) nor fall short of it (v2 never negotiated).
+            $this->assertSame(
+                $implementedMax[$key],
+                $range->getMaxVersion(),
+                sprintf('command 0x%04x advertised max must equal the highest implemented version', $key)
+            );
+        }
     }
 }
