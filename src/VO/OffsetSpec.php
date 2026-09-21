@@ -95,6 +95,26 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         return new self(self::TYPE_OFFSET, $offset);
     }
 
+    /**
+     * Start from a point in time, resolved by the broker.
+     *
+     * The broker resolves the value to the **first chunk whose chunk timestamp
+     * is greater than or equal to $timestamp**, then delivers that chunk **in
+     * full**. Chunks are the broker's batching unit: a chunk carries a single
+     * write timestamp shared by every entry in it (see
+     * {@see \CrazyGoat\RabbitStream\Client\Message::getTimestamp()}), so
+     * messages written before $timestamp are legitimately delivered whenever
+     * they share a chunk with a message at or after it. A tie — $timestamp
+     * exactly equal to a chunk's timestamp — selects the *earlier* chunk.
+     *
+     * To pick a boundary that reliably lands where you intend, derive it from
+     * the chunk timestamps the broker actually wrote — the
+     * `Message::getTimestamp()` values you read back from the stream — rather
+     * than from the client clock.
+     *
+     * @param int $timestamp Boundary in milliseconds since the Unix epoch.
+     * @return self New offset spec starting at the first qualifying chunk.
+     */
     public static function timestamp(int $timestamp): self
     {
         return new self(self::TYPE_TIMESTAMP, $timestamp);
