@@ -630,7 +630,7 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
 | `OffsetSpec::TYPE_LAST` | 2 | Start from last message |
 | `OffsetSpec::TYPE_NEXT` | 3 | Start from next offset (after last consumed) |
 | `OffsetSpec::TYPE_OFFSET` | 4 | Start from specific offset (must provide offset) |
-| `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start from messages after timestamp |
+| `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start at the first chunk with chunk timestamp >= the value (chunk-granular) |
 | `OffsetSpec::TYPE_INTERVAL` | 6 | Start from interval |
 
 ### Complete Example
