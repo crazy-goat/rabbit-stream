@@ -1701,7 +1701,12 @@ class StreamConnection
                 return null;
             }
 
-            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remainingTime);
+            // readTimeout() is the only way past the guard above with a
+            // non-positive budget, and it never returns false (it reports an
+            // empty frame-boundary read or throws). Clamp explicitly anyway so
+            // splitSelectTimeout()'s non-negative precondition is enforced here
+            // instead of depending on that non-local invariant.
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remainingTime));
             $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
