@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-21
+
 ### Added
 - **CI: a test-suite coverage gate now fails when a `tests/**/*Test.php` is outside every `phpunit.xml` suite (#476)** — `phpunit --testsuite unit`/`e2e` only discover the files named under their `<testsuite>`, so a test file landing outside the allow-lists is silently never run by CI — the #459 failure mode (six files, 182 tests, invisible on green CI). New `bin/check-test-suites.php` (also `composer test:suite-coverage`, wired into `composer lint` and the CI `lint` job) parses `phpunit.xml`, diffs the union of all suites' `<directory>`/`<file>` entries against the `*Test.php` files on disk, and exits non-zero listing any uncovered file; it also fails the reverse direction, an allow-list path that no longer exists, so a rename cannot leave a suite pointing at nothing. Enabling the gate surfaced two more files already drifting outside the `unit` allow-list, `tests/PlatformTest.php` and `tests/Exception/ExceptionHierarchyTest.php`; both are now added to the `unit` suite and run in CI.
 
