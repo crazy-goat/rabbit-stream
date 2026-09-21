@@ -15,6 +15,25 @@ Summary: **0 high, 1 medium, 2 low.** No blocking correctness defect. Dispatch s
 
 F1 fix: a count plus a bounded prefix (max `StreamConnection::MAX_LOGGED_PUBLISHING_IDS = 10`) in all three log sites; the message states the true total and that only the first 10 are logged. New tests pin the bound. See [code-decision-2.md](code-decision-2.md).
 
+## Resolution — review round 2 (convergence)
+
+Verified at HEAD `8a622ed`; full narrative in [review-2.md](review-2.md).
+
+| Finding | Severity | Round-2 disposition |
+|---------|----------|---------------------|
+| F1 — unbounded publishing-id lists in warning context | Medium | **Verified fixed** — bound (`MAX_LOGGED_PUBLISHING_IDS = 10`) applied consistently at all three sites and tested at each; no full id list reaches any PSR-3 context in the changed paths |
+| F2 — stranded ids never retired from `pendingConfirms` | Low | **Confirmed deliberately deferred** — pre-existing #474 behaviour, documented; a valid optional follow-up for a separate issue |
+| F3 — doc wording "survives repeated drains" | Low | **Verified fixed** — reworded; `drainPendingConfirms()` is reachable only from an idempotent `close()` |
+
+**Round-2 new-issue sweep: none actionable.** The added `return`s are no-ops (dispatch and the
+tombstone guard are unchanged), `readLoop()` still counts dropped frames as dispatched, the `Producer`
+logger param is trailing/optional with a safe default, and `getLostConfirmCount()` is cumulative,
+idempotent, producer-only and documented. The only residual note is a cosmetic QA-evidence count
+(8746 vs 8750), corrected above.
+
+**Convergence verdict: no open high/medium/low actionable findings.** All round-1 findings are either
+fixed-and-verified or explicitly deferred with rationale.
+
 ---
 
 ## F1 — Unbounded publishing-id lists embedded in `warning` context (Medium)
@@ -147,8 +166,11 @@ updated to describe the bounded id prefix instead of "the affected publishing id
 ### Round 2 (after F1/F3 fixes)
 
 - PHPCS PSR-12: OK · PHPStan level 9: OK · Rector dry-run: OK
-- Unit: 1225 tests / 8750 assertions OK (+3 bounded-context tests) · E2E (Docker): 147 tests / 3059 assertions OK
+- Unit: 1225 tests / 8746 assertions OK (+3 bounded-context tests) · E2E (Docker): 147 tests / 3059 assertions OK
 - kb-lint: OK · docs link check: OK
+
+> Correction (review round 2): the round-2 unit assertion count is **8746**, not 8750 (two
+> independent runs at HEAD `8a622ed`). Cosmetic; no code impact.
 
 ## Proposed knowledge-base candidates (for the retro step, not committed here)
 
