@@ -327,3 +327,79 @@ rather than left implying a full advertised list:
   `abandonCorrelation()` remains the same documented wiring-seam pattern.
 - **R1-10** (two E2E tests for the same command) — **accepted**, both tests
   remain meaningful (raw request/response vs. handshake wiring).
+
+---
+
+# Findings — review round 3 (convergence) (#381)
+
+Reviewer: REVIEW-CRITICAL subagent, round 3. Branch
+`feature/issue-381-version-negotiation` @ `23cc283`, diff vs `main`.
+Read-only w.r.t. source. Full narrative and evidence in `review-3.md`.
+This section appends the round-3 dispositions; earlier sections are unchanged.
+
+Gates at `23cc283`: `composer cs` PASS (279 files); `composer phpstan` PASS
+(273 files, level 9); `composer rector` PASS; `composer lint` PASS
+(12 KB entries); unit `1215 tests / 8700 assertions` PASS; full E2E
+`147 tests / 3060 assertions` PASS on `rabbitmq:4-management` (4.3.6) and
+`147 tests / 3038 assertions (3 expected skips)` PASS on RabbitMQ 3.13.7.
+Broker matrix probe of `Connection::create()`: `CREATE_OK` with no broker crash
+on 3.11 / 3.12 / 3.13 / 4.0 / 4.1 / 4.2 / 4.3.
+
+## Round-2 findings — dispositions
+
+- **R2-1 (high, advertises unknown keys, crashes 3.11–4.2) — FIXED.**
+  `clientCommandVersions()` (`src/Client/Connection.php:459-464`) now returns
+  exactly one range, `Publish` v1–v2. The seven-broker matrix confirms
+  `CREATE_OK` on 3.11–4.3 and no `function_clause`; 3.11/3.12 answer
+  `Publish 1–1`, 3.13+ answer `1–2`. The three crashing keys are gone.
+- **R2-2 (nit, drift guard allows over-advertising) — FIXED.** The guard
+  asserts key-set equality and `assertSame` max equality. Mutation-tested in a
+  throwaway worktree: over-advertising a v1-only key, removing PUBLISH, and
+  overstating max 1..3 each make the guard FAIL.
+- **R2-3 (low, unbounded write-timeout leak) — FIXED.** `MAX_ABANDONED_CORRELATION_IDS = 64`
+  with oldest-first eviction (`StreamConnection.php:191,639-651`), `close()`
+  clears the set (`:409`), and only a read-side timeout abandons
+  (`Connection.php:391-408`). Three tests pin it.
+- **R2-4 (nit, abandon test asserted id 0) — FIXED.** The `sendMessage` mock
+  now assigns correlation id 42 and the test asserts `abandonCorrelation(42)`.
+- **R2-5 (low, docs promised "no failure") — FIXED.** Docs now describe the
+  multi-version-only advertisement; the best-effort contract is true after R2-1.
+
+## New round-3 findings
+
+### R3-1 — Drift guard's "multi-version ⇒ safe to advertise" rule is an invariant, not a proof
+
+- **file:line**: `src/Client/Connection.php:459-464`;
+  `tests/Client/ConnectionHandshakeTest.php:1113-1201`.
+- **Severity**: `nit` (latent future risk; disclosed by the coder in
+  `code-decision-3.md:99-107`).
+- **What is wrong**: the guard forces the advertised set to equal every
+  client-initiated key with more than one implemented version. Today that is
+  only `Publish`, whose key predates 3.11. A future multi-version command on a
+  key unknown to the oldest admitted broker would be forced to be advertised,
+  re-introducing the R2-1 `function_clause` crash. The rule is a proxy for
+  "known to the oldest broker", not a guarantee.
+- **Check that could have caught it**: an E2E broker matrix in CI including the
+  oldest admitted broker (3.11), or a guard requiring a per-key "known since"
+  annotation.
+
+### R3-2 — Low-level doc-example step numbering off by one vs section headings (pre-existing)
+
+- **file:line**: `docs/en/guide/connection-lifecycle.md:271` (`// 7.
+  ExchangeCommandVersions`) vs the `### 6. ExchangeCommandVersions` heading.
+- **Severity**: `nit`.
+- **What is wrong**: the snippet counts "Create and connect" as step 1, so the
+  numbers run one ahead of the protocol section headings. Pre-existing (Open was
+  already `// 6.` vs `### 5.`), not a regression.
+
+## Round-3 summary
+
+| Severity | Count | IDs |
+|----------|-------|-----|
+| high | 0 | — |
+| medium | 0 | — |
+| low | 0 | — |
+| nit | 2 | R3-1, R3-2 |
+
+**No open high, medium or low findings.** R2-1..R2-5 are fixed and verified;
+only two non-blocking nits remain. The cycle can proceed to lint/PR.
