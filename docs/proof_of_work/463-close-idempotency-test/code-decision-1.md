@@ -17,7 +17,7 @@ part of the id-reclamation work (PR #504 / #388):
 
 What was missing, and what this cycle adds, is a **direct regression test for
 the exact cross-object sequence** described in the issue. The existing tests
-cover each half in isolation (`ConnectionTest.php:915/959/987` assert id
+cover each half in isolation (`ConnectionTest.php:919/963/991` assert id
 reclamation; `ConsumerTest.php:1389` / `ProducerTest.php:858` assert a double
 handle `close()` is a no-op), but no test drove *user closes handle → then
 `Connection::close()`* through the real `Connection` + real handle over the
