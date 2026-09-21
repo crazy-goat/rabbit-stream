@@ -35,7 +35,7 @@ interface SuperStreamConsumerInterface
 
     public function storeOffset(string $partition, int $offset): void;
 
-    public function queryOffset(string $partition): int;
+    public function queryOffset(string $partition): ?int;
 
     /** @return list<string> */
     public function getPartitions(): array;

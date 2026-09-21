@@ -36,7 +36,7 @@ interface ConsumerInterface
 
     public function storeOffset(int $offset): void;
 
-    public function queryOffset(): int;
+    public function queryOffset(): ?int;
 
     public function close(): void;
 

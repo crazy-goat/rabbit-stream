@@ -689,6 +689,24 @@ class ConnectionTest extends TestCase
         $this->assertEquals('test-stream', $capturedRequests[0]->toArray()['stream']);
     }
 
+    public function testQueryOffsetReturnsNullForNoOffset(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $streamConnection->method('sendMessage');
+
+        $noOffsetResponse = QueryOffsetResponseV1::fromArray([
+            'correlationId' => 1,
+            'offset' => null,
+        ]);
+
+        $streamConnection->method('readMessage')->willReturn($noOffsetResponse);
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $this->assertNull($connection->queryOffset('my-reference', 'test-stream'));
+    }
+
     public function testQueryOffsetThrowsOnWrongResponseType(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);

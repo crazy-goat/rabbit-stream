@@ -464,6 +464,27 @@ class ConsumerTest extends TestCase
         $this->assertSame(77, $offset);
     }
 
+    public function testQueryOffsetReturnsNullForNoOffset(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+
+        $mockResponse = $this->createMock(QueryOffsetResponseV1::class);
+        $mockResponse->method('getOffset')->willReturn(null);
+
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnOnConsecutiveCalls(
+                new \stdClass(),
+                $mockResponse
+            );
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), 'my-consumer');
+
+        $this->assertNull($consumer->queryOffset());
+    }
+
     public function testCloseSendsUnsubscribeRequest(): void
     {
         $connection = $this->createMock(StreamConnection::class);
@@ -1296,6 +1317,38 @@ class ConsumerTest extends TestCase
         $consumer->close();
 
         $this->assertSame([101], $this->storedOffsetValues($stored));
+    }
+
+    public function testSingleActiveConsumerResumesAtInitialOffsetWhenNoOffsetStored(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request): object {
+                if ($request instanceof QueryOffsetRequestV1) {
+                    return QueryOffsetResponseV1::fromArray(['correlationId' => 1, 'offset' => null]);
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::last(),
+            name: 'my-consumer',
+            singleActiveConsumer: true,
+        );
+
+        $resume = $this->invokeConsumerUpdate($consumer, true);
+
+        // NO_OFFSET is a normal first-run answer: resume from the consumer's
+        // initial OffsetSpec instead of throwing (#467).
+        $this->assertInstanceOf(OffsetSpec::class, $resume);
+        $this->assertSame(OffsetSpec::TYPE_LAST, $resume->getType());
     }
 
     public function testSingleActiveConsumerResumesAtTheStoredOffsetWithoutSkipping(): void

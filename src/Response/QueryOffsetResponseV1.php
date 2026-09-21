@@ -10,6 +10,7 @@ use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
@@ -26,18 +27,41 @@ class QueryOffsetResponseV1 implements
     use CommandTrait;
     use V1Trait;
 
-    private int $offset = 0;
+    /**
+     * The stored offset, or null when the broker answered `NO_OFFSET` (0x13) —
+     * the normal reply for a reference with no tracking record yet (#467).
+     */
+    private ?int $offset = null;
 
+    /**
+     * Parse a QueryOffset reply.
+     *
+     * `NO_OFFSET` is a normal answer, not an error: it means nothing has been
+     * stored for this reference/stream pair (yet). It is represented as a
+     * response carrying a `null` offset rather than an exception, so the
+     * first-run resume flow works without a try/catch. Every other non-OK code
+     * still raises a ProtocolException from assertResponseCodeOk().
+     */
     public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
-        self::assertResponseCodeOk($buffer->getUint16());
-        $offset = $buffer->getUint64();
+        $responseCode = $buffer->getUint16();
 
         $object = new static();
         $object->withCorrelationId($correlationId);
-        $object->offset = $offset;
+
+        if ($responseCode === ResponseCodeEnum::NO_OFFSET->value) {
+            // The offset field is always present on the wire (it is 0 for
+            // NO_OFFSET). Consume it even though the value is ignored, so the
+            // parser ends exactly at the frame boundary instead of mid-frame.
+            $buffer->getUint64();
+            $object->offset = null;
+            return $object;
+        }
+
+        self::assertResponseCodeOk($responseCode);
+        $object->offset = $buffer->getUint64();
         return $object;
     }
 
@@ -46,16 +70,30 @@ class QueryOffsetResponseV1 implements
         return KeyEnum::QUERY_OFFSET_RESPONSE->value;
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * Rebuild the response from a decoded array.
+     *
+     * A missing `offset` key is treated exactly like an explicit `null`: both
+     * mean "the broker answered NO_OFFSET", because `fromArray()` is only ever
+     * fed data this library produced (round-tripping a parsed response or a
+     * test fixture) and never untrusted wire input.
+     *
+     * @param array<string, mixed> $data
+     */
     public static function fromArray(array $data): static
     {
         $object = new static();
         $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
-        $object->offset = TypeCast::toInt($data['offset']);
+        $offset = $data['offset'] ?? null;
+        $object->offset = $offset === null ? null : TypeCast::toInt($offset);
         return $object;
     }
 
-    public function getOffset(): int
+    /**
+     * The stored next offset to consume, or null when no offset has been stored
+     * for this reference/stream pair (the broker answered NO_OFFSET).
+     */
+    public function getOffset(): ?int
     {
         return $this->offset;
     }

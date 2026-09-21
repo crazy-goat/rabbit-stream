@@ -170,11 +170,12 @@ while ($messages = $consumer->read(timeout: 5)) {
 }
 $consumer->close(); // stores final offset automatically
 
-// On next startup, resume from the stored offset
+// On next startup, resume from the stored offset. queryOffset() returns null
+// when nothing has been stored yet (a normal first run, not an error).
 $storedOffset = $connection->queryOffset('my-consumer-group', 'my-stream');
 $consumer = $connection->createConsumer(
     stream: 'my-stream',
-    offset: OffsetSpec::offset($storedOffset + 1),
+    offset: $storedOffset === null ? OffsetSpec::first() : OffsetSpec::offset($storedOffset),
     name: 'my-consumer-group',
     autoCommit: 100,
 );
@@ -182,7 +183,7 @@ $consumer = $connection->createConsumer(
 $connection->close();
 ```
 
-> **Note:** `autoCommit` triggers `storeOffset` every N messages. The offset is also stored on `close()`. A named consumer is required for offset persistence — unnamed consumers cannot use `storeOffset` or `queryOffset`.
+> **Note:** `autoCommit` triggers `storeOffset` every N messages. The offset is also stored on `close()`. A named consumer is required for offset persistence — unnamed consumers cannot use `storeOffset` or `queryOffset`. `queryOffset()` returns `null` (rather than throwing) when no offset has been stored for the name/stream pair.
 
 See `examples/consumer_auto_commit.php` for a full working example.
 

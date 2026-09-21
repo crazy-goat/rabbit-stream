@@ -452,16 +452,13 @@ class Consumer implements ConsumerInterface
             return null;
         }
 
-        try {
-            // The stored value is the next offset to consume, so it is used as
-            // is — OffsetSpec::offset() is inclusive (#396).
-            return OffsetSpec::offset($this->queryOffset());
-        } catch (ProtocolException $e) {
-            if ($e->getResponseCode() === ResponseCodeEnum::NO_OFFSET) {
-                return $this->offset;
-            }
-            throw $e;
-        }
+        // The stored value is the next offset to consume, so it is used as is —
+        // OffsetSpec::offset() is inclusive (#396). A null offset means nothing
+        // has been stored yet (NO_OFFSET), so resume from the consumer's initial
+        // OffsetSpec instead.
+        $offset = $this->queryOffset();
+
+        return $offset === null ? $this->offset : OffsetSpec::offset($offset);
     }
 
     private function subscribe(): void
@@ -750,18 +747,22 @@ class Consumer implements ConsumerInterface
     /**
      * Query the offset stored on the broker for this consumer's name.
      *
-     * @return int The stored next offset to consume (the value storeOffset()
-     *             wrote).
+     * `null` means nothing has been stored yet for this name/stream pair — the
+     * broker's `NO_OFFSET` (`0x13`) answer, which is normal on a first run
+     * rather than an error (#467). Any other non-OK response code still raises
+     * a ProtocolException.
+     *
+     * @return int|null The stored next offset to consume (the value storeOffset()
+     *             wrote), or null when no offset is stored.
      * @throws ProtocolException If this consumer has no name, or the broker returns a
-     *                            non-OK response code (for example NO_OFFSET when
-     *                            nothing has been stored yet).
+     *                            non-OK response code other than NO_OFFSET.
      * @throws UnexpectedResponseException If the server replies with something other
      *                            than a QueryOffset response.
      * @throws ConnectionException If the socket is not connected or the request fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
      */
-    public function queryOffset(): int
+    public function queryOffset(): ?int
     {
         if ($this->name === null) {
             throw new ProtocolException('Cannot query offset for unnamed consumer');

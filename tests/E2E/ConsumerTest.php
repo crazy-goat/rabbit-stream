@@ -63,6 +63,7 @@ class ConsumerTest extends E2ETestCase
         // OffsetSpec::offset() — which is inclusive. Storing the last consumed
         // offset instead handed the third message out a second time (#396).
         $stored = $connection->queryOffset($consumerName, $this->streamName);
+        $this->assertNotNull($stored);
         $second = $connection->createConsumer(
             $this->streamName,
             OffsetSpec::offset($stored),
@@ -249,10 +250,8 @@ class ConsumerTest extends E2ETestCase
         // Close should NOT store offset (autoCommit is 0)
         $consumer->close();
 
-        // Query offset should throw exception (no offset stored)
-        $this->expectException(\CrazyGoat\RabbitStream\Exception\ProtocolException::class);
-        $this->expectExceptionMessage('0x0013');
-        $this->connection->queryOffset($consumerName, $this->streamName);
+        // Query offset returns null (no offset stored; NO_OFFSET is normal — #467)
+        $this->assertNull($this->connection->queryOffset($consumerName, $this->streamName));
     }
 
     public function testAutoCommitOnCloseWithNoMessagesDoesNotStoreOffset(): void
@@ -272,10 +271,8 @@ class ConsumerTest extends E2ETestCase
         // Don't read any messages - just close immediately
         $consumer->close();
 
-        // Query offset should throw exception (no offset stored because no messages processed)
-        $this->expectException(\CrazyGoat\RabbitStream\Exception\ProtocolException::class);
-        $this->expectExceptionMessage('0x0013');
-        $this->connection->queryOffset($consumerName, $this->streamName);
+        // Query offset returns null (no offset stored because no messages processed; #467)
+        $this->assertNull($this->connection->queryOffset($consumerName, $this->streamName));
     }
 
     public function testSubscribeFromSpecificOffset(): void

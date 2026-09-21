@@ -272,7 +272,8 @@ offset:        uint64 (stored offset value)
 **Response Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `offset` | uint64 | Last stored offset for this reference |
+| `ResponseCode` | uint16 | `OK` (`0x01`) or `NO_OFFSET` (`0x13`) — the latter is normal when nothing is stored |
+| `offset` | uint64 | Last stored offset for this reference (`0` when `NO_OFFSET`) |
 
 **PHP Implementation:**
 ```php
@@ -287,14 +288,14 @@ $stream->sendMessage(new QueryOffsetRequestV1(
 
 $response = $stream->readMessage();
 assert($response instanceof QueryOffsetResponseV1);
-$storedOffset = $response->getOffset();
-echo "Resume from offset: $storedOffset\n";
+$storedOffset = $response->getOffset(); // null when NO_OFFSET (nothing stored)
+echo "Resume from offset: " . ($storedOffset ?? 'beginning') . "\n";
 
-// Subscribe from stored offset
+// Subscribe from stored offset (or from the beginning when null)
 $stream->sendMessage(new SubscribeRequestV1(
     subscriptionId: 1,
     stream: 'my-stream',
-    offsetSpec: OffsetSpec::offset($storedOffset),
+    offsetSpec: $storedOffset === null ? OffsetSpec::first() : OffsetSpec::offset($storedOffset),
     credit: 10
 ));
 ```

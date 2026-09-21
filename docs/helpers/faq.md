@@ -122,10 +122,14 @@ carries a nonzero informational field with no bytes behind it
 Non-OK broker response codes are asserted inside
 `SimpleCorrelatedResponseV1::fromStreamBuffer()` (via
 `CommandTrait::assertResponseCodeOk()`), so they surface as a `ProtocolException`
-**before** the method's own `instanceof` check can run. "stream already exists",
-"no offset stored" (#467) and invalid SASL credentials all follow this path; the
-explicit `UnexpectedResponseException::create(...)` guards only catch a genuinely
-different response *type*. `readMessage()` adds `ConnectionException`,
+**before** the method's own `instanceof` check can run. "stream already exists"
+and invalid SASL credentials follow this path; the explicit
+`UnexpectedResponseException::create(...)` guards only catch a genuinely
+different response *type*. `QueryOffset` is the exception: since #467
+`QueryOffsetResponseV1::fromStreamBuffer()` intercepts the normal `NO_OFFSET`
+(`0x13`) answer *before* the assertion and returns a response whose offset is
+`null`, so "no offset stored" is **not** a `ProtocolException` (all other
+non-OK codes still are). `readMessage()` adds `ConnectionException`,
 `DeserializationException` and `TimeoutException` transitively. `StoreOffset` is
 one-way (no response key in `KeyEnum`), so it throws none of the response-derived
 types. Document the real set per method — see `src/Client/Connection.php`

@@ -53,12 +53,13 @@ class StoreOffsetQueryOffsetE2ETest extends E2ETestCase
         $createResponse = $connection->readMessage();
         $this->assertInstanceOf(CreateResponseV1::class, $createResponse);
 
-        // Query offset with non-existent reference - should throw ProtocolException with NO_OFFSET
+        // Query offset with non-existent reference — NO_OFFSET (0x13) is a
+        // normal answer, represented as a response with a null offset (#467).
         $connection->sendMessage(new QueryOffsetRequestV1($reference, $stream));
+        $response = $connection->readMessage();
 
-        $this->expectException(\CrazyGoat\RabbitStream\Exception\ProtocolException::class);
-        $this->expectExceptionMessage('0x0013');
-        $connection->readMessage();
+        $this->assertInstanceOf(QueryOffsetResponseV1::class, $response);
+        $this->assertNull($response->getOffset());
 
         // Cleanup
         $connection->sendMessage(new DeleteStreamRequestV1($stream));
