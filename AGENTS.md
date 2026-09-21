@@ -69,6 +69,7 @@ composer rector      # preview refactoring suggestions (dry-run)
 composer rector:fix  # apply Rector refactoring
 composer kb-lint     # lint the docs/helpers/ knowledge base (runs inside `lint`)
 composer kb-lint:fix # regenerate the docs/helpers/ tag index
+composer test:suite-coverage # fail if a tests/**/*Test.php is outside every phpunit.xml suite
 ```
 
 ## Git Hooks

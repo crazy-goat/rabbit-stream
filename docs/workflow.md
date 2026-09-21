@@ -301,7 +301,8 @@ you chose, in the last `code-decision-<x>.md`.
 Before opening a PR, verify that all linters and tests pass on your machine:
 
 ```bash
-# Run all linters (PHPCS PSR-12 + Rector dry-run + PHPStan level 9)
+# Run all linters (PHPCS PSR-12 + Rector dry-run + PHPStan level 9
+# + test-suite coverage)
 composer lint
 
 # Auto-fix fixable issues (Rector + phpcbf)
@@ -413,7 +414,9 @@ admin/maintain/write collaborators run the real jobs; everyone else is skipped),
 then:
 
 1. **lint** — `composer cs` (PHPCS PSR-12), `composer rector` (dry-run),
-   `composer phpstan` (level 9).
+   `composer phpstan` (level 9), `composer test:suite-coverage` (every
+   `tests/**/*Test.php` must be inside a `phpunit.xml` suite — the #476 guard
+   against silent exclusions).
 2. **unit-tests** matrix — PHP **8.1, 8.2, 8.3, 8.4**; `./vendor/bin/phpunit
    --testsuite unit`. `needs: lint`.
 3. **e2e-tests** — boots `rabbitmq:4-management`, enables the
