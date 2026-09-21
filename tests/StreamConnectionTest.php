@@ -1461,6 +1461,53 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    /**
+     * #478: every stream_select() timeout is split by
+     * StreamConnection::splitSelectTimeout(), which must keep tv_usec below
+     * 1_000_000 for any non-negative input — select(2) rejects the whole call
+     * with EINVAL otherwise. macOS/BSD silently clamp tv_usec instead of
+     * failing, so the timing regression test above can be green on macOS while
+     * Linux CI is broken; this arithmetic assertion is the cross-platform
+     * guard. It pins the exact #382 failure mode (sec capped, usec derived from
+     * the unclamped value).
+     */
+    public function testSplitSelectTimeoutKeepsMicrosecondsBelowOneMillion(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $method = new \ReflectionMethod($connection, 'splitSelectTimeout');
+
+        $assertInvariant = function (float $seconds) use ($method, $connection): void {
+            /** @var array{int, int} $split */
+            $split = $method->invoke($connection, $seconds);
+            [$sec, $usec] = $split;
+
+            $this->assertGreaterThanOrEqual(0, $sec, "sec must be non-negative for {$seconds}s");
+            $this->assertGreaterThanOrEqual(0, $usec, "usec must be non-negative for {$seconds}s");
+            $this->assertLessThan(
+                1_000_000,
+                $usec,
+                "usec must stay below 1_000_000 for {$seconds}s (got {$usec})"
+            );
+        };
+
+        foreach ([0.0, PHP_FLOAT_EPSILON, 0.999999, 1.0, 2.5, 30.0] as $seconds) {
+            $assertInvariant($seconds);
+        }
+
+        // Brute-force sweep: whole seconds 0..999 combined with pseudo-random
+        // fractions in [0, 1). Seeded so a failure is reproducible.
+        mt_srand(478);
+        for ($i = 0; $i < 100_000; $i++) {
+            $assertInvariant(($i % 1000) + mt_rand() / mt_getrandmax());
+        }
+
+        // Fractions a hair below 1.0, where tv_usec sits closest to the
+        // EINVAL boundary and float rounding could in principle overflow.
+        for ($i = 1; $i <= 90; $i++) {
+            $assertInvariant(($i % 7) + 1.0 - PHP_FLOAT_EPSILON * $i);
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Socket timeouts (#402), mid-frame desync (#390), partial writes (#389),
     // sticky socket errors (#391).
