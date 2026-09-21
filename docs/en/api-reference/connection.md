@@ -866,7 +866,7 @@ public function createConsumer(
 - `OffsetSpec::last()` - Start from the last message (next new message)
 - `OffsetSpec::next()` - Start from the next message after the last consumed
 - `OffsetSpec::offset(int $offset)` - Start from a specific offset
-- `OffsetSpec::timestamp(int $timestamp)` - Start from a specific Unix timestamp
+- `OffsetSpec::timestamp(int $timestamp)` - Start at the first chunk with chunk timestamp `>=` the value, delivered in full (chunk-granular)
 
 #### Return Value
 

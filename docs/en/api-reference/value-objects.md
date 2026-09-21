@@ -20,7 +20,7 @@ The `OffsetSpec` value object defines the starting position for a consumer subsc
 | `TYPE_LAST` | 0x0002 | Start from the last message (most recent) |
 | `TYPE_NEXT` | 0x0003 | Start from the next message (after last consumed) |
 | `TYPE_OFFSET` | 0x0004 | Start from a specific offset value |
-| `TYPE_TIMESTAMP` | 0x0005 | Start from messages at or after a specific timestamp |
+| `TYPE_TIMESTAMP` | 0x0005 | Start at the first chunk whose chunk timestamp is `>=` the value (chunk-granular, delivered in full) |
 | `TYPE_INTERVAL` | 0x0006 | Start with an interval offset |
 
 ### Constructor
@@ -968,7 +968,7 @@ public function __construct(
 |-----------|------|----------|-------------|
 | `$offset` | `int` | Yes | Message offset in the stream |
 | `$data` | `string` | Yes | Message data as binary string |
-| `$timestamp` | `int` | Yes | Message timestamp (Unix timestamp in milliseconds) |
+| `$timestamp` | `int` | Yes | Chunk timestamp shared by every entry of the chunk (milliseconds since the Unix epoch) |
 
 ### Getters
 
@@ -994,7 +994,7 @@ Returns the message data as a binary string.
 public function getTimestamp(): int
 ```
 
-Returns the message timestamp (Unix timestamp in milliseconds).
+Returns the chunk timestamp (milliseconds since the Unix epoch) shared by every entry of the chunk.
 
 ### Usage
 

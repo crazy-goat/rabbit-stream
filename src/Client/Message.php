@@ -258,6 +258,28 @@ class Message
         return $this->stream;
     }
 
+    /**
+     * The timestamp of the **chunk** this message was delivered in, in
+     * milliseconds since the Unix epoch.
+     *
+     * It is the broker's chunk write time, copied onto every entry of the
+     * chunk — including every entry of a sub-batch ({@see OsirisChunkParser})
+     * — so all messages that travelled in the same chunk share one value. It
+     * is **not** a per-message timestamp: messages produced at different
+     * times can report the same value if the broker batched them into one
+     * chunk.
+     *
+     * Practical consequence: a boundary for
+     * {@see \CrazyGoat\RabbitStream\VO\OffsetSpec::timestamp()} is
+     * only reliable when derived from these broker-written values (read the
+     * stream and use a `getTimestamp()` you observed) rather than from the
+     * client clock. The broker resolves that boundary to the first chunk whose
+     * timestamp is `>=` the given value and delivers it in full, so a
+     * client-clock boundary can land inside a chunk and hand back more than
+     * intended.
+     *
+     * @return int Chunk timestamp in milliseconds since the Unix epoch.
+     */
     public function getTimestamp(): int
     {
         return $this->timestamp;

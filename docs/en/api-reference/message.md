@@ -76,7 +76,7 @@ public function __construct(
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `$offset` | `int` | Stream offset - the position of this message in the stream |
-| `$timestamp` | `int` | Unix timestamp when the message was published (seconds since epoch) |
+| `$timestamp` | `int` | Timestamp of the **chunk** the message was delivered in, in milliseconds since epoch (shared by every message in that chunk) |
 | `$body` | `string\|int\|float\|bool\|array\|null` | The message body content (decoded from AMQP) |
 | `$properties` | `array<string, mixed>` | Standard AMQP 1.0 message properties |
 | `$applicationProperties` | `array<string, mixed>` | Custom application-specific headers |
@@ -162,7 +162,8 @@ foreach ($superStreamConsumer->read(timeout: 5.0) as $message) {
 
 ### getTimestamp()
 
-Get the Unix timestamp when the message was published.
+Get the timestamp of the **chunk** this message was delivered in, in
+milliseconds since the Unix epoch.
 
 ```php
 public function getTimestamp(): int
@@ -170,26 +171,26 @@ public function getTimestamp(): int
 
 #### Return Value
 
-`int` - Unix timestamp (seconds since January 1, 1970)
+`int` - Chunk timestamp in milliseconds since January 1, 1970
 
 #### Example
 
 ```php
 $message = $consumer->readOne();
 $timestamp = $message->getTimestamp();
-$date = date('Y-m-d H:i:s', $timestamp);
-echo "Published at: {$date}\n";
-
-// Check message age
-$age = time() - $timestamp;
-if ($age > 3600) {
-    echo "Message is older than 1 hour\n";
-}
+$date = date('Y-m-d H:i:s', intdiv($timestamp, 1000));
+echo "Chunk written at: {$date}\n";
 ```
 
 #### Notes
 
-- Set by the server when the message is received
+- It is the broker's **chunk** write time, copied onto every entry of the
+  chunk — including every entry of a sub-batch — so all messages delivered in
+  the same chunk report the same value. It is **not** a per-message timestamp.
+- To use it as an `OffsetSpec::timestamp()` boundary, derive the boundary from
+  a value you read back from the stream (`Message::getTimestamp()`) rather
+  than from the client clock: the broker resolves the boundary to the first
+  chunk whose timestamp is `>=` it and delivers that chunk in full.
 - Not the same as `creation-time` property (which is set by the producer)
 - Useful for message age calculations and time-based processing
 

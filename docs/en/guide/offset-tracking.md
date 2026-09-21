@@ -123,7 +123,7 @@ $consumer = $connection->createConsumer(
 
 ### 5. Timestamp
 
-Start from messages published after a specific Unix timestamp:
+Ask the broker to start from a point in time:
 
 ```php
 $yesterday = time() - 86400;
@@ -132,6 +132,19 @@ $consumer = $connection->createConsumer(
     OffsetSpec::timestamp($yesterday)
 );
 ```
+
+> **Chunk-granular, not per-message.** The broker resolves the value to the
+> **first chunk whose chunk timestamp is greater than or equal to it, then
+> delivers that chunk in full**. Chunks are the broker's batching unit and
+> carry a single timestamp shared by every message in them, so messages
+> written *before* the boundary are legitimately delivered whenever they
+> share a chunk with a message written at or after it. A tie — the value
+> exactly equal to a chunk's timestamp — selects the *earlier* chunk.
+>
+> To pick a boundary reliably, derive it from the chunk timestamps the broker
+> actually wrote — the `Message::getTimestamp()` values you read back from the
+> stream — rather than from the client clock. See
+> [`Message::getTimestamp()`](../api-reference/message.md#gettimestamp).
 
 **Use Cases:**
 - Time-based replay

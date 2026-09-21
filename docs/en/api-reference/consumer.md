@@ -119,7 +119,14 @@ foreach ($consumer->read() as $message) {
 | `OffsetSpec::last()` | Start from the last message (receive next new message) |
 | `OffsetSpec::next()` | Start from the next message after the last consumed |
 | `OffsetSpec::offset(int $offset)` | Start from a specific offset number |
-| `OffsetSpec::timestamp(int $timestamp)` | Start from messages after a specific Unix timestamp |
+| `OffsetSpec::timestamp(int $timestamp)` | Start at the **first chunk whose chunk timestamp is >= the value**, delivered in full (chunk-granular) |
+
+> **Timestamp is chunk-granular.** Chunks are the broker's batching unit and
+> share one timestamp across all their messages, so a timestamp subscription
+> can deliver messages written before the boundary when they share a chunk
+> with one written at or after it (a tie selects the earlier chunk). Derive
+> the boundary from broker-written `Message::getTimestamp()` values rather
+> than from the client clock.
 
 ### Examples
 

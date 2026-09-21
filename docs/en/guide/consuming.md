@@ -134,7 +134,7 @@ The `OffsetSpec` determines where consumption begins in the stream. There are 6 
 | `OffsetSpec::last()` | Start from the last message | Real-time processing, new messages only |
 | `OffsetSpec::next()` | Start after the last consumed message | Resume after disconnect |
 | `OffsetSpec::offset(int $offset)` | Start at a specific offset | Resume from known position |
-| `OffsetSpec::timestamp(int $timestamp)` | Start after a specific timestamp | Time-based replay |
+| `OffsetSpec::timestamp(int $timestamp)` | Start at the first chunk with chunk timestamp >= the value (chunk-granular) | Time-based replay |
 | `OffsetSpec::interval(int $interval)` | Start based on time interval | Relative time windows |
 
 ### Offset Type Examples
@@ -178,13 +178,21 @@ $consumer = $connection->createConsumer(
 
 **Timestamp-based:**
 ```php
-// Start from messages published after a specific time
+// Start at the first chunk whose chunk timestamp is >= the value
 $yesterday = time() - 86400;
 $consumer = $connection->createConsumer(
     'events',
     OffsetSpec::timestamp($yesterday)
 );
 ```
+
+> **Chunk-granular, not per-message.** The broker resolves the value to the
+> **first chunk whose chunk timestamp is greater than or equal to it, then
+> delivers that chunk in full**, so messages written before the boundary are
+> still delivered when they share a chunk with one written at or after it (a
+> tie selects the earlier chunk). Derive the boundary from the
+> `Message::getTimestamp()` values the broker wrote — not the client clock —
+> so it cannot land inside a chunk.
 
 **Interval-based:**
 ```php
@@ -226,7 +234,10 @@ $message = $consumer->readOne();
 
 // Stream position
 $offset = $message->getOffset();        // int: position in stream
-$timestamp = $message->getTimestamp();    // int: Unix timestamp (server time)
+$timestamp = $message->getTimestamp();    // int: timestamp of the CHUNK this
+                                          // message was delivered in (ms since
+                                          // epoch), shared by every message in
+                                          // that chunk — not a per-message time
 
 // Message content
 $body = $message->getBody();              // string|array|int|float|bool|null

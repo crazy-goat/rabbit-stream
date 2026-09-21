@@ -429,7 +429,9 @@ class ConsumerTest extends E2ETestCase
         $producer2->close();
 
         // Message::getTimestamp() is the CHUNK timestamp shared by every
-        // message in that chunk (OsirisChunkParser.php:66, :84-85), and the
+        // message in that chunk (OsirisChunkParser.php:324 reads the header
+        // once, stamped on every entry at :210 plain, :264 sub-batch, and
+        // :432/:483 on the zero-copy view path), and the
         // broker resolves OffsetSpec::timestamp($t) to the first chunk with
         // chunkTs >= $t, delivered in full. So we read the whole stream back
         // and derive the "after" boundary from the broker-written data itself.
