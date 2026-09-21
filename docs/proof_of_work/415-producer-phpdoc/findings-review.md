@@ -181,7 +181,7 @@ All five findings and the nit are addressed. See
 
 ### Local QA (round 2, working tree on top of `a58de46`)
 
-- `./vendor/bin/phpunit --testsuite unit` — passed (1242 tests, 8793
+- `./vendor/bin/phpunit --testsuite unit` — passed (1242 tests, 8797
   assertions).
 - `./vendor/bin/phpunit tests/Client/ProducerDocblockTest.php` — passed (4
   tests, 9 assertions).

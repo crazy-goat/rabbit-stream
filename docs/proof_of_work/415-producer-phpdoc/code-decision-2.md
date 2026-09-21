@@ -79,7 +79,7 @@ a note that counts vary by PHP version.
 
 ## Verification
 
-- `./vendor/bin/phpunit --testsuite unit` — 1242 tests, 8793 assertions, OK.
+- `./vendor/bin/phpunit --testsuite unit` — 1242 tests, 8797 assertions, OK.
 - `./vendor/bin/phpunit tests/Client/ProducerDocblockTest.php` — 4 tests, 9
   assertions, OK.
 - `composer lint` — PHPCS PSR-12, Rector dry-run 0 changes, PHPStan level 9,
