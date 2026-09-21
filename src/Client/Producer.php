@@ -530,8 +530,6 @@ class Producer implements ProducerInterface
      *                          DeletePublisher write or read fails.
      * @throws DeserializationException If a response or server-push frame read
      *                          while draining confirms cannot be deserialized.
-     * @throws InvalidArgumentException If the serialized DeletePublisher
-     *                          request exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If the DeletePublisher response has an
      *                          unexpected version or command.
      * @throws TimeoutException If the DeletePublisher response does not arrive
@@ -662,6 +660,8 @@ class Producer implements ProducerInterface
      * @throws ConnectionException If the socket is not connected or a read fails.
      * @throws DeserializationException If a PublishConfirm/PublishError or
      *                       other frame read while waiting cannot be deserialized.
+     * @throws ProtocolException If a server-push frame read while waiting has
+     *                       an unexpected version or command.
      */
     public function waitForConfirms(float $timeout = 5.0): void
     {
@@ -682,8 +682,8 @@ class Producer implements ProducerInterface
      * Counter-intuitive for a named producer: the constructor queries the
      * broker's last confirmed sequence and resumes from sequence + 1, so this
      * can return a non-null id (0 when the broker stored nothing) BEFORE the
-     * first send(). An anonymous producer starts at id 1 and returns null until
-     * its first send().
+     * first send(). An anonymous producer's first publish uses id 0, so this
+     * returns null until its first send() and 0 immediately after it.
      *
      * @return int|null Last publishing id used, or null when nothing has been
      *                  published yet (anonymous producer before its first send()).
@@ -740,8 +740,9 @@ class Producer implements ProducerInterface
      *
      * @return int Highest publishing id the broker has confirmed for this
      *             producer's name on its stream (0 when nothing was stored).
-     * @throws InvalidArgumentException If this is an anonymous producer (no
-     *                          name), for which there is no sequence to query.
+     * @throws InvalidArgumentException If this is an anonymous producer (a
+     *                          `null` or `""` name), for which there is no
+     *                          sequence to query.
      * @throws ConnectionException If the socket is not connected or the
      *                          QueryPublisherSequence exchange fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
@@ -753,7 +754,7 @@ class Producer implements ProducerInterface
      */
     public function querySequence(): int
     {
-        if ($this->name === null) {
+        if ($this->name === null || $this->name === '') {
             throw new InvalidArgumentException('Cannot query sequence for unnamed producer');
         }
         $this->connection->sendMessage(

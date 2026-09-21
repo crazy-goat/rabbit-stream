@@ -469,6 +469,24 @@ class ProducerTest extends TestCase
         $producer->querySequence();
     }
 
+    public function testQuerySequenceThrowsForEmptyNameProducer(): void
+    {
+        // Regression guard for #415: initializePublishingId() treats '' as
+        // anonymous (`name !== null && name !== ''`), so querySequence() must
+        // reject it too instead of querying the broker with an empty name.
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage');
+
+        $producer = new Producer($connection, 'test-stream', 1, '');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot query sequence for unnamed producer');
+
+        $producer->querySequence();
+    }
+
     public function testGetPendingConfirmsReturnsCurrentCount(): void
     {
         $connection = $this->createMock(StreamConnection::class);
