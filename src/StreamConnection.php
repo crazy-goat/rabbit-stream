@@ -178,6 +178,15 @@ class StreamConnection
     private array $commandVersions = [];
 
     /**
+     * Correlation ids of requests that already timed out and whose reply, if it
+     * ever arrives, must be discarded rather than handed to another caller.
+     * Filled by {@see abandonCorrelation()}, consumed by {@see readResponse()}.
+     *
+     * @var array<int, true>
+     */
+    private array $abandonedCorrelationIds = [];
+
+    /**
      * @param string                $host     RabbitMQ stream server hostname
      * @param int                   $port     RabbitMQ stream server port
      * @param LoggerInterface       $logger   PSR-3 logger (defaults to NullLogger)
@@ -590,6 +599,25 @@ class StreamConnection
         }
 
         return $version >= $range->getMinVersion() && $version <= $range->getMaxVersion();
+    }
+
+    /**
+     * Mark a request's correlation id as abandoned.
+     *
+     * A caller that times out waiting for a correlated reply can leave that
+     * reply in flight; when it eventually arrives it would otherwise be handed
+     * to the next `readMessage()`/`request()` as if it belonged to that call,
+     * desynchronising the stream. Recording the id here makes
+     * {@see readResponse()} discard the late frame instead (GitHub #381).
+     *
+     * This is an internal wiring seam for the handshake; callers outside the
+     * client layer have no reason to use it.
+     *
+     * @param int $correlationId Correlation id of the timed-out request
+     */
+    public function abandonCorrelation(int $correlationId): void
+    {
+        $this->abandonedCorrelationIds[$correlationId] = true;
     }
 
     /**
@@ -1032,6 +1060,25 @@ class StreamConnection
             }
 
             $response = $this->serializer->deserialize($frame->getRemainingBytes());
+
+            if (
+                $response instanceof CorrelationInterface
+                && isset($this->abandonedCorrelationIds[$response->getCorrelationId()])
+            ) {
+                // Reply to a request that already timed out (see
+                // abandonCorrelation()): dropping it keeps the next caller from
+                // misattributing it as their own response.
+                unset($this->abandonedCorrelationIds[$response->getCorrelationId()]);
+                $this->logger->warning(
+                    'Discarding a late reply for a request that already timed out',
+                    [
+                        'correlationId' => $response->getCorrelationId(),
+                        'response' => $response::class,
+                    ]
+                );
+                continue;
+            }
+
             if ($expectedCorrelationId === null) {
                 return $response;
             }

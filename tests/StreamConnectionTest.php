@@ -2014,4 +2014,52 @@ class StreamConnectionTest extends TestCase
 
         $this->assertSame([KeyEnum::PUBLISH->value => $range], $connection->getCommandVersions());
     }
+
+    public function testSupportsCommandVersionReturnsFalseForAMalformedRange(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        // min > max is not a valid range; the containment check naturally
+        // reports "not supported" for every version. Pinned so the behaviour is
+        // deliberate rather than accidental.
+        $connection->setCommandVersions([
+            KeyEnum::PUBLISH->value => new CommandVersion(KeyEnum::PUBLISH->value, 3, 1),
+        ]);
+
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 1));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 2));
+        $this->assertFalse($connection->supportsCommandVersion(KeyEnum::PUBLISH, 3));
+    }
+
+    public function testLateReplyForAnAbandonedCorrelationIdIsDiscarded(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // No reply: the request times out and its correlation id (1) is abandoned.
+        try {
+            $connection->request(new CreateRequestV1('a'), 0.05);
+            $this->fail('Expected TimeoutException');
+        } catch (TimeoutException) {
+            // expected
+        }
+        $connection->abandonCorrelation(1);
+
+        // The broker's late reply for correlation 1 must not be handed to the
+        // next caller as if it were theirs; the reply for correlation 2 is.
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('b'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertSame(2, $response->getCorrelationId());
+
+        // The stale frame was discarded, not parked for a later readMessage().
+        $this->expectException(TimeoutException::class);
+        $connection->readMessage(0.05);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
 }

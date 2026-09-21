@@ -144,9 +144,13 @@ Connection::create()
     │                                               │
     │   TuneResponse ◄── StreamConnection ◄── TCP ◄──┘
     │
-    └── OpenRequest ──► StreamConnection ──► TCP ──► RabbitMQ
-                                                      │
-        OpenResponse ◄── StreamConnection ◄── TCP ◄───┘
+    ├── OpenRequest ──► StreamConnection ──► TCP ──► RabbitMQ
+    │                                                │
+    │   OpenResponse ◄── StreamConnection ◄── TCP ◄──┘
+    │
+    └── ExchangeCommandVersionsRequest ──► StreamConnection ──► TCP ──► RabbitMQ
+                                                             │
+        ExchangeCommandVersionsResponse ◄── StreamConnection ◄┘
 ```
 
 1. **Peer Properties** — Exchange capabilities and version information
@@ -154,6 +158,7 @@ Connection::create()
 3. **SASL Authenticate** — Perform authentication
 4. **Tune** — Negotiate frame size and heartbeat interval
 5. **Open** — Open the virtual host
+6. **ExchangeCommandVersions** — Negotiate per-command protocol versions (RabbitMQ 3.11+; skipped on older brokers, best-effort fallback to v1 otherwise)
 
 ## Server-Push Frames
 

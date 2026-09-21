@@ -278,7 +278,7 @@ use CrazyGoat\RabbitStream\VO\CommandVersion;
 $stream->sendMessage(new ExchangeCommandVersionsRequestV1(
     commands: [
         new CommandVersion(key: 0x0002, minVersion: 1, maxVersion: 2),  // Publish v1-v2
-        new CommandVersion(key: 0x0008, minVersion: 1, maxVersion: 2),  // Deliver v1-v2
+        new CommandVersion(key: 0x0008, minVersion: 1, maxVersion: 1),  // Deliver v1 only
     ]
 ));
 

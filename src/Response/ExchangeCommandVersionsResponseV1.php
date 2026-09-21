@@ -71,7 +71,7 @@ class ExchangeCommandVersionsResponseV1 implements
             $commandsData
         );
         $object = new static($commands);
-        $object->withCorrelationId(TypeCast::toInt($data['correlationId']));
+        $object->withCorrelationId(TypeCast::toInt($data['correlationId'] ?? 0));
         return $object;
     }
 

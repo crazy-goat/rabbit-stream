@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
@@ -28,6 +29,7 @@ use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
+use CrazyGoat\RabbitStream\VO\KeyValue;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
@@ -50,7 +52,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['EXTERNAL', 'SCRAM-SHA-256']),
             );
 
@@ -65,7 +67,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslAuthenticateResponseV1(),
             );
 
@@ -80,7 +82,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new OpenResponseV1(),
             );
@@ -96,7 +98,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new OpenResponseV1(),
@@ -113,7 +115,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -131,7 +133,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -171,7 +173,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -207,7 +209,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(0, 60),
@@ -236,7 +238,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(0xFFFFFFFF, 60),
@@ -280,7 +282,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(0xFFFFFFFF, 60),
@@ -309,7 +311,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -335,7 +337,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -435,7 +437,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -471,7 +473,7 @@ class ConnectionHandshakeTest extends TestCase
 
         /** @var list<object> $queue */
         $queue = [
-            new PeerPropertiesResponseV1(),
+            $this->peerPropertiesResponse(),
             new SaslHandshakeResponseV1(['PLAIN']),
             new SaslAuthenticateResponseV1(),
             new TuneRequestV1(131072, 60),
@@ -536,7 +538,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -574,7 +576,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -616,7 +618,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -644,7 +646,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -680,7 +682,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -740,7 +742,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -801,7 +803,7 @@ class ConnectionHandshakeTest extends TestCase
                 }
 
                 return match ($call) {
-                    1 => new PeerPropertiesResponseV1(),
+                    1 => $this->peerPropertiesResponse(),
                     2 => new SaslHandshakeResponseV1(['PLAIN']),
                     3 => new SaslAuthenticateResponseV1(),
                     4 => new TuneRequestV1(131072, 60),
@@ -829,7 +831,7 @@ class ConnectionHandshakeTest extends TestCase
         $streamConnection = $this->createMock(StreamConnection::class);
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
-                new PeerPropertiesResponseV1(),
+                $this->peerPropertiesResponse(),
                 new SaslHandshakeResponseV1(['PLAIN']),
                 new SaslAuthenticateResponseV1(),
                 new TuneRequestV1(131072, 60),
@@ -863,5 +865,265 @@ class ConnectionHandshakeTest extends TestCase
         return new ExchangeCommandVersionsResponseV1([
             new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
         ]);
+    }
+
+    /**
+     * PeerProperties reply carrying the broker's `version` property, which the
+     * ExchangeCommandVersions version gate reads. A null $version omits the
+     * property, simulating a broker that does not report one.
+     */
+    private function peerPropertiesResponse(?string $version = '4.0.0'): PeerPropertiesResponseV1
+    {
+        if ($version === null) {
+            return new PeerPropertiesResponseV1();
+        }
+
+        return new PeerPropertiesResponseV1(new KeyValue('version', $version));
+    }
+
+    /**
+     * @return array<string, array{?string, bool}>
+     */
+    public static function brokerVersionGate(): array
+    {
+        return [
+            'pre-3.11 minor' => ['3.10.2', false],
+            'pre-3.11 major' => ['2.9.0', false],
+            'exactly 3.11' => ['3.11.0', true],
+            '3.11 without patch' => ['3.11', true],
+            'modern 4.x' => ['4.1.2', true],
+            'missing version' => [null, false],
+            'garbage version' => ['not-a-version', false],
+        ];
+    }
+
+    /**
+     * The exchange is only sent to a broker that implements it (RabbitMQ >=
+     * 3.11). Older brokers may answer an unknown frame by closing the
+     * connection, so the gate is what makes the fallback graceful (R1-1).
+     *
+     * @dataProvider brokerVersionGate
+     */
+    public function testCreateOnlyExchangesCommandVersionsOnBroker311OrNewer(
+        ?string $version,
+        bool $expectExchange
+    ): void {
+        $streamConnection = $this->createMock(StreamConnection::class);
+
+        $responses = [
+            $this->peerPropertiesResponse($version),
+            new SaslHandshakeResponseV1(['PLAIN']),
+            new SaslAuthenticateResponseV1(),
+            new TuneRequestV1(131072, 60),
+            new OpenResponseV1(),
+        ];
+        if ($expectExchange) {
+            $responses[] = $this->commandVersionsResponse();
+        }
+        $streamConnection->method('readMessage')->willReturnOnConsecutiveCalls(...$responses);
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+
+        $capturedRequests = [];
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$capturedRequests): void {
+                $capturedRequests[] = $request;
+            });
+
+        /** @var array<int, CommandVersion>|null $stored */
+        $stored = null;
+        $streamConnection->method('setCommandVersions')
+            ->willReturnCallback(function (array $versions) use (&$stored): void {
+                $stored = $versions;
+            });
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        $exchangeRequests = array_filter(
+            $capturedRequests,
+            fn(object $r): bool => $r instanceof ExchangeCommandVersionsRequestV1
+        );
+
+        if ($expectExchange) {
+            $this->assertCount(1, $exchangeRequests);
+            $this->assertNotSame([], $stored);
+        } else {
+            $this->assertCount(0, $exchangeRequests);
+            $this->assertSame([], $stored);
+        }
+
+        unset($connection);
+    }
+
+    public function testCreateAbandonsTheExchangeCorrelationIdWhenItTimesOut(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function (): object {
+                static $call = 0;
+                $call++;
+                if ($call === 6) {
+                    throw new TimeoutException('Read timeout');
+                }
+
+                return match ($call) {
+                    1 => $this->peerPropertiesResponse(),
+                    2 => new SaslHandshakeResponseV1(['PLAIN']),
+                    3 => new SaslAuthenticateResponseV1(),
+                    4 => new TuneRequestV1(131072, 60),
+                    5 => new OpenResponseV1(),
+                    default => throw new \RuntimeException('readMessage() called more times than expected'),
+                };
+            });
+        // sendMessage is mocked, so the request keeps its default correlation
+        // id of 0; the production path assigns a real one before reading.
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+        $streamConnection->expects($this->once())->method('setCommandVersions')->with([]);
+        $streamConnection->expects($this->once())->method('abandonCorrelation')->with(0);
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        $this->assertSame([], $connection->getSupportedCommandVersions());
+
+        unset($connection);
+    }
+
+    public function testCreateStoresEmptyMapWhenTheBrokerRepliesWithNoCommands(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                $this->peerPropertiesResponse(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(131072, 60),
+                new OpenResponseV1(),
+                // A valid reply that simply lists no commands: not an error, the
+                // connection stays on the v1 baseline.
+                new ExchangeCommandVersionsResponseV1([]),
+            );
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+        $streamConnection->expects($this->once())->method('setCommandVersions')->with([]);
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        $this->assertSame([], $connection->getSupportedCommandVersions());
+
+        unset($connection);
+    }
+
+    public function testCreateStoresLastRangeWhenTheReplyRepeatsACommandKey(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnOnConsecutiveCalls(
+                $this->peerPropertiesResponse(),
+                new SaslHandshakeResponseV1(['PLAIN']),
+                new SaslAuthenticateResponseV1(),
+                new TuneRequestV1(131072, 60),
+                new OpenResponseV1(),
+                new ExchangeCommandVersionsResponseV1([
+                    new CommandVersion(KeyEnum::PUBLISH->value, 1, 1),
+                    new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
+                    new CommandVersion(KeyEnum::CREATE->value, 1, 1),
+                ]),
+            );
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('setMaxFrameSize');
+        $streamConnection->method('close');
+
+        /** @var array<int, CommandVersion>|null $stored */
+        $stored = null;
+        $streamConnection->method('setCommandVersions')
+            ->willReturnCallback(function (array $versions) use (&$stored): void {
+                $stored = $versions;
+            });
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        // The map is keyed by command key, so the last range for a repeated key
+        // wins (pinned so a future change to that merge is deliberate).
+        $this->assertIsArray($stored);
+        $this->assertSame(2, $stored[KeyEnum::PUBLISH->value]->getMaxVersion());
+        $this->assertArrayHasKey(KeyEnum::CREATE->value, $stored);
+
+        unset($connection);
+    }
+
+    /**
+     * Drift guard (R1-3): clientCommandVersions() is a hand-kept list next to
+     * the request classes' getKey()/getVersion(). This fails if a request class
+     * is added, or a version bumped, without updating the advertised ranges.
+     */
+    public function testClientCommandVersionsCoversEveryClientInitiatedRequestClass(): void
+    {
+        $method = new \ReflectionMethod(Connection::class, 'clientCommandVersions');
+        /** @var list<CommandVersion> $ranges */
+        $ranges = $method->invoke(null);
+
+        $advertised = [];
+        foreach ($ranges as $range) {
+            $advertised[$range->getKey()] = $range;
+        }
+
+        // Handshake/connection commands are deliberately not advertised: the
+        // broker does not negotiate them either, and the v1 baseline covers them.
+        $handshakeKeys = [
+            KeyEnum::PEER_PROPERTIES->value,
+            KeyEnum::SASL_HANDSHAKE->value,
+            KeyEnum::SASL_AUTHENTICATE->value,
+            KeyEnum::TUNE->value,
+            KeyEnum::OPEN->value,
+            KeyEnum::CLOSE->value,
+            KeyEnum::HEARTBEAT->value,
+        ];
+
+        $files = glob(dirname(__DIR__, 2) . '/src/Request/*.php');
+        $this->assertIsArray($files);
+
+        $scanned = 0;
+        foreach ($files as $file) {
+            /** @var class-string<KeyVersionInterface> $class */
+            $class = 'CrazyGoat\\RabbitStream\\Request\\' . basename($file, '.php');
+            if (!class_exists($class)) {
+                continue;
+            }
+            if (!is_subclass_of($class, KeyVersionInterface::class)) {
+                continue;
+            }
+
+            $key = $class::getKey();
+            // Response-direction keys (ConsumerUpdateReply) and handshake
+            // commands are not negotiated.
+            if (($key & 0x8000) !== 0) {
+                continue;
+            }
+            if (in_array($key, $handshakeKeys, true)) {
+                continue;
+            }
+
+            $scanned++;
+            $this->assertArrayHasKey(
+                $key,
+                $advertised,
+                $class . ' is not advertised by clientCommandVersions()'
+            );
+            $this->assertSame(
+                1,
+                $advertised[$key]->getMinVersion(),
+                $class . ' must be advertised from v1'
+            );
+            $this->assertGreaterThanOrEqual(
+                $class::getVersion(),
+                $advertised[$key]->getMaxVersion(),
+                $class . ' v' . $class::getVersion() . ' exceeds the advertised max version'
+            );
+        }
+
+        $this->assertGreaterThan(0, $scanned, 'Drift guard scanned no request classes');
     }
 }

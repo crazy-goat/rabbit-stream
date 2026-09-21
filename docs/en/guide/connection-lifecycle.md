@@ -4,7 +4,7 @@ This guide covers the complete lifecycle of a RabbitMQ Stream connection, from i
 
 ## Overview
 
-The RabbitMQ Stream protocol requires a 5-step handshake before a connection is ready for use. This handshake establishes capabilities, authenticates the client, negotiates connection parameters, and selects a virtual host.
+The RabbitMQ Stream protocol requires a 6-step handshake before a connection is ready for use. This handshake establishes capabilities, authenticates the client, negotiates connection parameters, selects a virtual host, and (on RabbitMQ 3.11+) negotiates per-command protocol versions.
 
 ## Connection Handshake Sequence
 
@@ -48,6 +48,12 @@ The connection handshake follows this exact sequence:
        │ ───────────────────────────────────────────────►  │
        │                                                   │
        │     OpenResponse (0x8015)                         │
+       │ ◄───────────────────────────────────────────────  │
+       │                                                   │
+       │  6. ExchangeCommandVersions (0x001b)  [3.11+]     │
+       │ ───────────────────────────────────────────────►  │
+       │                                                   │
+       │     ExchangeCommandVersionsResponse (0x801b)      │
        │ ◄───────────────────────────────────────────────  │
        │                                                   │
        ▼                                                   ▼
@@ -120,13 +126,33 @@ The negotiated value is the **minimum** of client and server proposals:
 
 ### 5. Open (0x0015 / 0x8015)
 
-The final step selects the virtual host (namespace) to use. The default virtual host is `"/"`.
+The final mandatory step selects the virtual host (namespace) to use. The default virtual host is `"/"`.
 
 **Purpose:**
 - Select virtual host for stream operations
 - Verify access to the requested vhost
 
 **Key/Response:** `0x0015` / `0x8015`
+
+### 6. ExchangeCommandVersions (0x001b / 0x801b) — RabbitMQ 3.11+
+
+An optional step that lets the client advertise the protocol command versions it
+implements and learn which ones the broker supports. The broker replies with a
+per-command `minVersion`/`maxVersion` range; the client uses it to decide, for
+example, whether it may send `Publish` v2 (per-message filter values).
+
+**Purpose:**
+- Negotiate per-command protocol versions
+- Enable newer command versions only when the broker supports them
+
+**Key/Response:** `0x001b` / `0x801b`
+
+> **Fallback:** the command was added in RabbitMQ 3.11. `Connection::create()`
+> reads the broker's `version` from the `PeerProperties` reply and skips the
+> exchange entirely below 3.11 (older brokers may answer an unknown frame by
+> closing the connection). When the step is skipped, times out, or is rejected,
+> the connection falls back to protocol version 1 for every command and setup
+> still succeeds.
 
 ## High-Level Connection (Connection::create)
 
@@ -152,7 +178,7 @@ $connection = Connection::create(
 
 The `Connection::create()` method:
 1. Establishes TCP connection to port 5552
-2. Performs all 5 handshake steps automatically
+2. Performs all 6 handshake steps automatically (the last one is skipped on brokers older than RabbitMQ 3.11)
 3. Negotiates frameMax and heartbeat values
 4. Returns a ready-to-use Connection object
 
@@ -167,11 +193,14 @@ use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneResponseV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
+use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
+use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
+use CrazyGoat\RabbitStream\VO\CommandVersion;
 
 // 1. Create and connect
 $stream = new StreamConnection('127.0.0.1', 5552);
@@ -234,6 +263,22 @@ $stream->setOutgoingMaxFrameSize($negotiatedFrameMax);
 // The setters are independent: lift the pre-Open ceiling explicitly now that
 // Open has completed.
 $stream->setPreOpenMaxFrameSize(0);
+
+// 7. ExchangeCommandVersions (optional, RabbitMQ 3.11+). Skip it on an older
+// broker: RabbitMQ <= 3.10 may close the connection on an unknown frame.
+$stream->sendMessage(new ExchangeCommandVersionsRequestV1([
+    new CommandVersion(key: 0x0002, minVersion: 1, maxVersion: 2), // Publish
+]));
+$versionsResponse = $stream->readMessage();
+if ($versionsResponse instanceof ExchangeCommandVersionsResponseV1) {
+    // Store the broker's ranges; StreamConnection::supportsCommandVersion()
+    // assumes v1 for anything not listed.
+    $ranges = [];
+    foreach ($versionsResponse->getCommands() as $command) {
+        $ranges[$command->getKey()] = $command;
+    }
+    $stream->setCommandVersions($ranges);
+}
 
 // Connection is now ready!
 ```

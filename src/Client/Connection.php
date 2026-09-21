@@ -110,9 +110,10 @@ class Connection implements ConnectionInterface
      * The handshake exchanges PeerProperties, negotiates SASL (PLAIN only),
      * authenticates, negotiates frame max and heartbeat at Tune, opens the
      * virtual host, and finally exchanges supported command versions (best
-     * effort — a broker that does not implement the command leaves the
-     * connection on the v1 baseline). It is kept out of the constructor so a
-     * connection is never observable half-initialised.
+     * effort — skipped on brokers older than RabbitMQ 3.11, which do not
+     * implement the command, and otherwise a broker that does not answer or
+     * rejects it leaves the connection on the v1 baseline). It is kept out of
+     * the constructor so a connection is never observable half-initialised.
      *
      * @param string $host Broker hostname or IP.
      * @param int $port Broker stream-protocol port.
@@ -301,15 +302,69 @@ class Connection implements ConnectionInterface
         // The pre-Open window has ended; lift its ceiling explicitly.
         $streamConnection->setPreOpenMaxFrameSize(0);
 
-        // 7. ExchangeCommandVersions — optional. The broker reports the version
-        // range it supports per command; a broker that does not implement the
-        // command (or rejects it) leaves the map empty and every command falls
-        // back to v1. Never fails connection setup.
-        $streamConnection->setCommandVersions(
-            self::negotiateCommandVersions($streamConnection, $logger)
-        );
+        // 7. ExchangeCommandVersions — optional, and only sent to a broker new
+        // enough to implement it. RabbitMQ < 3.11 does not know the command and
+        // may answer an unknown frame by closing the connection; the reference
+        // Go/Java clients gate on the broker version for exactly this reason.
+        // Reading the version from the PeerProperties reply we already hold
+        // avoids that failure mode (and the 5 s wait against a broker that would
+        // silently ignore the frame). Never fails connection setup.
+        if (self::brokerSupportsCommandVersions($peerResponse)) {
+            $streamConnection->setCommandVersions(
+                self::negotiateCommandVersions($streamConnection, $logger)
+            );
+        } else {
+            $logger->debug(
+                'Broker is older than 3.11; skipping ExchangeCommandVersions and assuming v1'
+            );
+            $streamConnection->setCommandVersions([]);
+        }
 
         return new self($streamConnection, $logger);
+    }
+
+    /**
+     * Whether the broker's advertised version is new enough to implement
+     * ExchangeCommandVersions.
+     *
+     * The command was added in RabbitMQ 3.11. Older brokers do not merely
+     * ignore an unknown frame — RabbitMQ <= 3.10 answers it with a Close frame,
+     * which would leave create() holding a connection the broker is tearing
+     * down. The reference Go client skips the exchange unless the broker
+     * reports >= 3.11, and so do we. A missing or unparseable version is treated
+     * as "not supported", which keeps the fallback safe.
+     *
+     * @param PeerPropertiesResponseV1 $peerResponse Reply to the PeerProperties
+     *                                 step, which carries the broker's version.
+     * @return bool True when the broker reports RabbitMQ >= 3.11.
+     */
+    private static function brokerSupportsCommandVersions(PeerPropertiesResponseV1 $peerResponse): bool
+    {
+        foreach ($peerResponse->getPeerProperty() as $property) {
+            if ($property->getKey() !== 'version') {
+                continue;
+            }
+
+            $version = $property->getValue();
+            if ($version === null) {
+                return false;
+            }
+
+            // RabbitMQ reports e.g. "4.1.2"; the patch part is irrelevant to the
+            // 3.11 gate, so a missing one ("4.1") is accepted too. Anything
+            // without a numeric major.minor core is treated as "too old".
+            $parts = explode('.', $version);
+            if (count($parts) < 2 || !ctype_digit($parts[0]) || !ctype_digit($parts[1])) {
+                return false;
+            }
+
+            $major = (int) $parts[0];
+            $minor = (int) $parts[1];
+
+            return $major > 3 || ($major === 3 && $minor >= 11);
+        }
+
+        return false;
     }
 
     /**
@@ -331,12 +386,20 @@ class Connection implements ConnectionInterface
         StreamConnection $streamConnection,
         LoggerInterface $logger
     ): array {
+        $request = new ExchangeCommandVersionsRequestV1(self::clientCommandVersions());
+
         try {
-            $streamConnection->sendMessage(
-                new ExchangeCommandVersionsRequestV1(self::clientCommandVersions())
-            );
+            $streamConnection->sendMessage($request);
             $response = $streamConnection->readMessage(self::COMMAND_VERSION_EXCHANGE_TIMEOUT);
         } catch (ProtocolException | DeserializationException | TimeoutException $e) {
+            if ($e instanceof TimeoutException) {
+                // The broker may still answer after the timeout. Mark the
+                // request's correlation id abandoned so that late frame is
+                // discarded by the next read instead of being handed to an
+                // unrelated caller as if it were their response (R1-2).
+                $streamConnection->abandonCorrelation($request->getCorrelationId());
+            }
+
             $logger->warning(
                 'ExchangeCommandVersions failed; assuming protocol version 1 for every command',
                 ['exception' => $e]

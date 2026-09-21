@@ -81,3 +81,24 @@
    `Connection::create()`. Both are legitimate (one pins the raw request/response
    pair, one pins the handshake), but the manual one could be retired once the
    raw-command path has dedicated unit coverage.
+
+## Round 1 review follow-up (new observations)
+
+- **`request()` alone would not have fixed the late-reply desync.** `request()`
+  abandons its correlation id on timeout, and the stale frame is still returned
+  by the next *uncorrelated* `readMessage()` — which is what every
+  `Connection` management method uses. The fix therefore had to be in
+  `readResponse()`: a new `abandonCorrelation()` id list makes it drop (not
+  park) a late reply for a timed-out request. This was a genuine new finding
+  while addressing R1-2.
+- **The broker `version` peer property is what makes the R1-1 gate exact for
+  RabbitMQ.** Confirmed end-to-end: with the gate in place, the E2E handshake
+  still stores a non-empty negotiated map against RabbitMQ 4, so the `version`
+  string parses to >= 3.11. An absent/garbage version deliberately skips the
+  exchange (safe direction).
+- **A server-initiated `Close` reply to `0x001b` was already surfaced, not
+  swallowed.** `0x0016` is in `SERVER_PUSH_KEYS`; `handleServerClose()` echoes
+  the reply and closes, then `readResponse()` raises `ConnectionException`,
+  which `negotiateCommandVersions()` does not catch. No code change was needed
+  for that half of R1-1 — only a test/decision note.
+
