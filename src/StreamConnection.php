@@ -339,12 +339,13 @@ class StreamConnection
             $write = [$stream];
             $except = null;
             // The handshake may need to read or write; listen for both.
+            [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout($remaining);
             @stream_select(
                 $read,
                 $write,
                 $except,
-                (int) $remaining,
-                (int) (($remaining - (int) $remaining) * 1_000_000)
+                $selectTimeoutSec,
+                $selectTimeoutUsec
             );
             // On timeout (0) or interruption the loop re-enters and either
             // hits the deadline check above or retries the handshake.
@@ -376,6 +377,36 @@ class StreamConnection
 
         return $error !== null
             && stripos($error['message'], 'interrupted system call') !== false;
+    }
+
+    /**
+     * Split a timeout in seconds into the (tv_sec, tv_usec) pair that
+     * stream_select()/select(2) expects.
+     *
+     * The microseconds are always the true fractional part of $seconds, so the
+     * invariant `0 <= tv_usec < 1_000_000` holds for every non-negative input.
+     * select(2) rejects `tv_usec >= 1_000_000` with EINVAL, which is precisely
+     * how #382 happened: one call site clamped the seconds with min(..., 1)
+     * while deriving the microseconds from the *unclamped* remainder
+     * (2.5s -> sec = 1, usec = 1_500_000). Routing every site through this
+     * helper makes the two halves impossible to desynchronise.
+     *
+     * A caller that wants a shorter wait than $seconds (readLoop() polls at
+     * most once per second so stop()/deadline checks stay responsive) clamps
+     * the argument *before* calling this — never one half on its own.
+     *
+     * The argument must be non-negative; every current call site guards its
+     * remaining budget or derives it from an already-checked deadline.
+     *
+     * @param float $seconds Non-negative timeout in seconds
+     * @return array{int, int} [tv_sec, tv_usec] with 0 <= tv_usec < 1_000_000
+     */
+    private function splitSelectTimeout(float $seconds): array
+    {
+        $sec = (int) $seconds;
+        $usec = (int) (($seconds - $sec) * 1_000_000);
+
+        return [$sec, $usec];
     }
 
     /**
@@ -897,8 +928,7 @@ class StreamConnection
                 throw new TimeoutException("Write timeout: connection not ready for writing");
             }
 
-            $timeoutSec = (int) $remaining;
-            $timeoutUsec = (int) (($remaining - $timeoutSec) * 1_000_000);
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
 
             $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
@@ -949,13 +979,8 @@ class StreamConnection
                 $this->writeTimeout($sent, $total);
             }
 
-            $ready = @stream_select(
-                $read,
-                $write,
-                $except,
-                (int) $remaining,
-                (int) (($remaining - (int) $remaining) * 1_000_000)
-            );
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
+            $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
                 if ($this->selectWasInterrupted()) {
@@ -1201,9 +1226,11 @@ class StreamConnection
             $except = null;
 
             // Calculate remaining timeout for socket_select.
-            // Cap $remaining BEFORE deriving both halves: select(2) rejects
-            // tv_usec >= 1_000_000 with EINVAL (e.g. 2.5s would produce
-            // sec = 1, usec = 1_500_000 without the cap).
+            // Cap $remaining BEFORE the split and hand the capped value to the
+            // helper: select(2) rejects tv_usec >= 1_000_000 with EINVAL (e.g.
+            // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
+            // polling at most once per second keeps stop()/deadline checks
+            // responsive.
             $selectTimeoutSec = 1;
             $selectTimeoutUsec = 0;
             if ($deadline !== null) {
@@ -1211,9 +1238,7 @@ class StreamConnection
                 if ($remaining <= 0) {
                     break;
                 }
-                $capped = min($remaining, 1);
-                $selectTimeoutSec = (int) $capped;
-                $selectTimeoutUsec = (int) (($capped - $selectTimeoutSec) * 1_000_000);
+                [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout(min($remaining, 1));
             }
 
             $ready = @stream_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
@@ -1475,15 +1500,20 @@ class StreamConnection
         $write = null;
         $except = null;
 
-        $timeoutSec = (int) $timeout;
-        $timeoutUsec = (int) (($timeout - $timeoutSec) * 1_000_000);
+        if ($timeout > 0) {
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($timeout);
+        } else {
+            // A non-positive timeout is a non-blocking poll: sec = usec = 0.
+            $timeoutSec = 0;
+            $timeoutUsec = 0;
+        }
 
         $ready = @stream_select(
             $read,
             $write,
             $except,
-            $timeout > 0 ? $timeoutSec : 0,
-            $timeout > 0 ? $timeoutUsec : 0
+            $timeoutSec,
+            $timeoutUsec
         );
 
         if ($ready === false) {
@@ -1671,13 +1701,13 @@ class StreamConnection
                 return null;
             }
 
-            $ready = @stream_select(
-                $read,
-                $write,
-                $except,
-                (int) $remainingTime,
-                (int) (($remainingTime - (int) $remainingTime) * 1_000_000)
-            );
+            // readTimeout() is the only way past the guard above with a
+            // non-positive budget, and it never returns false (it reports an
+            // empty frame-boundary read or throws). Clamp explicitly anyway so
+            // splitSelectTimeout()'s non-negative precondition is enforced here
+            // instead of depending on that non-local invariant.
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remainingTime));
+            $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
                 if ($this->selectWasInterrupted()) {

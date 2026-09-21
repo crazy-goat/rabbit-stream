@@ -1461,6 +1461,151 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    /**
+     * #478: every stream_select() timeout is split by
+     * StreamConnection::splitSelectTimeout(), which must keep tv_usec below
+     * 1_000_000 for any non-negative input — select(2) rejects the whole call
+     * with EINVAL otherwise. macOS/BSD silently clamp tv_usec instead of
+     * failing, so the timing regression test above can be green on macOS while
+     * Linux CI is broken; this arithmetic assertion is the cross-platform
+     * guard. It pins the exact #382 failure mode (sec capped, usec derived from
+     * the unclamped value).
+     */
+    public function testSplitSelectTimeoutKeepsMicrosecondsBelowOneMillion(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $method = new \ReflectionMethod($connection, 'splitSelectTimeout');
+
+        // Aggregate violations and assert once: 500k individual assertions
+        // made this the suite's dominant cost without adding discrimination.
+        /** @var list<string> $violations */
+        $violations = [];
+        $checked = 0;
+
+        $check = function (float $seconds) use ($method, $connection, &$violations, &$checked): void {
+            $checked++;
+            /** @var array{int, int} $split */
+            $split = $method->invoke($connection, $seconds);
+            [$sec, $usec] = $split;
+
+            if ($sec < 0 || $usec < 0 || $usec >= 1_000_000) {
+                $violations[] = sprintf(
+                    'splitSelectTimeout(%s) = (%d, %d)',
+                    var_export($seconds, true),
+                    $sec,
+                    $usec
+                );
+            }
+        };
+
+        foreach ([0.0, PHP_FLOAT_EPSILON, 0.999999, 1.0, 2.5, 30.0] as $seconds) {
+            $check($seconds);
+        }
+
+        // Sweep whole seconds 0..999 combined with deterministic fractions in
+        // [0, 1). crc32() keeps replay reproducible without touching the
+        // process-global MT RNG (which would leak into later tests).
+        for ($i = 0; $i < 5_000; $i++) {
+            $check(($i % 1000) + crc32((string) $i) / 4_294_967_296.0);
+        }
+
+        // Fractions a hair below 1.0, where tv_usec sits closest to the
+        // EINVAL boundary and float rounding could in principle overflow.
+        for ($i = 1; $i <= 90; $i++) {
+            $check(($i % 7) + 1.0 - PHP_FLOAT_EPSILON * $i);
+        }
+
+        $this->assertSame([], $violations, "splitSelectTimeout() violated 0 <= usec < 1_000_000:\n"
+            . implode("\n", array_slice($violations, 0, 20)));
+        $this->assertSame(5096, $checked, 'Sweep must exercise every seeded input');
+    }
+
+    /**
+     * #478 low-1: splitSelectTimeout() is the single place that splits a
+     * timeout into (tv_sec, tv_usec). A future stream_select() call site that
+     * re-inlines the `* 1_000_000` arithmetic would pass every behavioural
+     * test — macOS/BSD silently clamp tv_usec, so only Linux would fail with
+     * EINVAL (the #382 shape) — and reintroduce exactly the duplication this
+     * issue removed. This static gate fails if the conversion appears outside
+     * the helper. Comments are stripped so documentation mentioning the value
+     * cannot trip it, and the regex tolerates underscore/spelled-out literals.
+     */
+    public function testOnlySplitSelectTimeoutConvertsSecondsToMicroseconds(): void
+    {
+        $source = (string) file_get_contents(__DIR__ . '/../src/StreamConnection.php');
+
+        $helper = new \ReflectionMethod(StreamConnection::class, 'splitSelectTimeout');
+        $helperStart = $helper->getStartLine();
+        $helperEnd = $helper->getEndLine();
+        self::assertIsInt($helperStart);
+        self::assertIsInt($helperEnd);
+
+        // Multiplication/division by one million, tolerance for `1_000_000`,
+        // `1000000` and `1e6` (case-insensitive). Requiring a `*` or `/`
+        // immediately before the literal keeps prose and hex masks out of the
+        // net, so the pattern does not flag unrelated code.
+        $pattern = '~[*/]\s*(?:1_000_000|1000000|1e6)(?![0-9_])~i';
+
+        $offenders = [];
+        $helperMatches = 0;
+        foreach (explode("\n", $this->codeWithoutComments($source)) as $index => $line) {
+            $found = preg_match_all($pattern, $line);
+            if ($found === false) {
+                continue;
+            }
+            if ($found === 0) {
+                continue;
+            }
+
+            $lineNumber = $index + 1;
+            if ($lineNumber >= $helperStart && $lineNumber <= $helperEnd) {
+                $helperMatches += $found;
+                continue;
+            }
+
+            $offenders[] = sprintf('src/StreamConnection.php:%d: %s', $lineNumber, trim($line));
+        }
+
+        // A broken regex must not turn this gate into a no-op: the helper's own
+        // conversion has to be found.
+        self::assertGreaterThanOrEqual(
+            1,
+            $helperMatches,
+            'scan regex must find the conversion inside splitSelectTimeout()'
+        );
+        self::assertSame(
+            [],
+            $offenders,
+            "Route the timeout through splitSelectTimeout() instead of re-inlining the (sec, usec) split:\n"
+                . implode("\n", $offenders)
+        );
+    }
+
+    /**
+     * Source with comments blanked out, preserving line numbers so reported
+     * locations still line up with the file on disk.
+     */
+    private function codeWithoutComments(string $source): string
+    {
+        $code = '';
+        foreach (token_get_all($source) as $token) {
+            if (!is_array($token)) {
+                $code .= $token;
+                continue;
+            }
+
+            [$id, $text] = $token;
+            if ($id === T_COMMENT || $id === T_DOC_COMMENT) {
+                $code .= str_repeat("\n", substr_count($text, "\n"));
+                continue;
+            }
+
+            $code .= $text;
+        }
+
+        return $code;
+    }
+
     // ---------------------------------------------------------------------
     // Socket timeouts (#402), mid-frame desync (#390), partial writes (#389),
     // sticky socket errors (#391).
