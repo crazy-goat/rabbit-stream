@@ -31,7 +31,7 @@
         "phpstan/phpstan": "~2.1.0"
     },
     "scripts": {
-        "lint": ["phpcs --standard=phpcs.xml.dist", "@rector", "@phpstan", "php bin/kb-lint.php", "php bin/check-docs-links.php"],
+        "lint": ["phpcs --standard=phpcs.xml.dist", "@rector", "@phpstan", "php bin/kb-lint.php", "php bin/check-docs-links.php", "@test:suite-coverage"],
         "lint:fix": ["@rector:fix", "phpcbf --standard=phpcs.xml.dist", "php bin/kb-lint.php --fix"],
         "kb-lint": "php bin/kb-lint.php",
         "kb-lint:fix": "php bin/kb-lint.php --fix",
@@ -41,6 +41,7 @@
         "test": "phpunit",
         "test:unit": "phpunit --testsuite unit",
         "test:e2e": "phpunit --testsuite e2e",
+        "test:suite-coverage": "php bin/check-test-suites.php",
         "rector": "rector process --dry-run",
         "rector:fix": "rector process"
     },

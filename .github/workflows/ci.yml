@@ -91,6 +91,9 @@ jobs:
       - name: Run PHPStan
         run: composer phpstan
 
+      - name: Check test suite coverage
+        run: composer test:suite-coverage
+
   unit-tests:
     name: unit-tests (PHP ${{ matrix.php }})
     needs: [check-actor, lint]
