@@ -15,6 +15,7 @@ class Producer
     public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void;
     public function sendBatch(array $messages, ?float $timeout = null): void;
     public function close(): void;
+    public function isClosed(): bool;
     public function waitForConfirms(float $timeout = 5.0): void;
     public function getLastPublishingId(): ?int;
     public function querySequence(): int;
@@ -33,8 +34,10 @@ The `Producer` class is instantiated via `Connection::createProducer()`. Direct 
 $producer = $connection->createProducer(
     string $stream,                    // Required: Stream name
     ?string $name = null,              // Optional: Producer name for deduplication
-    ?callable $onConfirm = null,        // Optional: Confirmation callback
-): Producer
+    ?callable $onConfirm = null,       // Optional: Confirmation callback
+    int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS, // Optional
+    float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,    // Optional
+): ProducerInterface
 ```
 
 ### Parameters
@@ -42,10 +45,12 @@ $producer = $connection->createProducer(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to publish to |
-| `$name` | `?string` | No | Unique producer name for deduplication. If provided, enables exactly-once semantics across reconnects. |
+| `$name` | `?string` | No | Unique producer name for deduplication. If provided, enables exactly-once semantics across reconnects and makes the producer read back its publishing sequence on creation. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus` object. |
-| `$redeclareTimeout` | `float` | No | How long (seconds) a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher; default `5.0`. `0` fails on the first attempt. See [isStale()](#isstale). |
-| `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Once reached, `send()`/`sendBatch()` block, draining confirms until the count drops back below the limit. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
+| `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Once reached, `send()`/`sendBatch()`/`sendWithFilter()` block, draining confirms until the count drops back below the limit. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
+| `$redeclareTimeout` | `float` | No | How long (seconds) a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher; default `5.0`. `0` fails on the first attempt. Must be `>= 0`. See [isStale()](#isstale). |
+
+The underlying `Producer` constructor also takes an optional `$onClose` callback (called with the publisher id once `close()` has run, so the owning `Connection` can reclaim it) and an optional `$logger` (`LoggerInterface`, defaults to `NullLogger`); `Connection` supplies both, so they are not part of `createProducer()`.
 
 ### Examples
 
@@ -94,8 +99,11 @@ public function send(string $message, ?float $timeout = null): void
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is lost
-- `\Exception` - For protocol errors
+- `ConnectionException` - If the socket is not connected or the write/read fails
+- `DeserializationException` - If a response or server-push frame read while draining back-pressure cannot be deserialized
+- `InvalidArgumentException` - If the serialized `Publish` request exceeds the negotiated outgoing frame size
+- `ProtocolException` - If the broker rejects a re-declare or sends an unexpected frame
+- `TimeoutException` - If the write, a re-declare, or the `maxPendingConfirms` back-pressure drain times out
 
 #### Example
 
@@ -106,7 +114,7 @@ $producer->send('Urgent message', timeout: 1.0);
 
 #### Notes
 
-- `$message` is a plain payload string; it is automatically wrapped in an AMQP 1.0 Data section on the wire, so a consumer's `Message::getBody()` returns the same string unchanged
+- `$message` is a plain payload string; it is automatically wrapped in a single AMQP 1.0 Data section on the wire, so a consumer's `Message::getBody()` returns the same string unchanged
 - To publish pre-encoded AMQP 1.0 bytes, use the low-level API with `AmqpMessageEncoder::encodeDataSection()` — `send()` would wrap them again
 - Messages are assigned an auto-incrementing publishing ID internally
 - The message is not immediately confirmed; use `waitForConfirms()` or the `onConfirm` callback
@@ -138,8 +146,11 @@ public function sendBatch(array $messages, ?float $timeout = null): void
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is lost
-- `\Exception` - For protocol errors
+- `ConnectionException` - If the socket is not connected or the write/read fails
+- `DeserializationException` - If a response or server-push frame read while draining back-pressure cannot be deserialized
+- `InvalidArgumentException` - If the serialized `Publish` request exceeds the negotiated outgoing frame size
+- `ProtocolException` - If the broker rejects a re-declare or sends an unexpected frame
+- `TimeoutException` - If the write, a re-declare, or the `maxPendingConfirms` back-pressure drain times out
 
 #### Example
 
@@ -185,8 +196,11 @@ public function sendWithFilter(string $message, ?string $filterValue, ?float $ti
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is lost
-- `ProtocolException` - If `$filterValue` is not null but the broker did not negotiate `Publish` v2 (stream filtering requires RabbitMQ 3.13+)
+- `ConnectionException` - If the socket is not connected or the write/read fails
+- `DeserializationException` - If a response or server-push frame read while draining back-pressure cannot be deserialized
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ProtocolException` - If `$filterValue` is not null but the broker did not negotiate `Publish` v2 (stream filtering requires RabbitMQ 3.13+), or a re-declare is rejected
+- `TimeoutException` - If the write, a re-declare, or the `maxPendingConfirms` back-pressure drain times out
 
 #### Example
 
@@ -197,7 +211,7 @@ $producer->sendWithFilter(json_encode(['region' => 'us', 'order_id' => 2]), filt
 
 #### Notes
 
-- Sent via the same `PublishRequestV2`/`PublishedMessageV2` frame as a normal publish, just with a non-empty filter value attached per message
+- With a non-null `$filterValue` the message is sent as a `PublishRequestV2`/`PublishedMessageV2` frame carrying the per-message filter value. With a null value the plain v1 frame is sent instead (v1 has no filter field); a non-null value on a broker that never negotiated Publish v2 is a hard `ProtocolException` rather than a silent unfiltered publish
 - Filtering is **broker-side and chunk-granular**: the broker maintains a bloom filter per chunk and delivers the whole chunk once its filter *may* contain a matching value — every message in a delivered chunk arrives, matching or not. A consumer must still filter application-side for exact matching; see [`$filterValues`/`$matchUnfiltered` on `Consumer`](consumer.md) and the [Stream Filtering guide](../guide/consuming.md#7-stream-filtering)
 - Each message still gets its own publishing ID and confirmation, exactly like `send()`
 
@@ -221,7 +235,10 @@ None
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is already closed
+- `ConnectionException` - If the socket is not connected or the `DeletePublisher` write/read fails
+- `DeserializationException` - If a response or server-push frame read while draining confirms cannot be deserialized
+- `ProtocolException` - If the `DeletePublisher` response has an unexpected version or command
+- `TimeoutException` - If the `DeletePublisher` response does not arrive in time
 
 #### Example
 
@@ -241,6 +258,19 @@ try {
 - Frees the publisher ID for reuse
 - Does not close the underlying connection
 - Safe to call multiple times (idempotent)
+- Keeps the confirm callback registered through the `DeletePublisher` exchange and drains any still-in-flight confirms (bounded); anything not drained in time is counted by [`getLostConfirmCount()`](#getlostconfirmcount)
+
+---
+
+### isClosed()
+
+Whether `close()` has already run.
+
+```php
+public function isClosed(): bool
+```
+
+Returns `true` once `close()` has been called, even when the `DeletePublisher` exchange failed (the publisher id is released either way). Always `false` before the first `close()`, including after a `waitForConfirms()` timeout.
 
 ---
 
@@ -265,6 +295,9 @@ public function waitForConfirms(float $timeout = 5.0): void
 #### Exceptions
 
 - `TimeoutException` - If timeout is reached before all confirms received
+- `ConnectionException` - If the socket is not connected or a read fails
+- `DeserializationException` - If a `PublishConfirm`/`PublishError` or other frame read while waiting cannot be deserialized
+- `ProtocolException` - If a server-push frame read while waiting has an unexpected version or command
 
 #### Example
 
@@ -306,28 +339,39 @@ None
 
 #### Return Value
 
-`?int` - The last publishing ID, or `null` if no messages have been sent
+`?int` - The last publishing ID used. For an anonymous producer this is `null`
+until the first `send()`; a **named** producer can return a non-null value
+before any `send()` (see Notes).
 
 #### Example
 
 ```php
+// Anonymous producer
 $producer->send('Message 1');
-$id1 = $producer->getLastPublishingId(); // 1
+$id1 = $producer->getLastPublishingId(); // 0
 
 $producer->send('Message 2');
-$id2 = $producer->getLastPublishingId(); // 2
+$id2 = $producer->getLastPublishingId(); // 1
 
 // Batch publishing
 $producer->sendBatch(['A', 'B', 'C']);
-$id3 = $producer->getLastPublishingId(); // 5 (2 + 3 messages)
+$id3 = $producer->getLastPublishingId(); // 4 (1 + 3 messages)
 ```
 
 #### Notes
 
 - Returns the ID of the last message that was **sent**, not necessarily confirmed
+- **Counter-intuitive:** for a named producer this can be non-null *before any
+  `send()`*. The constructor runs `querySequence()` and resumes from
+  `sequence + 1`, so `getLastPublishingId()` immediately returns the broker's
+  last confirmed sequence (`0` when the broker stored nothing) rather than
+  `null`. It is `null` only for an anonymous producer that has not sent yet.
 - For named producers, this is automatically managed based on `querySequence()`
-- Publishing IDs start at 1 for unnamed producers
-- Publishing IDs start at `querySequence() + 1` for named producers
+- Publishing IDs start at 0 for unnamed producers (the first `send()` uses id
+  `0`, so `getLastPublishingId()` is `null` before it and `0` after)
+- Publishing IDs start at `querySequence() + 1` for named producers, which is
+  why a named producer's first `send()` uses `querySequence() + 1` and dedup
+  resumes correctly after a reconnect
 
 ---
 
@@ -476,7 +520,11 @@ None
 
 #### Exceptions
 
-- `InvalidArgumentException` - If called on an unnamed producer
+- `InvalidArgumentException` - If called on an unnamed producer (a `null` or `""` name)
+- `ConnectionException` - If the socket is not connected or the exchange fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `ProtocolException` - If the broker answers with a non-OK response code
+- `TimeoutException` - If the response does not arrive in time
 - `UnexpectedResponseException` - If the server returns an unexpected response
 
 #### Example
@@ -492,7 +540,7 @@ echo "Server has confirmed up to ID: {$lastConfirmed}";
 
 #### Notes
 
-- Only available for named producers (throws exception for anonymous producers)
+- Only available for named producers (throws `InvalidArgumentException` for anonymous producers, i.e. a `null` or `""` name)
 - Automatically called during producer construction for named producers
 - Used for deduplication: messages with ID ≤ returned value are duplicates
 - Makes a round-trip to the server

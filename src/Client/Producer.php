@@ -7,6 +7,8 @@ namespace CrazyGoat\RabbitStream\Client;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
@@ -92,6 +94,55 @@ class Producer implements ProducerInterface
     private ?int $staleCode = null;
     private int $redeclareCount = 0;
 
+    /**
+     * Create a producer and immediately declare it on the broker.
+     *
+     * The DeclarePublisher round trip runs from the constructor, and a named
+     * producer also runs a QueryPublisherSequence round trip, so a broker
+     * rejection or a transport failure surfaces here rather than on the first
+     * send(). The owning Connection allocates the publisher id and passes it
+     * in; direct instantiation is not recommended — use
+     * Connection::createProducer().
+     *
+     * @param StreamConnection $connection Connection the producer publishes on.
+     * @param string $stream Stream to publish to.
+     * @param int $publisherId Publisher id already reserved on $connection.
+     * @param string|null $name Unique producer name for broker-side
+     *                          deduplication; null (or "") for an anonymous
+     *                          producer. A named producer queries its last
+     *                          confirmed publishing sequence on construction, so
+     *                          getLastPublishingId() can be non-null before the
+     *                          first send().
+     * @param callable|null $onConfirm Called with (ConfirmationStatus $status)
+     *                          for each publish as confirms/errors arrive; null
+     *                          to disable the callback.
+     * @param int $maxPendingConfirms Back-pressure cap on outstanding
+     *                          (unconfirmed) publishes; once reached,
+     *                          send()/sendBatch()/sendWithFilter() block
+     *                          draining confirms until the count drops below
+     *                          it. 0 disables the cap.
+     * @param float $redeclareTimeout Seconds a publish keeps retrying
+     *                          DeclarePublisher after a MetadataUpdate dropped
+     *                          the publisher; 0 fails on the first attempt. Must
+     *                          be >= 0.
+     * @param callable|null $onClose Called with the publisher id once close()
+     *                          has run, so the owning Connection can reclaim
+     *                          it; null to disable the callback.
+     * @param LoggerInterface|null $logger PSR-3 logger for warnings (e.g. lost
+     *                          confirms); defaults to a NullLogger.
+     * @throws InvalidArgumentException If $redeclareTimeout is negative.
+     * @throws ConnectionException If the socket is not connected or the
+     *                          DeclarePublisher/QueryPublisherSequence exchange
+     *                          fails.
+     * @throws DeserializationException If a handshake response frame cannot be
+     *                          deserialized.
+     * @throws ProtocolException If the broker rejects DeclarePublisher with a
+     *                          non-OK response code, or a frame has an
+     *                          unexpected version or command.
+     * @throws TimeoutException If a handshake response does not arrive in time.
+     * @throws UnexpectedResponseException If the QueryPublisherSequence reply is
+     *                          not a QueryPublisherSequenceResponseV1.
+     */
     public function __construct(
         private readonly StreamConnection $connection,
         private readonly string $stream,
@@ -116,6 +167,9 @@ class Producer implements ProducerInterface
     /**
      * Whether the broker has dropped this publisher (MetadataUpdate / fatal
      * PublishError) and the next publish will re-declare it first.
+     *
+     * @return bool True while the publisher is stale and the next publish will
+     *              re-run DeclarePublisher before sending.
      */
     public function isStale(): bool
     {
@@ -124,6 +178,9 @@ class Producer implements ProducerInterface
 
     /**
      * Number of successful re-declarations after a MetadataUpdate.
+     *
+     * @return int Count of successful re-declarations since construction; a
+     *             number that keeps growing means the stream is flapping.
      */
     public function getRedeclareCount(): int
     {
@@ -286,12 +343,29 @@ class Producer implements ProducerInterface
     /**
      * Publish a single message.
      *
+     * The message is encoded as a single AMQP 1.0 Data section wrapping the
+     * raw payload bytes, so a consumer's Message::getBody() returns the exact
+     * same string. Publishing a value that is already a full AMQP message would
+     * wrap it a second time; use AmqpMessageEncoder::encodeDataSection() and
+     * the low-level API for pre-encoded bytes instead.
+     *
      * @param string $message plain payload (e.g. UTF-8 string or binary data). It is
      *                        automatically wrapped in an AMQP 1.0 Data section on the
      *                        wire, so a consumer's Message::getBody() returns the same
      *                        string unchanged. Use AmqpMessageEncoder::encodeDataSection()
      *                        when publishing pre-encoded bytes via the low-level API.
      * @param ?float $timeout socket write timeout in seconds; null uses connection default
+     * @throws ConnectionException If the socket is not connected or the
+     *                        Publish/DeclarePublisher write or read fails.
+     * @throws DeserializationException If a response or server-push frame read
+     *                        while draining back-pressure cannot be deserialized.
+     * @throws InvalidArgumentException If the serialized Publish request
+     *                        exceeds the negotiated outgoing frame size.
+     * @throws ProtocolException If the broker rejects a re-declare with a
+     *                        non-OK response code, or a frame has an unexpected
+     *                        version or command.
+     * @throws TimeoutException If the write, a re-declare, or the
+     *                        maxPendingConfirms back-pressure drain times out.
      */
     public function send(string $message, ?float $timeout = null): void
     {
@@ -332,8 +406,17 @@ class Producer implements ProducerInterface
      *                                 matches an active filter, always delivered
      *                                 when `matchUnfiltered` is enabled)
      * @param ?float      $timeout    socket write timeout in seconds; null uses connection default
+     * @throws ConnectionException If the socket is not connected or the
+     *                                 Publish/DeclarePublisher write or read fails.
+     * @throws DeserializationException If a response or server-push frame read
+     *                                 while draining back-pressure cannot be deserialized.
+     * @throws InvalidArgumentException If the serialized Publish request
+     *                                 exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If $filterValue is not null but the broker does
-     *                                 not support Publish v2.
+     *                                 not support Publish v2, or a re-declare is
+     *                                 rejected with a non-OK response code.
+     * @throws TimeoutException If the write, a re-declare, or the
+     *                                 maxPendingConfirms back-pressure drain times out.
      */
     public function sendWithFilter(string $message, ?string $filterValue, ?float $timeout = null): void
     {
@@ -371,9 +454,22 @@ class Producer implements ProducerInterface
     /**
      * Publish multiple messages in a single batch.
      *
+     * An empty array is a no-op and returns without touching the socket.
+     *
      * @param string[] $messages plain payloads; each one is automatically wrapped in an
      *                           AMQP 1.0 Data section on the wire (see send())
      * @param ?float $timeout socket write timeout in seconds; null uses connection default
+     * @throws ConnectionException If the socket is not connected or the
+     *                           Publish/DeclarePublisher write or read fails.
+     * @throws DeserializationException If a response or server-push frame read
+     *                           while draining back-pressure cannot be deserialized.
+     * @throws InvalidArgumentException If the serialized Publish request
+     *                           exceeds the negotiated outgoing frame size.
+     * @throws ProtocolException If the broker rejects a re-declare with a
+     *                           non-OK response code, or a frame has an
+     *                           unexpected version or command.
+     * @throws TimeoutException If the write, a re-declare, or the
+     *                           maxPendingConfirms back-pressure drain times out.
      */
     public function sendBatch(array $messages, ?float $timeout = null): void
     {
@@ -425,7 +521,19 @@ class Producer implements ProducerInterface
      * Delete the publisher on the broker and release its id.
      *
      * Idempotent: a second call is a no-op, so the publisher id cannot be
-     * handed back twice (and then to two live producers at once).
+     * handed back twice (and then to two live producers at once). The confirm
+     * callback stays registered through the DeletePublisher exchange and any
+     * still-in-flight confirms are drained (bounded) before the id is released;
+     * anything not drained in time is counted by getLostConfirmCount().
+     *
+     * @throws ConnectionException If the socket is not connected or the
+     *                          DeletePublisher write or read fails.
+     * @throws DeserializationException If a response or server-push frame read
+     *                          while draining confirms cannot be deserialized.
+     * @throws ProtocolException If the DeletePublisher response has an
+     *                          unexpected version or command.
+     * @throws TimeoutException If the DeletePublisher response does not arrive
+     *                          in time.
      */
     public function close(): void
     {
@@ -527,12 +635,34 @@ class Producer implements ProducerInterface
         return true;
     }
 
-    /** Whether close() has already run. */
+    /**
+     * Whether close() has already run.
+     *
+     * @return bool True once close() has been called, even when the
+     *              DeletePublisher exchange failed (the id is still released).
+     */
     public function isClosed(): bool
     {
         return $this->closed;
     }
 
+    /**
+     * Block until every outstanding publish has been confirmed or failed.
+     *
+     * Returns immediately when nothing is outstanding. Reads
+     * PublishConfirm/PublishError frames off the socket (dispatching them to
+     * the onConfirm callback) until pendingConfirms reaches 0 or the deadline
+     * passes. A timeout does not discard the outstanding confirms: they can
+     * still arrive on a later waitForConfirms()/readLoop().
+     *
+     * @param float $timeout Maximum seconds to wait for the outstanding confirms.
+     * @throws TimeoutException If confirms are still outstanding when $timeout expires.
+     * @throws ConnectionException If the socket is not connected or a read fails.
+     * @throws DeserializationException If a PublishConfirm/PublishError or
+     *                       other frame read while waiting cannot be deserialized.
+     * @throws ProtocolException If a server-push frame read while waiting has
+     *                       an unexpected version or command.
+     */
     public function waitForConfirms(float $timeout = 5.0): void
     {
         if ($this->pendingConfirms === []) {
@@ -546,11 +676,34 @@ class Producer implements ProducerInterface
         }
     }
 
+    /**
+     * The publishing id of the most recent publish, or null if none was sent.
+     *
+     * Counter-intuitive for a named producer: the constructor queries the
+     * broker's last confirmed sequence and resumes from sequence + 1, so this
+     * can return a non-null id (0 when the broker stored nothing) BEFORE the
+     * first send(). An anonymous producer's first publish uses id 0, so this
+     * returns null until its first send() and 0 immediately after it.
+     *
+     * @return int|null Last publishing id used, or null when nothing has been
+     *                  published yet (anonymous producer before its first send()).
+     */
     public function getLastPublishingId(): ?int
     {
         return $this->publishingId === 0 ? null : $this->publishingId - 1;
     }
 
+    /**
+     * Number of publishes sent but not yet confirmed or reported failed.
+     *
+     * Grows on each successful send/sendBatch/sendWithFilter and shrinks as
+     * PublishConfirm/PublishError frames are dispatched (via waitForConfirms(),
+     * readLoop(), the maxPendingConfirms back-pressure drain or close()). After
+     * close(), ids stranded by the bounded drain are still counted here (see
+     * getLostConfirmCount()).
+     *
+     * @return int Current number of outstanding (unconfirmed) publishes.
+     */
     public function getPendingConfirms(): int
     {
         return count($this->pendingConfirms);
@@ -567,15 +720,41 @@ class Producer implements ProducerInterface
      * operator can tell "the broker stopped confirming" from "everything
      * drained". The set of stranded ids is also still reported by
      * getPendingConfirms() after close().
+     *
+     * @return int Cumulative number of publishes whose confirms were lost to a
+     *             close() drain timeout (0 in normal operation).
      */
     public function getLostConfirmCount(): int
     {
         return $this->lostConfirmCount;
     }
 
+    /**
+     * Query the broker for this named producer's last confirmed publishing id.
+     *
+     * Used for deduplication: on reconnect a named producer resumes from the
+     * returned id + 1, and the broker drops any publish whose id is <= the
+     * stored sequence. Also called during construction
+     * (initializePublishingId()), which is why a named producer's publishing id
+     * — and therefore getLastPublishingId() — is set before the first send().
+     *
+     * @return int Highest publishing id the broker has confirmed for this
+     *             producer's name on its stream (0 when nothing was stored).
+     * @throws InvalidArgumentException If this is an anonymous producer (a
+     *                          `null` or `""` name), for which there is no
+     *                          sequence to query.
+     * @throws ConnectionException If the socket is not connected or the
+     *                          QueryPublisherSequence exchange fails.
+     * @throws DeserializationException If the response frame cannot be deserialized.
+     * @throws ProtocolException If the broker answers with a non-OK response
+     *                          code, or a frame has an unexpected version or command.
+     * @throws TimeoutException If the response does not arrive in time.
+     * @throws UnexpectedResponseException If the reply is not a
+     *                          QueryPublisherSequenceResponseV1.
+     */
     public function querySequence(): int
     {
-        if ($this->name === null) {
+        if ($this->name === null || $this->name === '') {
             throw new InvalidArgumentException('Cannot query sequence for unnamed producer');
         }
         $this->connection->sendMessage(
