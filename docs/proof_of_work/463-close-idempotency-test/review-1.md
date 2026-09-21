@@ -136,6 +136,6 @@ One inaccuracy: the citation of the pre-existing id-reclamation tests as
 | # | File:line | Severity | Summary |
 |---|---|---|---|
 | R1 | `docs/proof_of_work/463-close-idempotency-test/code-decision-1.md:20` | low | Stale line numbers 915/959/987 → 919/963/991 for the id-reclamation tests |
-| R2 | `tests/Client/ConnectionTest.php:1045-1046,1099-1100` | nit | Mocks return `CloseResponseV1` for every `readMessage`/`request`, regardless of expected response type (benign today) |
+| R2 | `tests/Client/ConnectionTest.php:1049-1050,1105-1106` | nit | Mocks return `CloseResponseV1` for every `readMessage`/`request`, regardless of expected response type (benign today) |
 
 **Code and tests look good; no code findings to fix.**

@@ -48,7 +48,7 @@ both `onClose` callbacks.
   cited numbers after adding imports.
 
 ### review-2 — Mock returns one response type for all read/request calls
-- `tests/Client/ConnectionTest.php:1045-1046,1099-1100`
+- `tests/Client/ConnectionTest.php:1049-1050,1105-1106`
 - **What happened:** in both tests, `readMessage()` and (for the consumer)
   `request()` are stubbed to return `new CloseResponseV1()` unconditionally.
   The producer's constructor read (DeclarePublisher response) and the consumer's
@@ -74,6 +74,14 @@ both `onClose` callbacks.
 - Open findings: **review-1 (low, docs line numbers)** and **review-2 (nit,
   mock response type)** — both optional follow-ups, neither a merge blocker.
 
+## Round 2 fix disposition (coder)
+
+### R3 — mock-stub citation off by +4
+- **Fixed.** Corrected the citation from `1045-1046,1099-1100` to
+  `1049-1050,1105-1106` in `review-1.md:139` and `findings-review.md:51`.
+  Documentation-only; no code change. The finding remains on record in
+  `review-2.md` (which cites the original numbers as part of the finding).
+
 ## Round 1 fix dispositions (coder, post-review)
 
 ### review-1 — stale line-number citations
@@ -90,4 +98,44 @@ both `onClose` callbacks.
   complicating the mock. Not a defect; no gate weakened.
 - Gates: `ConnectionTest.php` OK (50 tests), `--testsuite unit` OK (1244 tests,
   8817 assertions), `composer lint` OK (PHPCS, Rector, PHPStan level 9, kb-lint,
+  docs links, suite coverage).
+
+## Round 2 (convergence)
+
+Round-2 review kept the two round-1 findings closed and swept the diff for new
+issues. See `review-2.md` for the full record.
+
+### review-1 — stale line-number citations (round 1)
+- **Verified fixed.** `code-decision-1.md:20` cites `ConnectionTest.php:919/963/991`,
+  which resolve at HEAD to `testClosingAProducerReleasesItsIdAndReference`,
+  `testClosingAProducerTwiceReleasesItsIdOnlyOnce`, and
+  `testClosingAConsumerReleasesItsIdAndReference`. **Closed.**
+
+### review-2 — mock returns one response type for all read/request calls (round 1)
+- **Disposition accepted.** `Producer::declare()` discards the `readMessage()`
+  result (`src/Client/Producer.php:340`) and `Consumer::sendSubscribe()` discards
+  the `request()` result (`src/Client/Consumer.php:531`), so the unconditional
+  `CloseResponseV1` stub cannot cause a false pass, and the assertions that
+  matter are independent of the response body. **Closed as deliberate.**
+
+### R3 — stale embedded line refs for the review-2 mock citation
+- `review-1.md:139` and `findings-review.md:51` (this file) cite the stubs as
+  `tests/Client/ConnectionTest.php:1045-1046,1099-1100`. At HEAD those lines hold
+  `registerMetadataUpdateHandler` / `unregisterPublisher`; the stubs are at
+  `1049-1050` (producer `readMessage`) and `1105-1106` (consumer `request`) —
+  off by +4, the same offset introduced by the four added request imports.
+- **Severity:** low (documentation-only, reader indirection; no code/test impact).
+- **Status:** open, non-blocking. Suggested fix: update the two citations to
+  `1049-1050,1105-1106`.
+
+## Round 2 status summary
+
+- Round 1 findings: **both closed** (review-1 fixed, review-2 accepted as
+  deliberate).
+- New findings: **R3 (low, docs)** — the only open item, non-blocking, in the
+  review artifacts only.
+- No open high or medium findings. The code/test deliverable is clean and
+  merge-ready.
+- Gates at HEAD: `--testsuite unit` OK (1244 tests, 8813 assertions);
+  `composer lint` OK (PHPCS 281/281, Rector, PHPStan level 9 275/275, kb-lint,
   docs links, suite coverage).
