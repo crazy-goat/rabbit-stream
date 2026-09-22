@@ -3,3 +3,7 @@ parameters:
     paths:
         - src
         - tests
+        - bin
+
+    typeAliases:
+        Entry: 'array{file: string, line: int, title: string, meta: array<string, string>, body: list<string>}'

@@ -1,5 +1,4 @@
 <?php
-declare(strict_types=1);
 
 /**
  * Test-suite coverage gate (#476).
@@ -35,6 +34,8 @@ declare(strict_types=1);
  * (no `suffix`/`prefix` attributes). The `tests/` prefix is not hard-coded
  * beyond discovery; a suite entry covers whatever path it names.
  */
+
+declare(strict_types=1);
 
 $root = dirname(__DIR__);
 
@@ -77,12 +78,23 @@ $xpath = new DOMXPath($dom);
 
 /** @var array<int, array{type: string, path: string, suite: string, line: int}> $allowList */
 $allowList = [];
-foreach ($xpath->query('/phpunit/testsuites/testsuite') as $suite) {
+$suites = $xpath->query('/phpunit/testsuites/testsuite');
+if ($suites === false) {
+    fwrite(STDERR, "check-test-suites: could not query testsuites in {$configPath}\n");
+    exit(2);
+}
+
+foreach ($suites as $suite) {
     if (!$suite instanceof DOMElement) {
         continue;
     }
     $suiteName = $suite->getAttribute('name');
-    foreach ($xpath->query('directory|file', $suite) as $entry) {
+    $entries = $xpath->query('directory|file', $suite);
+    if ($entries === false) {
+        fwrite(STDERR, "check-test-suites: could not query allow-list entries in {$configPath}\n");
+        exit(2);
+    }
+    foreach ($entries as $entry) {
         if (!$entry instanceof DOMElement) {
             continue;
         }

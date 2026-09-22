@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 $root = $argv[1] ?? 'docs/en';
@@ -15,6 +16,9 @@ $files = new RecursiveIteratorIterator(
 
 $errors = [];
 foreach ($files as $file) {
+    if (!$file instanceof SplFileInfo) {
+        continue;
+    }
     if ($file->getExtension() !== 'md') {
         continue;
     }
