@@ -6,7 +6,7 @@ This document lists all available translations of the RabbitStream documentation
 
 | Language | Code | Status | Maintainer |
 |----------|------|--------|------------|
-| English | `en` | Complete (stubs) | CrazyGoat Team |
+| English | `en` | Available (full documentation) | CrazyGoat Team |
 
 ## Planned Translations
 
