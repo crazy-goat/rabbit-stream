@@ -347,7 +347,11 @@ function parseFile(string $relative, string $absolute): array
     ];
 }
 
-/** @param Entry $entry */
+/**
+ * @param Entry $entry
+ *
+ * @return list<string>
+ */
 function validateEntry(array $entry, string $prefix): array
 {
     $errors = [];
@@ -772,8 +776,11 @@ function main(array $options): int
     exit(0);
 }
 
+/** @var list<string> $cliArgs */
+$cliArgs = is_array($_SERVER['argv'] ?? null) ? $_SERVER['argv'] : [];
+
 try {
-    main(parseArgs($_SERVER['argv'] ?? []));
+    main(parseArgs($cliArgs));
 } catch (Throwable $e) {
     fwrite(STDERR, 'Error: ' . $e->getMessage() . "\n");
     exit(2);
