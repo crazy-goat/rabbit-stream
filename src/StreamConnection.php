@@ -825,7 +825,8 @@ class StreamConnection
      * Register a callback for consumer update requests from the server.
      *
      * @param callable $callback Called with (ConsumerUpdateResponseV1 $update); must return
-     *                           [int $offsetType, int $offset] for the reply
+     *                           [int $offsetType, int $offset] for the reply. The offset must
+     *                           be 0 for the value-less none/first/last/next types.
      */
     public function onConsumerUpdate(callable $callback): void
     {

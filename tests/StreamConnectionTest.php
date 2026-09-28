@@ -1245,7 +1245,7 @@ class StreamConnectionTest extends TestCase
         $receivedQuery = null;
         $connection->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query) use (&$receivedQuery): array {
             $receivedQuery = $query;
-            return [2, 1000];
+            return [OffsetSpec::TYPE_OFFSET, 1000];
         });
 
         $correlationId = 55;
@@ -1272,6 +1272,15 @@ class StreamConnectionTest extends TestCase
         $unpackedCorr = unpack('N', substr($response, 4, 4));
         $this->assertIsArray($unpackedCorr);
         $this->assertEquals($correlationId, $unpackedCorr[1]);
+
+        $unpackedOffsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($unpackedOffsetType);
+        $this->assertSame(OffsetSpec::TYPE_OFFSET, $unpackedOffsetType[1]);
+
+        $unpackedOffset = unpack('J', substr($response, 12, 8));
+        $this->assertIsArray($unpackedOffset);
+        $this->assertSame(1000, $unpackedOffset[1]);
+        $this->assertSame(20, strlen($response));
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -1342,6 +1351,34 @@ class StreamConnectionTest extends TestCase
         fwrite($serverSocket, $frame);
 
         $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testDispatchConsumerUpdateRejectsNonZeroOffsetForValuelessTypeFromCallback(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->onConsumerUpdate(
+            fn(ConsumerUpdateResponseV1 $query): array => [OffsetSpec::TYPE_LAST, 1000]
+        );
+
+        $correlationId = 1;
+        $subscriptionId = 1;
+        $active = 1;
+        $content = pack('N', $correlationId)
+            . pack('C', $subscriptionId)
+            . pack('C', $active);
+        $frame = $this->buildFrame(0x001a, 1, $content);
+        fwrite($serverSocket, $frame);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Offset type 2 does not accept a non-zero offset');
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
         fclose($serverSocket);

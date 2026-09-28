@@ -313,7 +313,7 @@ public function onConsumerUpdate(callable $callback): void
 ```
 
 **Parameters:**
-- `$callback` - Receives `ConsumerUpdateResponseV1`, must return `[int $offsetType, int $offset]`
+- `$callback` - Receives `ConsumerUpdateResponseV1`, must return `[int $offsetType, int $offset]`. For the value-less `none`/`first`/`last`/`next` types (0–3), the offset must be `0`.
 
 ## Event Loop Methods
 
