@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\Request;
 
 use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
@@ -27,7 +28,7 @@ class ConsumerUpdateReplyV1Test extends TestCase
     {
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
-            offsetType: 1,
+            offsetType: OffsetSpec::TYPE_OFFSET,
             offset: 100,
         );
         $reply->withCorrelationId(42);
@@ -62,7 +63,7 @@ class ConsumerUpdateReplyV1Test extends TestCase
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
             offsetType: $offsetType,
-            offset: 500,
+            offset: 0,
         );
         $reply->withCorrelationId(7);
 
@@ -129,12 +130,30 @@ class ConsumerUpdateReplyV1Test extends TestCase
         $reply = new ConsumerUpdateReplyV1(
             responseCode: 0x0001,
             offsetType: OffsetSpec::TYPE_FIRST,
-            offset: 200,
+            offset: 0,
         );
 
         $array = $reply->toArray();
 
         $this->assertNull($array['offset'], 'value-less offset types carry no wire value');
+    }
+
+    /** @dataProvider provideValuelessOffsetTypes */
+    public function testRejectsPositiveOffsetForValuelessTypes(int $offsetType): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Offset type {$offsetType} does not accept a non-zero offset");
+
+        new ConsumerUpdateReplyV1(responseCode: 0x0001, offsetType: $offsetType, offset: 123);
+    }
+
+    /** @dataProvider provideValuelessOffsetTypes */
+    public function testRejectsNegativeOffsetForValuelessTypes(int $offsetType): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Offset type {$offsetType} does not accept a non-zero offset");
+
+        new ConsumerUpdateReplyV1(responseCode: 0x0001, offsetType: $offsetType, offset: -1);
     }
 
     public function testRejectsInvalidOffsetType(): void

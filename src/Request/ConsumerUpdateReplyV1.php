@@ -36,6 +36,12 @@ class ConsumerUpdateReplyV1 implements
                 "Invalid offset type {$offsetType}: expected 0-5 (none/first/last/next/offset/timestamp)"
             );
         }
+
+        if ($offsetType < OffsetSpec::TYPE_OFFSET && $offset !== 0) {
+            throw new InvalidArgumentException(
+                "Offset type {$offsetType} does not accept a non-zero offset"
+            );
+        }
     }
 
     public function toStreamBuffer(): WriteBuffer
