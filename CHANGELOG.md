@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Bug: `ConsumerUpdateReplyV1` accepted an offset for a value-less offset type and then silently dropped it (#530)** — the constructor validated only that the offset type was 0–5, so `new ConsumerUpdateReplyV1(1, OffsetSpec::TYPE_FIRST, 123)` stored `123` while `toStreamBuffer()` emitted the 2-byte type alone and `toArray()` reported `null` — the internal state disagreed with both the wire and the array view (the same defect class as #470 and #520). The constructor now rejects any non-zero offset for the value-less `none`/`first`/`last`/`next` types with an `InvalidArgumentException`. An offset of `0` remains valid, because `StreamConnection` normalises a value-less `OffsetSpec` to `getValue() ?? 0` when building the `ConsumerUpdate` reply, and the `offset`/`timestamp` types are unchanged. The constraint is now documented on `StreamConnection::onConsumerUpdate()` and in `docs/en/api-reference/stream-connection.md`. No wire-format change: the value the constructor used to accept was never transmitted, and a caller passing one now gets a `InvalidArgumentException` at construction rather than a reply that quietly ignores it.
+
 ## [1.4.0] - 2026-09-21
 
 ### Added
