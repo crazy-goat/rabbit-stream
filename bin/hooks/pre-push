@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Pre-push hook: runs `composer lint` (PHPCS PSR-12 + Rector dry-run +
-# PHPStan level 9 + bin/kb-lint.php) before allowing a push to succeed.
+# Pre-push hook: runs `bin/lint.sh` (PHPCS PSR-12 + Rector dry-run +
+# PHPStan level 9 + kb-lint + docs link check + shellcheck) before allowing a push to succeed.
 #
 # Bypass in an emergency with: git push --no-verify
 # CI runs the same checks, so skipping locally just moves the failure later.
@@ -26,8 +26,8 @@ if [ ! -x "vendor/bin/phpcs" ] && [ ! -f "vendor/bin/phpcs" ]; then
     exit 1
 fi
 
-echo "pre-push: running composer lint …"
-if composer lint >/tmp/rabbit-stream-prepush-lint.log 2>&1; then
+echo "pre-push: running bin/lint.sh …"
+if bin/lint.sh >/tmp/rabbit-stream-prepush-lint.log 2>&1; then
     echo "pre-push: lint clean."
     exit 0
 fi
