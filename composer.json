@@ -31,8 +31,8 @@
         "phpstan/phpstan": "~2.1.0"
     },
     "scripts": {
-        "lint": ["phpcs --standard=phpcs.xml.dist", "@rector", "@phpstan", "php bin/kb-lint.php", "php bin/check-docs-links.php", "@test:suite-coverage"],
-        "lint:fix": ["@rector:fix", "phpcbf --standard=phpcs.xml.dist", "php bin/kb-lint.php --fix"],
+        "lint": "bin/lint.sh",
+        "lint:fix": "bin/lint.sh --fix",
         "kb-lint": "php bin/kb-lint.php",
         "kb-lint:fix": "php bin/kb-lint.php --fix",
         "phpstan": "phpstan analyse",

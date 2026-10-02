@@ -19,9 +19,15 @@ hook with `git <cmd> --no-verify`.
 
 ## hooks/pre-push
 
-Runs `composer lint` before every push. On failure it prints the log and
+Runs `bin/lint.sh` before every push. On failure it prints the log and
 exits non-zero, blocking the push. Bypass with `git push --no-verify` — CI
 runs the same checks, so skipping locally just moves the failure later.
+
+## lint.sh
+
+Runs every lint step (PHPCS, Rector, PHPStan, kb-lint, docs link check, test suite
+coverage, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
+the pre-push hook and the CI `lint` job all call it. Needs `shellcheck` on `PATH`.
 
 ## kb-lint.php
 
@@ -37,7 +43,7 @@ Lints the subagent knowledge base under `docs/helpers/`:
 - the per-file line budget (300, index excluded) is watched,
 - `stale` entries (0 hits in 20 cycles) are listed for the retro to remove.
 
-Runs inside `composer lint` (fails the build when the index is out of sync or
+Runs inside `bin/lint.sh` (fails the build when the index is out of sync or
 front matter is malformed). Regenerate the index with `composer kb-lint:fix`
 or `php bin/kb-lint.php --fix`.
 
@@ -68,7 +74,7 @@ The script parses `phpunit.xml` and diffs the union of all suites'
   so a directory rename cannot leave a suite pointing at nothing.
 
 Parsing the config instead of hard-coding paths keeps the gate in sync
-automatically. Runs inside `composer lint` and as a step in the CI `lint` job.
+automatically. Runs inside `bin/lint.sh` and as a step in the CI `lint` job.
 
 Config resolution follows PHPUnit's precedence: `phpunit.xml` wins over
 `phpunit.xml.dist`. An explicit argument may name a config file, or a directory

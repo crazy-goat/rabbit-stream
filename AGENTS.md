@@ -34,13 +34,14 @@ composer test:unit
 # Run E2E tests (requires RabbitMQ — use the script below)
 ./run-e2e.sh
 
-# Run PHP_CodeSniffer (lint)
-./vendor/bin/phpcs --standard=phpcs.xml.dist
+# Run every lint step (PHPCS, Rector dry-run, PHPStan, kb-lint, docs link check,
+# test suite coverage, shellcheck). Check-only; runs all steps, exits non-zero on any failure.
+bin/lint.sh
 # OR
 composer lint
 
-# Auto-fix code style violations
-./vendor/bin/phpcbf --standard=phpcs.xml.dist
+# Apply the fixers (Rector, PHPCBF, kb-lint --fix), then check again
+bin/lint.sh --fix
 # OR
 composer lint:fix
 
@@ -79,17 +80,16 @@ composer test:suite-coverage # fail if a tests/**/*Test.php is outside every php
 
 ## Git Hooks
 
-A pre-push hook runs `composer lint` (PHPCS + Rector dry-run + PHPStan level 9
-+ `kb-lint`) before every push. Git does not version `.git/hooks/`, so install
+A pre-push hook runs `bin/lint.sh` (PHPCS + Rector dry-run + PHPStan level 9
++ `kb-lint` + docs link check + test suite coverage + shellcheck) before every push. Git does not version `.git/hooks/`, so install
 it after a fresh clone:
 
 ```bash
 bash bin/install-hooks.sh   # symlinks bin/hooks/* into .git/hooks/
 ```
 
-Bypass in an emergency with `git push --no-verify`; CI runs the code-style, Rector,
-PHPStan and suite-coverage checks, but not `kb-lint` or the docs link check, so skipping
-locally can hide those. See `bin/README.md`.
+Bypass in an emergency with `git push --no-verify`; CI runs the same
+`bin/lint.sh`, so skipping locally only moves the failure to CI. See `bin/README.md`.
 
 ## CI
 
@@ -273,7 +273,7 @@ The generic flow is in [docs/workflow.md](docs/workflow.md). On top of it:
   Never work directly on `main`; it is protected and needs a green `ci-ok`.
 - A PR that implements a protocol command also changes `README.md`: `❌` → `✅` in the
   Protocol Implementation Status table.
-- Run `composer lint && composer test:unit` before the review. Run `./run-e2e.sh` only for
+- Run `bin/lint.sh && composer test:unit` before the review. Run `./run-e2e.sh` only for
   wire-level changes (it needs Docker).
 - An extra-careful review (re-check against the protocol spec) is required when the
   diff touches `src/StreamConnection.php` (the `socket_select` loop, server-push dispatch,
