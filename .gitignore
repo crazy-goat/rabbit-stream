@@ -11,3 +11,6 @@
 .oda/artifacts/
 .DS_Store
 opencode.json
+/findings.md
+/review.md
+/.env.worktree
