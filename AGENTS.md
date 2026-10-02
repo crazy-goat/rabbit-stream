@@ -81,7 +81,7 @@ composer test:suite-coverage # fail if a tests/**/*Test.php is outside every php
 ## Git Hooks
 
 A pre-push hook runs `bin/lint.sh` (PHPCS + Rector dry-run + PHPStan level 9
-+ `kb-lint` + docs link check + shellcheck) before every push. Git does not version `.git/hooks/`, so install
++ `kb-lint` + docs link check + test suite coverage + shellcheck) before every push. Git does not version `.git/hooks/`, so install
 it after a fresh clone:
 
 ```bash

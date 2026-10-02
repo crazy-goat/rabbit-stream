@@ -28,7 +28,7 @@ step "phpstan" vendor/bin/phpstan analyse
 step "kb-lint" php bin/kb-lint.php
 step "docs-links" php bin/check-docs-links.php
 step "test-suite-coverage" php bin/check-test-suites.php
-step "shellcheck" bash -c 'git ls-files -z "*.sh" | xargs -0 -r shellcheck'
+step "shellcheck" bash -c '{ git ls-files -z "*.sh"; git ls-files -z "bin/hooks/*"; } | xargs -0 -r shellcheck'
 
 if [ "${#failed[@]}" -gt 0 ]; then
     echo "Failed: ${failed[*]}" >&2
