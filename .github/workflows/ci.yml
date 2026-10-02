@@ -1,21 +1,36 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    # `labeled` re-runs CI when a maintainer adds `ci-allow` (see check-actor).
     types: [opened, synchronize, reopened, labeled]
 
-# NOTE: every `name:` below must stay byte-identical to the branch protection
-# required status check contexts on `main` (`lint`, `unit-tests (PHP 8.1)` …
-# `unit-tests (PHP 8.4)`, `e2e-tests`). GitHub reports a job's `name:` as the
-# check context, so a human-friendly rename here silently makes the required
-# contexts unreachable and every pull request becomes permanently BLOCKED even
-# with all checks green. Renaming a job means updating the protection rule in
-# the same change.
+permissions:
+  contents: read
+
+# A `labeled` event for any label other than `ci-allow` gets its own group, so that
+# labelling a PR (type:*, priority:* ...) never cancels the run that is testing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event.action == 'labeled' && github.event.label.name != 'ci-allow' && 'label' || 'ci' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# NOTE: the required status check is `ci-ok`. The job names below (`lint`,
+# `unit-tests (PHP ...)`, `e2e-tests`) are the former required contexts; keep them
+# stable anyway, because tooling and docs refer to them.
+#
+# Events that must not run CI at all: `labeled` with any label except `ci-allow`.
+# Every root job (check-actor, changes, docs, ci-ok) carries that guard, so such a run
+# creates no checks and cannot overwrite the real result of the commit.
 jobs:
   check-actor:
     name: check-actor
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci-allow'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       allowed: ${{ steps.check.outputs.allowed }}
     steps:
@@ -24,6 +39,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Pushes to main come from people who can already write to the repository.
+            if (context.eventName !== 'pull_request') {
+              core.setOutput('allowed', 'true');
+              return;
+            }
+
             const actor = context.actor;
             const owner = context.repo.owner;
 
@@ -65,10 +86,24 @@ jobs:
               core.warning(`Could not determine permissions for "${actor}": ${e.message}`);
             }
 
+  changes:
+    name: Changes
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci-allow'
+    uses: crazy-goat/.github/.github/workflows/changes.yml@main
+    with:
+      # Everything else (src/, tests/, bin/, composer.json, phpunit.xml, workflows ...) is code.
+      # examples/ and README.md are code too: docs-check and the docs link check read them.
+      docs-regex: '^(AGENTS\.md|CHANGELOG\.md|LICENSE.*|\.gitignore|\.gitattributes|docs/.*|\.github/ISSUE_TEMPLATE/.*|\.github/pull_request_template\.md)$'
+
+  docs:
+    name: Docs
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci-allow'
+    uses: crazy-goat/.github/.github/workflows/docs-check.yml@main
+
   lint:
     name: lint
-    needs: check-actor
-    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    needs: [check-actor, changes]
+    if: needs.changes.outputs.code == 'true' && needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +131,8 @@ jobs:
 
   unit-tests:
     name: unit-tests (PHP ${{ matrix.php }})
-    needs: [check-actor, lint]
-    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    needs: [check-actor, changes, lint]
+    if: needs.changes.outputs.code == 'true' && needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -119,8 +154,8 @@ jobs:
 
   e2e-tests:
     name: e2e-tests
-    needs: [check-actor, lint]
-    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    needs: [check-actor, changes, lint]
+    if: needs.changes.outputs.code == 'true' && needs.check-actor.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     services:
       rabbitmq:
@@ -166,3 +201,33 @@ jobs:
           RABBITMQ_HOST: 127.0.0.1
           RABBITMQ_PORT: 5552
         run: ./vendor/bin/phpunit --testsuite e2e --testdox
+
+  ci-ok:
+    name: ci-ok
+    needs: [check-actor, changes, docs, lint, unit-tests, e2e-tests]
+    if: always() && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          ALLOWED: ${{ needs.check-actor.outputs.allowed }}
+          CODE: ${{ needs.changes.outputs.code }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Allowed: $ALLOWED, code changes: $CODE"
+          echo "Results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in failure|cancelled) exit 1 ;; esac
+          done
+          # An untrusted PR (fork, no `ci-allow` label) skips the heavy jobs. That is not a pass:
+          # a maintainer must review it and add `ci-allow`, which re-runs CI.
+          if [ "$ALLOWED" != "true" ]; then
+            echo "::error::CI is not allowed for this PR; a maintainer must add the ci-allow label"
+            exit 1
+          fi
+          # Documentation-only changes skip the heavy jobs; code changes need all of them.
+          if [ "$CODE" = "true" ]; then
+            for r in $RESULTS; do
+              [ "$r" = "success" ] || exit 1
+            done
+          fi
