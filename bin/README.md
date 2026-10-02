@@ -85,3 +85,14 @@ php bin/check-test-suites.php path/to/config-dir
 
 Exit codes: `0` clean, `1` uncovered test file(s) or stale allow-list
 entry(ies), `2` usage/config error.
+
+## pick-issue.sh, worktree.sh, worktree-done.sh
+
+Identical copies of the shared scripts from `crazy-goat/.github` (`standard/`). Do not edit them
+here; change the source and copy it. See [docs/workflow.md](../docs/workflow.md).
+
+## worktree-setup.sh, worktree-teardown.sh
+
+Repo-specific hooks called by the shared scripts. Setup runs `composer install` in the new
+worktree. Teardown runs `docker compose down -v` for the worktree's compose project (it
+refuses to run without `COMPOSE_PROJECT_NAME` from `.env.worktree`).

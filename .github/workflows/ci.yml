@@ -1,74 +1,36 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
-    branches: ["main"]
-    types: [opened, synchronize, reopened, labeled]
 
-# NOTE: every `name:` below must stay byte-identical to the branch protection
-# required status check contexts on `main` (`lint`, `unit-tests (PHP 8.1)` …
-# `unit-tests (PHP 8.4)`, `e2e-tests`). GitHub reports a job's `name:` as the
-# check context, so a human-friendly rename here silently makes the required
-# contexts unreachable and every pull request becomes permanently BLOCKED even
-# with all checks green. Renaming a job means updating the protection rule in
-# the same change.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The required status check is `ci-ok`. Fork pull requests need a maintainer's approval to run
+# workflows (repository/organisation setting), so no actor check is needed here.
 jobs:
-  check-actor:
-    name: check-actor
-    runs-on: ubuntu-latest
-    outputs:
-      allowed: ${{ steps.check.outputs.allowed }}
-    steps:
-      - name: Check if actor is owner, collaborator, or PR is labeled
-        id: check
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const actor = context.actor;
-            const owner = context.repo.owner;
+  changes:
+    name: Changes
+    uses: crazy-goat/.github/.github/workflows/changes.yml@main
+    with:
+      # Everything else (src/, tests/, bin/, composer.json, phpunit.xml, workflows ...) is code.
+      # examples/ and README.md are code too: docs-check and the docs link check read them.
+      docs-regex: '^(AGENTS\.md|CHANGELOG\.md|LICENSE.*|\.gitignore|\.gitattributes|docs/.*|\.github/ISSUE_TEMPLATE/.*|\.github/pull_request_template\.md)$'
 
-            // Always allow the org/repo owner
-            if (actor === owner) {
-              core.setOutput('allowed', 'true');
-              return;
-            }
-
-            // Bypass: a maintainer labeled the PR with `ci-allow`,
-            // so CI runs regardless of the author's permission level.
-            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const labeled = labels.some(l => l.name === 'ci-allow');
-            if (labeled) {
-              core.setOutput('allowed', 'true');
-              core.info(`PR #${context.issue.number} has label "ci-allow" — running CI.`);
-              return;
-            }
-
-            // Check collaborator permission level
-            try {
-              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: actor,
-              });
-              const level = data.permission;
-              const allowed = ['admin', 'maintain', 'write'].includes(level);
-              core.setOutput('allowed', allowed ? 'true' : 'false');
-              if (!allowed) {
-                core.warning(`Actor "${actor}" has permission "${level}" — skipping CI.`);
-              }
-            } catch (e) {
-              core.setOutput('allowed', 'false');
-              core.warning(`Could not determine permissions for "${actor}": ${e.message}`);
-            }
+  docs:
+    name: Docs
+    uses: crazy-goat/.github/.github/workflows/docs-check.yml@main
 
   lint:
     name: lint
-    needs: check-actor
-    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +58,8 @@ jobs:
 
   unit-tests:
     name: unit-tests (PHP ${{ matrix.php }})
-    needs: [check-actor, lint]
-    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    needs: [changes, lint]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -119,8 +81,8 @@ jobs:
 
   e2e-tests:
     name: e2e-tests
-    needs: [check-actor, lint]
-    if: needs.check-actor.outputs.allowed == 'true' && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    needs: [changes, lint]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       rabbitmq:
@@ -166,3 +128,26 @@ jobs:
           RABBITMQ_HOST: 127.0.0.1
           RABBITMQ_PORT: 5552
         run: ./vendor/bin/phpunit --testsuite e2e --testdox
+
+  ci-ok:
+    name: ci-ok
+    needs: [changes, docs, lint, unit-tests, e2e-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          CODE: ${{ needs.changes.outputs.code }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Code changes: $CODE"
+          echo "Results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in failure|cancelled) exit 1 ;; esac
+          done
+          # Documentation-only changes skip the heavy jobs; code changes need all of them.
+          if [ "$CODE" = "true" ]; then
+            for r in $RESULTS; do
+              [ "$r" = "success" ] || exit 1
+            done
+          fi

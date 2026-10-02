@@ -83,7 +83,12 @@ E2E tests respect these environment variables:
 ```bash
 export RABBITMQ_HOST=127.0.0.1
 export RABBITMQ_PORT=5552
+export RABBITMQ_MANAGEMENT_PORT=15672
 ```
+
+The same variables set the host ports published by `docker-compose.yml`
+(`RABBITMQ_PORT`, `RABBITMQ_AMQP_PORT`, `RABBITMQ_MANAGEMENT_PORT`), so several checkouts
+can run side by side on different ports.
 
 ## IDE Configuration
 

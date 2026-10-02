@@ -1,5 +1,10 @@
 # AGENTS.md — RabbitStream Development Guide
 
+The development process (issue, worktree, review, PR, merge) is in
+[docs/workflow.md](docs/workflow.md), the release process in
+[docs/release-workflow.md](docs/release-workflow.md). Everything is written in English
+(code, comments, docs, commits, issues).
+
 ## Project Overview
 
 `crazy-goat/rabbit-stream` is a pure PHP library implementing the RabbitMQ Streams Protocol client (port 5552). It has zero external dependencies — only native PHP socket functions.
@@ -55,7 +60,7 @@ Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\RabbitStream\Test
 - `tests/Response/` — deserialization tests for each response class
 - `tests/E2E/` — integration tests against real RabbitMQ (via Docker)
 
-The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars (default: `127.0.0.1:5552`).
+The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars (default: `127.0.0.1:5552`) and `RABBITMQ_MANAGEMENT_PORT` (default: `15672`).
 
 ---
 
@@ -82,8 +87,17 @@ it after a fresh clone:
 bash bin/install-hooks.sh   # symlinks bin/hooks/* into .git/hooks/
 ```
 
-Bypass in an emergency with `git push --no-verify` — CI runs the same checks,
-so skipping locally just moves the failure later. See `bin/README.md`.
+Bypass in an emergency with `git push --no-verify`; CI runs the code-style, Rector,
+PHPStan and suite-coverage checks, but not `kb-lint` or the docs link check, so skipping
+locally can hide those. See `bin/README.md`.
+
+## CI
+
+`.github/workflows/ci.yml` ends in the `ci-ok` job, the only required check. Documentation-only
+changes skip the heavy jobs. There is no coverage gate; do not add one. Workflows of fork pull
+requests need a maintainer's approval (repository setting "Require approval for fork pull request
+workflows"). A maintainer must read the changes to `.github/workflows/` (and anything CI executes,
+such as `composer.json` scripts) before approving the run.
 
 ---
 
@@ -251,30 +265,43 @@ KeyEnum::EXAMPLE_RESPONSE => ExampleResponseV1::fromStreamBuffer($responseBuffer
 
 ---
 
-## Branching Strategy
+## Process and Repo-Specific Rules
 
-Always implement new features on a dedicated branch, never directly on `main`:
+The generic flow is in [docs/workflow.md](docs/workflow.md). On top of it:
 
-```bash
-git checkout -b feature/issue-{number}-{short-description}
-# e.g. git checkout -b feature/issue-9-delete-publisher
-```
+- Branches are `<type>/issue-<N>-<slug>`, created by `bin/worktree.sh <N>`.
+  Never work directly on `main`; it is protected and needs a green `ci-ok`.
+- A PR that implements a protocol command also changes `README.md`: `❌` → `✅` in the
+  Protocol Implementation Status table.
+- Run `composer lint && composer test:unit` before the review. Run `./run-e2e.sh` only for
+  wire-level changes (it needs Docker).
+- An extra-careful review (re-check against the protocol spec) is required when the
+  diff touches `src/StreamConnection.php` (the `socket_select` loop, server-push dispatch,
+  heartbeat echo, `ConsumerUpdate` reply), wire-format code (`*RequestV1`, `*ResponseV1`,
+  `Buffer/`), `ResponseBuilder` dispatch or `KeyEnum` values, security-relevant socket and
+  parsing code, a public API (`Connection`, `Producer`, `Consumer`), or more than 200 changed lines.
+- After about four review rounds stop iterating and decide: narrow the issue, re-plan, or ask.
+- Never lower a gate (a linter rule, the PHPStan level) to make a round look clean.
+- Follow-up findings that cannot be automated may go to the knowledge base in
+  `docs/helpers/` (see below).
 
-Open a PR when done. Merge to `main` only after review.
+### Worktrees and E2E ports
 
----
+`docker-compose.yml` publishes the broker on `${RABBITMQ_PORT:-5552}` (stream),
+`${RABBITMQ_AMQP_PORT:-5672}` and `${RABBITMQ_MANAGEMENT_PORT:-15672}`. `bin/worktree.sh`
+writes free ports and a unique `COMPOSE_PROJECT_NAME` to `.env.worktree`; `./run-e2e.sh`
+loads that file when it exists. E2E tests read `RABBITMQ_HOST`, `RABBITMQ_PORT` and
+`RABBITMQ_MANAGEMENT_PORT`. `bin/worktree-setup.sh` runs `composer install`;
+`bin/worktree-teardown.sh` runs `docker compose down -v`.
 
-## After Merging a Feature Branch
+### Knowledge base (`docs/helpers/`)
 
-After every merge to `main`, always do the following:
-
-1. **Close the GitHub issue** — e.g. `gh issue close 21`
-2. **Update `README.md`** — change `❌` to `✅` in the Protocol Implementation Status table
-3. **Update `CHANGELOG.md`** — move items from `[Unreleased]` if releasing, or add to it
-4. Commit directly to `main` with a message like:
-   ```
-   docs: mark Subscribe as implemented in README, close issue #21
-   ```
+A single-writer knowledge base of pitfalls (`faq.md`, `FAQ-NNN`) and decisions
+(`decisions.md`, `DEC-NNN`). Read the generated tag index at the top of each file, pick the tags
+that match your diff, and read only those entries. Coders and reviewers only propose
+entries in their report; the person who runs the follow-up step (step 7 of the workflow)
+writes them. Prefer a test or lint rule over an entry. `composer kb-lint` validates the files
+and `composer kb-lint:fix` regenerates the index. Format: [docs/helpers/README.md](docs/helpers/README.md).
 
 ---
 

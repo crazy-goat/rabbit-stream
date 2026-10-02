@@ -1,0 +1,16 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    # Notes come from the `## [X.Y.Z]` section of CHANGELOG.md on the tagged commit.
+    # The job fails when the section is missing, so merge the CHANGELOG before tagging.
+    uses: crazy-goat/.github/.github/workflows/release.yml@main

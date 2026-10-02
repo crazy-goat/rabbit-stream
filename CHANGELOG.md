@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Process: `LICENSE` (MIT), the shared crazy-goat development process and release workflow (#570)** — `docs/workflow.md` now follows the shared template (worktree per issue, `findings.md` / `review.md` scratch files, follow-up issues after the merge), `docs/release-workflow.md` documents the release flow, and `bin/pick-issue.sh`, `bin/worktree.sh`, `bin/worktree-done.sh`, `bin/worktree-setup.sh` and `bin/worktree-teardown.sh` support it. Issue forms, a pull request template, Dependabot (composer and GitHub Actions) and a `release.yml` workflow that publishes the GitHub Release notes from the matching `CHANGELOG.md` section on a `v*` tag were added.
+
+### Changed
+- **CI: `ci-ok` aggregate check, a fast path for documentation-only changes, and worktree-safe E2E ports (#570)** — `ci.yml` gained `changes` and `docs` jobs, so documentation-only pull requests skip the heavy jobs, and a `ci-ok` job that fails when a job fails or when a code change skipped a heavy job. CI also runs on pushes to `main`. `docker-compose.yml` publishes the broker on `${RABBITMQ_PORT:-5552}`, `${RABBITMQ_AMQP_PORT:-5672}` and `${RABBITMQ_MANAGEMENT_PORT:-15672}` and `./run-e2e.sh` honours `RABBITMQ_HOST`, `RABBITMQ_PORT` and `RABBITMQ_MANAGEMENT_PORT`, so several checkouts can run E2E tests side by side. The defaults are unchanged.
+
+### Removed
+- **Process: obsolete `.claude/skills/implementing-pr/` skill (#570)** — it described the old issue flow (`feature/issue-N-*` branches) and conflicted with `docs/workflow.md`.
+- **CI: the custom `check-actor` job and the `ci-allow` label (#570)** — fork pull requests now need a maintainer's approval to run workflows (repository setting).
+- **Process: proof of work and unrelated data (#570)** — `docs/proof_of_work/` (the per-issue coder and review files) and its step in the workflow are gone; the coder and the review now share the gitignored `findings.md` and `review.md` instead. The unrelated `pors_data/` tournament data was removed from the repository.
+
 ### Fixed
 - **Bug: `ConsumerUpdateReplyV1` accepted an offset for a value-less offset type and then silently dropped it (#530)** — the constructor validated only that the offset type was 0–5, so `new ConsumerUpdateReplyV1(1, OffsetSpec::TYPE_FIRST, 123)` stored `123` while `toStreamBuffer()` emitted the 2-byte type alone and `toArray()` reported `null` — the internal state disagreed with both the wire and the array view (the same defect class as #470 and #520). The constructor now rejects any non-zero offset for the value-less `none`/`first`/`last`/`next` types with an `InvalidArgumentException`. An offset of `0` remains valid, because `StreamConnection` normalises a value-less `OffsetSpec` to `getValue() ?? 0` when building the `ConsumerUpdate` reply, and the `offset`/`timestamp` types are unchanged. The constraint is now documented on `StreamConnection::onConsumerUpdate()` and in `docs/en/api-reference/stream-connection.md`. No wire-format change: the value the constructor used to accept was never transmitted, and a caller passing one now gets a `InvalidArgumentException` at construction rather than a reply that quietly ignores it.
 
