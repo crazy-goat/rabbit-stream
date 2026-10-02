@@ -87,8 +87,17 @@ it after a fresh clone:
 bash bin/install-hooks.sh   # symlinks bin/hooks/* into .git/hooks/
 ```
 
-Bypass in an emergency with `git push --no-verify` — CI runs the same checks,
-so skipping locally just moves the failure later. See `bin/README.md`.
+Bypass in an emergency with `git push --no-verify`; CI runs the code-style, Rector,
+PHPStan and suite-coverage checks, but not `kb-lint` or the docs link check, so skipping
+locally can hide those. See `bin/README.md`.
+
+## CI
+
+`.github/workflows/ci.yml` ends in the `ci-ok` job, the only required check. Documentation-only
+changes skip the heavy jobs. There is no coverage gate; do not add one. Workflows of fork pull
+requests need a maintainer's approval (repository setting "Require approval for fork pull request
+workflows"). A maintainer must read the changes to `.github/workflows/` (and anything CI executes,
+such as `composer.json` scripts) before approving the run.
 
 ---
 
@@ -271,6 +280,7 @@ The generic flow is in [docs/workflow.md](docs/workflow.md). On top of it:
   heartbeat echo, `ConsumerUpdate` reply), wire-format code (`*RequestV1`, `*ResponseV1`,
   `Buffer/`), `ResponseBuilder` dispatch or `KeyEnum` values, security-relevant socket and
   parsing code, a public API (`Connection`, `Producer`, `Consumer`), or more than 200 changed lines.
+- After about four review rounds stop iterating and decide: narrow the issue, re-plan, or ask.
 - Never lower a gate (a linter rule, the PHPStan level) to make a round look clean.
 - Follow-up findings that cannot be automated may go to the knowledge base in
   `docs/helpers/` (see below).
