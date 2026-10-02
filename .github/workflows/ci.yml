@@ -4,91 +4,19 @@ on:
   push:
     branches: [main]
   pull_request:
-    # `labeled` re-runs CI when a maintainer adds `ci-allow` (see check-actor).
-    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
 
-# A `labeled` event for any label other than `ci-allow` gets its own group, so that
-# labelling a PR (type:*, priority:* ...) never cancels the run that is testing it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event.action == 'labeled' && github.event.label.name != 'ci-allow' && 'label' || 'ci' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# NOTE: the required status check is `ci-ok`. The job names below (`lint`,
-# `unit-tests (PHP ...)`, `e2e-tests`) are the former required contexts; keep them
-# stable anyway, because tooling and docs refer to them.
-#
-# Events that must not run CI at all: `labeled` with any label except `ci-allow`.
-# Every root job (check-actor, changes, docs, ci-ok) carries that guard, so such a run
-# creates no checks and cannot overwrite the real result of the commit.
+# The required status check is `ci-ok`. Fork pull requests need a maintainer's approval to run
+# workflows (repository/organisation setting), so no actor check is needed here.
 jobs:
-  check-actor:
-    name: check-actor
-    if: github.event.action != 'labeled' || github.event.label.name == 'ci-allow'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      allowed: ${{ steps.check.outputs.allowed }}
-    steps:
-      - name: Check if actor is owner, collaborator, or PR is labeled
-        id: check
-        uses: actions/github-script@v7
-        with:
-          script: |
-            // Pushes to main come from people who can already write to the repository.
-            if (context.eventName !== 'pull_request') {
-              core.setOutput('allowed', 'true');
-              return;
-            }
-
-            const actor = context.actor;
-            const owner = context.repo.owner;
-
-            // Always allow the org/repo owner
-            if (actor === owner) {
-              core.setOutput('allowed', 'true');
-              return;
-            }
-
-            // Bypass: a maintainer labeled the PR with `ci-allow`,
-            // so CI runs regardless of the author's permission level.
-            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const labeled = labels.some(l => l.name === 'ci-allow');
-            if (labeled) {
-              core.setOutput('allowed', 'true');
-              core.info(`PR #${context.issue.number} has label "ci-allow" — running CI.`);
-              return;
-            }
-
-            // Check collaborator permission level
-            try {
-              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: actor,
-              });
-              const level = data.permission;
-              const allowed = ['admin', 'maintain', 'write'].includes(level);
-              core.setOutput('allowed', allowed ? 'true' : 'false');
-              if (!allowed) {
-                core.warning(`Actor "${actor}" has permission "${level}" — skipping CI.`);
-              }
-            } catch (e) {
-              core.setOutput('allowed', 'false');
-              core.warning(`Could not determine permissions for "${actor}": ${e.message}`);
-            }
-
   changes:
     name: Changes
-    if: github.event.action != 'labeled' || github.event.label.name == 'ci-allow'
     uses: crazy-goat/.github/.github/workflows/changes.yml@main
     with:
       # Everything else (src/, tests/, bin/, composer.json, phpunit.xml, workflows ...) is code.
@@ -97,13 +25,12 @@ jobs:
 
   docs:
     name: Docs
-    if: github.event.action != 'labeled' || github.event.label.name == 'ci-allow'
     uses: crazy-goat/.github/.github/workflows/docs-check.yml@main
 
   lint:
     name: lint
-    needs: [check-actor, changes]
-    if: needs.changes.outputs.code == 'true' && needs.check-actor.outputs.allowed == 'true'
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,8 +58,8 @@ jobs:
 
   unit-tests:
     name: unit-tests (PHP ${{ matrix.php }})
-    needs: [check-actor, changes, lint]
-    if: needs.changes.outputs.code == 'true' && needs.check-actor.outputs.allowed == 'true'
+    needs: [changes, lint]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -154,8 +81,8 @@ jobs:
 
   e2e-tests:
     name: e2e-tests
-    needs: [check-actor, changes, lint]
-    if: needs.changes.outputs.code == 'true' && needs.check-actor.outputs.allowed == 'true'
+    needs: [changes, lint]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       rabbitmq:
@@ -204,27 +131,20 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: [check-actor, changes, docs, lint, unit-tests, e2e-tests]
-    if: always() && (github.event.action != 'labeled' || github.event.label.name == 'ci-allow')
+    needs: [changes, docs, lint, unit-tests, e2e-tests]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         env:
-          ALLOWED: ${{ needs.check-actor.outputs.allowed }}
           CODE: ${{ needs.changes.outputs.code }}
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "Allowed: $ALLOWED, code changes: $CODE"
+          echo "Code changes: $CODE"
           echo "Results: $RESULTS"
           for r in $RESULTS; do
             case "$r" in failure|cancelled) exit 1 ;; esac
           done
-          # An untrusted PR (fork, no `ci-allow` label) skips the heavy jobs. That is not a pass:
-          # a maintainer must review it and add `ci-allow`, which re-runs CI.
-          if [ "$ALLOWED" != "true" ]; then
-            echo "::error::CI is not allowed for this PR; a maintainer must add the ci-allow label"
-            exit 1
-          fi
           # Documentation-only changes skip the heavy jobs; code changes need all of them.
           if [ "$CODE" = "true" ]; then
             for r in $RESULTS; do
