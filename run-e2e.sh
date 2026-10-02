@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -e
+cd "$(dirname "$0")"
 
 # In a worktree, load the unique compose project name and host ports.
+# Values already exported in the environment win over .env.worktree.
 if [ -f .env.worktree ]; then
-    set -a
-    . ./.env.worktree
-    set +a
+    while IFS='=' read -r key value; do
+        case "$key" in ''|\#*) continue ;; esac
+        if [ -z "${!key+x}" ]; then
+            export "$key=$value"
+        fi
+    done < .env.worktree
 fi
 RABBITMQ_HOST="${RABBITMQ_HOST:-127.0.0.1}"
 RABBITMQ_PORT="${RABBITMQ_PORT:-5552}"
@@ -30,7 +35,7 @@ echo ""
 echo "RabbitMQ is ready."
 
 echo "Creating test stream..."
-curl -sf -u guest:guest -X PUT http://${RABBITMQ_HOST}:${RABBITMQ_MANAGEMENT_PORT}/api/queues/%2F/test-stream \
+curl -sf -u guest:guest -X PUT "http://${RABBITMQ_HOST}:${RABBITMQ_MANAGEMENT_PORT}/api/queues/%2F/test-stream" \
   -H "Content-Type: application/json" \
   -d '{"durable":true,"arguments":{"x-queue-type":"stream"}}' || true
 
