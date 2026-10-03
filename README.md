@@ -78,6 +78,8 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
 $connection = Connection::create(host: 'localhost', port: 5552);
 
 $consumer = $connection->createConsumer('my-stream', offset: OffsetSpec::first());
+// read() returns [] when nothing arrives within the timeout, so this loop
+// stops at the first quiet 5 seconds. That suits draining a backlog.
 while ($messages = $consumer->read(timeout: 5)) {
     foreach ($messages as $msg) {
         echo $msg->getBody() . "\n";
@@ -87,6 +89,24 @@ $consumer->close();
 
 $connection->close();
 ```
+
+To keep consuming a live stream that can have gaps, do not stop on an empty
+batch. Loop on a flag and treat `[]` as "nothing yet" (see
+`examples/consumer.php` for a full version with signal handling):
+
+```php
+while ($running) {
+    foreach ($consumer->read(timeout: 5) as $msg) {
+        echo $msg->getBody() . "\n";
+    }
+}
+```
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/index.md): getting started, guides,
+API reference, protocol notes and examples. Translations are listed in
+[`docs/LANGUAGES.md`](docs/LANGUAGES.md) (currently English only).
 
 ## Usage
 
@@ -132,7 +152,7 @@ use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 
 // ... subscribe to stream and receive Deliver response
 
-$chunk = $deliverResponse->getChunk();
+$chunk = $deliverResponse->getChunkBytes();
 $entries = OsirisChunkParser::parse($chunk);
 
 // Decode AMQP 1.0 messages into Message objects
@@ -163,6 +183,7 @@ $consumer = $connection->createConsumer(
     autoCommit: 100,
 );
 
+// Stops at the first empty batch (nothing within 5 seconds); see "Consuming".
 while ($messages = $consumer->read(timeout: 5)) {
     foreach ($messages as $msg) {
         echo $msg->getBody() . "\n";
@@ -189,13 +210,10 @@ See `examples/consumer_auto_commit.php` for a full working example.
 
 ### Low-level Connection API
 
-```php
-use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
-...
-```
-
-See `examples/simple_publisher.php` for a full working example.
+`StreamConnection` exposes the raw protocol frames (requests and responses) for
+cases the high-level `Connection` does not cover. It is documented in the
+[StreamConnection API reference](docs/en/api-reference/stream-connection.md);
+for most applications use the high-level API above.
 
 ## Protocol Implementation Status
 
