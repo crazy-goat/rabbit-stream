@@ -140,8 +140,8 @@ class OffsetResumeExample
                 $messages = $consumer->read(timeout: 5.0);
 
                 if (empty($messages)) {
-                    echo "  ℹ No new messages, waiting...\n";
-                    continue;
+                    echo "  ℹ No more messages, stopping\n";
+                    break;
                 }
 
                 foreach ($messages as $message) {

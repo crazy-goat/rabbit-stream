@@ -113,8 +113,8 @@ class BasicConsumerExample
                 $messages = $consumer->read(timeout: 5.0);
                 
                 if (empty($messages)) {
-                    echo "  ℹ No new messages, waiting...\n";
-                    continue;
+                    echo "  ℹ No more messages, stopping\n";
+                    break;
                 }
                 
                 foreach ($messages as $message) {
@@ -337,7 +337,7 @@ Step 4: Consuming messages (max 10)...
   ✓ [3] Batch message #3
   ✓ [4] Batch message #4
   ✓ [5] Batch message #5
-  ℹ Reached message limit (10)
+  ℹ No more messages, stopping
 
 Step 5: Cleaning up...
   ✓ Consumer and connection closed

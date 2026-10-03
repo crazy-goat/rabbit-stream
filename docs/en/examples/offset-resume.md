@@ -155,8 +155,8 @@ class OffsetResumeExample
                 $messages = $consumer->read(timeout: 5.0);
                 
                 if (empty($messages)) {
-                    echo "  ℹ No new messages, waiting...\n";
-                    continue;
+                    echo "  ℹ No more messages, stopping\n";
+                    break;
                 }
                 
                 foreach ($messages as $message) {
@@ -492,25 +492,29 @@ Step 4: Processing messages (max 30)...
   ✓ [0] Processed message 1 (offset stored)
   ✓ [1] Processed message 2 (offset stored)
   ✓ [2] Processed message 3 (offset stored)
-  ...
-  ✓ [29] Processed message 30 (offset stored)
-  ℹ Reached message limit (30)
+  ✓ [3] Processed message 4 (offset stored)
+  ✓ [4] Processed message 5 (offset stored)
+  ✓ [5] Processed message 6 (offset stored)
+  ℹ No more messages, stopping
 
-  ℹ Last stored offset: 30
-  ℹ On next run, will resume from offset 30
+  ℹ Last stored offset: 5
+  ℹ On next run, will resume from offset 5
 
 Step 5: Cleaning up...
   ✓ Consumer closed
   ✓ Connection closed
 
 === Example Complete ===
-Messages processed: 30
+Messages processed: 6
 Consumer name: offset-resume-demo
 
 Run this example again to see resume behavior!
 ```
 
 **Second Run (Resume):**
+
+The output below is illustrative: it assumes the first run processed 30 messages (publish more than 30 first).
+
 ```
 === Offset Resume Example ===
 

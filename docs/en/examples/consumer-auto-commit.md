@@ -151,8 +151,8 @@ class ConsumerAutoCommitExample
                 $messages = $consumer->read(timeout: 5.0);
                 
                 if (empty($messages)) {
-                    echo "  ℹ No new messages, waiting...\n";
-                    continue;
+                    echo "  ℹ No more messages, stopping\n";
+                    break;
                 }
                 
                 foreach ($messages as $message) {
@@ -391,14 +391,13 @@ Step 4: Creating consumer with auto-commit...
 Step 5: Processing messages (max 50)...
   ✓ [0] Processed message 1
   ✓ [1] Processed message 2
-  ...
-  ✓ [9] Processed 10 messages (auto-commit triggered)
-  ...
-  ✓ [19] Processed 20 messages (auto-commit triggered)
-  ...
-  ℹ Reached message limit (50)
+  ✓ [2] Processed message 3
+  ✓ [3] Processed message 4
+  ✓ [4] Processed message 5
+  ✓ [5] Processed message 6
+  ℹ No more messages, stopping
 
-  ℹ Last auto-commit at offset: 49
+  ℹ Last auto-commit at offset: 0
   ℹ Final offset will be stored on close()
 
 Step 6: Cleaning up...
@@ -406,13 +405,16 @@ Step 6: Cleaning up...
   ✓ Connection closed
 
 === Example Complete ===
-Messages processed: 50
+Messages processed: 6
 Consumer name: auto-commit-demo
 
 Run this example again to see resume behavior!
 ```
 
 **Second Run (Resume):**
+
+The output below is illustrative: it assumes the first run processed 50 messages (publish more than 50 first).
+
 ```
 === Consumer Auto-Commit Example ===
 
