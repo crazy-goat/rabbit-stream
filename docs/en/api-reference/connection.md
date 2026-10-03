@@ -70,6 +70,7 @@ class Connection
         ?string $superStream = null,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        bool $verifyCrc = true,
     ): ConsumerInterface;
     
     public function createSuperStreamProducer(
@@ -90,12 +91,17 @@ class Connection
         bool $singleActiveConsumer = false,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        bool $verifyCrc = true,
     ): SuperStreamConsumerInterface;
     
     // Lifecycle
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
     public function isConnected(): bool;
     public function close(): void;
+    
+    // Protocol capabilities
+    public function supportsCommandVersion(KeyEnum $key, int $version): bool;
+    public function getSupportedCommandVersions(): array;
 }
 ```
 
@@ -842,6 +848,7 @@ public function createConsumer(
     ?string $superStream = null,
     int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+    bool $verifyCrc = true,
 ): ConsumerInterface
 ```
 
@@ -860,6 +867,7 @@ public function createConsumer(
 | `$superStream` | `?string` | No | Name of the super stream this partition belongs to. |
 | `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 | `$maxDecodeDepth` | `int` | No | Maximum AMQP nesting depth accepted when a delivered message is decoded. Default `32`, which is ample for real messages; a deeper frame is rejected with `DeserializationException`. Raise it only for a producer that legitimately nests deeper — each level costs a PHP stack frame. Because decoding is lazy, the limit is enforced by the accessor (`Message::getBody()`), not by `read()`. |
+| `$verifyCrc` | `bool` | No | Verify the CRC32 in every chunk header (default `true`). A mismatching chunk is rejected with `DeserializationException`. Disable only where the cost matters or corruption is handled upstream. |
 
 #### OffsetSpec Factory Methods
 
@@ -983,6 +991,8 @@ public function createSuperStreamConsumer(
     int $initialCredit = 10,
     bool $singleActiveConsumer = false,
     int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
+    int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+    bool $verifyCrc = true,
 ): SuperStreamConsumerInterface
 ```
 
@@ -997,6 +1007,8 @@ public function createSuperStreamConsumer(
 | `$initialCredit` | `int` | No | Initial flow control credits, passed through to every partition's `Consumer` |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer per partition. Requires `$name`. |
 | `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). Passed through to every partition's `Consumer`, which keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
+| `$maxDecodeDepth` | `int` | No | Maximum AMQP nesting depth accepted when a delivered message is decoded. Default `32`; a deeper frame is rejected with `DeserializationException`. Passed through to every partition's `Consumer`. |
+| `$verifyCrc` | `bool` | No | Verify the CRC32 in every chunk header (default `true`). A mismatching chunk is rejected with `DeserializationException`. Disable only where the cost matters or corruption is handled upstream. |
 
 #### Return Value
 
