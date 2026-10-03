@@ -34,11 +34,11 @@ credit:        uint16 (initial credit, typically 1-10)
 OffsetSpec Type (uint16) + Optional Value (uint64)
 
 Types:
-  0x0000 = FIRST (no value)
-  0x0001 = LAST (no value)
-  0x0002 = NEXT (no value)
-  0x0003 = OFFSET (followed by uint64 offset value)
-  0x0004 = TIMESTAMP (followed by uint64 timestamp in milliseconds)
+  0x0001 = FIRST (no value)
+  0x0002 = LAST (no value)
+  0x0003 = NEXT (no value)
+  0x0004 = OFFSET (followed by uint64 offset value)
+  0x0005 = TIMESTAMP (followed by uint64 timestamp in milliseconds)
 ```
 
 **Request Fields:**
@@ -52,11 +52,11 @@ Types:
 **OffsetSpec Types:**
 | Type | Value | Description |
 |------|-------|-------------|
-| `FIRST` | 0x0000 | Start from first message in stream |
-| `LAST` | 0x0001 | Start from last message (receive only new messages) |
-| `NEXT` | 0x0002 | Start after last message (receive only future messages) |
-| `OFFSET` | 0x0003 | Start from specific offset (followed by uint64) |
-| `TIMESTAMP` | 0x0004 | Start at the first chunk with chunk timestamp >= the value (chunk-granular), followed by uint64 ms |
+| `FIRST` | 0x0001 | Start from first message in stream |
+| `LAST` | 0x0002 | Start from last message (receive only new messages) |
+| `NEXT` | 0x0003 | Start after last message (receive only future messages) |
+| `OFFSET` | 0x0004 | Start from specific offset (followed by uint64) |
+| `TIMESTAMP` | 0x0005 | Start at the first chunk with chunk timestamp >= the value (chunk-granular), followed by uint64 ms |
 
 **Response Frame Structure:**
 ```
