@@ -4,6 +4,8 @@ This guide provides complete, working examples of common error handling patterns
 
 ## Basic Try/Catch Example
 
+All snippets on this page use `__DIR__ . '/../vendor/autoload.php'`, so save a snippet as a file in a subdirectory of the repository root (for example `examples/`) before running it with `php`.
+
 The foundation of error handling is proper exception catching:
 
 ```php
@@ -12,7 +14,7 @@ The foundation of error handling is proper exception catching:
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Exception\RabbitStreamException;
 
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 try {
     $connection = new StreamConnection('localhost', 5552);
@@ -43,7 +45,7 @@ use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 function connectWithRetry(
     string $host,
@@ -112,7 +114,7 @@ use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 function authenticateWithErrorHandling(
     StreamConnection $connection,
@@ -172,7 +174,7 @@ use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 class PublisherWithErrorHandling
 {
@@ -301,7 +303,7 @@ use CrazyGoat\RabbitStream\OffsetSpecification;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 class ConsumerWithErrorHandling
 {
@@ -432,7 +434,7 @@ use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 function readWithTimeout(
     StreamConnection $connection,
@@ -495,7 +497,7 @@ use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 class RobustStreamClient
 {

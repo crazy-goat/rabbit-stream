@@ -12,7 +12,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Basic Consumer Example
@@ -113,8 +113,8 @@ class BasicConsumerExample
                 $messages = $consumer->read(timeout: 5.0);
                 
                 if (empty($messages)) {
-                    echo "  ℹ No new messages, waiting...\n";
-                    continue;
+                    echo "  ℹ No more messages, stopping\n";
+                    break;
                 }
                 
                 foreach ($messages as $message) {
@@ -303,16 +303,16 @@ docker run -d --name rabbitmq-stream \
 docker exec rabbitmq-stream rabbitmq-plugins enable rabbitmq_stream
 ```
 
-3. Publish some test messages (see [Basic Producer Example](basic-producer.md)):
+3. Publish some test messages (the script from [Basic Producer Example](basic-producer.md) is saved as `examples/basic_producer.php`):
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/basic-producer.php
+php examples/basic_producer.php
 ```
 
-4. Run the consumer example:
+4. Run the complete script above (it is saved as `examples/basic_consumer.php`):
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/basic-consumer.php
+php examples/basic_consumer.php
 ```
 
 ## Expected Output
@@ -337,7 +337,7 @@ Step 4: Consuming messages (max 10)...
   ✓ [3] Batch message #3
   ✓ [4] Batch message #4
   ✓ [5] Batch message #5
-  ℹ Reached message limit (10)
+  ℹ No more messages, stopping
 
 Step 5: Cleaning up...
   ✓ Consumer and connection closed

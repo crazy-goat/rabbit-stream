@@ -20,7 +20,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Offset Resume Example
@@ -155,8 +155,8 @@ class OffsetResumeExample
                 $messages = $consumer->read(timeout: 5.0);
                 
                 if (empty($messages)) {
-                    echo "  ℹ No new messages, waiting...\n";
-                    continue;
+                    echo "  ℹ No more messages, stopping\n";
+                    break;
                 }
                 
                 foreach ($messages as $message) {
@@ -453,21 +453,21 @@ docker run -d --name rabbitmq-stream \
 docker exec rabbitmq-stream rabbitmq-plugins enable rabbitmq_stream
 ```
 
-3. Publish some test messages (see [Basic Producer Example](basic-producer.md)):
+3. Publish some test messages (the script from [Basic Producer Example](basic-producer.md) is saved as `examples/basic_producer.php`):
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/basic-producer.php
+php examples/basic_producer.php
 ```
 
-4. Run the offset resume example:
+4. Run the complete script above (it is saved as `examples/offset_resume.php`):
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/offset-resume.php
+php examples/offset_resume.php
 ```
 
 5. Run it again to see the resume behavior:
 ```bash
-php docs/en/examples/offset-resume.php
+php examples/offset_resume.php
 ```
 
 ## Expected Output
@@ -492,25 +492,29 @@ Step 4: Processing messages (max 30)...
   ✓ [0] Processed message 1 (offset stored)
   ✓ [1] Processed message 2 (offset stored)
   ✓ [2] Processed message 3 (offset stored)
-  ...
-  ✓ [29] Processed message 30 (offset stored)
-  ℹ Reached message limit (30)
+  ✓ [3] Processed message 4 (offset stored)
+  ✓ [4] Processed message 5 (offset stored)
+  ✓ [5] Processed message 6 (offset stored)
+  ℹ No more messages, stopping
 
-  ℹ Last stored offset: 30
-  ℹ On next run, will resume from offset 30
+  ℹ Last stored offset: 5
+  ℹ On next run, will resume from offset 5
 
 Step 5: Cleaning up...
   ✓ Consumer closed
   ✓ Connection closed
 
 === Example Complete ===
-Messages processed: 30
+Messages processed: 6
 Consumer name: offset-resume-demo
 
 Run this example again to see resume behavior!
 ```
 
 **Second Run (Resume):**
+
+The output below is illustrative: it assumes the first run processed 30 messages (publish more than 30 first).
+
 ```
 === Offset Resume Example ===
 

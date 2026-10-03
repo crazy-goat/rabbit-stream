@@ -9,12 +9,14 @@ This example demonstrates using the RabbitMQ Stream protocol directly with `Stre
 
 ## Complete Working Example
 
+The script uses `__DIR__ . '/../vendor/autoload.php'`, so save it in a subdirectory of the repository root (for example `examples/`) before running it with `php`.
+
 ```php
 <?php
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;

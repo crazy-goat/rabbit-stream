@@ -11,7 +11,7 @@ This document provides complete, working examples for managing RabbitMQ Streams.
 
 use CrazyGoat\RabbitStream\Client\Connection;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 // Create connection
 $connection = Connection::create(
@@ -47,7 +47,7 @@ try {
 
 use CrazyGoat\RabbitStream\Client\Connection;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 $connection = Connection::create();
 
@@ -85,7 +85,7 @@ use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 function createStreamIdempotent(Connection $connection, string $name, array $args = []): bool
 {
@@ -132,7 +132,7 @@ use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 function deleteStreamSafe(Connection $connection, string $name): bool
 {
@@ -179,7 +179,7 @@ try {
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 $connection = Connection::create();
 
@@ -235,7 +235,7 @@ try {
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 $connection = Connection::create();
 
@@ -283,7 +283,7 @@ try {
 
 use CrazyGoat\RabbitStream\Client\Connection;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 $connection = Connection::create();
 
@@ -328,7 +328,7 @@ try {
 
 use CrazyGoat\RabbitStream\Client\Connection;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 function getStreamMetrics(Connection $connection, string $streamName): array
 {
@@ -403,7 +403,7 @@ try {
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Complete example showing stream lifecycle:
@@ -528,7 +528,7 @@ use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 // Low-level API: create a raw StreamConnection and complete the handshake
 // on it. Connection::create() runs the full handshake on the connection
@@ -597,7 +597,7 @@ try {
 
 use CrazyGoat\RabbitStream\Client\Connection;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Creates a temporary stream, executes a callback, then cleans up.
@@ -662,7 +662,7 @@ try {
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Higher-level stream management abstraction.
@@ -782,9 +782,9 @@ To run these examples:
    composer install
    ```
 
-3. Run an example:
+3. Run the first example above (it is saved as `examples/stream_management_basic_operations.php`; the other snippets use the same autoload path, so save them under `examples/` to run them):
    ```bash
-   php docs/en/examples/stream-management/basic-operations.php
+   php examples/stream_management_basic_operations.php
    ```
 
 ## See Also
