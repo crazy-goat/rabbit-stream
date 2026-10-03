@@ -126,7 +126,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 // Convert request code
 $key = KeyEnum::fromStreamCode(0x0001); // KeyEnum::DECLARE_PUBLISHER
 
-// Convert response code (automatically handles 0x8000 offset)
+// Convert response code (each response code is its own enum case)
 $key = KeyEnum::fromStreamCode(0x8001); // KeyEnum::DECLARE_PUBLISHER_RESPONSE
 ```
 
