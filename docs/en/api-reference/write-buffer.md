@@ -17,16 +17,21 @@ All methods return `self` for method chaining.
 ## Constructor
 
 ```php
-public function __construct(private string $buffer = '')
+public function __construct(
+    private string $buffer = '',
+    private readonly bool $validateStrings = true,
+)
 ```
 
 **Parameters:**
 - `$buffer` - Initial buffer content (optional, default: empty string)
+- `$validateStrings` - When `true` (default), `addString()` validates UTF-8 encoding. Set to `false` to skip the check in high-throughput scenarios where input is guaranteed to be valid UTF-8
 
 **Example:**
 ```php
 $buffer = new WriteBuffer();           // Empty buffer
 $buffer = new WriteBuffer('prefix');   // Pre-populated buffer
+$buffer = new WriteBuffer(validateStrings: false); // Skip UTF-8 validation
 ```
 
 ## Integer Methods
@@ -210,7 +215,7 @@ public function addString(?string $value): self
 - `$value` - String to add, or `null` for null string
 
 **Encoding:**
-- String must be valid UTF-8
+- String must be valid UTF-8 (checked unless the buffer was created with `validateStrings: false`)
 - Maximum length: 32767 bytes (INT16_MAX)
 - Null represented as length -1 (`0xFFFF`)
 
