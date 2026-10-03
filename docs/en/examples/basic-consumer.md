@@ -257,7 +257,6 @@ OffsetSpec::timestamp(time() - 3600)
 
 ```php
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
-use CrazyGoat\RabbitStream\Exception\TimeoutException;
 
 try {
     $consumer = $connection->createConsumer('non-existent', OffsetSpec::first());
@@ -279,9 +278,10 @@ try {
         }
     }
 } catch (ConnectionException $e) {
+    // TimeoutException extends ConnectionException, so it lands here too.
+    // read() does not throw when $timeout elapses (it returns []); a
+    // TimeoutException means a write (credit, heartbeat, auto-commit) timed out.
     echo "Connection lost: {$e->getMessage()}\n";
-} catch (TimeoutException $e) {
-    echo "Read timeout: {$e->getMessage()}\n";
 } finally {
     $consumer->close();
 }
