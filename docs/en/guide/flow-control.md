@@ -578,7 +578,7 @@ The **Single Active Consumer** feature ensures only one consumer processes messa
 
 ### Auto-Reply Mechanism
 
-By default, the client automatically replies to `ConsumerUpdate` with offset type 1 (OFFSET) and offset 0. The subscribe command itself does not carry a consumer reference in this client (single-active-consumer groups are not supported yet), but a subscription may still receive `ConsumerUpdate` frames:
+By default, the client automatically replies to `ConsumerUpdate` with offset type 0 (none, keep the current position) and offset 0. A high-level `Consumer` with `singleActiveConsumer: true` instead resumes from its stored offset (or the initial `OffsetSpec` when nothing is stored). The subscribe command itself does not carry a consumer reference in this client (single-active-consumer groups are not supported yet), but a subscription may still receive `ConsumerUpdate` frames:
 
 ```php
 <?php
