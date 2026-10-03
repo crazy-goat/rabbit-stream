@@ -310,6 +310,15 @@ $response = $stream->readMessage(timeout: 5.0);
 > The high-level API surfaces timeouts through `Producer::waitForConfirms()`
 > — it throws `TimeoutException` when confirmations do not arrive within
 > the given timeout (see [Publishing Guide](publishing.md)).
+>
+> **Reading does not throw on an elapsed timeout.** `Consumer::read()`,
+> `Consumer::readOne()` and `StreamConnection::readLoop()` return silently
+> when their `$timeout` expires (an empty array, `null` and `0` frames
+> respectively). They throw `TimeoutException` only when a reply they must
+> send (credit, heartbeat echo, server-close acknowledgement, ConsumerUpdate
+> reply) cannot be written within the socket timeout, or when a re-subscribe
+> request gets no reply in time. An empty result is therefore not an error
+> and not end-of-stream.
 
 A `send()` that throws does **not** count the message as pending, so a later
 `waitForConfirms()` is not blocked by a message the broker never received.
