@@ -163,7 +163,7 @@ class StreamConnection
      */
     public const DEFAULT_MAX_DELIVER_FRAME_SIZE = 64 * 1024 * 1024;
 
-    private float $socketTimeout = self::DEFAULT_SOCKET_TIMEOUT;
+    private float $socketTimeout;
     private int $maxFrameSize = self::DEFAULT_MAX_FRAME_SIZE;
     private int $maxDeliverFrameSize = self::DEFAULT_MAX_DELIVER_FRAME_SIZE;
     private int $outgoingMaxFrameSize = 0;

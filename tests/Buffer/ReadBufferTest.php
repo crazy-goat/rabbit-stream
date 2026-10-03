@@ -437,9 +437,16 @@ class ReadBufferTest extends TestCase
     public function testPeekUint16MultipleTimes(): void
     {
         $buf = new ReadBuffer("\x00\x42\x00\x01");
-        $this->assertSame(0x42, $buf->peekUint16());
-        $this->assertSame(0x42, $buf->peekUint16());
+        $peeked = $buf->peekUint16();
+        $this->assertSame(0x42, $peeked);
         $this->assertSame(0, $buf->getPosition());
+        // Peeking consumes nothing, so a second peek reports the same uint16…
+        $this->assertSame($peeked, $buf->peekUint16());
+        $this->assertSame(0, $buf->getPosition());
+        // …and only a read consumes it: the next peek then sees what follows.
+        $this->assertSame($peeked, $buf->getUint16());
+        $this->assertSame(1, $buf->peekUint16());
+        $this->assertSame(2, $buf->getPosition());
     }
 
     public function testSkipAdvancesPosition(): void

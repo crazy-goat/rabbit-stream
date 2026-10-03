@@ -85,7 +85,8 @@ class SubscribeFilterE2ETest extends E2ETestCase
             filterValues: ['region-eu'],
         );
 
-        /** @var list<string> $received */
+        // Message::getBody() is not narrowed to string, so the loop below asserts
+        // that every delivered body really is one before matching on its value.
         $received = [];
         $deadline = time() + 3;
         while (time() < $deadline) {
@@ -96,17 +97,14 @@ class SubscribeFilterE2ETest extends E2ETestCase
 
         $consumer->close();
 
-        // Every delivered message matches the filter (chunks were kept pure).
+        $this->assertNotEmpty($received, 'At least the matching chunk should have been delivered');
+        // Every delivered message matches the filter (chunks were kept pure) and
+        // no chunk containing only non-matching values was delivered at all.
         foreach ($received as $body) {
             $this->assertIsString($body);
             $this->assertStringStartsWith('eu-', $body, "Unexpected non-matching message delivered: {$body}");
-        }
-        // Chunks containing only non-matching values were never delivered.
-        foreach ($received as $body) {
-            $this->assertIsString($body);
             $this->assertStringNotContainsString('other', $body);
         }
-        $this->assertNotEmpty($received, 'At least the matching chunk should have been delivered');
     }
 
     public function testSubscribeWithMatchUnfilteredReceivesUnfilteredMessages(): void
