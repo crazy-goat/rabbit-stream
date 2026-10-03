@@ -872,7 +872,6 @@ echo "Processed {$processed} messages\n";
 ```php
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
-use CrazyGoat\RabbitStream\Exception\TimeoutException;
 
 try {
     $consumer = $connection->createConsumer(
@@ -898,10 +897,11 @@ try {
         }
     }
 } catch (ConnectionException $e) {
+    // TimeoutException extends ConnectionException, so it lands here too.
+    // read() does not throw when $timeout elapses (it returns []); a
+    // TimeoutException means a write (credit, heartbeat, auto-commit) timed out.
     echo "Connection lost: {$e->getMessage()}\n";
     // Reconnect logic here
-} catch (TimeoutException $e) {
-    echo "Read timeout: {$e->getMessage()}\n";
 } finally {
     $consumer->close();
 }

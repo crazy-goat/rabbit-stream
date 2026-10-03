@@ -310,6 +310,34 @@ $response = $stream->readMessage(timeout: 5.0);
 > The high-level API surfaces timeouts through `Producer::waitForConfirms()`
 > — it throws `TimeoutException` when confirmations do not arrive within
 > the given timeout (see [Publishing Guide](publishing.md)).
+>
+> **Reading does not throw on an elapsed timeout.** `Consumer::read()`
+> returns an empty array and `Consumer::readOne()` returns `null` when their
+> `$timeout` expires. `readLoop()` (`Connection` and `StreamConnection`)
+> returns the number of frames dispatched, `0` when none arrived. None of
+> them throws `TimeoutException` for the elapsed timeout. They throw it only
+> when a reply they must send cannot be written within the socket timeout
+> (heartbeat echo, server-close acknowledgement and ConsumerUpdate reply for
+> all three; credit and auto-commit `StoreOffset` for `read()`/`readOne()`
+> only), or, for `read()`/`readOne()`, when a re-subscribe request gets no
+> reply in time. An empty result is therefore not an error and not
+> end-of-stream.
+>
+> **Other sources of `TimeoutException`:**
+>
+> - `Connection::create()`: the handshake gets no reply in time.
+> - Every request/response method of `Connection`: the response does not
+>   arrive in time.
+> - `Producer::send()`, `sendBatch()`, `sendWithFilter()`: a write or
+>   back-pressure drain times out. `Producer::waitForConfirms()` and
+>   `Producer::close()` can time out too.
+> - `Consumer::storeOffset()` and `Consumer::close()`: the write or the
+>   reply times out.
+>   `Consumer::queryOffset()` times out when the response does not arrive,
+>   and `Consumer::drain()` when a withheld credit frame cannot be written.
+> - `Producer::querySequence()`: the response does not arrive in time.
+> - `SuperStreamConsumer` and `SuperStreamProducer` methods throw it in the
+>   same cases as the per-partition method they delegate to.
 
 A `send()` that throws does **not** count the message as pending, so a later
 `waitForConfirms()` is not blocked by a message the broker never received.
