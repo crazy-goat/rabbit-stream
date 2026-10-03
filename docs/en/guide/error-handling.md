@@ -333,6 +333,11 @@ $response = $stream->readMessage(timeout: 5.0);
 >   `Producer::close()` can time out too.
 > - `Consumer::storeOffset()` and `Consumer::close()`: the write or the
 >   reply times out.
+>   `Consumer::queryOffset()` times out when the response does not arrive,
+>   and `Consumer::drain()` when a withheld credit frame cannot be written.
+> - `Producer::querySequence()`: the response does not arrive in time.
+> - `SuperStreamConsumer` and `SuperStreamProducer` methods throw it in the
+>   same cases as the per-partition method they delegate to.
 
 A `send()` that throws does **not** count the message as pending, so a later
 `waitForConfirms()` is not blocked by a message the broker never received.
