@@ -782,9 +782,9 @@ To run these examples:
    composer install
    ```
 
-3. Save the script you want to try as a file in `examples/` (the autoload path in the snippets is relative to that directory) and run it:
+3. Run the first example above (it is saved as `examples/stream_management_basic_operations.php`; the other snippets use the same autoload path, so save them under `examples/` to run them):
    ```bash
-   php examples/stream-management-basic-operations.php
+   php examples/stream_management_basic_operations.php
    ```
 
 ## See Also

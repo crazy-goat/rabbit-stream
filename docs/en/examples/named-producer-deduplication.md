@@ -20,7 +20,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Named Producer Deduplication Example
@@ -410,7 +410,7 @@ docker exec rabbitmq-stream rabbitmq-plugins enable rabbitmq_stream
 
 2. Run the example:
 ```bash
-php docs/en/examples/named-producer-deduplication.php
+php examples/named_producer_deduplication.php
 ```
 
 ## Expected Output

@@ -351,21 +351,21 @@ docker run -d --name rabbitmq-stream \
 docker exec rabbitmq-stream rabbitmq-plugins enable rabbitmq_stream
 ```
 
-3. Publish some test messages (save the script from [Basic Producer Example](basic-producer.md) as `examples/basic-producer.php`):
+3. Publish some test messages (the script from [Basic Producer Example](basic-producer.md) is saved as `examples/basic_producer.php`):
 ```bash
 cd /path/to/rabbit-stream
-php examples/basic-producer.php
+php examples/basic_producer.php
 ```
 
-4. Save the complete script above as `examples/consumer-auto-commit.php` and run it:
+4. Run the complete script above (it is saved as `examples/consumer_auto_commit_full.php`):
 ```bash
 cd /path/to/rabbit-stream
-php examples/consumer-auto-commit.php
+php examples/consumer_auto_commit_full.php
 ```
 
 5. Run it again to see the resume behavior:
 ```bash
-php examples/consumer-auto-commit.php
+php examples/consumer_auto_commit_full.php
 ```
 
 ## Expected Output

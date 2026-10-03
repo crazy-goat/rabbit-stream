@@ -14,6 +14,14 @@
     
     <!-- Use PSR-12 standard as base -->
     <rule ref="PSR12"/>
+
+    <!-- Example scripts mirror the docs snippets: they define helper classes and run logic in one file -->
+    <rule ref="PSR1.Files.SideEffects.FoundWithSymbols">
+        <exclude-pattern>examples/*</exclude-pattern>
+    </rule>
+    <rule ref="PSR1.Classes.ClassDeclaration.MissingNamespace">
+        <exclude-pattern>examples/*</exclude-pattern>
+    </rule>
     
     <!-- Slevomat: Require strict_types=1 declaration -->
     <rule ref="SlevomatCodingStandard.TypeHints.DeclareStrictTypes">

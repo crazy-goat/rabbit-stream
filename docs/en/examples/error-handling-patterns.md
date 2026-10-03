@@ -4,6 +4,8 @@ This guide provides complete, working examples of common error handling patterns
 
 ## Basic Try/Catch Example
 
+All snippets on this page use `__DIR__ . '/../vendor/autoload.php'`, so save a snippet as a file in a subdirectory of the repository root (for example `examples/`) before running it with `php`.
+
 The foundation of error handling is proper exception catching:
 
 ```php
