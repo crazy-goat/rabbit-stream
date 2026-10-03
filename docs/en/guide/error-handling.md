@@ -311,14 +311,17 @@ $response = $stream->readMessage(timeout: 5.0);
 > — it throws `TimeoutException` when confirmations do not arrive within
 > the given timeout (see [Publishing Guide](publishing.md)).
 >
-> **Reading does not throw on an elapsed timeout.** `Consumer::read()`,
-> `Consumer::readOne()` and `StreamConnection::readLoop()` return silently
-> when their `$timeout` expires (an empty array, `null` and `0` frames
-> respectively). They throw `TimeoutException` only when a reply they must
-> send (credit, heartbeat echo, server-close acknowledgement, ConsumerUpdate
-> reply, auto-commit `StoreOffset`) cannot be written within the socket
-> timeout, or when a re-subscribe request gets no reply in time. An empty
-> result is therefore not an error and not end-of-stream.
+> **Reading does not throw on an elapsed timeout.** `Consumer::read()`
+> returns an empty array and `Consumer::readOne()` returns `null` when their
+> `$timeout` expires. `readLoop()` (`Connection` and `StreamConnection`)
+> returns the number of frames dispatched, `0` when none arrived. None of
+> them throws `TimeoutException` for the elapsed timeout. They throw it only
+> when a reply they must send cannot be written within the socket timeout
+> (heartbeat echo, server-close acknowledgement and ConsumerUpdate reply for
+> all three; credit and auto-commit `StoreOffset` for `read()`/`readOne()`
+> only), or, for `read()`/`readOne()`, when a re-subscribe request gets no
+> reply in time. An empty result is therefore not an error and not
+> end-of-stream.
 >
 > **Other sources of `TimeoutException`:**
 >
