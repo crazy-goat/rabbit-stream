@@ -56,7 +56,7 @@ class Connection
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
         float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
-    ): Producer;
+    ): ProducerInterface;
     
     public function createConsumer(
         string $stream,
@@ -70,7 +70,7 @@ class Connection
         ?string $superStream = null,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
-    ): Consumer;
+    ): ConsumerInterface;
     
     public function createSuperStreamProducer(
         string $superStream,
@@ -94,6 +94,7 @@ class Connection
     
     // Lifecycle
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
+    public function isConnected(): bool;
     public function close(): void;
 }
 ```
@@ -776,7 +777,7 @@ public function createProducer(
     ?callable $onConfirm = null,
     int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
     float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
-): Producer
+): ProducerInterface
 ```
 
 #### Parameters
@@ -791,7 +792,7 @@ public function createProducer(
 
 #### Return Value
 
-`Producer` - A producer instance ready to send messages
+`ProducerInterface` - A producer instance ready to send messages
 
 #### Exceptions
 
@@ -841,7 +842,7 @@ public function createConsumer(
     ?string $superStream = null,
     int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
-): Consumer
+): ConsumerInterface
 ```
 
 #### Parameters
@@ -870,7 +871,7 @@ public function createConsumer(
 
 #### Return Value
 
-`Consumer` - A consumer instance ready to read messages
+`ConsumerInterface` - A consumer instance ready to read messages
 
 #### Exceptions
 
@@ -1140,6 +1141,29 @@ if (isset($ranges[KeyEnum::PUBLISH->value])) {
     echo "Publish up to v{$ranges[KeyEnum::PUBLISH->value]->getMaxVersion()}\n";
 }
 ```
+
+---
+
+### isConnected()
+
+Whether the underlying socket is still valid.
+
+```php
+public function isConnected(): bool
+```
+
+#### Parameters
+
+None
+
+#### Return Value
+
+`bool` - `true` while the underlying stream resource is still valid
+
+#### Notes
+
+- Local check of the stream resource only; it does not probe the broker
+- A peer that went away without the socket noticing still reports `true` until the next read or write fails
 
 ---
 
