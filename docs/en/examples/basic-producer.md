@@ -12,7 +12,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Basic Producer Example
@@ -255,10 +255,10 @@ docker run -d --name rabbitmq-stream \
 docker exec rabbitmq-stream rabbitmq-plugins enable rabbitmq_stream
 ```
 
-3. Run the example:
+3. Save the complete script above as `examples/basic-producer.php` and run it:
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/basic-producer.php
+php examples/basic-producer.php
 ```
 
 ## Expected Output

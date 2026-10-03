@@ -12,7 +12,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Basic Consumer Example
@@ -303,16 +303,16 @@ docker run -d --name rabbitmq-stream \
 docker exec rabbitmq-stream rabbitmq-plugins enable rabbitmq_stream
 ```
 
-3. Publish some test messages (see [Basic Producer Example](basic-producer.md)):
+3. Publish some test messages (save the script from [Basic Producer Example](basic-producer.md) as `examples/basic-producer.php`):
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/basic-producer.php
+php examples/basic-producer.php
 ```
 
-4. Run the consumer example:
+4. Save the complete script above as `examples/basic-consumer.php` and run it:
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/basic-consumer.php
+php examples/basic-consumer.php
 ```
 
 ## Expected Output

@@ -20,7 +20,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Offset Resume Example
@@ -453,21 +453,21 @@ docker run -d --name rabbitmq-stream \
 docker exec rabbitmq-stream rabbitmq-plugins enable rabbitmq_stream
 ```
 
-3. Publish some test messages (see [Basic Producer Example](basic-producer.md)):
+3. Publish some test messages (save the script from [Basic Producer Example](basic-producer.md) as `examples/basic-producer.php`):
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/basic-producer.php
+php examples/basic-producer.php
 ```
 
-4. Run the offset resume example:
+4. Save the complete script above as `examples/offset-resume.php` and run it:
 ```bash
 cd /path/to/rabbit-stream
-php docs/en/examples/offset-resume.php
+php examples/offset-resume.php
 ```
 
 5. Run it again to see the resume behavior:
 ```bash
-php docs/en/examples/offset-resume.php
+php examples/offset-resume.php
 ```
 
 ## Expected Output

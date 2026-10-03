@@ -14,7 +14,7 @@ This example demonstrates using the RabbitMQ Stream protocol directly with `Stre
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
