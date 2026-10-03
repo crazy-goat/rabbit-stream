@@ -152,7 +152,7 @@ use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 
 // ... subscribe to stream and receive Deliver response
 
-$chunk = $deliverResponse->getChunk();
+$chunk = $deliverResponse->getChunkBytes();
 $entries = OsirisChunkParser::parse($chunk);
 
 // Decode AMQP 1.0 messages into Message objects
