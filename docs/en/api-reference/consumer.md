@@ -188,7 +188,7 @@ public function read(float $timeout = 5.0): array
 #### Exceptions
 
 - `ConnectionException` - If the connection is lost
-- `TimeoutException` - Never thrown because `$timeout` elapsed (that returns an empty array). Only if a credit or heartbeat frame cannot be written within the socket timeout, or a re-subscribe `Subscribe`/`StreamStats` request gets no reply in time
+- `TimeoutException` - Never thrown because `$timeout` elapsed (that returns an empty array). Only if a write it must make (credit, heartbeat echo, server-close acknowledgement, ConsumerUpdate reply, auto-commit `StoreOffset`) does not start within the socket timeout, or a re-subscribe `Subscribe`/`StreamStats` request gets no reply in time
 
 #### Example
 
