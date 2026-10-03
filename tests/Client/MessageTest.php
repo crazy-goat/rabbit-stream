@@ -33,9 +33,11 @@ class MessageTest extends TestCase
         $rawData = "\x00\x53\x75\xb0" . pack('N', 2) . 'hi';
         $msg = Message::fromRawEntry(offset: 5, timestamp: 2000, rawData: $rawData);
 
-        $this->assertSame('hi', $msg->getBody());
-        // Calling again must return the cached, already-decoded value.
-        $this->assertSame('hi', $msg->getBody());
+        $body = $msg->getBody();
+        $this->assertSame('hi', $body);
+        // Calling again must return the cached, already-decoded value. A second
+        // decode would fail, because the first one released $rawData.
+        $this->assertSame($body, $msg->getBody());
     }
 
     public function testFromRawEntryGetterAccessorsAllTriggerDecode(): void
@@ -509,7 +511,7 @@ class MessageTest extends TestCase
             'message-id' => 'msg-1',
             'content-type' => 'text/html',
         ];
-        $msg = new Message(offset: 0, timestamp: 0, body: null, properties: $props);
+        $msg = new Message(offset: 0, timestamp: 0, properties: $props);
 
         $this->assertSame($props, $msg->getProperties());
     }
@@ -519,7 +521,6 @@ class MessageTest extends TestCase
         $msg = new Message(
             offset: 0,
             timestamp: 0,
-            body: null,
             properties: ['message-id' => null]
         );
         $this->assertNull($msg->getMessageId());
