@@ -41,6 +41,9 @@ class StreamConnectionTest extends TestCase
     /** Whether armAlarm() installed a handler that tearDown() has to remove. */
     private bool $alarmArmed = false;
 
+    /** pcntl_async_signals() state to put back, since it is process-global. */
+    private bool $asyncSignalsWereEnabled = false;
+
     /**
      * Inert for every test that never armed SIGALRM (GitHub #602 tests only).
      */
@@ -49,6 +52,10 @@ class StreamConnectionTest extends TestCase
         if ($this->alarmArmed) {
             $this->disarmAlarm();
         }
+
+        // pcntl_async_signals() is process-global too: leaving it on would make
+        // every later test in this process take signals asynchronously.
+        pcntl_async_signals($this->asyncSignalsWereEnabled);
     }
 
     public function testConnectUsesTcpSchemeWithoutTlsConfig(): void
@@ -1892,6 +1899,7 @@ class StreamConnectionTest extends TestCase
             $elapsed,
             'The interrupted call must keep waiting out its original 2s timeout'
         );
+        $this->assertLessThan(3.0, $elapsed, 'The interruption must not extend the deadline');
 
         // The connection must still be usable, not just un-excepted: a frame
         // that arrives after the interruption is read back byte for byte.
@@ -1921,10 +1929,27 @@ class StreamConnectionTest extends TestCase
         $this->injectSocket($connection, $clientSocket);
         $this->armAlarm(1);
 
-        $handled = $connection->readLoop(null, 2.0);
+        // readLoop() caps every select at exactly 1s, so an alarm armed at t=0
+        // would fire at t=1.0 — right on the first select's boundary, where the
+        // signal can land in the PHP-level gap between selects instead of inside
+        // one. No select is then interrupted and this test passes even with the
+        // fix reverted. Starting the loop half a second late puts the signal at
+        // t=1.0 in the middle of the first select, which spans t=0.5..1.5, so the
+        // interruption is guaranteed rather than probable.
+        usleep(500000);
 
-        $this->assertSame(1, $this->alarms, 'The signal must have interrupted the select');
+        $start = microtime(true);
+        $handled = $connection->readLoop(null, 1.5);
+        $elapsed = microtime(true) - $start;
+
+        $this->assertSame(1, $this->alarms, 'The signal must have been delivered');
         $this->assertSame(0, $handled, 'An idle loop ends on its deadline having dispatched nothing');
+        $this->assertGreaterThanOrEqual(
+            1.4,
+            $elapsed,
+            'The interrupted loop must keep running to its own 1.5s deadline, not return at the signal'
+        );
+        $this->assertLessThan(3.0, $elapsed, 'The interruption must not extend the deadline');
 
         // Still usable: the same connection dispatches a real server-push frame
         // (a heartbeat, 0x0017) that arrives after the interruption.
@@ -1956,11 +1981,13 @@ class StreamConnectionTest extends TestCase
             self::fail('sendFrame should not succeed with a full send buffer');
         } catch (TimeoutException) {
             $this->assertSame(1, $this->alarms, 'The signal must have interrupted the select');
+            $elapsed = microtime(true) - $start;
             $this->assertGreaterThanOrEqual(
                 1.9,
-                microtime(true) - $start,
+                $elapsed,
                 'The interrupted write-wait must keep waiting out its original 2s deadline'
             );
+            $this->assertLessThan(3.0, $elapsed, 'The interruption must not extend the deadline');
         }
 
         // Still usable: once the peer drains the socket the very same connection
@@ -2005,6 +2032,10 @@ class StreamConnectionTest extends TestCase
      *
      * pcntl_async_signals(true) delivers the signal as soon as it arrives, which
      * is what makes select(2) fail with EINTR inside the PHP stream layer.
+     *
+     * pcntl_alarm() has one-second granularity only, so a caller that needs the
+     * signal strictly inside a *shorter* select has to start its wait a little
+     * after arming; see testReadLoopSurvivesEintr().
      */
     private function armAlarm(int $seconds): void
     {
@@ -2014,7 +2045,7 @@ class StreamConnectionTest extends TestCase
 
         $this->alarms = 0;
         $this->alarmArmed = true;
-        pcntl_async_signals(true);
+        $this->asyncSignalsWereEnabled = pcntl_async_signals(true);
         pcntl_signal(SIGALRM, function (): void {
             $this->alarms++;
         });

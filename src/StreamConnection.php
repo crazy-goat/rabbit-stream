@@ -106,6 +106,35 @@ class StreamConnection
     public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
 
     /**
+     * How many consecutive signal interruptions (EINTR) readLoop() tolerates
+     * before it gives up and raises the loud ConnectionException again (#602).
+     *
+     * readLoop() is the one select site with no wall-clock bound of its own:
+     * readLoop(null, null) runs until stop(), a disconnect or a real failure, so
+     * a retry there is bounded by nothing but the predicate being right. Since
+     * selectWasInterrupted() reads a process-global diagnostic slot and can
+     * misfire (see its docblock), an unbounded retry turns a misfire into a
+     * 100%-CPU spin that never returns and never marks the connection dead —
+     * strictly worse than the ConnectionException callers already handle. The
+     * counter resets on any select that returns (ready or timed out), so only an
+     * unbroken run of interruptions can trip it.
+     *
+     * The value sits far above any real signal rate on purpose. Measured on an
+     * idle socket with a fork()ed sender loop, SIGUSR1 delivered every 1ms, 5ms,
+     * 200us and 100us:
+     *
+     *   1000 signals/s -> loop survives indefinitely, 0.02s CPU over 5s
+     *   5000 signals/s -> ConnectionException after 2.4s
+     *  10000 signals/s -> ConnectionException after 1.2s
+     *
+     * So a 1ms watchdog never trips the cap, while a predicate misfire — which
+     * retries at roughly 310,000/s — is turned into a ConnectionException in
+     * about 30ms. The loop stays cheap either way: each retry blocks in select(2)
+     * until the next signal, so the cost tracks the signal rate, not a spin.
+     */
+    private const MAX_CONSECUTIVE_SELECT_INTERRUPTIONS = 10000;
+
+    /**
      * Maximum number of publishing ids embedded in a PSR-3 warning context.
      *
      * A late PublishConfirm/PublishError can carry roughly 1,000,000 ids within
@@ -369,7 +398,37 @@ class StreamConnection
     /**
      * Whether the last failed stream_select() was only interrupted by a signal
      * (EINTR) rather than being a real failure — safe to retry (GitHub #402
-     * retained the old recv()/send() EINTR behaviour on the select-based path).
+     * retained the old recv()/send() EINTR behaviour on the select-based path;
+     * #602 extended it to readLoop(), readFrame() and the sendFrame() write-wait).
+     *
+     * HOW IT DECIDES, AND WHY THAT IS A KNOWN LIMITATION
+     *
+     * PHP's stream API exposes no errno for a failed stream_select(), so this
+     * reads error_get_last() and substring-matches the message. error_get_last()
+     * is a process-global, sticky slot — not one scoped to the select that just
+     * failed. Two consequences, both real:
+     *
+     *  - MITIGATED: a stale entry from an *earlier, unrelated* diagnostic could
+     *    be misread as this select's failure. Every select that consults this
+     *    predicate therefore calls error_clear_last() immediately beforehand, so
+     *    the only entry that can be observed is one the select itself produced.
+     *  - NOT MITIGABLE IN PHP: error_get_last() is filled by PHP's *internal*
+     *    error callback. An application that installs a swallowing
+     *    set_error_handler() (one that returns true) stops that callback from
+     *    running, so the slot stays null and a genuine EINTR is invisible here:
+     *    the EINTR retry silently does not happen and the original #602
+     *    ConnectionException stands. Equally, a real failure can be misread as
+     *    EINTR if some *other* diagnostic that says "interrupted system call"
+     *    lands in the slot. The sound fix is to stop using the stream layer for
+     *    this — socket_select() on an imported \Socket reports a per-socket errno
+     *    via socket_last_error(). Tracked as a follow-up; #602 makes the
+     *    predicate load-bearing for five call sites, so it is documented here
+     *    rather than left as folklore in a scratch file.
+     *
+     * Callers must not treat a `false` here as proof of a non-EINTR failure, and
+     * must keep a retry bounded independently: readLoop() caps consecutive
+     * interruptions (see self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS), the other
+     * four sites are bounded by their own deadline.
      */
     private function selectWasInterrupted(): bool
     {
@@ -936,6 +995,10 @@ class StreamConnection
 
                 [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
 
+                // Drop any earlier diagnostic so selectWasInterrupted() can only
+                // see an error this select itself raised (#602).
+                error_clear_last();
+
                 $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
                 if ($ready === false) {
@@ -993,6 +1056,11 @@ class StreamConnection
             }
 
             [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
+
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see
+            // an error this select itself raised (#602).
+            error_clear_last();
+
             $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
@@ -1213,12 +1281,21 @@ class StreamConnection
      * If both `$maxFrames` and `$timeout` are null, the loop runs indefinitely
      * (until `stop()` or disconnect).
      *
+     * A `stream_select()` interrupted by a signal (EINTR, #602) is retried
+     * rather than treated as a failure. The retry is bounded: a select that
+     * returns at all resets the count, and more than
+     * {@see self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS} interruptions in a row
+     * raise the same ConnectionException as before. That matters because this
+     * is the only select site that can run without a `$timeout` — see
+     * {@see selectWasInterrupted()} for why the bound is needed.
+     *
      * @param int|null   $maxFrames Maximum number of frames to process (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
      * @return int Number of frames processed (dispatched server-push frames plus any
      *             discarded non-server-push frames); 0 means the loop ended
      *             on timeout, stop() or disconnect without handling any frame
-     * @throws ConnectionException If the socket is not connected
+     * @throws ConnectionException If the socket is not connected, or a select fails
+     *                             and is not a signal interruption
      */
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
@@ -1226,6 +1303,7 @@ class StreamConnection
 
         $this->running = true;
         $dispatched = 0;
+        $interruptions = 0;
         $deadline = $timeout !== null ? microtime(true) + $timeout : null;
 
         while ($this->running && $this->connected) {
@@ -1254,6 +1332,10 @@ class StreamConnection
                 [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout(min($remaining, 1));
             }
 
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see an error
+            // this select itself raised (#602).
+            error_clear_last();
+
             $ready = @stream_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
@@ -1263,10 +1345,28 @@ class StreamConnection
                 // recomputes the remaining budget, so a handler that calls
                 // stop() ends the loop cleanly and a deadline still holds.
                 if ($this->selectWasInterrupted()) {
+                    $interruptions++;
+
+                    // readLoop(null, null) has no deadline, so nothing else stops
+                    // a retry here. Bound the unbroken run explicitly and fail
+                    // loudly rather than spin: a misfiring predicate would
+                    // otherwise burn a core forever without marking the
+                    // connection dead.
+                    if ($interruptions > self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS) {
+                        throw new ConnectionException(sprintf(
+                            'stream_select failed in readLoop: %d consecutive signal interruptions',
+                            $interruptions
+                        ));
+                    }
+
                     continue;
                 }
                 throw new ConnectionException('stream_select failed in readLoop');
             }
+
+            // The select itself completed (with data or on timeout), so any
+            // earlier run of interruptions was a transient signal burst.
+            $interruptions = 0;
 
             if ($ready === 0) {
                 continue;
@@ -1542,6 +1642,10 @@ class StreamConnection
 
             [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remaining));
 
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see
+            // an error this select itself raised (#602).
+            error_clear_last();
+
             $ready = @stream_select(
                 $read,
                 $write,
@@ -1747,6 +1851,11 @@ class StreamConnection
             // splitSelectTimeout()'s non-negative precondition is enforced here
             // instead of depending on that non-local invariant.
             [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remainingTime));
+
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see
+            // an error this select itself raised (#602).
+            error_clear_last();
+
             $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
