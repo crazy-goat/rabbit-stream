@@ -51,11 +51,16 @@ class StreamConnectionTest extends TestCase
     {
         if ($this->alarmArmed) {
             $this->disarmAlarm();
-        }
 
-        // pcntl_async_signals() is process-global too: leaving it on would make
-        // every later test in this process take signals asynchronously.
-        pcntl_async_signals($this->asyncSignalsWereEnabled);
+            // pcntl_async_signals() is process-global too: leaving it on would
+            // make every later test in this process take signals asynchronously.
+            // Restored from inside the guarded branch on purpose — this method
+            // runs for every test in the class, composer.json does not require
+            // ext-pcntl, and an unguarded call here would error on a build
+            // without it. Reaching this line implies armAlarm() succeeded, which
+            // already proved the functions exist.
+            pcntl_async_signals($this->asyncSignalsWereEnabled);
+        }
     }
 
     public function testConnectUsesTcpSchemeWithoutTlsConfig(): void
@@ -1899,7 +1904,10 @@ class StreamConnectionTest extends TestCase
             $elapsed,
             'The interrupted call must keep waiting out its original 2s timeout'
         );
-        $this->assertLessThan(3.0, $elapsed, 'The interruption must not extend the deadline');
+        // The window a "restart the whole timeout per interruption" regression
+        // would land in is exactly the alarm offset wide: normal 2.0s, mutant
+        // 1.0 + 2.0 = 3.0s. 2.6 sits inside it with margin on both sides.
+        $this->assertLessThan(2.6, $elapsed, 'The interruption must not extend the deadline');
 
         // The connection must still be usable, not just un-excepted: a frame
         // that arrives after the interruption is read back byte for byte.
@@ -1949,7 +1957,10 @@ class StreamConnectionTest extends TestCase
             $elapsed,
             'The interrupted loop must keep running to its own 1.5s deadline, not return at the signal'
         );
-        $this->assertLessThan(3.0, $elapsed, 'The interruption must not extend the deadline');
+        // Same arithmetic as testReadFrameSurvivesEintr, scaled to this test's
+        // 0.5s start offset: normal 1.5s, restart-the-timeout mutant 0.5 + 1.5
+        // = 2.0s, so the usable window is only 1.5..2.0 and 1.8 is the midpoint.
+        $this->assertLessThan(1.8, $elapsed, 'The interruption must not extend the deadline');
 
         // Still usable: the same connection dispatches a real server-push frame
         // (a heartbeat, 0x0017) that arrives after the interruption.
@@ -1987,7 +1998,7 @@ class StreamConnectionTest extends TestCase
                 $elapsed,
                 'The interrupted write-wait must keep waiting out its original 2s deadline'
             );
-            $this->assertLessThan(3.0, $elapsed, 'The interruption must not extend the deadline');
+            $this->assertLessThan(2.6, $elapsed, 'The interruption must not extend the deadline');
         }
 
         // Still usable: once the peer drains the socket the very same connection

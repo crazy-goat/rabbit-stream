@@ -107,32 +107,50 @@ class StreamConnection
 
     /**
      * How many consecutive signal interruptions (EINTR) readLoop() tolerates
-     * before it gives up and raises the loud ConnectionException again (#602).
+     * before it gives up and raises ConnectionException again (#602).
      *
      * readLoop() is the one select site with no wall-clock bound of its own:
      * readLoop(null, null) runs until stop(), a disconnect or a real failure, so
-     * a retry there is bounded by nothing but the predicate being right. Since
-     * selectWasInterrupted() reads a process-global diagnostic slot and can
-     * misfire (see its docblock), an unbounded retry turns a misfire into a
-     * 100%-CPU spin that never returns and never marks the connection dead —
-     * strictly worse than the ConnectionException callers already handle. The
-     * counter resets on any select that returns (ready or timed out), so only an
-     * unbroken run of interruptions can trip it.
+     * a retry there is bounded by nothing but the predicate being right. An
+     * unbounded retry would be a 100%-CPU run that never returns and never marks
+     * the connection dead — strictly worse than the ConnectionException callers
+     * already handle. The counter resets on any select that returns (ready or
+     * timed out), so only an unbroken run of interruptions can trip it.
      *
-     * The value sits far above any real signal rate on purpose. Measured on an
-     * idle socket with a fork()ed sender loop, SIGUSR1 delivered every 1ms, 5ms,
-     * 200us and 100us:
+     * WHY THIS NUMBER, AND HOW TO READ IT
      *
-     *   1000 signals/s -> loop survives indefinitely, 0.02s CPU over 5s
-     *   5000 signals/s -> ConnectionException after 2.4s
-     *  10000 signals/s -> ConnectionException after 1.2s
+     * Trip time is exactly this constant divided by the signal rate — for any
+     * source fast enough that each new signal preempts the select before it can
+     * return (roughly anything above 1/s, since the loop caps each select at 1s).
+     * Below that rate the select times out, the counter resets, and the cap is
+     * unreachable. Verified with a fork()ed SIGUSR1 sender on an idle socket;
+     * trip times matched constant/rate to three significant figures at every
+     * rate tried.
      *
-     * So a 1ms watchdog never trips the cap, while a predicate misfire — which
-     * retries at roughly 310,000/s — is turned into a ConnectionException in
-     * about 30ms. The loop stays cheap either way: each retry blocks in select(2)
-     * until the next signal, so the cost tracks the signal rate, not a spin.
+     * The value is deliberately far above any rate a program produces on
+     * purpose, because the cap punishes a *healthy* connection with the
+     * reconnect-triggering exception — the very failure #602 exists to remove.
+     * At 1,000,000, measured on an idle socket with a fork()ed SIGUSR1 sender:
+     *
+     *   ~141,000 signals/s (a pegged busy loop) -> ConnectionException after 7.1s
+     *   ~13,800 signals/s (50us gap)           -> after 72.6s
+     *   ~7,400 signals/s  (100us gap)          -> after 135.3s
+     *
+     * and extrapolating the same constant/rate relation: a 1ms tick (~875/s)
+     * needs ~19 minutes, and it takes ~16,700 signals/s sustained for a full
+     * minute to reach the cap at all. So nothing a real watchdog, supervisor or
+     * shutdown handler does can reach it, while a genuinely unbounded run still
+     * fails loudly in seconds. The loop itself stays cheap throughout: each
+     * retry blocks in select(2) until the next signal, so the cost tracks the
+     * signal rate (measured 0.4% of a core at 875/s, 2.7% at 14.9k/s) rather
+     * than spinning.
+     *
+     * This is a runaway guard, not a signal-rate policy. It is deliberately not
+     * covered by a test: pinning it needs 10^6 real consecutive EINTRs, which
+     * in turn needs an FFI harness that closes a socket's fd to force the
+     * predicate to lie — neither is portable enough for the unit suite.
      */
-    private const MAX_CONSECUTIVE_SELECT_INTERRUPTIONS = 10000;
+    private const MAX_CONSECUTIVE_SELECT_INTERRUPTIONS = 1000000;
 
     /**
      * Maximum number of publishing ids embedded in a PSR-3 warning context.
@@ -424,6 +442,18 @@ class StreamConnection
      *    via socket_last_error(). Tracked as a follow-up; #602 makes the
      *    predicate load-bearing for five call sites, so it is documented here
      *    rather than left as folklore in a scratch file.
+     *
+     * The matching error_clear_last() calls are not free: they discard the host
+     * application's own last-error record, so an application that inspects
+     * error_get_last() after a library call will find it cleared. That is the
+     * price of the stale-read mitigation above, and it is the only way to read a
+     * per-call outcome out of a process-global slot.
+     *
+     * Portability note: the substring match assumes strerror(EINTR) is
+     * "Interrupted system call". glibc deliberately excludes errno strings from
+     * gettext, so this holds under any LC_MESSAGES on glibc and on macOS
+     * (verified against Fedora, Debian and 7 macOS locales); a libc that does
+     * localise errno strings would need a match on the numeric reason instead.
      *
      * Callers must not treat a `false` here as proof of a non-EINTR failure, and
      * must keep a retry bounded independently: readLoop() caps consecutive
@@ -1283,19 +1313,23 @@ class StreamConnection
      *
      * A `stream_select()` interrupted by a signal (EINTR, #602) is retried
      * rather than treated as a failure. The retry is bounded: a select that
-     * returns at all resets the count, and more than
-     * {@see self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS} interruptions in a row
-     * raise the same ConnectionException as before. That matters because this
-     * is the only select site that can run without a `$timeout` — see
-     * {@see selectWasInterrupted()} for why the bound is needed.
+     * returns at all resets the count, and an unbroken run of more than 1,000,000
+     * interruptions in a row raises a `ConnectionException` naming the count
+     * ("stream_select failed in readLoop: 1000001 consecutive signal
+     * interruptions") — the same class this method has always raised here, with
+     * a message that says the wait was abandoned rather than that the socket
+     * failed. That bound matters because this is the only select site that can
+     * run without a `$timeout`, so it has no deadline to stop a retry; see
+     * {@see selectWasInterrupted()} for why the bound is needed at all.
      *
      * @param int|null   $maxFrames Maximum number of frames to process (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
      * @return int Number of frames processed (dispatched server-push frames plus any
      *             discarded non-server-push frames); 0 means the loop ended
      *             on timeout, stop() or disconnect without handling any frame
-     * @throws ConnectionException If the socket is not connected, or a select fails
-     *                             and is not a signal interruption
+     * @throws ConnectionException If the socket is not connected, if a select fails
+     *                             and is not a signal interruption, or if signal
+     *                             interruptions outrun the retry bound above
      */
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
