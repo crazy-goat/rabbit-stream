@@ -920,25 +920,37 @@ class StreamConnection
         if ($timeout !== null && $timeout > 0) {
             $deadline = microtime(true) + $timeout;
 
-            $read = null;
-            $write = [$stream];
-            $except = null;
+            // The timeout is a budget for the whole wait, not for one select(2):
+            // a select interrupted by a signal (EINTR, GitHub #602) is retried
+            // with whatever is left of it, so the caller sees the TimeoutException
+            // it asked for instead of a ConnectionException it would reconnect on.
+            while (true) {
+                $read = null;
+                $write = [$stream];
+                $except = null;
 
-            $remaining = $deadline - microtime(true);
-            if ($remaining <= 0) {
-                throw new TimeoutException("Write timeout: connection not ready for writing");
-            }
+                $remaining = $deadline - microtime(true);
+                if ($remaining <= 0) {
+                    throw new TimeoutException("Write timeout: connection not ready for writing");
+                }
 
-            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
+                [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
 
-            $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
+                $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
-            if ($ready === false) {
-                throw new ConnectionException("stream_select failed while waiting for write readiness");
-            }
+                if ($ready === false) {
+                    if (!$this->selectWasInterrupted()) {
+                        throw new ConnectionException("stream_select failed while waiting for write readiness");
+                    }
 
-            if ($ready === 0) {
-                throw new TimeoutException("Write timeout: connection not ready for writing");
+                    continue;
+                }
+
+                if ($ready === 0) {
+                    throw new TimeoutException("Write timeout: connection not ready for writing");
+                }
+
+                break;
             }
         }
 
@@ -1245,6 +1257,14 @@ class StreamConnection
             $ready = @stream_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
+                // A signal that lands inside select(2) fails it with EINTR, not
+                // with a broken socket (GitHub #602). Retry as a spurious
+                // wakeup: the loop head re-checks running/connected and
+                // recomputes the remaining budget, so a handler that calls
+                // stop() ends the loop cleanly and a deadline still holds.
+                if ($this->selectWasInterrupted()) {
+                    continue;
+                }
                 throw new ConnectionException('stream_select failed in readLoop');
             }
 
@@ -1497,35 +1517,54 @@ class StreamConnection
     {
         $stream = $this->requireStream();
 
-        $read = [$stream];
-        $write = null;
-        $except = null;
+        // The timeout is a budget for the whole call, not for one select(2): a
+        // select interrupted by a signal (EINTR, GitHub #602) is retried with
+        // whatever is left of it, so the caller never waits longer than it asked
+        // for and a SIGTERM handler does not crash the worker.
+        $deadline = microtime(true) + max(0.0, $timeout);
+        $retried = false;
 
-        if ($timeout > 0) {
-            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($timeout);
-        } else {
-            // A non-positive timeout is a non-blocking poll: sec = usec = 0.
-            $timeoutSec = 0;
-            $timeoutUsec = 0;
+        while (true) {
+            $remaining = $deadline - microtime(true);
+
+            // The first select always runs, so a non-positive $timeout stays a
+            // non-blocking poll. A retry only happens after an EINTR, and then
+            // the exhausted budget means "nothing readable right now" — the
+            // same answer a poll gives — so it returns null instead of spinning
+            // on a zero-length select.
+            if ($retried && $remaining <= 0) {
+                return null;
+            }
+
+            $read = [$stream];
+            $write = null;
+            $except = null;
+
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remaining));
+
+            $ready = @stream_select(
+                $read,
+                $write,
+                $except,
+                $timeoutSec,
+                $timeoutUsec
+            );
+
+            if ($ready === false) {
+                if (!$this->selectWasInterrupted()) {
+                    throw new ConnectionException('stream_select failed while waiting for frame data');
+                }
+
+                $retried = true;
+                continue;
+            }
+
+            if ($ready === 0) {
+                return null;
+            }
+
+            return $this->readFrameNoWait();
         }
-
-        $ready = @stream_select(
-            $read,
-            $write,
-            $except,
-            $timeoutSec,
-            $timeoutUsec
-        );
-
-        if ($ready === false) {
-            throw new ConnectionException('stream_select failed while waiting for frame data');
-        }
-
-        if ($ready === 0) {
-            return null;
-        }
-
-        return $this->readFrameNoWait();
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests;
 
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -34,6 +35,22 @@ use Psr\Log\NullLogger;
 
 class StreamConnectionTest extends TestCase
 {
+    /** Number of SIGALRM deliveries seen by the handler armed in armAlarm(). */
+    private int $alarms = 0;
+
+    /** Whether armAlarm() installed a handler that tearDown() has to remove. */
+    private bool $alarmArmed = false;
+
+    /**
+     * Inert for every test that never armed SIGALRM (GitHub #602 tests only).
+     */
+    protected function tearDown(): void
+    {
+        if ($this->alarmArmed) {
+            $this->disarmAlarm();
+        }
+    }
+
     public function testConnectUsesTcpSchemeWithoutTlsConfig(): void
     {
         // Nothing listens on this port, so stream_socket_client() fails
@@ -1817,6 +1834,241 @@ class StreamConnectionTest extends TestCase
 
         fclose($serverSocket);
         fclose($clientSocket);
+    }
+
+    /**
+     * GitHub #602 turned readFrame()'s single select into a deadline loop, so pin
+     * the non-blocking poll that used to live in the `$timeout > 0` / else
+     * branch: a non-positive timeout must still select exactly once and return
+     * immediately, never spin and never raise.
+     */
+    public function testReadFrameWithNonPositiveTimeoutStillPolls(): void
+    {
+        [$peer, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 2.0);
+        $this->injectSocket($connection, $clientSocket);
+
+        $start = microtime(true);
+        $this->assertNull($connection->readFrame(0), 'A zero timeout is a poll on an idle socket');
+        $this->assertLessThan(0.5, microtime(true) - $start, 'The poll must not block');
+
+        $payload = pack('nn', 0x0002, 1) . 'hi';
+        fwrite($peer, pack('N', strlen($payload)) . $payload);
+
+        $frame = $connection->readFrame(0);
+        $this->assertInstanceOf(ReadBuffer::class, $frame, 'A poll returns data that is already waiting');
+        $this->assertSame(0x0002, $frame->getUint16());
+
+        fclose($peer);
+    }
+
+    /**
+     * GitHub #602: readFrame() must survive a stream_select() interrupted by a
+     * signal (EINTR) instead of throwing a fake "stream_select failed"
+     * ConnectionException on a perfectly healthy connection.
+     *
+     * A worker running pcntl_async_signals(true) with a SIGTERM/SIGALRM handler
+     * (graceful shutdown, watchdog, supervisor) gets EINTR whenever the signal
+     * lands inside the select. The call must behave like a spurious wakeup: keep
+     * waiting out the original timeout and report the normal timeout result.
+     */
+    public function testReadFrameSurvivesEintr(): void
+    {
+        [$peer, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 2.0);
+        $this->injectSocket($connection, $clientSocket);
+        $this->armAlarm(1);
+
+        $start = microtime(true);
+        $frame = $connection->readFrame(2.0);
+        $elapsed = microtime(true) - $start;
+
+        $this->assertSame(1, $this->alarms, 'The signal must have interrupted the select');
+        $this->assertNull($frame, 'An idle connection times out with null, not an exception');
+        $this->assertGreaterThanOrEqual(
+            1.9,
+            $elapsed,
+            'The interrupted call must keep waiting out its original 2s timeout'
+        );
+
+        // The connection must still be usable, not just un-excepted: a frame
+        // that arrives after the interruption is read back byte for byte.
+        $late = $this->buildFrame(0x0002, 1, 'late');
+        fwrite($peer, $late);
+        $frame = $connection->readFrame(2.0);
+
+        $this->assertInstanceOf(ReadBuffer::class, $frame);
+        $this->assertSame(0x0002, $frame->getUint16());
+        $this->assertSame(1, $frame->getUint16());
+        $this->assertSame('late', $frame->getRemainingBytes(), 'The post-EINTR frame must be readable');
+
+        fclose($peer);
+    }
+
+    /**
+     * GitHub #602: the readLoop() select must retry on EINTR. The loop already
+     * recomputes its remaining budget and re-checks running/connected on every
+     * iteration, so a `continue` lets a signal handler that calls stop() end the
+     * loop cleanly instead of crashing the worker.
+     */
+    public function testReadLoopSurvivesEintr(): void
+    {
+        [$peer, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 2.0);
+        $this->injectSocket($connection, $clientSocket);
+        $this->armAlarm(1);
+
+        $handled = $connection->readLoop(null, 2.0);
+
+        $this->assertSame(1, $this->alarms, 'The signal must have interrupted the select');
+        $this->assertSame(0, $handled, 'An idle loop ends on its deadline having dispatched nothing');
+
+        // Still usable: the same connection dispatches a real server-push frame
+        // (a heartbeat, 0x0017) that arrives after the interruption.
+        fwrite($peer, $this->buildFrame(KeyEnum::HEARTBEAT->value, 1));
+
+        $this->assertSame(1, $connection->readLoop(1, 2.0));
+
+        fclose($peer);
+    }
+
+    /**
+     * GitHub #602: the sendFrame($frame, $timeout) write-wait must retry on
+     * EINTR and end with a TimeoutException once its deadline expires — not
+     * with a ConnectionException the caller would reconnect on.
+     */
+    public function testSendFrameWriteWaitSurvivesEintr(): void
+    {
+        [$peer, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 2.0);
+        $this->injectSocket($connection, $clientSocket);
+        $this->fillSendBuffer($clientSocket);
+        $this->armAlarm(1);
+
+        $start = microtime(true);
+
+        try {
+            $connection->sendFrame($this->buildFrame(0x0001, 1, 'ping'), 2.0);
+            self::fail('sendFrame should not succeed with a full send buffer');
+        } catch (TimeoutException) {
+            $this->assertSame(1, $this->alarms, 'The signal must have interrupted the select');
+            $this->assertGreaterThanOrEqual(
+                1.9,
+                microtime(true) - $start,
+                'The interrupted write-wait must keep waiting out its original 2s deadline'
+            );
+        }
+
+        // Still usable: once the peer drains the socket the very same connection
+        // writes the frame instead of staying broken.
+        $this->drainPeer($peer);
+        $frame = $this->buildFrame(0x0001, 1, 'after');
+
+        $this->assertSame(strlen($frame), $connection->sendFrame($frame, 2.0));
+
+        fclose($peer);
+    }
+
+    /**
+     * Control for #602: writeAll() — the sendFrame() path without a $timeout —
+     * already retries an EINTR select, so it must keep ending with a
+     * TimeoutException. This pins the reference behaviour the three sites above
+     * are being brought in line with.
+     */
+    public function testControlWriteAllAlreadyRetriesEintr(): void
+    {
+        [$peer, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 2.0);
+        $this->injectSocket($connection, $clientSocket);
+        $this->fillSendBuffer($clientSocket);
+        $this->armAlarm(1);
+
+        try {
+            $connection->sendFrame($this->buildFrame(0x0001, 1, 'ping'));
+            self::fail('sendFrame should not succeed with a full send buffer');
+        } catch (TimeoutException) {
+            $this->assertSame(1, $this->alarms, 'The signal must have interrupted the select');
+        } catch (ConnectionException $e) {
+            self::fail('writeAll() should retry EINTR, got: ' . $e->getMessage());
+        }
+
+        fclose($peer);
+    }
+
+    /**
+     * Arm SIGALRM to land inside the next stream_select() and count it.
+     *
+     * pcntl_async_signals(true) delivers the signal as soon as it arrives, which
+     * is what makes select(2) fail with EINTR inside the PHP stream layer.
+     */
+    private function armAlarm(int $seconds): void
+    {
+        if (!function_exists('pcntl_alarm') || !function_exists('pcntl_async_signals')) {
+            self::markTestSkipped('pcntl extension required');
+        }
+
+        $this->alarms = 0;
+        $this->alarmArmed = true;
+        pcntl_async_signals(true);
+        pcntl_signal(SIGALRM, function (): void {
+            $this->alarms++;
+        });
+        pcntl_alarm($seconds);
+    }
+
+    /**
+     * Cancel the alarm and restore the default SIGALRM disposition so a failing
+     * test cannot leave a stray handler behind for the rest of the suite.
+     */
+    private function disarmAlarm(): void
+    {
+        pcntl_alarm(0);
+        pcntl_signal(SIGALRM, SIG_DFL);
+        $this->alarmArmed = false;
+    }
+
+    /**
+     * Fill the client's send buffer so stream_select() for write blocks.
+     *
+     * @param resource $stream
+     */
+    private function fillSendBuffer($stream): void
+    {
+        $chunk = str_repeat('x', 65536);
+
+        while (true) {
+            $written = @fwrite($stream, $chunk);
+            if ($written === false || $written === 0) {
+                break;
+            }
+        }
+
+        $read = null;
+        $write = [$stream];
+        $except = null;
+        $this->assertSame(0, stream_select($read, $write, $except, 0, 0), 'send buffer must be full');
+    }
+
+    /**
+     * Read everything the client has queued so its send buffer has room again.
+     *
+     * @param resource $peer
+     */
+    private function drainPeer($peer): void
+    {
+        stream_set_blocking($peer, false);
+
+        while (true) {
+            $chunk = @fread($peer, 65536);
+            if ($chunk === false || $chunk === '') {
+                return;
+            }
+        }
     }
 
     /**
