@@ -2050,7 +2050,14 @@ class StreamConnectionTest extends TestCase
      */
     private function armAlarm(int $seconds): void
     {
-        if (!function_exists('pcntl_alarm') || !function_exists('pcntl_async_signals')) {
+        // Check every function the arm/disarm pair below actually calls: a
+        // partial disable_functions that removed only one of them would still
+        // fatal here rather than skip.
+        if (
+            !function_exists('pcntl_alarm')
+            || !function_exists('pcntl_async_signals')
+            || !function_exists('pcntl_signal')
+        ) {
             self::markTestSkipped('pcntl extension required');
         }
 

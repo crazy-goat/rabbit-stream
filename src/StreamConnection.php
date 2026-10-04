@@ -112,10 +112,11 @@ class StreamConnection
      * readLoop() is the one select site with no wall-clock bound of its own:
      * readLoop(null, null) runs until stop(), a disconnect or a real failure, so
      * a retry there is bounded by nothing but the predicate being right. An
-     * unbounded retry would be a 100%-CPU run that never returns and never marks
-     * the connection dead — strictly worse than the ConnectionException callers
-     * already handle. The counter resets on any select that returns (ready or
-     * timed out), so only an unbroken run of interruptions can trip it.
+     * unbounded retry would be a run that never returns and never marks the
+     * connection dead — strictly worse than the ConnectionException callers
+     * already handle, and the CPU cost climbs with the rate driving it (see the
+     * measurements below). The counter resets on any select that returns (ready
+     * or timed out), so only an unbroken run of interruptions can trip it.
      *
      * WHY THIS NUMBER, AND HOW TO READ IT
      *
@@ -140,10 +141,18 @@ class StreamConnection
      * needs ~19 minutes, and it takes ~16,700 signals/s sustained for a full
      * minute to reach the cap at all. So nothing a real watchdog, supervisor or
      * shutdown handler does can reach it, while a genuinely unbounded run still
-     * fails loudly in seconds. The loop itself stays cheap throughout: each
-     * retry blocks in select(2) until the next signal, so the cost tracks the
-     * signal rate (measured 0.4% of a core at 875/s, 2.7% at 14.9k/s) rather
-     * than spinning.
+     * fails loudly in seconds.
+     *
+     * The cost is bounded at every one of those rates, and it is worth stating
+     * with the rate attached, because "cheap" is only true relative to a
+     * particular rate. Each retry blocks in select(2) until the next signal
+     * rather than spinning, so measured on an idle socket it costs 0.4% of a
+     * core at ~875 signals/s, 2.7% at ~14,900/s and 15.8% at a pegged
+     * ~136,000/s storm (1.163s of CPU over 7.370s) — the last being the case
+     * this bound exists to end. A stalled select that returned instantly on a
+     * stream of spurious readiness, rather than a signal storm, is the only
+     * shape that would approach a full core, and that is not reachable from a
+     * select that blocks.
      *
      * This is a runaway guard, not a signal-rate policy. It is deliberately not
      * covered by a test: pinning it needs 10^6 real consecutive EINTRs, which
