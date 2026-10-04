@@ -106,6 +106,62 @@ class StreamConnection
     public const DEFAULT_MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8MB safety limit
 
     /**
+     * How many consecutive signal interruptions (EINTR) readLoop() tolerates
+     * before it gives up and raises ConnectionException again (#602).
+     *
+     * readLoop() is the one select site with no wall-clock bound of its own:
+     * readLoop(null, null) runs until stop(), a disconnect or a real failure, so
+     * a retry there is bounded by nothing but the predicate being right. An
+     * unbounded retry would be a run that never returns and never marks the
+     * connection dead — strictly worse than the ConnectionException callers
+     * already handle, and the CPU cost climbs with the rate driving it (see the
+     * measurements below). The counter resets on any select that returns (ready
+     * or timed out), so only an unbroken run of interruptions can trip it.
+     *
+     * WHY THIS NUMBER, AND HOW TO READ IT
+     *
+     * Trip time is exactly this constant divided by the signal rate — for any
+     * source fast enough that each new signal preempts the select before it can
+     * return (roughly anything above 1/s, since the loop caps each select at 1s).
+     * Below that rate the select times out, the counter resets, and the cap is
+     * unreachable. Verified with a fork()ed SIGUSR1 sender on an idle socket;
+     * trip times matched constant/rate to three significant figures at every
+     * rate tried.
+     *
+     * The value is deliberately far above any rate a program produces on
+     * purpose, because the cap punishes a *healthy* connection with the
+     * reconnect-triggering exception — the very failure #602 exists to remove.
+     * At 1,000,000, measured on an idle socket with a fork()ed SIGUSR1 sender:
+     *
+     *   ~141,000 signals/s (a pegged busy loop) -> ConnectionException after 7.1s
+     *   ~13,800 signals/s (50us gap)           -> after 72.6s
+     *   ~7,400 signals/s  (100us gap)          -> after 135.3s
+     *
+     * and extrapolating the same constant/rate relation: a 1ms tick (~875/s)
+     * needs ~19 minutes, and it takes ~16,700 signals/s sustained for a full
+     * minute to reach the cap at all. So nothing a real watchdog, supervisor or
+     * shutdown handler does can reach it, while a genuinely unbounded run still
+     * fails loudly in seconds.
+     *
+     * The cost is bounded at every one of those rates, and it is worth stating
+     * with the rate attached, because "cheap" is only true relative to a
+     * particular rate. Each retry blocks in select(2) until the next signal
+     * rather than spinning, so measured on an idle socket it costs 0.4% of a
+     * core at ~875 signals/s, 2.7% at ~14,900/s and 15.8% at a pegged
+     * ~136,000/s storm (1.163s of CPU over 7.370s) — the last being the case
+     * this bound exists to end. A stalled select that returned instantly on a
+     * stream of spurious readiness, rather than a signal storm, is the only
+     * shape that would approach a full core, and that is not reachable from a
+     * select that blocks.
+     *
+     * This is a runaway guard, not a signal-rate policy. It is deliberately not
+     * covered by a test: pinning it needs 10^6 real consecutive EINTRs, which
+     * in turn needs an FFI harness that closes a socket's fd to force the
+     * predicate to lie — neither is portable enough for the unit suite.
+     */
+    private const MAX_CONSECUTIVE_SELECT_INTERRUPTIONS = 1000000;
+
+    /**
      * Maximum number of publishing ids embedded in a PSR-3 warning context.
      *
      * A late PublishConfirm/PublishError can carry roughly 1,000,000 ids within
@@ -369,7 +425,49 @@ class StreamConnection
     /**
      * Whether the last failed stream_select() was only interrupted by a signal
      * (EINTR) rather than being a real failure — safe to retry (GitHub #402
-     * retained the old recv()/send() EINTR behaviour on the select-based path).
+     * retained the old recv()/send() EINTR behaviour on the select-based path;
+     * #602 extended it to readLoop(), readFrame() and the sendFrame() write-wait).
+     *
+     * HOW IT DECIDES, AND WHY THAT IS A KNOWN LIMITATION
+     *
+     * PHP's stream API exposes no errno for a failed stream_select(), so this
+     * reads error_get_last() and substring-matches the message. error_get_last()
+     * is a process-global, sticky slot — not one scoped to the select that just
+     * failed. Two consequences, both real:
+     *
+     *  - MITIGATED: a stale entry from an *earlier, unrelated* diagnostic could
+     *    be misread as this select's failure. Every select that consults this
+     *    predicate therefore calls error_clear_last() immediately beforehand, so
+     *    the only entry that can be observed is one the select itself produced.
+     *  - NOT MITIGABLE IN PHP: error_get_last() is filled by PHP's *internal*
+     *    error callback. An application that installs a swallowing
+     *    set_error_handler() (one that returns true) stops that callback from
+     *    running, so the slot stays null and a genuine EINTR is invisible here:
+     *    the EINTR retry silently does not happen and the original #602
+     *    ConnectionException stands. Equally, a real failure can be misread as
+     *    EINTR if some *other* diagnostic that says "interrupted system call"
+     *    lands in the slot. The sound fix is to stop using the stream layer for
+     *    this — socket_select() on an imported \Socket reports a per-socket errno
+     *    via socket_last_error(). Tracked as a follow-up; #602 makes the
+     *    predicate load-bearing for five call sites, so it is documented here
+     *    rather than left as folklore in a scratch file.
+     *
+     * The matching error_clear_last() calls are not free: they discard the host
+     * application's own last-error record, so an application that inspects
+     * error_get_last() after a library call will find it cleared. That is the
+     * price of the stale-read mitigation above, and it is the only way to read a
+     * per-call outcome out of a process-global slot.
+     *
+     * Portability note: the substring match assumes strerror(EINTR) is
+     * "Interrupted system call". glibc deliberately excludes errno strings from
+     * gettext, so this holds under any LC_MESSAGES on glibc and on macOS
+     * (verified against Fedora, Debian and 7 macOS locales); a libc that does
+     * localise errno strings would need a match on the numeric reason instead.
+     *
+     * Callers must not treat a `false` here as proof of a non-EINTR failure, and
+     * must keep a retry bounded independently: readLoop() caps consecutive
+     * interruptions (see self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS), the other
+     * four sites are bounded by their own deadline.
      */
     private function selectWasInterrupted(): bool
     {
@@ -920,25 +1018,41 @@ class StreamConnection
         if ($timeout !== null && $timeout > 0) {
             $deadline = microtime(true) + $timeout;
 
-            $read = null;
-            $write = [$stream];
-            $except = null;
+            // The timeout is a budget for the whole wait, not for one select(2):
+            // a select interrupted by a signal (EINTR, GitHub #602) is retried
+            // with whatever is left of it, so the caller sees the TimeoutException
+            // it asked for instead of a ConnectionException it would reconnect on.
+            while (true) {
+                $read = null;
+                $write = [$stream];
+                $except = null;
 
-            $remaining = $deadline - microtime(true);
-            if ($remaining <= 0) {
-                throw new TimeoutException("Write timeout: connection not ready for writing");
-            }
+                $remaining = $deadline - microtime(true);
+                if ($remaining <= 0) {
+                    throw new TimeoutException("Write timeout: connection not ready for writing");
+                }
 
-            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
+                [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
 
-            $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
+                // Drop any earlier diagnostic so selectWasInterrupted() can only
+                // see an error this select itself raised (#602).
+                error_clear_last();
 
-            if ($ready === false) {
-                throw new ConnectionException("stream_select failed while waiting for write readiness");
-            }
+                $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
-            if ($ready === 0) {
-                throw new TimeoutException("Write timeout: connection not ready for writing");
+                if ($ready === false) {
+                    if (!$this->selectWasInterrupted()) {
+                        throw new ConnectionException("stream_select failed while waiting for write readiness");
+                    }
+
+                    continue;
+                }
+
+                if ($ready === 0) {
+                    throw new TimeoutException("Write timeout: connection not ready for writing");
+                }
+
+                break;
             }
         }
 
@@ -981,6 +1095,11 @@ class StreamConnection
             }
 
             [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($remaining);
+
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see
+            // an error this select itself raised (#602).
+            error_clear_last();
+
             $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
@@ -1201,12 +1320,25 @@ class StreamConnection
      * If both `$maxFrames` and `$timeout` are null, the loop runs indefinitely
      * (until `stop()` or disconnect).
      *
+     * A `stream_select()` interrupted by a signal (EINTR, #602) is retried
+     * rather than treated as a failure. The retry is bounded: a select that
+     * returns at all resets the count, and an unbroken run of more than 1,000,000
+     * interruptions in a row raises a `ConnectionException` naming the count
+     * ("stream_select failed in readLoop: 1000001 consecutive signal
+     * interruptions") — the same class this method has always raised here, with
+     * a message that says the wait was abandoned rather than that the socket
+     * failed. That bound matters because this is the only select site that can
+     * run without a `$timeout`, so it has no deadline to stop a retry; see
+     * {@see selectWasInterrupted()} for why the bound is needed at all.
+     *
      * @param int|null   $maxFrames Maximum number of frames to process (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
      * @return int Number of frames processed (dispatched server-push frames plus any
      *             discarded non-server-push frames); 0 means the loop ended
      *             on timeout, stop() or disconnect without handling any frame
-     * @throws ConnectionException If the socket is not connected
+     * @throws ConnectionException If the socket is not connected, if a select fails
+     *                             and is not a signal interruption, or if signal
+     *                             interruptions outrun the retry bound above
      */
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
     {
@@ -1214,6 +1346,7 @@ class StreamConnection
 
         $this->running = true;
         $dispatched = 0;
+        $interruptions = 0;
         $deadline = $timeout !== null ? microtime(true) + $timeout : null;
 
         while ($this->running && $this->connected) {
@@ -1242,11 +1375,41 @@ class StreamConnection
                 [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout(min($remaining, 1));
             }
 
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see an error
+            // this select itself raised (#602).
+            error_clear_last();
+
             $ready = @stream_select($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
             if ($ready === false) {
+                // A signal that lands inside select(2) fails it with EINTR, not
+                // with a broken socket (GitHub #602). Retry as a spurious
+                // wakeup: the loop head re-checks running/connected and
+                // recomputes the remaining budget, so a handler that calls
+                // stop() ends the loop cleanly and a deadline still holds.
+                if ($this->selectWasInterrupted()) {
+                    $interruptions++;
+
+                    // readLoop(null, null) has no deadline, so nothing else stops
+                    // a retry here. Bound the unbroken run explicitly and fail
+                    // loudly rather than spin: a misfiring predicate would
+                    // otherwise burn a core forever without marking the
+                    // connection dead.
+                    if ($interruptions > self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS) {
+                        throw new ConnectionException(sprintf(
+                            'stream_select failed in readLoop: %d consecutive signal interruptions',
+                            $interruptions
+                        ));
+                    }
+
+                    continue;
+                }
                 throw new ConnectionException('stream_select failed in readLoop');
             }
+
+            // The select itself completed (with data or on timeout), so any
+            // earlier run of interruptions was a transient signal burst.
+            $interruptions = 0;
 
             if ($ready === 0) {
                 continue;
@@ -1497,35 +1660,58 @@ class StreamConnection
     {
         $stream = $this->requireStream();
 
-        $read = [$stream];
-        $write = null;
-        $except = null;
+        // The timeout is a budget for the whole call, not for one select(2): a
+        // select interrupted by a signal (EINTR, GitHub #602) is retried with
+        // whatever is left of it, so the caller never waits longer than it asked
+        // for and a SIGTERM handler does not crash the worker.
+        $deadline = microtime(true) + max(0.0, $timeout);
+        $retried = false;
 
-        if ($timeout > 0) {
-            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($timeout);
-        } else {
-            // A non-positive timeout is a non-blocking poll: sec = usec = 0.
-            $timeoutSec = 0;
-            $timeoutUsec = 0;
+        while (true) {
+            $remaining = $deadline - microtime(true);
+
+            // The first select always runs, so a non-positive $timeout stays a
+            // non-blocking poll. A retry only happens after an EINTR, and then
+            // the exhausted budget means "nothing readable right now" — the
+            // same answer a poll gives — so it returns null instead of spinning
+            // on a zero-length select.
+            if ($retried && $remaining <= 0) {
+                return null;
+            }
+
+            $read = [$stream];
+            $write = null;
+            $except = null;
+
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remaining));
+
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see
+            // an error this select itself raised (#602).
+            error_clear_last();
+
+            $ready = @stream_select(
+                $read,
+                $write,
+                $except,
+                $timeoutSec,
+                $timeoutUsec
+            );
+
+            if ($ready === false) {
+                if (!$this->selectWasInterrupted()) {
+                    throw new ConnectionException('stream_select failed while waiting for frame data');
+                }
+
+                $retried = true;
+                continue;
+            }
+
+            if ($ready === 0) {
+                return null;
+            }
+
+            return $this->readFrameNoWait();
         }
-
-        $ready = @stream_select(
-            $read,
-            $write,
-            $except,
-            $timeoutSec,
-            $timeoutUsec
-        );
-
-        if ($ready === false) {
-            throw new ConnectionException('stream_select failed while waiting for frame data');
-        }
-
-        if ($ready === 0) {
-            return null;
-        }
-
-        return $this->readFrameNoWait();
     }
 
     /**
@@ -1708,6 +1894,11 @@ class StreamConnection
             // splitSelectTimeout()'s non-negative precondition is enforced here
             // instead of depending on that non-local invariant.
             [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remainingTime));
+
+            // Drop any earlier diagnostic so selectWasInterrupted() can only see
+            // an error this select itself raised (#602).
+            error_clear_last();
+
             $ready = @stream_select($read, $write, $except, $timeoutSec, $timeoutUsec);
 
             if ($ready === false) {
