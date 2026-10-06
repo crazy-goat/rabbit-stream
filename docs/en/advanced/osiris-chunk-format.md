@@ -13,7 +13,9 @@ When consuming messages from RabbitMQ Streams, the server sends chunks of data v
 - **Chunk header** — Metadata about the chunk
 - **Entries** — Individual messages (or sub-batches of messages)
 
-The `OsirisChunkParser` class decodes these chunks into `ChunkEntry` objects.
+The `OsirisChunkParser` class decodes these chunks: `parse()` and
+`parseEntries()` return `ChunkEntry` objects, while `parseMessages()` returns
+zero-copy `Message` views (see [Memory Usage](#memory-usage)).
 
 ## Chunk Structure
 
@@ -21,29 +23,38 @@ The `OsirisChunkParser` class decodes these chunks into `ChunkEntry` objects.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        CHUNK HEADER                         │
+│                  CHUNK HEADER (48 bytes)                    │
 ├─────────────────────────────────────────────────────────────┤
 │  Byte 0     │ Magic (4 bits) + Version (4 bits)              │
 │  Byte 1     │ Chunk Type                                     │
 │  Bytes 2-3  │ Number of Entries (uint16)                     │
-│  Bytes 4-7  │ Reserved (uint32)                              │
-│  Bytes 8-15 │ Timestamp (int64)                              │
-│  Bytes 16-23│ Reserved (uint64)                              │
-│  Bytes 24-31│ Chunk First Offset (uint64)                    │
-│  Bytes 32-35│ Chunk CRC (uint32, CRC-32 of the data section)  │
-│  Bytes 36-39│ Reserved (uint32)                              │
-│  Bytes 40-43│ Reserved (uint32)                              │
-│  Byte 44    │ Reserved (uint8)                               │
+│  Bytes 4-7  │ Number of Records (uint32)                     │
+│  Bytes 8-15 │ Timestamp (int64, ms since Unix epoch)         │
+│  Bytes 16-23│ Epoch (uint64)                                 │
+│  Bytes 24-31│ Chunk First Offset / ChunkId (uint64)          │
+│  Bytes 32-35│ Chunk CRC (uint32, CRC-32 of the data section) │
+│  Bytes 36-39│ Data Length (uint32)                           │
+│  Bytes 40-43│ Trailer Length (uint32)                        │
+│  Byte 44    │ Bloom Size (uint8)                             │
 │  Bytes 45-47│ Reserved (3 bytes)                             │
 ├─────────────────────────────────────────────────────────────┤
-│                        ENTRIES                              │
-├─────────────────────────────────────────────────────────────┤
+│  DATA SECTION (Data Length bytes)                           │
 │  Entry 1    │ [Header] [Data]                                │
 │  Entry 2    │ [Header] [Data]                                │
 │  ...        │ ...                                            │
 │  Entry N    │ [Header] [Data]                                │
+├─────────────────────────────────────────────────────────────┤
+│  BLOOM FILTER + TRAILER (on disk only, not in Deliver)      │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+On the stream-protocol wire a `Deliver` (0x0008) frame carries the header and the
+data section **only** for user-data chunks — the bloom filter and trailer bytes
+are not transmitted. The header still declares their on-disk sizes (`Trailer
+Length`, `Bloom Size`), so those two fields are informational in a delivered
+chunk and a nonzero value with no bytes behind it is legitimate.
+`OsirisChunkParser` bounds entry parsing to exactly `Data Length` bytes and
+never reads past them.
 
 ### Header Details
 
@@ -64,15 +75,23 @@ Example: 0x50 = Magic 5, Version 0
 
 **Number of Entries (Bytes 2-3):**
 - Unsigned 16-bit integer
-- Count of entries in the chunk (not messages — sub-batches count as 1 entry)
+- Count of entries in the data section (not messages — a sub-batch counts as 1 entry)
+
+**Number of Records (Bytes 4-7):**
+- Unsigned 32-bit integer
+- Total records across all entries; a sub-batch contributes its inner record count, not 1
 
 **Timestamp (Bytes 8-15):**
 - Signed 64-bit integer (milliseconds since Unix epoch)
 - Applied to all entries in the chunk
 
+**Epoch (Bytes 16-23):**
+- Unsigned 64-bit integer
+- Leader epoch that wrote the chunk; used by the broker for replication and recovery
+
 **Chunk First Offset (Bytes 24-31):**
 - Unsigned 64-bit integer
-- Offset of the first message in this chunk
+- Offset of the first record in this chunk
 
 **Chunk CRC (Bytes 32-35):**
 - Unsigned 32-bit integer
@@ -80,6 +99,26 @@ Example: 0x50 = Magic 5, Version 0
   CRC-32 as `erlang:crc32` / PHP's `crc32()`)
 - Verified by `OsirisChunkParser` on every delivered chunk since #403;
   see the `verifyCrc` option on `Consumer` to disable it
+
+**Data Length (Bytes 36-39):**
+- Unsigned 32-bit integer
+- Length in bytes of the data section (the entries) that follows the header
+
+**Trailer Length (Bytes 40-43):**
+- Unsigned 32-bit integer
+- On-disk length of the trailer section
+- Informational only: a `Deliver` frame for a user-data chunk omits the trailer
+  bytes, so the field can be nonzero with no bytes behind it. The parser never
+  reads it.
+
+**Bloom Size (Byte 44):**
+- Unsigned 8-bit integer
+- On-disk size of the bloom filter section (used for stream filtering)
+- Informational only for the same reason as `Trailer Length`; the parser never
+  reads the bloom bytes
+
+**Reserved (Bytes 45-47):**
+- 3 bytes reserved for future extensions (alignment to 4 bytes)
 
 ## Entry Types
 
@@ -114,39 +153,47 @@ Data:   [500 bytes of AMQP message]
 
 ### Sub-Batch Entry
 
-A compressed batch of multiple messages:
+A sub-batch packs multiple messages into one entry. The entry header is a single
+byte, followed by a uint16 record count, the uncompressed and compressed sizes,
+and then the sub-batch body:
 
 ```
 ┌────────────────────────────────────────┐
-│  Header (4 bytes)                      │
-│  ├─ Bit 31: 1 (sub-batch flag)         │
-│  ├─ Bits 28-25: Codec (4 bits)         │
-│  └─ Bits 23-0: Uncompressed count     │
+│  Header (1 byte)                       │
+│  ├─ Bit 7: 1 (sub-batch flag)          │
+│  ├─ Bits 6-4: Codec (3 bits)           │
+│  └─ Bits 3-0: Reserved (0)             │
 ├────────────────────────────────────────┤
-│  Uncompressed Size (4 bytes)           │
+│  Number of Records (uint16, 2 bytes)   │
 ├────────────────────────────────────────┤
-│  Compressed Size (4 bytes)             │
+│  Uncompressed Size (uint32, 4 bytes)   │
 ├────────────────────────────────────────┤
-│  Compressed Data (N bytes)             │
+│  Compressed Size (uint32, 4 bytes)     │
+├────────────────────────────────────────┤
+│  Sub-Batch Data (Compressed Size bytes)│
 └────────────────────────────────────────┘
 ```
 
 **Header format:**
 ```
-1ccc cnnn nnnn nnnn nnnn nnnn nnnn nnnn
-└┬┘ └┬┘ └──────── count (24 bits) ─────┘
- │   │
- │   └─ Codec (4 bits): 0=none, 1=gzip, 2=snappy, 3=lz4, 4=zstd
+1ccc rrrr
+└┬┘ └─┬┘
+ │    └─ Reserved bits (0)
  │
- └─ 1 = sub-batch entry
+ └─ Codec (3 bits): 0=none, 1=gzip, 2=snappy, 3=lz4, 4=zstd
 ```
+
+The record count is the uint16 that immediately follows the header byte; it is
+**not** packed into the header. Each inner record is a uint32 length prefix
+followed by that many bytes of raw AMQP message data.
 
 **Example:**
 ```
-Header:             0x80 0x00 0x00 0x64  (sub-batch, codec=0, count=100)
-Uncompressed:     0x00 0x10 0x00 0x00  (65536 bytes)
-Compressed:       0x00 0x08 0x00 0x00  (32768 bytes)
-Data:             [32768 bytes of uncompressed message data]
+Header:            0x80             (sub-batch, codec=0, reserved=0)
+Number of records: 0x00 0x64        (100)
+Uncompressed:      0x00 0x01 0x00 0x00  (65536 bytes)
+Compressed:        0x00 0x00 0x80 0x00  (32768 bytes)
+Data:              [32768 bytes of uncompressed message data]
 ```
 
 ## Compression Support
@@ -207,11 +254,12 @@ foreach ($entries as $entry) {
 class ChunkEntry
 {
     public function __construct(
-        private int $offset,
-        private string $data,
-        private int $timestamp,
-    )
-    
+        private readonly int $offset,
+        private readonly string $data,
+        private readonly int $timestamp,
+    ) {
+    }
+
     public function getOffset(): int;
     public function getData(): string;      // Raw AMQP bytes
     public function getTimestamp(): int;    // Milliseconds since epoch
@@ -223,21 +271,18 @@ class ChunkEntry
 The `Consumer` class automatically uses `OsirisChunkParser`:
 
 ```php
-use CrazyGoat\RabbitStream\Client\Consumer;
-use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-$consumer = new Consumer(
-    connection: $connection,
+// $connection is a high-level CrazyGoat\RabbitStream\Client\Connection
+$consumer = $connection->createConsumer(
     stream: 'my-stream',
-    subscriptionId: 1,
     offset: OffsetSpec::next(),
 );
 
 // Internally, the Consumer:
-// 1. Receives Deliver response with chunk bytes
-// 2. Calls OsirisChunkParser::parse() to get ChunkEntry[]
-// 3. Calls AmqpMessageDecoder::decodeAll() to get Message[]
-// 4. Buffers messages for consumption
+// 1. Receives a Deliver frame with chunk bytes
+// 2. Calls OsirisChunkParser::parseMessages() to build zero-copy Message views
+// 3. Buffers messages for consumption
 
 $messages = $consumer->read();
 ```
@@ -250,7 +295,6 @@ $messages = $consumer->read();
 <?php
 
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
-use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
 use CrazyGoat\RabbitStream\Client\AmqpDecoder;
 
 // Raw chunk bytes from Deliver response
@@ -300,14 +344,18 @@ foreach ($messages as $message) {
 
 ### Offset Assignment
 
-Offsets are assigned sequentially within a chunk:
+Offsets are assigned sequentially within a chunk. `ChunkId` (the Chunk First
+Offset at header bytes 24-31) is the offset of the first record; every record
+after it — including each inner record of a sub-batch — advances the cursor by
+one:
 
 ```php
-$chunkFirstOffset = $buffer->getUint64();  // From header
+// ChunkId (Chunk First Offset) is header bytes 24-31
+$chunkFirstOffset = $buffer->getUint64();
 $currentOffset = $chunkFirstOffset;
 
-foreach ($entries as $entry) {
-    // Each entry gets the next offset
+foreach ($entries as $data) {
+    // Each record gets the current offset, then the cursor advances
     $entry = new ChunkEntry($currentOffset, $data, $timestamp);
     $currentOffset++;
 }
@@ -315,13 +363,18 @@ foreach ($entries as $entry) {
 
 ### Sub-Batch Offset Handling
 
-For sub-batches, each inner message gets its own offset:
+For a sub-batch, each inner record gets its own offset. The record count is the
+uint16 that follows the 1-byte entry header (see [Sub-Batch
+Entry](#sub-batch-entry)):
 
 ```php
 if ($isSubBatch) {
-    $uncompressedCount = $header & 0xFFFF;
-    
-    for ($j = 0; $j < $uncompressedCount; $j++) {
+    $recordCount = $buffer->getUint16();       // Number of records (uint16)
+    $uncompressedSize = $buffer->getUint32();
+    $compressedSize = $buffer->getUint32();
+
+    for ($j = 0; $j < $recordCount; $j++) {
+        // Each inner record is a uint32 length prefix + that many bytes
         $entries[] = new ChunkEntry($currentOffset, $innerData, $timestamp);
         $currentOffset++;
     }
@@ -370,10 +423,24 @@ if ($chunkType !== 0) {
 
 ### Memory Usage
 
-Chunks can be large (up to several MB). The parser:
-- Uses `substr()` to slice data without copying when possible
-- Creates `ChunkEntry` objects with references to data slices
-- Defers AMQP decoding until needed
+Chunks can be large (up to several MB). How much the parser copies depends on
+the entry point:
+
+- `parseMessages()` builds each `Message` as a zero-copy view
+  (`Message::fromChunkView()`), sharing the chunk buffer. PHP strings are
+  refcounted, so every message from one chunk just bumps that one buffer's
+  refcount instead of copying its own payload out — including sub-batch inner
+  records. The entry bytes are copied only once, later, when a message is
+  actually decoded.
+- `parse()` / `parseEntries()` return `ChunkEntry` objects that hold real byte
+  strings: each entry's payload is copied out of the chunk (`substr()`), and a
+  sub-batch payload is copied as well before its inner records are split. Use
+  this path only when you need `ChunkEntry` instances.
+- AMQP decoding is deferred on both paths until a `Message` accessor (or
+  `AmqpMessageDecoder`) actually needs the sections.
+
+Entry parsing is always bounded to the header's `Data Length`; the parser never
+reads into the bloom filter or trailer.
 
 ### Batch Processing
 
