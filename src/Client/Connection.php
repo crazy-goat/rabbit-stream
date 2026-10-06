@@ -1056,14 +1056,23 @@ class Connection implements ConnectionInterface
      *                                 message is decoded.
      * @param bool $verifyCrc Verify every delivered chunk's CRC-32 against its
      *                                 header (disable only if corruption is handled upstream).
+     * @param int $maxBufferSize Message-bound back-pressure ceiling: the target
+     *                                 maximum number of unread messages held in memory. A
+     *                                 delivered chunk is atomic and never split or dropped, so
+     *                                 no new credit is granted once the buffer is full yet every
+     *                                 chunk already granted still lands in full (the buffer can
+     *                                 overshoot by the chunks in flight, not by a single chunk).
+     *                                 Must be positive. See Consumer's constructor and class
+     *                                 docblock for the full chunk-vs-message contract.
      * @return ConsumerInterface A subscribed consumer whose subscription id stays reserved
      *                                 by this connection until the consumer is closed.
      * @throws ConnectionException If the socket is not connected, a write or read fails, or
      *                                 all MAX_CONCURRENT_SUBSCRIPTIONS subscription ids are in
      *                                 use.
-     * @throws InvalidArgumentException If $initialCredit is outside 1..Consumer::MAX_CREDIT,
-     *                                 $creditWindowBytes is negative, $maxDecodeDepth is below
-     *                                 1, $singleActiveConsumer is set without $name, or the
+     * @throws InvalidArgumentException If $maxBufferSize is not positive, $initialCredit is
+     *                                 outside 1..Consumer::MAX_CREDIT, $creditWindowBytes is
+     *                                 negative, $maxDecodeDepth is below 1,
+     *                                 $singleActiveConsumer is set without $name, or the
      *                                 serialized request exceeds the negotiated outgoing frame
      *                                 size.
      * @throws ProtocolException If the broker rejects the Subscribe with a non-OK response
@@ -1084,6 +1093,7 @@ class Connection implements ConnectionInterface
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         bool $verifyCrc = true,
+        int $maxBufferSize = 1000,
     ): ConsumerInterface {
         $subscriptionId = $this->allocateId(
             $this->subscriptionIdCursor,
@@ -1099,6 +1109,7 @@ class Connection implements ConnectionInterface
             $name,
             $autoCommit,
             $initialCredit,
+            maxBufferSize: $maxBufferSize,
             filterValues: $filterValues,
             matchUnfiltered: $matchUnfiltered,
             singleActiveConsumer: $singleActiveConsumer,
@@ -1223,6 +1234,8 @@ class Connection implements ConnectionInterface
      *                                 every partition's Consumer.
      * @param bool $verifyCrc Verify delivered chunk CRCs, passed through to every
      *                                 partition's Consumer.
+     * @param int $maxBufferSize Message-bound back-pressure ceiling, passed through
+     *                                 to every partition's Consumer. Must be positive.
      * @return SuperStreamConsumerInterface A consumer aggregating one plain Consumer per
      *                                 partition.
      * @throws ProtocolException If the super stream does not exist or has zero partitions,
@@ -1232,7 +1245,8 @@ class Connection implements ConnectionInterface
      * @throws ConnectionException If the socket is not connected, a write or read fails, or
      *                                 all MAX_CONCURRENT_SUBSCRIPTIONS subscription ids are in
      *                                 use.
-     * @throws InvalidArgumentException If a Consumer argument is out of range,
+     * @throws InvalidArgumentException If a Consumer argument is out of range
+     *                                 (including a non-positive $maxBufferSize),
      *                                 $singleActiveConsumer is set without $name, or a
      *                                 partitions() request — or a per-partition Subscribe
      *                                 request — exceeds the negotiated outgoing frame size.
@@ -1249,6 +1263,7 @@ class Connection implements ConnectionInterface
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         bool $verifyCrc = true,
+        int $maxBufferSize = 1000,
     ): SuperStreamConsumerInterface {
         $partitions = $this->partitions($superStream);
 
@@ -1266,6 +1281,7 @@ class Connection implements ConnectionInterface
                 creditWindowBytes: $creditWindowBytes,
                 maxDecodeDepth: $maxDecodeDepth,
                 verifyCrc: $verifyCrc,
+                maxBufferSize: $maxBufferSize,
             );
         }
 

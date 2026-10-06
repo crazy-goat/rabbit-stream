@@ -815,7 +815,6 @@ function benchmarkConsuming($connection, $config): array
 {
     $consumer = $connection->createConsumer(
         stream: $config['stream'],
-        subscriptionId: 1,
         offset: OffsetSpec::first(),
         initialCredit: 100,
         maxBufferSize: 1000,
@@ -873,13 +872,17 @@ foreach ($messages as $msg) {
 
 ```php
 // Fast processor: High credits
-new Consumer(
+$fastConsumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::first(),
     initialCredit: 500,
     maxBufferSize: 2000,
 );
 
 // Slow processor: Low credits
-new Consumer(
+$slowConsumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::first(),
     initialCredit: 10,
     maxBufferSize: 50,
 );

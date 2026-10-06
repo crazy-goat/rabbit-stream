@@ -70,6 +70,8 @@ interface ConnectionInterface
      *                            chunk-granular filtering — see Consumer's docblock).
      * @param int $maxDecodeDepth Maximum AMQP nesting depth accepted when a delivered
      *                            message is decoded — see Consumer's constructor (#450).
+     * @param int $maxBufferSize Message-bound back-pressure ceiling on unread
+     *                            messages; must be positive — see Consumer's constructor.
      */
     public function createConsumer(
         string $stream,
@@ -83,6 +85,8 @@ interface ConnectionInterface
         ?string $superStream = null,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        bool $verifyCrc = true,
+        int $maxBufferSize = 1000,
     ): ConsumerInterface;
 
     /**
@@ -103,6 +107,9 @@ interface ConnectionInterface
      * Create a consumer that subscribes to every partition of a super stream,
      * all sharing the same consumer $name (required for single active
      * consumer to group them server-side).
+     *
+     * @param int $maxBufferSize Message-bound back-pressure ceiling passed through
+     *                           to every partition's Consumer; must be positive.
      */
     public function createSuperStreamConsumer(
         string $superStream,
@@ -113,6 +120,8 @@ interface ConnectionInterface
         bool $singleActiveConsumer = false,
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        bool $verifyCrc = true,
+        int $maxBufferSize = 1000,
     ): SuperStreamConsumerInterface;
 
     public function readLoop(?int $maxFrames = null, ?float $timeout = null): int;
