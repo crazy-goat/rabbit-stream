@@ -4,7 +4,7 @@ This guide covers credit-based flow control, server-push frame handling, and asy
 
 ## Overview
 
-Flow control in RabbitMQ Streams prevents consumers from being overwhelmed by message delivery. The protocol uses a **credit-based mechanism** where the server tracks how many messages each consumer is allowed to receive. When credits run out, the server stops sending messages until the client replenishes them.
+Flow control in RabbitMQ Streams prevents consumers from being overwhelmed by message delivery. The protocol uses a **credit-based mechanism** where the server tracks how many **chunks** each consumer is allowed to receive (one credit = one chunk, not one message). When credits run out, the server stops sending chunks until the client replenishes them.
 
 This guide explains:
 - How credit-based flow control works
@@ -17,7 +17,8 @@ This guide explains:
 
 ### How Credits Work
 
-RabbitMQ Streams uses a simple but effective credit system:
+RabbitMQ Streams uses a simple but effective credit system, counted in
+**chunks**:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -30,31 +31,59 @@ RabbitMQ Streams uses a simple but effective credit system:
        │ ───────────────────────────────────────────────►  │
        │                                                   │
        │     Server allocates 10 credits                   │
-       │     for this subscription                         │
+       │     = 10 future chunk deliveries                  │
        │                                                   │
-       │     Deliver [msg 1]  ◄── credit 9 remaining       │
+       │     Deliver [chunk 1: 5000 msgs] ◄── credit 9     │
        │ ◄───────────────────────────────────────────────  │
-       │     Deliver [msg 2]  ◄── credit 8 remaining       │
+       │     Deliver [chunk 2: 5000 msgs] ◄── credit 8     │
        │ ◄───────────────────────────────────────────────  │
        │              ...                                  │
-       │     Deliver [msg 10] ◄── credit 0 remaining       │
+       │     Deliver [chunk 10] ◄─────────── credit 0      │
        │ ◄───────────────────────────────────────────────  │
        │                                                   │
        │  Server stops sending (no credits left)           │
        │                                                   │
-       │  Credit (credit=5)                                  │
+       │  Credit (credit=5)                                │
        │ ───────────────────────────────────────────────►  │
        │                                                   │
        │     Server adds 5 credits                         │
-       │     Deliver [msg 11] ◄── credit 4 remaining       │
+       │     Deliver [chunk 11] ◄─────────── credit 4      │
        │ ◄───────────────────────────────────────────────  │
 ```
 
-**Key principle:** One credit equals one message. The server decrements credits for each message sent and stops when credits reach zero.
+**Key principle:** One credit equals one **chunk**, not one message. The server
+always delivers whole chunks (one Deliver frame = one chunk, atomic on the wire,
+from 1 to thousands of messages each), decrements one credit per chunk no matter
+how many messages it holds, and stops when credits reach zero.
 
-### Initial Credit
+### Initial Credit and the Adaptive Window
 
-When subscribing to a stream, you specify the initial credit via the `SubscribeRequestV1`. This guide shows the low-level API — the snippets use a raw `StreamConnection` (`$stream`):
+`initialCredit` is the **floor** of the in-flight chunk window. It is passed as
+`credit` to `SubscribeRequestV1` (low-level API) and as `initialCredit` to
+`Connection::createConsumer()` (high-level), and must be between `1` and
+`Consumer::MAX_CREDIT` (`32767`).
+
+It is a floor, not the whole window. Since #500 the `Consumer` also sizes the
+window in **bytes**: it measures the chunk sizes it receives and keeps
+`ceil(creditWindowBytes / averageChunkSize)` chunks in flight, never fewer than
+`initialCredit` and never more than `MAX_CREDIT`:
+
+```
+creditTarget = min(MAX_CREDIT, max(initialCredit, ceil(creditWindowBytes / avgChunkBytes)))
+```
+
+`creditWindowBytes` defaults to 8 MiB and is what adapts to the producer's
+batching — a plain stream fed by one `sendBatch()` producer easily has thousands
+of 1 KB messages per chunk, while a super-stream partition fed one message at a
+time has a handful. So `initialCredit: 10` with the default window can mean tens
+of MB in flight on the first case and a few hundred messages on the second.
+Setting `creditWindowBytes: 0` disables the adaptation and pins the window to
+exactly `initialCredit` chunks. `Consumer::getCreditTarget()` exposes the current
+target for monitoring, and the `maxBufferSize` gate (no credit while too many
+unread messages are buffered) still applies on top of the window.
+
+This guide shows the low-level API — the snippet uses a raw `StreamConnection`
+(`$stream`):
 
 ```php
 <?php
@@ -71,12 +100,12 @@ $stream = new StreamConnection('127.0.0.1', 5552);
 $stream->connect();
 $connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
 
-// Subscribe with initial credit of 100
+// Subscribe with an initial credit of 100 chunks
 $subscribe = new SubscribeRequestV1(
     subscriptionId: 1,
     stream: 'my-stream',
     offsetSpec: OffsetSpec::next(),
-    credit: 100  // Initial credit
+    credit: 100  // initial credit: up to 100 chunks may be sent before any replenishment
 );
 
 $stream->sendMessage($subscribe);
@@ -84,54 +113,58 @@ $response = $stream->readMessage();
 ```
 
 > The high-level `Connection::createConsumer()` performs the subscribe and
-> manages credits internally — you only tune the `initialCredit` parameter.
-
-**Choosing the right value:**
-
-| Credit Value | Use Case | Trade-off |
-|--------------|----------|-----------|
-| 1-10 | Low latency, strict ordering | High network overhead |
-| 50-100 | Balanced throughput | Good default for most apps |
-| 500+ | High throughput, batch processing | Higher memory usage |
-
-**Trade-offs:**
-- **Low credit**: Lower latency (messages processed immediately), but more network round-trips for credit replenishment
-- **High credit**: Better throughput (fewer credit requests), but higher memory usage and potential for message backlog
-
-### Credit Is Counted in Chunks, Not Bytes
-
-One credit lets the broker send one **chunk**, and a chunk is whatever the
-producer's writes were batched into. A plain stream fed by one `sendBatch()`
-producer easily has thousands of 1 KB messages per chunk; a super-stream
-partition fed by `send()` one message at a time over a network has a handful.
-With `initialCredit: 10` that is the difference between ~38 MB and ~50 messages
-in flight per round trip.
-
-The `Consumer` therefore adapts the window (#500): it measures the chunk sizes
-it receives and keeps `ceil(creditWindowBytes / averageChunkSize)` chunks in
-flight, never fewer than `initialCredit` and never more than 32,767 (RabbitMQ
-decodes the Credit field as a signed 16-bit integer; larger values silently
-stop the subscription). The default window is 8 MiB.
+> manages credits internally — you tune `initialCredit` (the floor) and
+> `creditWindowBytes` (the adaptive byte target).
 
 ```php
-// Small chunks over a slow link: allow a bigger window
+// Default: an 8 MiB adaptive window, at least initialCredit chunks in flight
 $consumer = $connection->createConsumer(
     'orders-0',
     OffsetSpec::first(),
-    creditWindowBytes: 32 * 1024 * 1024,
+    creditWindowBytes: 32 * 1024 * 1024,  // bigger window for small chunks / slow link
 );
 
-// Fixed behaviour: exactly initialCredit chunks in flight, as before 3.x
-$consumer = $connection->createConsumer('orders', OffsetSpec::first(), initialCredit: 10, creditWindowBytes: 0);
+// Fixed behaviour: exactly initialCredit chunks in flight, adaptation disabled
+$consumer = $connection->createConsumer(
+    'orders',
+    OffsetSpec::first(),
+    initialCredit: 10,
+    creditWindowBytes: 0,
+);
 ```
 
-`Consumer::getCreditTarget()` exposes the current target for monitoring. The
-`maxBufferSize` gate (no credit while too many unread messages are buffered)
-still applies on top of the window.
+### Choosing initialCredit
+
+Because the adaptive window does the real work, `initialCredit` is a **floor**:
+the number of chunks the consumer is guaranteed to have in flight before it has
+measured anything, and the minimum the target ever falls back to. Choose it from
+how much data one chunk is and how fast you consume, not from a message count:
+
+| `initialCredit` | When it fits | Trade-off |
+|-----------------|--------------|-----------|
+| `1` | Slow consumer, or large chunks (a batching producer, a super-stream partition with big batches) | One chunk in flight until the adaptive window measures the stream: lowest starting memory, most initial round trips |
+| `10` (default) | General-purpose floor | Good starting point; the adaptive window raises it automatically |
+| `50`-`100` | High throughput, small chunks, low-latency link | More memory; mostly a head start before adaptation kicks in |
+| `500`+ | Very high throughput where the window must start high | Highest memory; prefer raising `creditWindowBytes` instead |
+
+The floor matters most when chunks are large: `initialCredit: 100` with
+5,000-message chunks means up to ~500,000 messages may arrive before any
+replenishment, so a slow consumer with large chunks should keep the floor small.
+When chunks are small the adaptive window raises the target on its own, so the
+floor mainly sets the first round trip.
+
+**Trade-offs:**
+- **Low floor**: lower latency (fewer messages buffered before processing), but
+  more round-trips until the adaptive window takes over
+- **High floor**: a faster start and better throughput, but a higher memory floor
+  and potential for a large backlog
 
 ### Credit Replenishment
 
-After processing messages, send a `CreditRequestV1` to replenish credits. This happens inside your `registerSubscriber()` deliver callback (low-level API):
+The server consumes one credit per delivered chunk, so replenish **one credit
+per chunk you have processed** — not per message. With the high-level `Consumer`
+this is automatic; the low-level API sends `CreditRequestV1` inside your
+`registerSubscriber()` deliver callback:
 
 ```php
 <?php
@@ -140,71 +173,69 @@ use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
 use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 
-// Inside your registerSubscriber() callback:
+// Inside your registerSubscriber() callback, once per delivered chunk:
 $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
 
-// Process 50 messages
 foreach ($messages as $message) {
     processMessage($message);
 }
 
-// Replenish 50 credits
-$creditRequest = new CreditRequestV1(
-    subscriptionId: 1,
-    credit: 50
-);
-
-$stream->sendMessage($creditRequest);
+// Replenish 1 credit: this chunk is done, invite exactly one more chunk
+$stream->sendMessage(new CreditRequestV1(1, 1));
 ```
+
+> **One credit per chunk, never `count($messages)`.** `count($messages)` is a
+> *message* count; sending it would grant the server thousands of extra chunk
+> deliveries and let the in-memory backlog run away. Credit is chunk-granular on
+> the wire.
 
 **Replenishment Strategies:**
 
-1. **Message-by-message** (low latency):
+1. **Per chunk** (lowest latency) — send one credit for every chunk as you finish it:
    ```php
    $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream): void {
        $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
        foreach ($messages as $message) {
            processMessage($message);
        }
-       // Replenish 1 credit immediately
+       // One chunk in, one chunk out
        $stream->sendMessage(new CreditRequestV1(1, 1));
    });
    ```
 
-2. **Batch replenishment** (high throughput):
+2. **Batched** (fewer frames, higher throughput) — count completed chunks and replenish every N:
    ```php
-   $processedCount = 0;
-   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream, &$processedCount): void {
+   $chunksDone = 0;
+   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream, &$chunksDone): void {
        $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
        foreach ($messages as $message) {
            processMessage($message);
-           $processedCount++;
        }
        
-       // Replenish every 50 messages
-       if ($processedCount >= 50) {
-           $stream->sendMessage(new CreditRequestV1(1, 50));
-           $processedCount = 0;
+       // Replenish 10 chunk credits every 10 delivered chunks
+       if (++$chunksDone >= 10) {
+           $stream->sendMessage(new CreditRequestV1(1, $chunksDone));
+           $chunksDone = 0;
        }
    });
    ```
 
-3. **Periodic replenishment** (time-based):
+3. **Periodic** (time-based) — flush the accumulated chunk count on a timer:
    ```php
    $lastReplenish = microtime(true);
-   $processedCount = 0;
+   $chunksDone = 0;
    
-   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream, &$lastReplenish, &$processedCount): void {
+   $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($stream, &$lastReplenish, &$chunksDone): void {
        $messages = AmqpMessageDecoder::decodeAll(OsirisChunkParser::parse($deliver->getChunkBytes()));
        foreach ($messages as $message) {
            processMessage($message);
-           $processedCount++;
        }
+       $chunksDone++;
        
-       // Replenish every 100ms or 100 messages
-       if ($processedCount >= 100 || (microtime(true) - $lastReplenish) > 0.1) {
-           $stream->sendMessage(new CreditRequestV1(1, $processedCount));
-           $processedCount = 0;
+       // Replenish every 100ms, one credit per chunk delivered in that window
+       if ((microtime(true) - $lastReplenish) > 0.1) {
+           $stream->sendMessage(new CreditRequestV1(1, $chunksDone));
+           $chunksDone = 0;
            $lastReplenish = microtime(true);
        }
    });
@@ -212,12 +243,12 @@ $stream->sendMessage($creditRequest);
 
 ### Running Out of Credits
 
-When credits reach zero, the server stops sending messages. This is **not an error** — it's the intended backpressure mechanism.
+When credits reach zero, the server stops sending chunks. This is **not an error** — it's the intended backpressure mechanism.
 
 **What happens:**
 1. Server tracks credits per subscription
-2. Each `Deliver` frame decrements the credit counter
-3. When credits reach 0, server stops sending
+2. Each `Deliver` frame (one chunk) decrements the credit counter by one
+3. When credits reach 0, server stops sending chunks
 4. Client must send `CreditRequestV1` to resume delivery
 
 **How to detect:**
@@ -226,12 +257,13 @@ When credits reach zero, the server stops sending messages. This is **not an err
 - Other operations (heartbeats, confirms) continue normally
 
 **Recovery:**
-Simply send a `CreditRequestV1` to add more credits (low-level API):
+Send a `CreditRequestV1` with the number of chunks consumed since the last
+replenishment (low-level API):
 
 ```php
-// Check if we need more credits
-if ($messagesProcessed > 0) {
-    $stream->sendMessage(new CreditRequestV1($subscriptionId, $messagesProcessed));
+// One credit per chunk processed
+if ($chunksProcessed > 0) {
+    $stream->sendMessage(new CreditRequestV1($subscriptionId, $chunksProcessed));
 }
 ```
 
@@ -458,8 +490,8 @@ echo "All messages confirmed!\n";
        foreach ($messages as $message) {
            processMessage($message);
        }
-       // Replenish credit
-       $stream->sendMessage(new CreditRequestV1(1, count($messages)));
+       // Replenish one credit for this chunk (credit is chunk-granular)
+       $stream->sendMessage(new CreditRequestV1(1, 1));
    });
    $stream->readLoop(timeout: 30.0);
    ```
@@ -686,8 +718,8 @@ $stream->registerSubscriber(1, function (DeliverResponseV1 $deliver) use ($strea
         processOrder($message);
     }
     
-    // Replenish credits
-    $stream->sendMessage(new CreditRequestV1(1, count($messages)));
+    // Replenish one credit for this chunk (credit is chunk-granular)
+    $stream->sendMessage(new CreditRequestV1(1, 1));
 });
 
 // Run event loop
@@ -698,12 +730,19 @@ $stream->readLoop();
 
 ### Credit Tuning
 
-1. **Start with 100 credits** — Good default for most applications
-2. **Monitor memory usage** — High credits = more messages buffered
+Credits are **chunks**, so size the window from chunk size and consume speed,
+not from a message count.
+
+1. **Let the adaptive window do the work** — the default `creditWindowBytes`
+   (8 MiB) already targets a byte volume; only lower `initialCredit` (the floor)
+   for a slow consumer or large chunks
+2. **Monitor memory usage** — a high `initialCredit` with large chunks means a
+   large backlog; use `maxBufferSize` to bound unread messages
 3. **Adjust based on processing time**:
-   - Fast processing (< 10ms): Use 200-500 credits
-   - Slow processing (> 100ms): Use 10-50 credits
-4. **Replenish promptly** — Don't wait too long to send `CreditRequestV1`
+   - Fast processing (< 10 ms per chunk): raise `creditWindowBytes` or `initialCredit`
+   - Slow processing (> 100 ms per chunk): keep `initialCredit` small, lower `maxBufferSize`
+4. **Replenish one credit per chunk** — never `count($messages)`; the high-level
+   `Consumer` does this automatically
 
 ### Async Patterns
 

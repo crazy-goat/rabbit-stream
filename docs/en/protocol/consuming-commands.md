@@ -26,7 +26,7 @@ CorrelationId: (uint32)
 subscriptionId: uint8 (0-255, unique per connection)
 stream:        string (target stream name)
 offsetSpec:    OffsetSpec (variable encoding)
-credit:        uint16 (initial credit, typically 1-10)
+credit:        uint16 (initial credit, in chunks; typically 1-10)
 ```
 
 **OffsetSpec Encoding:**
@@ -47,7 +47,7 @@ Types:
 | `subscriptionId` | uint8 | Unique identifier (0-255) for this consumer |
 | `stream` | string | Name of the stream to consume from |
 | `offsetSpec` | OffsetSpec | Where to start consuming (FIRST, LAST, NEXT, OFFSET, TIMESTAMP) |
-| `credit` | uint16 | Initial flow control credit (messages server can send) |
+| `credit` | uint16 | Initial flow control credit, in **chunks** (1 credit = 1 chunk delivery, not 1 message) |
 
 **OffsetSpec Types:**
 | Type | Value | Description |
@@ -163,14 +163,14 @@ Key:        0x0009 (uint16)
 Version:    1 (uint16)
 CorrelationId: (uint32)
 subscriptionId: uint8
-credit:        uint16 (additional credit to grant)
+credit:        int16 (additional credit to grant)
 ```
 
 **Request Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
 | `subscriptionId` | uint8 | Consumer to grant credit to |
-| `credit` | uint16 | Additional messages server can send |
+| `credit` | int16 | Additional **chunks** server can send (1 credit = 1 chunk) |
 
 **Response Frame Structure:**
 ```
@@ -182,21 +182,25 @@ ResponseCode:  uint16 (0x0001 = OK)
 
 **Flow Control Pattern:**
 ```
-1. Subscribe with initial credit (e.g., 10)
-2. Server sends up to 10 Deliver frames
-3. When consumer processes messages, send Credit to replenish
+1. Subscribe with initial credit (e.g., 10 chunks)
+2. Server sends up to 10 Deliver frames (one chunk each)
+3. When the consumer processes a chunk, send Credit to replenish (one credit per chunk)
 4. Credit is cumulative - sending 10 twice = 20 total credit
 ```
+
+> **Cap: 32767.** RabbitMQ decodes the Credit field as a signed 16-bit integer,
+> so values of 32768 and above go negative and silently stop the subscription.
+> The client caps every credit frame at `Consumer::MAX_CREDIT = 32767`.
 
 **PHP Implementation:**
 ```php
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 
-// Grant more credit after processing messages
+// Grant more credit after processing a chunk
 $stream->sendMessage(new CreditRequestV1(
     subscriptionId: 1,
-    credit: 10  // Allow 10 more messages
+    credit: 10  // Allow 10 more chunks
 ));
 
 $response = $stream->readMessage();

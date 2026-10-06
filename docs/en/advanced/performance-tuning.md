@@ -224,9 +224,13 @@ $consumer = new Consumer(
 ```
 
 **Guidelines:**
-- **Low (1-10):** Memory-constrained consumers, slow processing
-- **Medium (50-100):** Balanced throughput and memory
-- **High (500+):** High-throughput consumers with fast processing
+- **Low (1-10 chunks):** Memory-constrained consumers, slow processing
+- **Medium (50-100 chunks):** Balanced throughput and memory
+- **High (500+ chunks):** High-throughput consumers with fast processing
+
+`initialCredit` is the **floor** of the adaptive window: `creditWindowBytes`
+(default 8 MiB) raises the in-flight chunk target above it automatically, so
+these values mainly set the starting minimum and the first round trip.
 
 ### Credit Management Internals
 
@@ -306,7 +310,7 @@ $consumer = new Consumer(
 
 ### Buffer Size Guidelines
 
-| Consumer Type | maxBufferSize | Initial Credit |
+| Consumer Type | maxBufferSize (messages) | initialCredit (chunks) |
 |--------------|---------------|----------------|
 | Fast processor | 100-500 | 50-100 |
 | Slow processor | 10-50 | 5-10 |

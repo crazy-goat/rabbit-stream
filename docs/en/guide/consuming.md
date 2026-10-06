@@ -587,13 +587,19 @@ is created. For the full chunk-vs-message contract, see the
 
 ### Credit Guidelines
 
+Credits are **chunk-granular**: one credit admits one future chunk delivery,
+whatever its message count. Size the window from chunk size and consume speed,
+not from a message count.
+
 | Credit Value | Use Case | Trade-off |
 |--------------|----------|-----------|
-| 1-10 | Low latency, strict ordering | High network overhead |
-| 50-100 | Balanced throughput | Good default for most apps |
-| 500+ | High throughput, batch processing | Higher memory usage |
+| 1-10 | Slow consumer, or large chunks (a batching producer) | Low memory, more round-trips |
+| 10-50 | Balanced | Good default floor for most apps |
+| 100+ | High throughput, small chunks | Higher memory |
 
-For detailed flow control documentation, see [Flow Control Guide](flow-control.md).
+The adaptive `creditWindowBytes` window (default 8 MiB) raises the target above
+this floor automatically, so `initialCredit` is only the starting minimum. For
+detailed flow control documentation, see [Flow Control Guide](flow-control.md).
 
 ## 7. Stream Filtering
 
@@ -762,8 +768,8 @@ $stream->registerSubscriber(
             echo "Body: {$message->getBody()}\n";
         }
         
-        // Replenish credits
-        $stream->sendMessage(new CreditRequestV1(1, count($messages)));
+        // Replenish one credit for this chunk (credit is chunk-granular)
+        $stream->sendMessage(new CreditRequestV1(1, 1));
     }
 );
 
@@ -889,8 +895,8 @@ $stream->registerSubscriber(1, function ($deliver) use ($stream, &$processed) {
         ));
     }
     
-    // Replenish credits
-    $stream->sendMessage(new CreditRequestV1(1, count($messages)));
+    // Replenish one credit for this chunk (credit is chunk-granular)
+    $stream->sendMessage(new CreditRequestV1(1, 1));
 });
 
 // Process 100 deliver frames

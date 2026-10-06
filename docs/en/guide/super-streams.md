@@ -352,7 +352,7 @@ partition a message in the aggregated `read()`/`readOne()` result came from.
 > chunks. The consumer adapts its credit window in bytes (`creditWindowBytes`,
 > default 8 MiB), so small chunks over a network no longer throttle it to a few
 > messages per round trip; raise it for high-latency links. See
-> [Flow Control](flow-control.md#credit-is-counted-in-chunks-not-bytes).
+> [Flow Control](flow-control.md#initial-credit-and-the-adaptive-window).
 
 ### read() vs. readOne()
 

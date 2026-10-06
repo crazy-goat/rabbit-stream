@@ -25,7 +25,7 @@ The `KeyEnum` is a backed enum (`int`) that defines all protocol command keys. R
 |------|-----|-------------|
 | `SUBSCRIBE` | 0x0007 | Subscribe to a stream |
 | `DELIVER` | 0x0008 | Server-push message delivery |
-| `CREDIT` | 0x0009 | Grant credits for message delivery |
+| `CREDIT` | 0x0009 | Grant chunk credit for delivery (1 credit = 1 chunk) |
 | `STORE_OFFSET` | 0x000a | Store consumer offset |
 | `QUERY_OFFSET` | 0x000b | Query stored offset |
 | `UNSUBSCRIBE` | 0x000c | Unsubscribe from a stream |
