@@ -147,6 +147,7 @@ use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 $messages = [
     new PublishedMessageV2(
         publishingId: 1,
+        filterValue: 'europe',
         message: $encodedMessage
     ),
 ];

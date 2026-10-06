@@ -604,7 +604,7 @@ class RobustStreamClient
         $this->producer?->waitForConfirms(timeout: $timeout);
     }
 
-    /** @return Message[] */
+    /** @return \CrazyGoat\RabbitStream\Client\Message[] */
     public function read(float $timeout = 5.0): array
     {
         return $this->consumer?->read($timeout) ?? [];
