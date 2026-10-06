@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-07
+
 ### Added
 - **Feature: `maxBufferSize` is now exposed on `Connection::createConsumer()` and `createSuperStreamConsumer()` (#435)** — the `Consumer` constructor already had the message-granular back-pressure ceiling, but the convenience factories never passed it through, so callers could not reach it (and `docs/en/advanced/performance-tuning.md` presented a `maxBufferSize:` named argument that did not exist, a fatal `Unknown named parameter` error). Both methods now accept `int $maxBufferSize = 1000`, validate it (a non-positive value throws `InvalidArgumentException`, exactly as `Consumer` already did) and pass it to the underlying `Consumer`(s). `ConnectionInterface` gained the parameter too. Existing callers are unaffected.
 - **Process: `LICENSE` (MIT), the shared crazy-goat development process and release workflow (#570)** — `docs/workflow.md` now follows the shared template (worktree per issue, `findings.md` / `review.md` scratch files, follow-up issues after the merge), `docs/release-workflow.md` documents the release flow, and `bin/pick-issue.sh`, `bin/worktree.sh`, `bin/worktree-done.sh`, `bin/worktree-setup.sh` and `bin/worktree-teardown.sh` support it. Issue forms, a pull request template, Dependabot (composer and GitHub Actions) and a `release.yml` workflow that publishes the GitHub Release notes from the matching `CHANGELOG.md` section on a `v*` tag were added.
