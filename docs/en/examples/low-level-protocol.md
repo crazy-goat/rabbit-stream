@@ -22,7 +22,6 @@ use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
-use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
