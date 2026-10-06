@@ -78,7 +78,9 @@ interface SuperStreamConsumerInterface
      *
      * @param string $partition Partition (physical stream) name.
      * @param int $offset Next offset to consume for that partition.
-     * @throws InvalidArgumentException If $partition is not a partition of this super stream.
+     * @throws InvalidArgumentException If $partition is not a partition of this super
+     *                            stream, or the StoreOffset frame exceeds the negotiated
+     *                            outgoing frame size.
      * @throws ProtocolException If the partition's consumer has no name.
      * @throws ConnectionException If the socket is not connected or the write fails.
      * @throws TimeoutException If the write does not complete within the socket timeout.
@@ -138,6 +140,8 @@ interface SuperStreamConsumerInterface
      * @throws DeserializationException If an Unsubscribe response frame cannot be
      *                            deserialized.
      * @throws TimeoutException If an Unsubscribe response does not arrive in time.
+     * @throws InvalidArgumentException If an Unsubscribe (or an auto-commit StoreOffset)
+     *                            frame exceeds the negotiated outgoing frame size.
      */
     public function close(): void;
 }

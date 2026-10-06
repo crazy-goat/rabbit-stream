@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
+use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 
 /**
  * Publishes to a super stream's partitions, routing each message through a
@@ -38,6 +39,9 @@ interface SuperStreamProducerInterface
      * @throws InvalidArgumentException If the serialized request exceeds the frame size limit.
      * @throws ProtocolException If the super stream disappeared, or the broker rejects a
      *                        re-declare or sends an unexpected frame.
+     * @throws UnexpectedResponseException If the StreamStats or QueryPublisherSequence reply
+     *                        used while refreshing partitions or opening a named partition
+     *                        producer is of the wrong type.
      * @throws TimeoutException If the write or a back-pressure drain times out.
      */
     public function send(string $message, string $routingKey, ?float $timeout = null): void;
@@ -54,6 +58,9 @@ interface SuperStreamProducerInterface
      * @throws InvalidArgumentException If the serialized request exceeds the frame size limit.
      * @throws ProtocolException If the super stream disappeared, or the broker rejects a
      *                           re-declare or sends an unexpected frame.
+     * @throws UnexpectedResponseException If the Partitions or QueryPublisherSequence reply
+     *                           used while refreshing partitions or opening a named partition
+     *                           producer is of the wrong type.
      * @throws TimeoutException If the write or a back-pressure drain times out.
      */
     public function sendBatch(array $messages, ?float $timeout = null): void;

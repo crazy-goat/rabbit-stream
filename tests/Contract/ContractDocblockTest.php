@@ -163,7 +163,9 @@ class ContractDocblockTest extends TestCase
             'ConnectionException',
             'DeserializationException',
             'InvalidArgumentException',
+            'ProtocolException',
             'TimeoutException',
+            'UnexpectedResponseException',
         ],
         'ConnectionInterface::supportsCommandVersion' => [],
         'ConnectionInterface::getSupportedCommandVersions' => [],
@@ -199,6 +201,7 @@ class ContractDocblockTest extends TestCase
             'ProtocolException',
             'ConnectionException',
             'TimeoutException',
+            'InvalidArgumentException',
         ],
         'ConsumerInterface::queryOffset' => [
             'ProtocolException',
@@ -212,6 +215,7 @@ class ContractDocblockTest extends TestCase
             'ConnectionException',
             'DeserializationException',
             'TimeoutException',
+            'InvalidArgumentException',
         ],
         'ConsumerInterface::isActive' => [],
         'ConsumerInterface::onConsumerUpdate' => [],
@@ -302,6 +306,7 @@ class ContractDocblockTest extends TestCase
             'ConnectionException',
             'DeserializationException',
             'TimeoutException',
+            'InvalidArgumentException',
         ],
 
         // SuperStreamProducerInterface
@@ -311,6 +316,7 @@ class ContractDocblockTest extends TestCase
             'InvalidArgumentException',
             'ProtocolException',
             'TimeoutException',
+            'UnexpectedResponseException',
         ],
         'SuperStreamProducerInterface::sendBatch' => [
             'ConnectionException',
@@ -318,6 +324,7 @@ class ContractDocblockTest extends TestCase
             'InvalidArgumentException',
             'ProtocolException',
             'TimeoutException',
+            'UnexpectedResponseException',
         ],
         'SuperStreamProducerInterface::waitForConfirms' => [
             'TimeoutException',

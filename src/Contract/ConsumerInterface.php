@@ -110,6 +110,8 @@ interface ConsumerInterface
      *                            name-scoped on the broker).
      * @throws ConnectionException If the socket is not connected or the write fails.
      * @throws TimeoutException If the write does not complete within the socket timeout.
+     * @throws InvalidArgumentException If the StoreOffset frame exceeds the negotiated
+     *                            outgoing frame size.
      */
     public function storeOffset(int $offset): void;
 
@@ -143,6 +145,8 @@ interface ConsumerInterface
      * @throws DeserializationException If the Unsubscribe response frame cannot be
      *                            deserialized.
      * @throws TimeoutException If the Unsubscribe response does not arrive in time.
+     * @throws InvalidArgumentException If the Unsubscribe (or the auto-commit
+     *                            StoreOffset) frame exceeds the negotiated outgoing frame size.
      */
     public function close(): void;
 

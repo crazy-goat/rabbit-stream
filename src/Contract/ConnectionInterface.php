@@ -487,6 +487,10 @@ interface ConnectionInterface
      * @throws ConnectionException If the socket is not connected, `stream_select()` fails, or
      *                                 a read fails.
      * @throws DeserializationException If a server-push frame cannot be deserialized.
+     * @throws ProtocolException If a registered ConsumerUpdate handler's nested offset
+     *                                 query fails with a non-OK broker response.
+     * @throws UnexpectedResponseException If a registered ConsumerUpdate handler's nested
+     *                                 offset query gets a reply of the wrong type.
      * @throws InvalidArgumentException If a registered ConsumerUpdate handler returns
      *                                 an offset type outside the protocol's reply range (0-5).
      * @throws TimeoutException If a reply this loop must send (a heartbeat echo, a

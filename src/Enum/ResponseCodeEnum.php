@@ -73,13 +73,19 @@ enum ResponseCodeEnum: int
 
     /**
      * SaslAuthenticate rejected the credentials. Handling: fail fast; the
-     * handshake raises AuthenticationException.
+     * non-OK reply surfaces as a {@see \CrazyGoat\RabbitStream\Exception\ProtocolException}
+     * whose `getResponseCode()` is this case. It is **not** an
+     * `AuthenticationException` — do not catch that for wrong credentials
+     * (`AuthenticationException` is raised only when the broker does not offer
+     * PLAIN at all).
      */
     case AUTHENTICATION_FAILURE = 0x08;
 
     /**
-     * A generic SASL failure. Handling: fail the connection; the handshake
-     * raises AuthenticationException.
+     * A generic SASL failure. Handling: fail the connection; the non-OK reply
+     * surfaces as a {@see \CrazyGoat\RabbitStream\Exception\ProtocolException}
+     * whose `getResponseCode()` is this case. It is **not** an
+     * `AuthenticationException` — do not catch that for a SASL failure.
      */
     case SASL_ERROR = 0x09;
 
@@ -91,13 +97,21 @@ enum ResponseCodeEnum: int
 
     /**
      * SaslAuthenticate failed over the loopback interface. Handling: fail
-     * fast; the handshake raises AuthenticationException.
+     * fast; the non-OK reply surfaces as a
+     * {@see \CrazyGoat\RabbitStream\Exception\ProtocolException} whose
+     * `getResponseCode()` is this case. It is **not** an
+     * `AuthenticationException` — do not catch that for an authentication
+     * failure.
      */
     case SASL_AUTHENTICATION_FAILURE_LOOPBACK = 0x0b;
 
     /**
      * Open could not access the requested virtual host. Handling: fail the
-     * connection; the handshake raises AuthenticationException.
+     * connection; the non-OK reply surfaces as a
+     * {@see \CrazyGoat\RabbitStream\Exception\ProtocolException} whose
+     * `getResponseCode()` is this case. It is **not** an
+     * `AuthenticationException` — do not catch that for a virtual-host
+     * failure.
      */
     case VIRTUAL_HOST_ACCESS_FAILURE = 0x0c;
 
