@@ -610,12 +610,13 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     
     // Return [offsetType, offset]
     // Offset types (see CrazyGoat\RabbitStream\VO\OffsetSpec):
+    //   OffsetSpec::TYPE_NONE      = 0 (keep current position)
     //   OffsetSpec::TYPE_FIRST     = 1 (start from beginning)
-    //   OffsetSpec::TYPE_LAST      = 2 (start from last message)
-    //   OffsetSpec::TYPE_NEXT      = 3 (start after last consumed)
+    //   OffsetSpec::TYPE_LAST      = 2 (start from the last chunk of messages)
+    //   OffsetSpec::TYPE_NEXT      = 3 (start at the end of the stream)
     //   OffsetSpec::TYPE_OFFSET    = 4 (start from specific offset)
-    //   OffsetSpec::TYPE_TIMESTAMP = 5 (start from timestamp)
-    //   OffsetSpec::TYPE_INTERVAL  = 6 (start from interval)
+    //   OffsetSpec::TYPE_TIMESTAMP = 5 (start from timestamp, in milliseconds)
+    //   OffsetSpec::TYPE_INTERVAL  = 6 (NOT in the protocol — see issue #468)
 
     // Start from offset 100
     return [OffsetSpec::TYPE_OFFSET, 100];
@@ -626,12 +627,13 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
 
 | Type | Value | Description |
 |------|-------|-------------|
+| `OffsetSpec::TYPE_NONE` | 0 | Keep the current position (valid only in a `ConsumerUpdate` reply) |
 | `OffsetSpec::TYPE_FIRST` | 1 | Start from first message in stream |
-| `OffsetSpec::TYPE_LAST` | 2 | Start from last message |
-| `OffsetSpec::TYPE_NEXT` | 3 | Start from next offset (after last consumed) |
-| `OffsetSpec::TYPE_OFFSET` | 4 | Start from specific offset (must provide offset) |
-| `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start at the first chunk with chunk timestamp >= the value (chunk-granular) |
-| `OffsetSpec::TYPE_INTERVAL` | 6 | Start from interval |
+| `OffsetSpec::TYPE_LAST` | 2 | Start from the last chunk of messages (delivered in full) |
+| `OffsetSpec::TYPE_NEXT` | 3 | Start at the next offset to be written (end of the stream) |
+| `OffsetSpec::TYPE_OFFSET` | 4 | Start from specific offset (must provide offset, inclusive) |
+| `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start at the first chunk with chunk timestamp >= the value, in **milliseconds** since the epoch (chunk-granular) |
+| `OffsetSpec::TYPE_INTERVAL` | 6 | **Not in the protocol** — the broker does not support it (see [#468](https://github.com/crazy-goat/rabbit-stream/issues/468)) |
 
 ### Complete Example
 
