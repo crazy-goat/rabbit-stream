@@ -24,6 +24,7 @@ use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
+use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -849,6 +850,49 @@ class ConnectionTest extends TestCase
         $consumer = $connection->createConsumer('my-stream', $offset, 'consumer-name', 100, 20);
 
         $this->assertInstanceOf(Consumer::class, $consumer);
+    }
+
+    public function testCreateConsumerPassesMaxBufferSizeThrough(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForConsumers());
+
+        $consumer = $connection->createConsumer('my-stream', OffsetSpec::first(), maxBufferSize: 42);
+
+        $maxBufferSize = new \ReflectionProperty(Consumer::class, 'maxBufferSize');
+        $this->assertSame(42, $maxBufferSize->getValue($consumer));
+    }
+
+    public function testCreateConsumerRejectsNonPositiveMaxBufferSize(): void
+    {
+        $connection = $this->createConnectionWithMock($this->mockForConsumers());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxBufferSize must be greater than 0');
+
+        $connection->createConsumer('my-stream', OffsetSpec::first(), maxBufferSize: 0);
+    }
+
+    public function testCreateSuperStreamConsumerPassesMaxBufferSizeThrough(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerSubscriber');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('request');
+        $streamConnection->method('readMessage')->willReturn(new PartitionsResponseV1(['orders-0']));
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $consumer = $connection->createSuperStreamConsumer(
+            'orders',
+            OffsetSpec::first(),
+            maxBufferSize: 77,
+        );
+
+        $partitions = $consumer->getConsumers();
+        $this->assertArrayHasKey('orders-0', $partitions);
+        $maxBufferSize = new \ReflectionProperty(Consumer::class, 'maxBufferSize');
+        $this->assertSame(77, $maxBufferSize->getValue($partitions['orders-0']));
     }
 
     public function testCreateConsumerStoresConsumerInArray(): void

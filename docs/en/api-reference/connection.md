@@ -71,6 +71,7 @@ class Connection
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         bool $verifyCrc = true,
+        int $maxBufferSize = 1000,
     ): ConsumerInterface;
     
     public function createSuperStreamProducer(
@@ -92,6 +93,7 @@ class Connection
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         bool $verifyCrc = true,
+        int $maxBufferSize = 1000,
     ): SuperStreamConsumerInterface;
     
     // Lifecycle
@@ -849,6 +851,7 @@ public function createConsumer(
     int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     bool $verifyCrc = true,
+    int $maxBufferSize = 1000,
 ): ConsumerInterface
 ```
 
@@ -868,6 +871,7 @@ public function createConsumer(
 | `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 | `$maxDecodeDepth` | `int` | No | Maximum AMQP nesting depth accepted when a delivered message is decoded. Default `32`, which is ample for real messages; a deeper frame is rejected with `DeserializationException`. Raise it only for a producer that legitimately nests deeper — each level costs a PHP stack frame. Because decoding is lazy, the limit is enforced by the accessor (`Message::getBody()`), not by `read()`. |
 | `$verifyCrc` | `bool` | No | Verify the CRC32 in every chunk header (default `true`). A mismatching chunk is rejected with `DeserializationException`. Disable only where the cost matters or corruption is handled upstream. |
+| `$maxBufferSize` | `int` | No | **Message**-granular back-pressure ceiling: the target maximum number of unread messages held in memory (default `1000`). Must be positive. A delivered chunk is atomic and is never split or dropped, so the buffer can overshoot by the chunks already in flight; once the unread count reaches the limit no new credit is granted until `read()`/`readOne()` drains the buffer. See [Consumer Flow Control](consumer.md#flow-control). |
 
 #### OffsetSpec Factory Methods
 
@@ -885,6 +889,7 @@ public function createConsumer(
 
 - `ProtocolException` - If the stream does not exist or offset is invalid
 - `ConnectionException` - If all 256 subscription ids of this connection are in use
+- `InvalidArgumentException` - If `$maxBufferSize` is not positive, `$initialCredit` is outside 1–32767, `$creditWindowBytes` is negative, `$maxDecodeDepth` is below 1, or `$singleActiveConsumer` is set without `$name`
 
 #### Example
 
@@ -993,6 +998,7 @@ public function createSuperStreamConsumer(
     int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
     int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
     bool $verifyCrc = true,
+    int $maxBufferSize = 1000,
 ): SuperStreamConsumerInterface
 ```
 
@@ -1009,6 +1015,7 @@ public function createSuperStreamConsumer(
 | `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). Passed through to every partition's `Consumer`, which keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
 | `$maxDecodeDepth` | `int` | No | Maximum AMQP nesting depth accepted when a delivered message is decoded. Default `32`; a deeper frame is rejected with `DeserializationException`. Passed through to every partition's `Consumer`. |
 | `$verifyCrc` | `bool` | No | Verify the CRC32 in every chunk header (default `true`). A mismatching chunk is rejected with `DeserializationException`. Disable only where the cost matters or corruption is handled upstream. |
+| `$maxBufferSize` | `int` | No | **Message**-granular back-pressure ceiling, passed through to every partition's `Consumer` (default `1000`). Must be positive. See [`createConsumer()`](#createconsumer) for the chunk-vs-message contract. |
 
 #### Return Value
 
@@ -1017,6 +1024,7 @@ public function createSuperStreamConsumer(
 #### Exceptions
 
 - `ProtocolException` - If the super stream does not exist or has zero partitions
+- `InvalidArgumentException` - If `$maxBufferSize` is not positive, or another `Consumer` argument is out of range
 
 #### Example
 

@@ -61,6 +61,13 @@ if ($message !== null) {
 }
 ```
 
+`readOne()` returns the oldest unread `Message`, or `null` when none arrived
+within `$timeout` (it never throws on timeout). `read()` instead returns the
+whole buffered batch as an array — empty when nothing arrived. Passing
+`timeout: 0.0` to either method drains only what is already buffered and does
+**not** poll the socket, which is useful to interleave consumption with other
+work.
+
 ### Consumer Lifecycle
 
 Always close the consumer when done to free resources:
@@ -544,6 +551,34 @@ $consumer = $connection->createConsumer(
     initialCredit: 100  // Request 100 chunks at a time
 );
 ```
+
+### Buffer Back-Pressure (`maxBufferSize`)
+
+`initialCredit` (and the adaptive `creditWindowBytes`) control how many
+**chunks** are in flight; `maxBufferSize` is a separate, **message**-granular
+target — the ceiling on unread messages the consumer keeps in memory (default
+`1000`). When the unread count reaches it, the consumer stops granting new
+credit, so the server eventually stops delivering new chunks; withheld credit
+is remembered and granted back as `read()`/`readOne()` drain the buffer.
+
+A delivered chunk is atomic and is never split or dropped (at-least-once
+delivery), so the buffer can transiently hold **more** than `maxBufferSize`
+messages — by the chunks already in flight when it filled up, not by a single
+chunk. Lower it for a slow or memory-constrained consumer:
+
+```php
+$consumer = $connection->createConsumer(
+    'events',
+    OffsetSpec::last(),
+    initialCredit: 10,
+    maxBufferSize: 100,   // keep the in-memory backlog small
+);
+```
+
+`maxBufferSize` must be positive; `0` or a negative value throws
+`CrazyGoat\RabbitStream\Exception\InvalidArgumentException` when the consumer
+is created. For the full chunk-vs-message contract, see the
+[Consumer API reference](../api-reference/consumer.md#flow-control).
 
 ### Credit Guidelines
 
