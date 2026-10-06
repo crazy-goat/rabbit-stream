@@ -10,7 +10,7 @@ All value objects are immutable and located in `src/VO/` and `src/Client/` direc
 
 Specifies where to start consuming from a stream. Located in `src/VO/OffsetSpec.php`.
 
-The `OffsetSpec` value object defines the starting position for a consumer subscription. It supports first/last/next, a specific offset, and a timestamp — the four offset types the RabbitMQ Stream protocol defines (plus `none`, valid only in a `ConsumerUpdate` reply). `interval` is exposed but **not supported by the protocol** (see below).
+The `OffsetSpec` value object defines the starting position for a consumer subscription. It supports first/last/next, a specific offset, and a timestamp — the five offset types the RabbitMQ Stream protocol defines (plus `none`, valid only in a `ConsumerUpdate` reply). `interval` is exposed but **not supported by the protocol** (see below).
 
 ### Type Constants
 
