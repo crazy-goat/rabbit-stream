@@ -534,8 +534,16 @@ publisher declared on that stream. The `Producer` handles this for you:
 3. The next `send()`/`sendBatch()`/`sendWithFilter()` re-runs
    `DeclarePublisher` before publishing, retrying with exponential back-off
    while the stream is missing (it is usually being recreated). A named
-   producer re-reads its publishing sequence from the broker, so publishing IDs
-   never collide.
+   producer re-reads the current publishing sequence from the broker and
+   resumes above it.
+
+   If the stream was deleted and recreated, RabbitMQ starts the stream's
+   deduplication sequence from scratch. In that case, a producer that
+   re-declares after the recreate can collide with another connection using the
+   same producer name that already published to the new stream. Use unique
+   producer names per active connection, or re-check `querySequence()` after a
+   recreate, to avoid replaying a publishing ID that the broker has already
+   seen on the recreated stream.
 
 ```php
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
