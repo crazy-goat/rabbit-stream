@@ -20,8 +20,10 @@ Heartbeat frames maintain connection health by ensuring both sides are responsiv
 ```
 Key:        0x0017 (uint16)
 Version:    1 (uint16)
-CorrelationId: (uint32) - 0 for heartbeats
 ```
+
+Heartbeat carries no payload beyond the key and version — in particular, **no
+CorrelationId**.
 
 **Behavior:**
 

@@ -175,13 +175,15 @@ Notifies clients of stream topology changes.
 ```
 Key:        0x0010 (uint16)
 Version:    1 (uint16)
-metadataInfo:  short string
+code:          uint16 (code identifying the information)
+stream:        string (the stream implied)
 ```
 
 **Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `metadataInfo` | short string | Description of the change |
+| `code` | uint16 | Code identifying the metadata change |
+| `stream` | string | Stream the change applies to |
 
 **When Triggered:**
 - Stream created or deleted
@@ -218,8 +220,10 @@ Connection keepalive frame. Must be echoed immediately.
 ```
 Key:        0x0017 (uint16)
 Version:    1 (uint16)
-CorrelationId: (uint32) - 0 for heartbeats
 ```
+
+Heartbeat carries no payload beyond the key and version — in particular, **no
+CorrelationId**.
 
 **Behavior:**
 1. Server sends heartbeat at intervals (heartbeat/2 seconds)
@@ -299,6 +303,7 @@ Server-initiated connection close.
 ```
 Key:        0x0016 (uint16)
 Version:    1 (uint16)
+CorrelationId: (uint32)
 ClosingCode:   uint16
 ClosingReason: string
 ```
@@ -306,6 +311,7 @@ ClosingReason: string
 **Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
+| `CorrelationId` | uint32 | Correlation ID for the close; echoed in the client's `CloseResponse` |
 | `ClosingCode` | uint16 | Reason code |
 | `ClosingReason` | string | Human-readable reason |
 

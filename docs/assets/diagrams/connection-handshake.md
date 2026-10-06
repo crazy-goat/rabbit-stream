@@ -117,6 +117,7 @@
 | Tune | 0x0014 | 0x8014 |
 | Open | 0x0015 | 0x8015 |
 | Close | 0x0016 | 0x8016 |
-| Heartbeat | 0x0017 | 0x8017 |
+| Heartbeat | 0x0017 | — (no response) |
 
 Note: Response keys are request keys OR'd with 0x8000 (bit 15 set).
+Heartbeat is the exception: it has no response key and expects no reply.

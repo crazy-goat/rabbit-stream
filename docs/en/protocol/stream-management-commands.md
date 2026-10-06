@@ -208,13 +208,15 @@ Server sends this frame when stream topology changes. **No correlation ID** - th
 ```
 Key:        0x0010 (uint16)
 Version:    1 (uint16)
-metadataInfo:  short string (description of change)
+code:          uint16 (code identifying the information)
+stream:        string (the stream implied)
 ```
 
 **Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `metadataInfo` | short string | Information about the metadata change |
+| `code` | uint16 | Code identifying the metadata change |
+| `stream` | string | Stream the change applies to |
 
 **PHP Implementation:**
 ```php
@@ -241,17 +243,19 @@ Creates a partitioned super stream with multiple partitions.
 Key:        0x001d (uint16)
 Version:    1 (uint16)
 CorrelationId: (uint32)
-superStream:   string (super stream name)
-partitions:    uint32 (number of partitions)
-bindingKeys[]: Array<string> (routing keys for partitions)
+name:          string (super stream name)
+partitions[]:  Array<string> (partition stream names)
+bindingKeys[]: Array<string> (routing keys, one per partition)
+arguments[]:   Array<KeyValue> (optional arguments)
 ```
 
 **Request Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `superStream` | string | Name of the super stream |
-| `partitions` | uint32 | Number of partitions to create |
+| `name` | string | Name of the super stream |
+| `partitions` | string[] | Names of the partition streams to create |
 | `bindingKeys` | string[] | Routing keys (one per partition) |
+| `arguments` | Map<string, string> | Optional configuration parameters |
 
 **Response Frame Structure:**
 ```
@@ -268,8 +272,8 @@ use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 
 // Create super stream with 3 partitions
 $stream->sendMessage(new CreateSuperStreamRequestV1(
-    superStream: 'orders-super-stream',
-    partitions: 3,
+    name: 'orders-super-stream',
+    partitions: ['orders-0', 'orders-1', 'orders-2'],
     bindingKeys: ['orders.1', 'orders.2', 'orders.3']
 ));
 
@@ -287,13 +291,13 @@ Deletes a super stream and all its partitions.
 Key:        0x001e (uint16)
 Version:    1 (uint16)
 CorrelationId: (uint32)
-superStream:   string
+name:          string
 ```
 
 **Request Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `superStream` | string | Name of the super stream to delete |
+| `name` | string | Name of the super stream to delete |
 
 **Response Frame Structure:**
 ```
@@ -310,7 +314,7 @@ use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 
 // Delete super stream
 $stream->sendMessage(new DeleteSuperStreamRequestV1(
-    superStream: 'orders-super-stream'
+    name: 'orders-super-stream'
 ));
 
 $response = $stream->readMessage();
@@ -470,8 +474,8 @@ use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
 
 // Create super stream with 3 partitions
 $connection->sendMessage(new CreateSuperStreamRequestV1(
-    superStream: 'events-super-stream',
-    partitions: 3,
+    name: 'events-super-stream',
+    partitions: ['events-0', 'events-1', 'events-2'],
     bindingKeys: ['events.1', 'events.2', 'events.3']
 ));
 $response = $connection->readMessage();
@@ -488,7 +492,7 @@ foreach ($partitions->getStreams() as $partitionStream) {
 
 // Delete super stream when done
 $connection->sendMessage(new DeleteSuperStreamRequestV1(
-    superStream: 'events-super-stream'
+    name: 'events-super-stream'
 ));
 $response = $connection->readMessage();
 // Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).

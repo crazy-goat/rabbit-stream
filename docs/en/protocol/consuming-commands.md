@@ -161,7 +161,6 @@ Adds flow control credit for a consumer. Server stops sending when credit reache
 ```
 Key:        0x0009 (uint16)
 Version:    1 (uint16)
-CorrelationId: (uint32)
 subscriptionId: uint8
 credit:        int16 (additional credit to grant)
 ```
@@ -172,12 +171,19 @@ credit:        int16 (additional credit to grant)
 | `subscriptionId` | uint8 | Consumer to grant credit to |
 | `credit` | int16 | Additional **chunks** server can send (1 credit = 1 chunk) |
 
-**Response Frame Structure:**
+Credit is **fire-and-forget**: the request carries **no CorrelationId** and the
+server normally sends nothing back. The `CreditResponse` frame (key `0x8009`)
+is an **error-only** frame — the broker sends it solely when the Credit request
+is rejected (for example, crediting an unknown subscription). It carries no
+correlation ID and is handled internally by `StreamConnection`; callers never
+read it themselves.
+
+**CreditResponse (0x8009) — error only:**
 ```
 Key:        0x8009 (uint16)
 Version:    1 (uint16)
-CorrelationId: (uint32) - matches request
-ResponseCode:  uint16 (0x0001 = OK)
+ResponseCode:  uint16
+subscriptionId: uint8
 ```
 
 **Flow Control Pattern:**
@@ -195,16 +201,12 @@ ResponseCode:  uint16 (0x0001 = OK)
 **PHP Implementation:**
 ```php
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
-use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 
-// Grant more credit after processing a chunk
+// Grant more credit after processing a chunk. Fire-and-forget: no response to read.
 $stream->sendMessage(new CreditRequestV1(
     subscriptionId: 1,
     credit: 10  // Allow 10 more chunks
 ));
-
-$response = $stream->readMessage();
-assert($response instanceof CreditResponseV1);
 ```
 
 ### 4. StoreOffset (0x000a) - Fire-and-Forget
@@ -401,8 +403,8 @@ $connection->readLoop();
 │         │                           │         │
 │         │     Credit (replenish)    │         │
 │         │ ────────────────────────► │         │
-│         │ ◄──────────────────────── │         │
-│         │     CreditResponse (OK)     │         │
+│         │     (fire-and-forget;     │         │
+│         │      reply only on error) │         │
 │         │                           │         │
 │         │     StoreOffset             │         │
 │         │ ────────────────────────► │         │

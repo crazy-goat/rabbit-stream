@@ -54,12 +54,12 @@ All protocol frames are logged at DEBUG level with hex dumps:
 
 **Outgoing frames:**
 ```
-Socket -> 0000001a000100013039000e6d792d6170706c69636174696f6e
+Socket -> 00000018001500013039000e6d792d6170706c69636174696f6e
 ```
 
 **Incoming frames:**
 ```
-Socket <- 0000000c8001000130390001
+Socket <- 0000000a8015000130390001
 ```
 
 ### Connection Events
@@ -215,8 +215,8 @@ $producer->send('Hello, World!');
 ### Sample Debug Output
 
 ```
-[2024-01-15 10:30:45] DEBUG: Socket -> 0000001a000100013039000e6d792d6170706c69636174696f6e
-[2024-01-15 10:30:45] DEBUG: Socket <- 0000000c8001000130390001
+[2024-01-15 10:30:45] DEBUG: Socket -> 00000018001500013039000e6d792d6170706c69636174696f6e
+[2024-01-15 10:30:45] DEBUG: Socket <- 0000000a8015000130390001
 [2024-01-15 10:30:45] DEBUG: Socket -> 0000001e000200013039000100010000000a00086d792d73747265616d
 [2024-01-15 10:30:45] DEBUG: Socket <- 0000000c8002000130390001
 ```
@@ -225,11 +225,11 @@ $producer->send('Hello, World!');
 
 Frame structure in hex:
 ```
-0000001a 0001 0001 3039 000e 6d792d6170706c69636174696f6e
+00000018 0015 0001 3039 000e 6d792d6170706c69636174696f6e
 └─size─┘ └key┘ └ver┘ └cid┘ └len┘ └────── "my-application" ──────┘
 
-Size: 0x0000001a = 26 bytes
-Key:  0x0001 = OPEN command
+Size: 0x00000018 = 24 bytes
+Key:  0x0015 = OPEN command
 Ver:  0x0001 = Version 1
 CID:  0x3039 = Correlation ID 12345
 Len:  0x000e = 14 bytes
@@ -311,7 +311,7 @@ class FilteringLogger implements LoggerInterface
     }
 }
 
-// Only log frames containing "0001" (OPEN command)
+// Only log frames containing "0015" (OPEN command)
 $filterLogger = new FilteringLogger($logger, ['Socket ->', 'Socket <-']);
 ```
 

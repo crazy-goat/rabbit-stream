@@ -449,7 +449,7 @@ try {
 | Tune | 0x0014 | 0x8014 | Negotiate settings |
 | Open | 0x0015 | 0x8015 | Open virtual host |
 | Close | 0x0016 | 0x8016 | Close connection |
-| Heartbeat | 0x0017 | 0x8017 | Keepalive |
+| Heartbeat | 0x0017 | — | Keepalive (no response) |
 
 ## See Also
 
