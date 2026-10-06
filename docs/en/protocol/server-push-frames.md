@@ -9,7 +9,7 @@ Server-push frames are **asynchronous messages** sent by the server without a co
 | Characteristic | Request/Response | Server-Push |
 |----------------|------------------|-------------|
 | **Initiated by** | Client | Server |
-| **CorrelationId** | Client-generated, echoed by server | 0 or omitted |
+| **CorrelationId** | Client-generated, echoed by server | 0 or omitted (except `Close` (`0x0016`), which echoes the client's CorrelationId) |
 | **Key range** | Response: 0x8000-0xFFFF | Request: 0x0001-0x7FFF |
 | **Timing** | Immediate response | Async, event-driven |
 | **Handling** | `readMessage()` returns response | `readLoop()` dispatches to callbacks |
@@ -442,15 +442,21 @@ Server-push frames use **request keys** (0x0001-0x7FFF), NOT response keys:
 
 ### 2. CorrelationId
 
-Server-push frames have no correlation ID (or it's 0):
+Server-push frames carry no correlation ID (it is 0 or omitted), with one
+exception: `Close` (`0x0016`) carries the correlation ID that the client echoes
+back in its `CloseResponse` (`0x8016`).
 
 ```
 Request/Response:
   Client: CorrelationId = 42
   Server: CorrelationId = 42 (echoed)
 
-Server-Push:
+Server-Push (except Close):
   Server: CorrelationId = 0 (or omitted)
+
+Server-Push Close (0x0016):
+  Server: CorrelationId = 42
+  Client: CloseResponse (0x8016): CorrelationId = 42 (echoed back)
 ```
 
 ### 3. Routing
