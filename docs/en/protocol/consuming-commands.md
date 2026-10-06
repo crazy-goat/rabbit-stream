@@ -231,7 +231,7 @@ use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 
 // Store offset after processing a chunk
 $stream->sendMessage(new StoreOffsetRequestV1(
-    offsetReference: 'my-consumer-group',
+    reference: 'my-consumer-group',
     stream: 'my-stream',
     offset: $lastProcessedOffset
 ));
@@ -280,7 +280,7 @@ use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 
 // Query stored offset
 $stream->sendMessage(new QueryOffsetRequestV1(
-    offsetReference: 'my-consumer-group',
+    reference: 'my-consumer-group',
     stream: 'my-stream'
 ));
 
@@ -474,7 +474,7 @@ while ($processedCount < 100) {
 
 // 5. Store the next offset to consume, then unsubscribe.
 $connection->sendMessage(new StoreOffsetRequestV1(
-    offsetReference: $offsetReference,
+    reference: $offsetReference,
     stream: $stream,
     offset: $lastOffset + 1
 ));

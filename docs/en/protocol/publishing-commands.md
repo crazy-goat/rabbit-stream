@@ -110,11 +110,11 @@ use CrazyGoat\RabbitStream\VO\PublishedMessage;
 $messages = [
     new PublishedMessage(
         publishingId: 1,
-        messageBody: $encodedMessage1
+        message: $encodedMessage1
     ),
     new PublishedMessage(
         publishingId: 2,
-        messageBody: $encodedMessage2
+        message: $encodedMessage2
     ),
 ];
 
@@ -147,7 +147,7 @@ use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 $messages = [
     new PublishedMessageV2(
         publishingId: 1,
-        messageBody: $encodedMessage
+        message: $encodedMessage
     ),
 ];
 
@@ -385,7 +385,7 @@ $messages = [];
 for ($i = 1; $i <= 10; $i++) {
     $messages[] = new PublishedMessage(
         publishingId: $i,
-        messageBody: encodeMessage("Message $i")
+        message: encodeMessage("Message $i")
     );
 }
 

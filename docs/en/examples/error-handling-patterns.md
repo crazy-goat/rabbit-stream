@@ -599,6 +599,17 @@ class RobustStreamClient
         $this->producer?->send($data);
     }
 
+    public function waitForConfirms(float $timeout = 5.0): void
+    {
+        $this->producer?->waitForConfirms(timeout: $timeout);
+    }
+
+    /** @return Message[] */
+    public function read(float $timeout = 5.0): array
+    {
+        return $this->consumer?->read($timeout) ?? [];
+    }
+
     public function subscribe(string $stream, string $reference): bool
     {
         try {
@@ -666,12 +677,12 @@ try {
     for ($i = 1; $i <= 3; $i++) {
         $client->publish("Test message $i");
     }
-    $client->producer->waitForConfirms(timeout: 5.0);
+    $client->waitForConfirms(timeout: 5.0);
 
     // Subscribe and consume
     if ($client->subscribe('test-stream', 'test-consumer')) {
         // In real usage, you'd consume messages here, e.g.:
-        // $messages = $client->consumer->read(timeout: 5.0);
+        // $messages = $client->read(timeout: 5.0);
     }
 
 } catch (RabbitStreamExceptionInterface $e) {

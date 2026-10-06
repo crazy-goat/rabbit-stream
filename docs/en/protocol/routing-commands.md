@@ -250,7 +250,7 @@ function publishToSuperStream(
             messages: [
                 new PublishedMessage(
                     publishingId: time(),
-                    messageBody: $messageBody
+                    message: $messageBody
                 )
             ]
         ));

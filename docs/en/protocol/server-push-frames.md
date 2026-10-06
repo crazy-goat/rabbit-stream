@@ -319,6 +319,8 @@ ClosingReason: string
 
 **PHP Implementation:**
 ```php
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+
 // Handled internally by StreamConnection
 // Connection will throw exception on server close
 
