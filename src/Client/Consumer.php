@@ -227,7 +227,7 @@ class Consumer implements ConsumerInterface
         private readonly ?string $name = null,
         private readonly int $autoCommit = 0,
         private readonly int $initialCredit = 10,
-        private readonly int $maxBufferSize = 1000,
+        private readonly int $maxBufferSize = self::DEFAULT_MAX_BUFFER_SIZE,
         private readonly array $filterValues = [],
         private readonly bool $matchUnfiltered = false,
         private readonly bool $singleActiveConsumer = false,
