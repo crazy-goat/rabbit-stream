@@ -79,7 +79,7 @@ $stream->sendMessage(new RouteRequestV1(
 
 $response = $stream->readMessage();
 assert($response instanceof RouteResponseV1);
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // Get target partition(s)
 $partitionStreams = $response->getStreams();
@@ -134,7 +134,7 @@ $stream->sendMessage(new PartitionsRequestV1(
 
 $response = $stream->readMessage();
 assert($response instanceof PartitionsResponseV1);
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // List all partitions
 $partitions = $response->getStreams();
@@ -203,7 +203,7 @@ $connection->sendMessage(new CreateSuperStreamRequestV1(
     bindingKeys: ['orders.1', 'orders.2', 'orders.3']
 ));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // 2. Get all partitions
 $connection->sendMessage(new PartitionsRequestV1(superStream: $superStream));
@@ -220,7 +220,7 @@ foreach ($partitions as $partition) {
         stream: $partition
     ));
     $response = $connection->readMessage();
-    assert($response->getResponseCode()->value === 0x0001);
+    // Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
     $publisherId++;
 }
 
@@ -287,7 +287,7 @@ foreach ($partitions as $partition) {
         credit: 10
     ));
     $response = $connection->readMessage();
-    assert($response->getResponseCode()->value === 0x0001);
+    // Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
     $subscriptionId++;
 }
 

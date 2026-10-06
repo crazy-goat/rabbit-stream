@@ -521,13 +521,16 @@ try {
 
 ### Response Code Errors
 
-Check response codes for command-specific errors:
+A non-OK response code is asserted during deserialization and surfaces as a
+`ProtocolException`; inspect the code via the caught exception:
 ```php
-use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
-if ($response->getResponseCode() !== ResponseCodeEnum::OK->value) {
-    $code = ResponseCodeEnum::fromInt($response->getResponseCode());
-    echo "Error: " . $code->getMessage();
+try {
+    $response = $stream->readMessage();
+} catch (ProtocolException $e) {
+    $code = $e->getResponseCode();
+    echo "Error: " . ($code?->getMessage() ?? $e->getMessage());
 }
 ```
 

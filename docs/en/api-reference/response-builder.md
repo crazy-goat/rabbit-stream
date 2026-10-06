@@ -52,9 +52,12 @@ $buffer = new ReadBuffer($frameData);
 // Convert to typed response
 $response = ResponseBuilder::fromResponseBuffer($buffer);
 
-// $response is now a specific type, e.g., OpenResponseV1
+// $response is now a specific type, e.g., OpenResponseV1.
+// fromResponseBuffer() asserts the response code during deserialization and
+// throws ProtocolException for a non-OK code, so a returned OpenResponseV1
+// always carries OK — there is no response code to read back.
 if ($response instanceof OpenResponseV1) {
-    echo "Connection opened: " . $response->getResponseCode() . "\n";
+    echo "Connection opened\n";
 }
 ```
 

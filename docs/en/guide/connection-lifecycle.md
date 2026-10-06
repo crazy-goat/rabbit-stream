@@ -358,11 +358,18 @@ $this->close();
 Occurs when credentials are invalid:
 
 ```php
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-// After SaslAuthenticate, check response code
-if ($response->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE->value) {
-    throw new \Exception('Invalid username or password');
+// SaslAuthenticate answers a non-OK response code; readMessage() asserts it
+// during deserialization and throws ProtocolException, so catch that.
+try {
+    $response = $stream->readMessage();
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE) {
+        throw new \Exception('Invalid username or password');
+    }
+    throw $e;
 }
 ```
 
@@ -373,9 +380,18 @@ if ($response->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE->v
 Occurs when the user doesn't have access to the requested virtual host:
 
 ```php
-// After Open, check response code
-if ($response->getResponseCode() === ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE->value) {
-    throw new \Exception('Access denied to virtual host');
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+
+// Open answers a non-OK response code; readMessage() asserts it during
+// deserialization and throws ProtocolException, so catch that.
+try {
+    $response = $stream->readMessage();
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE) {
+        throw new \Exception('Access denied to virtual host');
+    }
+    throw $e;
 }
 ```
 
@@ -400,11 +416,18 @@ try {
 Occurs when a received frame exceeds the negotiated `frameMax`:
 
 ```php
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
-// Server may send this error code
-if ($response->getResponseCode() === ResponseCodeEnum::FRAME_TOO_LARGE->value) {
-    throw new \Exception('Frame size exceeded maximum allowed');
+// The broker reports a rejected frame with a non-OK response code; the client
+// raises it as a ProtocolException during deserialization.
+try {
+    $response = $stream->readMessage();
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::FRAME_TOO_LARGE) {
+        throw new \Exception('Frame size exceeded maximum allowed');
+    }
+    throw $e;
 }
 ```
 

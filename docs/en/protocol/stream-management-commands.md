@@ -75,7 +75,7 @@ $stream->sendMessage(new CreateRequestV1(
 
 $response = $stream->readMessage();
 assert($response instanceof CreateResponseV1);
-assert($response->getResponseCode()->value === 0x0001);  // OK
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // Create simple stream
 $stream->sendMessage(new CreateRequestV1(stream: 'simple-stream'));
@@ -123,7 +123,7 @@ $stream->sendMessage(new DeleteStreamRequestV1(stream: 'my-stream'));
 
 $response = $stream->readMessage();
 assert($response instanceof DeleteStreamResponseV1);
-assert($response->getResponseCode()->value === 0x0001);  // OK
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ### 3. Metadata (0x000f)
@@ -272,7 +272,7 @@ $stream->sendMessage(new CreateSuperStreamRequestV1(
 
 $response = $stream->readMessage();
 assert($response instanceof CreateSuperStreamResponseV1);
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ### 6. DeleteSuperStream (0x001e)
@@ -312,7 +312,7 @@ $stream->sendMessage(new DeleteSuperStreamRequestV1(
 
 $response = $stream->readMessage();
 assert($response instanceof DeleteSuperStreamResponseV1);
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ### 7. StreamStats (0x001c)
@@ -426,7 +426,7 @@ $connection->sendMessage(new CreateRequestV1(
     ]
 ));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // 2. Query metadata
 $connection->sendMessage(new MetadataRequestV1(streams: [$streamName]));
@@ -445,7 +445,7 @@ echo "Messages: " . ($lastOffset - $firstOffset + 1) . "\n";
 // 4. Delete stream
 $connection->sendMessage(new DeleteStreamRequestV1(stream: $streamName));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ## Super Stream Example
@@ -462,7 +462,7 @@ $connection->sendMessage(new CreateSuperStreamRequestV1(
     bindingKeys: ['events.1', 'events.2', 'events.3']
 ));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // Get partition streams
 $connection->sendMessage(new PartitionsRequestV1(
@@ -478,7 +478,7 @@ $connection->sendMessage(new DeleteSuperStreamRequestV1(
     superStream: 'events-super-stream'
 ));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ## Next Steps

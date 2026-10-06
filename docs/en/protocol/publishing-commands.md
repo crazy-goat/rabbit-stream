@@ -70,7 +70,7 @@ $stream->sendMessage(new DeclarePublisherRequestV1(
 // Receive
 $response = $stream->readMessage();
 assert($response instanceof DeclarePublisherResponseV1);
-assert($response->getResponseCode()->value === 0x0001);  // OK
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ### 2. Publish v1 (0x0002)
@@ -333,7 +333,7 @@ $stream->sendMessage(new DeletePublisherRequestV1(publisherId: 1));
 // Receive
 $response = $stream->readMessage();
 assert($response instanceof DeletePublisherResponseV1);
-assert($response->getResponseCode()->value === 0x0001);  // OK
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ## Publishing Flow
@@ -381,7 +381,7 @@ $connection->sendMessage(new DeclarePublisherRequestV1(
     stream: $stream
 ));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // 2. Publish messages
 $messages = [];
@@ -403,7 +403,7 @@ $connection->readLoop(maxFrames: 1);  // Handles PublishConfirm
 // 4. Delete publisher
 $connection->sendMessage(new DeletePublisherRequestV1($publisherId));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ## Next Steps
