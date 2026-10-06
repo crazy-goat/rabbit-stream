@@ -1093,7 +1093,7 @@ class Connection implements ConnectionInterface
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         bool $verifyCrc = true,
-        int $maxBufferSize = 1000,
+        int $maxBufferSize = Consumer::DEFAULT_MAX_BUFFER_SIZE,
     ): ConsumerInterface {
         $subscriptionId = $this->allocateId(
             $this->subscriptionIdCursor,
@@ -1263,7 +1263,7 @@ class Connection implements ConnectionInterface
         int $creditWindowBytes = Consumer::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
         bool $verifyCrc = true,
-        int $maxBufferSize = 1000,
+        int $maxBufferSize = Consumer::DEFAULT_MAX_BUFFER_SIZE,
     ): SuperStreamConsumerInterface {
         $partitions = $this->partitions($superStream);
 

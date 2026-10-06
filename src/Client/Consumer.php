@@ -70,6 +70,13 @@ class Consumer implements ConsumerInterface
      */
     public const DEFAULT_CREDIT_WINDOW_BYTES = 8 * 1024 * 1024;
 
+    /**
+     * Default message-granular back-pressure ceiling: the target number of
+     * unread messages held in the client-side buffer before new credit is
+     * withheld (see the constructor and `maxBufferSize`).
+     */
+    public const DEFAULT_MAX_BUFFER_SIZE = 1000;
+
     /** @var Message[] */
     private array $buffer = [];
     private int $bufferHead = 0;
