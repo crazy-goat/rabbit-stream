@@ -554,13 +554,18 @@ $connection->readLoop(maxFrames: 1, timeout: 5.0);
 ### Consuming Messages
 
 ```php
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
+use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 // Register subscriber
 $connection->registerSubscriber(
     subscriptionId: 1,
     onDeliver: function (DeliverResponseV1 $deliver) {
-        foreach ($deliver->getMessages() as $message) {
+        // A Deliver frame carries a raw Osiris chunk, not decoded messages.
+        [$chunk, $offset, $length] = $deliver->getChunkView();
+        foreach (OsirisChunkParser::parseMessages($chunk, offset: $offset, length: $length) as $message) {
             echo "Received: " . $message->getBody() . "\n";
         }
     }
@@ -570,7 +575,7 @@ $connection->registerSubscriber(
 $connection->sendMessage(new SubscribeRequestV1(
     subscriptionId: 1,
     stream: 'my-stream',
-    offsetType: OffsetType::NEXT,
+    offsetSpec: OffsetSpec::next(),
     credit: 10
 ));
 $connection->readMessage(5.0);
@@ -583,8 +588,8 @@ $connection->readLoop(timeout: 60.0);
 
 ```php
 $connection->onMetadataUpdate(function (MetadataUpdateResponseV1 $update) {
-    echo "Stream updated: " . $update->getStreamName() . "\n";
-    echo "Update type: " . $update->getUpdateType() . "\n";
+    echo "Stream updated: " . $update->getStream() . "\n";
+    echo "Update code: " . $update->getCode() . "\n";
 });
 
 // Run event loop to receive updates

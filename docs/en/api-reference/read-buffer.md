@@ -249,9 +249,10 @@ public function getObjectArray(string $class): array
 
 **Example:**
 ```php
-use CrazyGoat\RabbitStream\Response\MessageResponse;
+use CrazyGoat\RabbitStream\VO\KeyValue;
 
-$messages = $buffer->getObjectArray(MessageResponse::class);
+// Each element of the array is deserialized with KeyValue::fromStreamBuffer().
+$properties = $buffer->getObjectArray(KeyValue::class);
 ```
 
 ### getStringArray()
@@ -568,6 +569,8 @@ foreach ($properties as $prop) {
 ### Working with Remaining Data
 
 ```php
+use CrazyGoat\RabbitStream\ResponseBuilder;
+
 $buffer = new ReadBuffer($frameData);
 
 // Read fixed header
@@ -578,7 +581,6 @@ $correlationId = $buffer->getUint32();
 // Everything else is the payload
 $payload = $buffer->getRemainingBytes();
 
-// Pass payload to another parser
-$parser = new ResponseParser();
-$response = $parser->parse($key, $payload);
+// Or let the library's dispatcher decode the whole frame for you:
+$response = ResponseBuilder::fromResponseBuffer(new ReadBuffer($frameData));
 ```

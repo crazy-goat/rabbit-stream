@@ -196,11 +196,8 @@ $connection->registerPublisher(
     }
 );
 
-// Or handle in readLoop
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof PublishConfirmResponseV1) {
-    $confirmedIds = $response->getPublishingIds();
-}
+// Then drive the loop to dispatch server-push frames.
+$connection->readLoop(maxFrames: 1);
 ```
 
 ### 5. PublishError (0x0004) - Server Push
@@ -231,16 +228,16 @@ errorCode:     uint16 (reason for failure)
 
 **PHP Implementation:**
 ```php
-use CrazyGoat\RabbitStream\Response\PublishErrorResponseV1;
-use CrazyGoat\RabbitStream\VO\PublishingError;
-
-// Handle in readLoop
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof PublishErrorResponseV1) {
-    foreach ($response->getErrors() as $error) {
-        echo "Message {$error->getPublishingId()} failed with code {$error->getErrorCode()}\n";
+// Register an error callback for the publisher id.
+$connection->registerPublisher(
+    publisherId: 1,
+    onConfirm: fn(array $ids) => null,
+    onError: function (array $errors) {
+        foreach ($errors as $error) {
+            echo "Message {$error->getPublishingId()} failed with code {$error->getCode()}\n";
+        }
     }
-}
+);
 ```
 
 ### 6. QueryPublisherSequence (0x0005)

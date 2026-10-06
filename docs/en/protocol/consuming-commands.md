@@ -134,25 +134,23 @@ The chunk contains multiple messages in a binary format. See [Osiris Chunk Forma
 
 **PHP Implementation:**
 ```php
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 
 // Register callback
-$connection->registerConsumer(
+$connection->registerSubscriber(
     subscriptionId: 1,
     onDeliver: function (DeliverResponseV1 $deliver) {
-        $messages = $deliver->getMessages();
-        foreach ($messages as $message) {
+        // A Deliver frame carries a raw Osiris chunk, not decoded messages.
+        [$chunk, $offset, $length] = $deliver->getChunkView();
+        foreach (OsirisChunkParser::parseMessages($chunk, offset: $offset, length: $length) as $message) {
             echo "Received: " . $message->getBody() . "\n";
         }
     }
 );
 
-// Or handle in readLoop
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof DeliverResponseV1) {
-    $messages = $response->getMessages();
-    $chunkId = $response->getChunkId();  // v2 only
-}
+// Then drive the loop to dispatch server-push frames.
+$connection->readLoop(maxFrames: 1);
 ```
 
 ### 3. Credit (0x0009)
@@ -369,22 +367,20 @@ offsetSpec:    OffsetSpec (where to resume)
 
 **PHP Implementation:**
 ```php
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
-use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-// Handle server query
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof ConsumerUpdateResponseV1) {
-    $subscriptionId = $response->getSubscriptionId();
-    $isActive = $response->isActive();
-    
-    // Reply with offset
-    $connection->sendMessage(new ConsumerUpdateReplyV1(
-        correlationId: $response->getCorrelationId(),
-        offsetSpec: OffsetSpec::offset($lastProcessedOffset)
-    ));
-}
+// ConsumerUpdate is handled through a per-subscription callback. The callback
+// returns the OffsetSpec the broker should resume from (or null to keep the
+// current position); the library builds and sends the ConsumerUpdateReplyV1.
+$connection->registerConsumerUpdateHandler(
+    1,
+    function ($update) use (&$lastProcessedOffset): ?OffsetSpec {
+        return OffsetSpec::offset($lastProcessedOffset);
+    }
+);
+
+// Drive the loop to dispatch the server-push frames.
+$connection->readLoop();
 ```
 
 ## Consuming Flow
@@ -419,6 +415,7 @@ if ($response instanceof ConsumerUpdateResponseV1) {
 
 ```php
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
@@ -432,8 +429,35 @@ $connection->connect();
 $subscriptionId = 1;
 $stream = 'my-stream';
 $offsetReference = 'my-consumer-group';
+$processedCount = 0;
+$lastOffset = 0;
 
-// 1. Subscribe
+// 1. Register a subscriber callback: it runs for every Deliver frame.
+$connection->registerSubscriber(
+    subscriptionId: $subscriptionId,
+    onDeliver: function (DeliverResponseV1 $deliver) use (
+        &$processedCount,
+        &$lastOffset,
+        $connection,
+        $subscriptionId
+    ): void {
+        [$chunk, $offset, $length] = $deliver->getChunkView();
+
+        foreach (OsirisChunkParser::parseMessages($chunk, offset: $offset, length: $length) as $message) {
+            processMessage($message);
+            $lastOffset = $message->getOffset();
+            $processedCount++;
+        }
+
+        // 2. Replenish one chunk of credit for the chunk just delivered.
+        $connection->sendMessage(new CreditRequestV1(
+            subscriptionId: $subscriptionId,
+            credit: 1
+        ));
+    }
+);
+
+// 3. Subscribe
 $connection->sendMessage(new SubscribeRequestV1(
     subscriptionId: $subscriptionId,
     stream: $stream,
@@ -443,41 +467,17 @@ $connection->sendMessage(new SubscribeRequestV1(
 $response = $connection->readMessage();
 // Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
-// 2. Consume messages
-$processedCount = 0;
-$lastOffset = 0;
-
+// 4. Drive the loop until 100 messages have been processed.
 while ($processedCount < 100) {
-    $response = $connection->readLoop(maxFrames: 1);
-    
-    if ($response instanceof DeliverResponseV1) {
-        $messages = $response->getMessages();
-        
-        foreach ($messages as $message) {
-            processMessage($message);
-            $lastOffset = $message->getOffset();
-            $processedCount++;
-        }
-        
-        // 3. Replenish credit
-        $connection->sendMessage(new CreditRequestV1(
-            subscriptionId: $subscriptionId,
-            credit: count($messages)
-        ));
-        $connection->readMessage();  // CreditResponse
-        
-        // 4. Store offset periodically
-        if ($processedCount % 10 === 0) {
-            $connection->sendMessage(new StoreOffsetRequestV1(
-                offsetReference: $offsetReference,
-                stream: $stream,
-                offset: $lastOffset
-            ));
-        }
-    }
+    $connection->readLoop(maxFrames: 1);
 }
 
-// 5. Unsubscribe
+// 5. Store the next offset to consume, then unsubscribe.
+$connection->sendMessage(new StoreOffsetRequestV1(
+    offsetReference: $offsetReference,
+    stream: $stream,
+    offset: $lastOffset + 1
+));
 $connection->sendMessage(new UnsubscribeRequestV1($subscriptionId));
 $response = $connection->readMessage();
 // Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).

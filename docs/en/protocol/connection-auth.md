@@ -59,7 +59,10 @@ $stream->sendMessage(new PeerPropertiesRequestV1());
 // Receive
 $response = $stream->readMessage();
 assert($response instanceof PeerPropertiesResponseV1);
-$properties = $response->getProperties();
+$properties = [];
+foreach ($response->getPeerProperty() as $property) {
+    $properties[$property->getKey()] = $property->getValue();
+}
 ```
 
 ### 2. SaslHandshake (0x0012)
@@ -221,8 +224,8 @@ function negotiatedMaxValue(int $clientValue, int $serverValue): int {
 
 **PHP Implementation:**
 ```php
-use CrazyGoat\RabbitStream\Request\TuneResponseV1;
-use CrazyGoat\RabbitStream\Response\TuneRequestV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 
 // Server sends TuneRequestV1 first
 $tune = $stream->readMessage();
@@ -300,12 +303,12 @@ use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\RabbitStream\Request\TuneResponseV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
-use CrazyGoat\RabbitStream\Response\TuneRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 
 // 1. TCP Connect

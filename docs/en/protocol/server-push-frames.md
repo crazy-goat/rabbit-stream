@@ -43,7 +43,7 @@ publishingIds[]: Array of uint64
 ```php
 use CrazyGoat\RabbitStream\Response\PublishConfirmResponseV1;
 
-// Register callback
+// Register the callback before publishing.
 $connection->registerPublisher(
     publisherId: 1,
     onConfirm: function (array $publishingIds) {
@@ -55,12 +55,8 @@ $connection->registerPublisher(
     }
 );
 
-// Or handle in readLoop
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof PublishConfirmResponseV1) {
-    $confirmedIds = $response->getPublishingIds();
-    $publisherId = $response->getPublisherId();
-}
+// Then drive the loop to dispatch server-push frames.
+$connection->readLoop(maxFrames: 1);
 ```
 
 ### 2. PublishError (0x0004)
@@ -105,7 +101,7 @@ $connection->registerPublisher(
     onConfirm: fn($ids) => null,
     onError: function (array $errors) {
         foreach ($errors as $error) {
-            echo "Publish {$error->getPublishingId()} failed: {$error->getErrorCode()}\n";
+            echo "Publish {$error->getPublishingId()} failed: {$error->getCode()}\n";
             // Retry or log error
         }
     }
@@ -147,23 +143,25 @@ osirisChunk:   bytes
 
 **PHP Implementation:**
 ```php
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
+use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 
-// Register consumer callback
-$connection->registerConsumer(
+// Register subscriber callback
+$connection->registerSubscriber(
     subscriptionId: 1,
-    onDeliver: function (DeliverResponseV1 $deliver) {
-        $messages = $deliver->getMessages();
-        $chunkId = $deliver->getChunkId();  // v2 only
-        
-        foreach ($messages as $message) {
+    onDeliver: function (DeliverResponseV1 $deliver) use ($connection): void {
+        // A Deliver frame carries a raw Osiris chunk, not decoded messages.
+        [$chunk, $offset, $length] = $deliver->getChunkView();
+
+        foreach (OsirisChunkParser::parseMessages($chunk, offset: $offset, length: $length) as $message) {
             processMessage($message);
         }
-        
-        // Replenish credit
-        $this->connection->sendMessage(new CreditRequestV1(
+
+        // Replenish one chunk of credit for the chunk just delivered.
+        $connection->sendMessage(new CreditRequestV1(
             subscriptionId: 1,
-            credit: count($messages)
+            credit: 1
         ));
     }
 );
@@ -196,18 +194,20 @@ metadataInfo:  short string
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 
-// Handle metadata updates
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof MetadataUpdateResponseV1) {
-    echo "Topology changed: {$response->getMetadataInfo()}\n";
-    
+// Handle metadata updates: MetadataUpdate is server-push, so register a handler.
+$connection->onMetadataUpdate(function (MetadataUpdateResponseV1 $response) use ($connection): void {
+    echo "Topology changed for stream {$response->getStream()} (code {$response->getCode()})\n";
+
     // Re-query metadata to get latest topology
     $connection->sendMessage(new MetadataRequestV1(
         streams: ['my-stream']
     ));
     $metadata = $connection->readMessage();
     // Update routing tables...
-}
+});
+
+// Drive the loop to dispatch server-push frames.
+$connection->readLoop();
 ```
 
 ### 5. Heartbeat (0x0017)
@@ -228,17 +228,15 @@ CorrelationId: (uint32) - 0 for heartbeats
 
 **Automatic Handling:**
 ```php
-// StreamConnection handles heartbeats transparently in readMessage()
-// Your code never sees heartbeat frames
+// StreamConnection handles heartbeats transparently in readMessage():
+// it echoes each one back immediately and your code never sees the frame.
 
-// Manual handling (if needed):
-use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
+// To observe heartbeats, register a callback (it runs after each echo):
+$connection->onHeartbeat(function (): void {
+    echo "Heartbeat echoed\n";
+});
 
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof HeartbeatRequestV1) {
-    // Echo back
-    $connection->sendMessage(new HeartbeatRequestV1());
-}
+$connection->readLoop();
 ```
 
 ### 6. ConsumerUpdate (0x001a)
@@ -277,22 +275,20 @@ offsetSpec:    OffsetSpec
 
 **PHP Implementation:**
 ```php
-use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
-use CrazyGoat\RabbitStream\Request\ConsumerUpdateReplyV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-// Handle consumer update query
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof ConsumerUpdateResponseV1) {
-    $subscriptionId = $response->getSubscriptionId();
-    $isActive = $response->isActive();
-    
-    // Reply with current offset
-    $connection->sendMessage(new ConsumerUpdateReplyV1(
-        correlationId: $response->getCorrelationId(),
-        offsetSpec: OffsetSpec::offset($this->lastProcessedOffset)
-    ));
-}
+// ConsumerUpdate is handled through a per-subscription callback. The callback
+// returns the OffsetSpec the broker should resume from (or null to keep the
+// current position); the library builds and sends the ConsumerUpdateReplyV1.
+$connection->registerConsumerUpdateHandler(
+    1,
+    function ($update) use (&$lastProcessedOffset): ?OffsetSpec {
+        return OffsetSpec::offset($lastProcessedOffset);
+    }
+);
+
+// Drive the loop to dispatch the server-push frames.
+$connection->readLoop();
 ```
 
 ### 7. Close (0x0016)
@@ -328,11 +324,9 @@ ClosingReason: string
 
 try {
     $response = $connection->readMessage();
-} catch (\Exception $e) {
-    if (str_contains($e->getMessage(), 'Server closed connection')) {
-        // Handle graceful shutdown
-        $connection->reconnect();
-    }
+} catch (ConnectionException $e) {
+    // The broker closed the connection; there is no reconnect() on the client.
+    // Re-establish it with Connection::create() and re-create producers/consumers.
 }
 ```
 
@@ -341,46 +335,51 @@ try {
 ### How readMessage() Handles Server-Push Frames
 
 ```php
-public function readMessage(): ?object
+public function readMessage(float $timeout = 30.0): object
+{
+    if ($this->pendingResponses !== []) {
+        return array_shift($this->pendingResponses);
+    }
+
+    return $this->readResponse($timeout, null);
+}
+
+private function readResponse(float $timeout, ?int $expectedCorrelationId): object
 {
     while (true) {
-        // Wait for data
-        socket_select(...);
-        
-        // Read frame
-        $frame = $this->readFrame();
-        $key = $frame->getKey();
-        
+        $frame = $this->readFrame($remainingTimeout);
+        $key = $frame->peekUint16();
+
         // Check if server-push frame
-        if ($this->isServerPushFrame($key)) {
-            // Dispatch to appropriate handler
+        if (isset(self::SERVER_PUSH_KEYS[$key])) {
+            // Dispatch to the registered handler for that key
             $this->dispatchServerPush($frame);
-            
+
             // Continue reading for actual response
             continue;
         }
-        
-        // Return response to caller
-        return $this->buildResponse($frame);
+
+        // Return the decoded response to the caller
+        return ResponseBuilder::fromResponseBuffer($frame);
     }
 }
 ```
 
 ### Server-Push Frame Detection
 
+Server-push keys are listed in the `StreamConnection::SERVER_PUSH_KEYS`
+constant and looked up by the frame's 2-byte key:
+
 ```php
-private function isServerPushFrame(int $key): bool
-{
-    return in_array($key, [
-        KeyEnum::PUBLISH_CONFIRM->value,      // 0x0003
-        KeyEnum::PUBLISH_ERROR->value,        // 0x0004
-        KeyEnum::DELIVER->value,              // 0x0008
-        KeyEnum::METADATA_UPDATE->value,     // 0x0010
-        KeyEnum::HEARTBEAT->value,            // 0x0017
-        KeyEnum::CONSUMER_UPDATE->value,      // 0x001a
-        KeyEnum::CLOSE->value,                // 0x0016
-    ]);
-}
+private const SERVER_PUSH_KEYS = [
+    KeyEnum::PUBLISH_CONFIRM->value => true,  // 0x0003
+    KeyEnum::PUBLISH_ERROR->value   => true,  // 0x0004
+    KeyEnum::DELIVER->value         => true,  // 0x0008
+    KeyEnum::METADATA_UPDATE->value => true,  // 0x0010
+    KeyEnum::CLOSE->value           => true,  // 0x0016
+    KeyEnum::HEARTBEAT->value       => true,  // 0x0017
+    KeyEnum::CONSUMER_UPDATE->value => true,  // 0x001a
+];
 ```
 
 ### Dispatch Table
@@ -406,7 +405,7 @@ $connection->registerPublisher(1,
     onError: fn($errs) => handleError($errs)
 );
 
-$connection->registerConsumer(1,
+$connection->registerSubscriber(1,
     onDeliver: fn($deliver) => handleDeliver($deliver)
 );
 
@@ -415,7 +414,7 @@ $connection->readLoop(maxFrames: 1);
 
 // Or process continuously
 while ($running) {
-    $connection->readLoop(maxFrames: 10, timeout: 1000);
+    $connection->readLoop(maxFrames: 10, timeout: 1.0);
 }
 ```
 
@@ -461,15 +460,58 @@ Heartbeat      → handled by connection
 
 ```php
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
+use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 $connection = new StreamConnection('localhost', 5552);
 $connection->connect();
+
+// Track state
+$inFlight = [];
+$receivedCount = 0;
+
+// Server-push frames are dispatched to callbacks registered by id, not returned
+// from readLoop() (which returns the number of frames dispatched).
+$connection->registerPublisher(
+    1,
+    onConfirm: function (array $ids) use (&$inFlight): void {
+        foreach ($ids as $id) {
+            unset($inFlight[$id]);
+            echo "Confirmed: $id\n";
+        }
+    },
+    onError: function (array $errors) use (&$inFlight): void {
+        foreach ($errors as $error) {
+            unset($inFlight[$error->getPublishingId()]);
+            echo "Failed: {$error->getPublishingId()} (code {$error->getCode()})\n";
+        }
+    }
+);
+
+$connection->registerSubscriber(
+    1,
+    onDeliver: function (DeliverResponseV1 $deliver) use ($connection, &$receivedCount): void {
+        [$chunk, $offset, $length] = $deliver->getChunkView();
+        $count = 0;
+        foreach (OsirisChunkParser::parseMessages($chunk, offset: $offset, length: $length) as $message) {
+            $count++;
+            $receivedCount++;
+        }
+        echo "Received $count messages\n";
+
+        // Replenish one chunk of credit for the chunk just delivered.
+        $connection->sendMessage(new CreditRequestV1(
+            subscriptionId: 1,
+            credit: 1
+        ));
+    }
+);
 
 // Setup publisher
 $connection->sendMessage(new DeclarePublisherRequestV1(
@@ -488,10 +530,6 @@ $connection->sendMessage(new SubscribeRequestV1(
 ));
 $connection->readMessage();
 
-// Track state
-$inFlight = [];
-$receivedCount = 0;
-
 // Event loop
 for ($i = 0; $i < 100; $i++) {
     // Publish some messages
@@ -500,45 +538,18 @@ for ($i = 0; $i < 100; $i++) {
         $id = $i * 5 + $j;
         $messages[] = new PublishedMessage(
             publishingId: $id,
-            messageBody: "Message $id"
+            message: "Message $id"
         );
         $inFlight[$id] = true;
     }
-    
+
     $connection->sendMessage(new PublishRequestV1(
         publisherId: 1,
         messages: $messages
     ));
-    
-    // Process server-push frames
-    $response = $connection->readLoop(maxFrames: 1, timeout: 100);
-    
-    if ($response instanceof PublishConfirmResponseV1) {
-        foreach ($response->getPublishingIds() as $id) {
-            unset($inFlight[$id]);
-            echo "Confirmed: $id\n";
-        }
-    }
-    
-    if ($response instanceof PublishErrorResponseV1) {
-        foreach ($response->getErrors() as $error) {
-            unset($inFlight[$error->getPublishingId()]);
-            echo "Failed: {$error->getPublishingId()}\n";
-        }
-    }
-    
-    if ($response instanceof DeliverResponseV1) {
-        $messages = $response->getMessages();
-        $receivedCount += count($messages);
-        echo "Received " . count($messages) . " messages\n";
-        
-        // Replenish credit
-        $connection->sendMessage(new CreditRequestV1(
-            subscriptionId: 1,
-            credit: count($messages)
-        ));
-        $connection->readMessage();  // CreditResponse
-    }
+
+    // Process one server-push frame, dispatching it to the callbacks above.
+    $connection->readLoop(maxFrames: 1, timeout: 1.0);
 }
 
 echo "In-flight: " . count($inFlight) . "\n";

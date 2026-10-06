@@ -194,9 +194,9 @@ foreach ($response->getBrokers() as $broker) {
 
 // Access stream metadata
 foreach ($response->getStreamMetadata() as $metadata) {
-    echo "Stream: {$metadata->getStream()}\n";
+    echo "Stream: {$metadata->getStreamName()}\n";
     echo "Leader: Broker {$metadata->getLeaderReference()}\n";
-    echo "Replicas: " . implode(', ', $metadata->getReplicaReferences()) . "\n";
+    echo "Replicas: " . implode(', ', $metadata->getReplicasReferences()) . "\n";
 }
 ```
 
@@ -220,13 +220,16 @@ metadataInfo:  short string (description of change)
 ```php
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 
-// Handle in readLoop
-$response = $connection->readLoop(maxFrames: 1);
-if ($response instanceof MetadataUpdateResponseV1) {
-    echo "Metadata updated: {$response->getMetadataInfo()}\n";
+// MetadataUpdate is a server-push frame: register a handler instead of
+// reading it as a correlated response.
+$connection->onMetadataUpdate(function (MetadataUpdateResponseV1 $response): void {
+    echo "Metadata updated for stream: {$response->getStream()} (code {$response->getCode()})\n";
     // Re-query metadata to get latest topology
     $connection->sendMessage(new MetadataRequestV1(streams: ['my-stream']));
-}
+});
+
+// Then drive the loop to dispatch server-push frames.
+$connection->readLoop();
 ```
 
 ### 5. CreateSuperStream (0x001d)
@@ -366,13 +369,17 @@ $stream->sendMessage(new StreamStatsRequestV1(stream: 'my-stream'));
 $response = $stream->readMessage();
 assert($response instanceof StreamStatsResponseV1);
 
-foreach ($response->getStatistics() as $stat) {
+foreach ($response->getStats() as $stat) {
     echo "{$stat->getKey()}: {$stat->getValue()}\n";
 }
 
 // Access specific stats
-$firstOffset = $response->getStatistic('first_offset');
-$lastOffset = $response->getStatistic('last_offset');
+$stats = [];
+foreach ($response->getStats() as $stat) {
+    $stats[$stat->getKey()] = $stat->getValue();
+}
+$firstOffset = $stats['first_offset'] ?? 0;
+$lastOffset = $stats['last_offset'] ?? 0;
 $messageCount = $lastOffset - $firstOffset + 1;
 echo "Stream contains $messageCount messages\n";
 ```
@@ -411,6 +418,7 @@ use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
 use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
+use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 
 $connection = new StreamConnection('localhost', 5552);
 $connection->connect();
@@ -437,9 +445,14 @@ foreach ($metadata->getStreamMetadata() as $streamMeta) {
 
 // 3. Get statistics
 $connection->sendMessage(new StreamStatsRequestV1(stream: $streamName));
-$stats = $connection->readMessage();
-$firstOffset = $stats->getStatistic('first_offset');
-$lastOffset = $stats->getStatistic('last_offset');
+$response = $connection->readMessage();
+assert($response instanceof StreamStatsResponseV1);
+$stats = [];
+foreach ($response->getStats() as $stat) {
+    $stats[$stat->getKey()] = $stat->getValue();
+}
+$firstOffset = $stats['first_offset'] ?? 0;
+$lastOffset = $stats['last_offset'] ?? 0;
 echo "Messages: " . ($lastOffset - $firstOffset + 1) . "\n";
 
 // 4. Delete stream

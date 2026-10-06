@@ -26,13 +26,13 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
-use CrazyGoat\RabbitStream\Request\TuneResponseV1;
+use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
 use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
-use CrazyGoat\RabbitStream\Response\TuneRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
@@ -116,7 +116,10 @@ class LowLevelConnectionExample
             throw new \Exception('Expected PeerPropertiesResponseV1');
         }
         
-        $properties = $response->getProperties();
+        $properties = [];
+        foreach ($response->getPeerProperty() as $property) {
+            $properties[$property->getKey()] = $property->getValue();
+        }
         echo "  ← Received PeerProperties response\n";
         echo "  ✓ Server properties: " . json_encode($properties) . "\n\n";
     }

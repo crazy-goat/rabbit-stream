@@ -257,13 +257,13 @@ $connection = Connection::create(
 );
 ```
 
-**Connection with custom serializer:**
+**Connection with an explicit serializer:**
 ```php
-use CrazyGoat\RabbitStream\Serializer\JsonBinarySerializer;
+use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 
 $connection = Connection::create(
     host: 'rabbitmq.example.com',
-    serializer: new JsonBinarySerializer()
+    serializer: new PhpBinarySerializer()
 );
 ```
 
@@ -475,8 +475,8 @@ public function getMetadata(array $streams): MetadataResponseV1
 - Each `StreamMetadata` has:
   - `getStreamName()` - Stream name
   - `getResponseCode()` - Response code (OK or error)
-  - `getLeader()` - Leader node information
-  - `getReplicas()` - Replica node information
+  - `getLeaderReference()` - Leader broker reference
+  - `getReplicasReferences()` - Replica broker references
 
 #### Exceptions
 
@@ -495,7 +495,7 @@ foreach ($metadata->getStreamMetadata() as $streamMeta) {
     
     if ($code === ResponseCodeEnum::OK->value) {
         echo "Stream {$name} exists\n";
-        echo "Leader: {$streamMeta->getLeader()}\n";
+        echo "Leader: broker reference {$streamMeta->getLeaderReference()}\n";
     } else {
         echo "Stream {$name} error: {$code}\n";
     }
@@ -1248,13 +1248,15 @@ $producer->send('Hello');
 $connection->close();
 ```
 
-### Pattern 2: Named Connection with Custom Serializer
+### Pattern 2: Connection with an Explicit Serializer
 
-Using a custom serializer for message encoding:
+`Connection::create()` defaults to `PhpBinarySerializer`; pass one explicitly to
+make the choice visible. For a custom wire format, implement
+`BinarySerializerInterface` (see [Custom Serializer](../advanced/custom-serializer.md)):
 
 ```php
 use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\Serializer\JsonBinarySerializer;
+use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 
 $connection = Connection::create(
     host: 'rabbitmq.example.com',
@@ -1262,12 +1264,11 @@ $connection = Connection::create(
     user: 'app',
     password: 'secret',
     vhost: '/app',
-    serializer: new JsonBinarySerializer()
+    serializer: new PhpBinarySerializer()
 );
 
-// All messages will be JSON-encoded
 $producer = $connection->createProducer('events');
-$producer->send(json_encode(['type' => 'user_login', 'user_id' => 123]));
+$producer->send('{"type":"user_login","user_id":123}');
 ```
 
 ### Pattern 3: Connection with PSR-3 Logger
