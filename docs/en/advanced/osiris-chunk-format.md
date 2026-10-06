@@ -22,6 +22,7 @@ zero-copy `Message` views (see [Memory Usage](#memory-usage)).
 ### Binary Layout
 
 ```
+ON DISK (a user-data chunk):
 ┌─────────────────────────────────────────────────────────────┐
 │                  CHUNK HEADER (48 bytes)                    │
 ├─────────────────────────────────────────────────────────────┤
@@ -38,15 +39,21 @@ zero-copy `Message` views (see [Memory Usage](#memory-usage)).
 │  Byte 44    │ Bloom Size (uint8)                             │
 │  Bytes 45-47│ Reserved (3 bytes)                             │
 ├─────────────────────────────────────────────────────────────┤
+│  BLOOM FILTER (Bloom Size bytes)                            │
+├─────────────────────────────────────────────────────────────┤
 │  DATA SECTION (Data Length bytes)                           │
 │  Entry 1    │ [Header] [Data]                                │
 │  Entry 2    │ [Header] [Data]                                │
 │  ...        │ ...                                            │
 │  Entry N    │ [Header] [Data]                                │
 ├─────────────────────────────────────────────────────────────┤
-│  BLOOM FILTER + TRAILER (on disk only, not in Deliver)      │
+│  TRAILER (Trailer Length bytes)                             │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+The bloom filter sits **between** the header and the data section on disk
+(`osiris_log.erl`: `DataPos = Pos + HEADER_SIZE_B + FilterSize`), and the trailer
+follows the data.
 
 On the stream-protocol wire a `Deliver` (0x0008) frame carries the header and the
 data section **only** for user-data chunks — the bloom filter and trailer bytes
