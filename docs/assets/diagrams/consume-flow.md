@@ -23,9 +23,7 @@ Basic Consume Flow:
       │  2. Credit (0x0009)                                 │
       │     [subscriptionId, credit]                        │
       │ ───────────────────────────────────────────────►  │
-      │                                                   │
-      │     CreditResponse (0x8009)                       │
-      │ ◄───────────────────────────────────────────────  │
+      │     (fire-and-forget; reply only on error)          │
       │                                                   │
       │     3. Deliver (0x0008) ◄──── Async ────────────  │
       │        [subscriptionId, messages[]]                 │
@@ -55,7 +53,7 @@ Basic Consume Flow:
 │   ┌──────────┐    Credit(10)     ┌──────────┐    Deliver(10)    ┌─────────┐│
 │   │ Consumer │ ────────────────► │  Server  │ ────────────────► │Consumer ││
 │   │          │                   │          │                   │         ││
-│   │          │ ◄──────────────── │          │ ◄──────────────── │         ││
+│   │          │ ────────────────► │          │ ◄──────────────── │         ││
 │   └──────────┘   Credit(10)      └──────────┘    Processed      └─────────┘│
 │        ▲                                                            │       │
 │        └────────────────────────────────────────────────────────────┘       │
@@ -116,6 +114,6 @@ Basic Consume Flow:
 |---------|-----|-----------|----------|
 | Subscribe | 0x0007 | Client → Server | SubscribeResponse (0x8007) |
 | Deliver | 0x0008 | Server → Client | None (server push) |
-| Credit | 0x0009 | Client → Server | CreditResponse (0x8009) |
+| Credit | 0x0009 | Client → Server | None (reply only on error) |
 | StoreOffset | 0x000a | Client → Server | None |
 | Unsubscribe | 0x000c | Client → Server | UnsubscribeResponse (0x800c) |

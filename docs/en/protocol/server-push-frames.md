@@ -9,7 +9,7 @@ Server-push frames are **asynchronous messages** sent by the server without a co
 | Characteristic | Request/Response | Server-Push |
 |----------------|------------------|-------------|
 | **Initiated by** | Client | Server |
-| **CorrelationId** | Client-generated, echoed by server | 0 or omitted |
+| **CorrelationId** | Client-generated, echoed by server | 0 or omitted (except `Close` (`0x0016`), which echoes the client's CorrelationId) |
 | **Key range** | Response: 0x8000-0xFFFF | Request: 0x0001-0x7FFF |
 | **Timing** | Immediate response | Async, event-driven |
 | **Handling** | `readMessage()` returns response | `readLoop()` dispatches to callbacks |
@@ -175,13 +175,15 @@ Notifies clients of stream topology changes.
 ```
 Key:        0x0010 (uint16)
 Version:    1 (uint16)
-metadataInfo:  short string
+code:          uint16 (code identifying the information)
+stream:        string (the stream implied)
 ```
 
 **Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `metadataInfo` | short string | Description of the change |
+| `code` | uint16 | Code identifying the metadata change |
+| `stream` | string | Stream the change applies to |
 
 **When Triggered:**
 - Stream created or deleted
@@ -218,8 +220,10 @@ Connection keepalive frame. Must be echoed immediately.
 ```
 Key:        0x0017 (uint16)
 Version:    1 (uint16)
-CorrelationId: (uint32) - 0 for heartbeats
 ```
+
+Heartbeat carries no payload beyond the key and version — in particular, **no
+CorrelationId**.
 
 **Behavior:**
 1. Server sends heartbeat at intervals (heartbeat/2 seconds)
@@ -299,6 +303,7 @@ Server-initiated connection close.
 ```
 Key:        0x0016 (uint16)
 Version:    1 (uint16)
+CorrelationId: (uint32)
 ClosingCode:   uint16
 ClosingReason: string
 ```
@@ -306,6 +311,7 @@ ClosingReason: string
 **Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
+| `CorrelationId` | uint32 | Correlation ID for the close; echoed in the client's `CloseResponse` |
 | `ClosingCode` | uint16 | Reason code |
 | `ClosingReason` | string | Human-readable reason |
 
@@ -436,15 +442,21 @@ Server-push frames use **request keys** (0x0001-0x7FFF), NOT response keys:
 
 ### 2. CorrelationId
 
-Server-push frames have no correlation ID (or it's 0):
+Server-push frames carry no correlation ID (it is 0 or omitted), with one
+exception: `Close` (`0x0016`) carries the correlation ID that the client echoes
+back in its `CloseResponse` (`0x8016`).
 
 ```
 Request/Response:
   Client: CorrelationId = 42
   Server: CorrelationId = 42 (echoed)
 
-Server-Push:
+Server-Push (except Close):
   Server: CorrelationId = 0 (or omitted)
+
+Server-Push Close (0x0016):
+  Server: CorrelationId = 42
+  Client: CloseResponse (0x8016): CorrelationId = 42 (echoed back)
 ```
 
 ### 3. Routing

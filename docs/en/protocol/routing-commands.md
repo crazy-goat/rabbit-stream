@@ -198,8 +198,8 @@ $superStream = 'orders-super-stream';
 
 // 1. Create super stream with 3 partitions
 $connection->sendMessage(new CreateSuperStreamRequestV1(
-    superStream: $superStream,
-    partitions: 3,
+    name: $superStream,
+    partitions: ['orders-0', 'orders-1', 'orders-2'],
     bindingKeys: ['orders.1', 'orders.2', 'orders.3']
 ));
 $response = $connection->readMessage();

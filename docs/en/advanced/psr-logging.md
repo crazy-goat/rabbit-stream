@@ -54,12 +54,12 @@ All protocol frames are logged at DEBUG level with hex dumps:
 
 **Outgoing frames:**
 ```
-Socket -> 0000001a000100013039000e6d792d6170706c69636174696f6e
+Socket -> 000000180015000100003039000e6d792d6170706c69636174696f6e
 ```
 
 **Incoming frames:**
 ```
-Socket <- 0000000c8001000130390001
+Socket <- 0000000e8015000100003039000100000000
 ```
 
 ### Connection Events
@@ -215,23 +215,27 @@ $producer->send('Hello, World!');
 ### Sample Debug Output
 
 ```
-[2024-01-15 10:30:45] DEBUG: Socket -> 0000001a000100013039000e6d792d6170706c69636174696f6e
-[2024-01-15 10:30:45] DEBUG: Socket <- 0000000c8001000130390001
-[2024-01-15 10:30:45] DEBUG: Socket -> 0000001e000200013039000100010000000a00086d792d73747265616d
-[2024-01-15 10:30:45] DEBUG: Socket <- 0000000c8002000130390001
+[2024-01-15 10:30:45] DEBUG: Socket -> 000000180015000100003039000e6d792d6170706c69636174696f6e
+[2024-01-15 10:30:45] DEBUG: Socket <- 0000000e8015000100003039000100000000
+[2024-01-15 10:30:45] DEBUG: Socket -> 0000002200020001010000000100000000000000010000000d48656c6c6f2c20576f726c6421
+[2024-01-15 10:30:45] DEBUG: Socket <- 000000110003000101000000010000000000000001
 ```
+
+`Publish` (`0x0002`) is fire-and-forget and has **no** response frame. The
+`PublishConfirm` (`0x0003`) above is an uncorrelated server-push frame (it
+carries no CorrelationId); there is no `Publish` response key such as `0x8002`.
 
 ### Interpreting Hex Dumps
 
 Frame structure in hex:
 ```
-0000001a 0001 0001 3039 000e 6d792d6170706c69636174696f6e
-└─size─┘ └key┘ └ver┘ └cid┘ └len┘ └────── "my-application" ──────┘
+00000018 0015 0001 00003039 000e 6d792d6170706c69636174696f6e
+└─size─┘ └key┘ └ver┘ └─cid──┘ └len┘ └────── "my-application" ──────┘
 
-Size: 0x0000001a = 26 bytes
-Key:  0x0001 = OPEN command
+Size: 0x00000018 = 24 bytes
+Key:  0x0015 = OPEN command
 Ver:  0x0001 = Version 1
-CID:  0x3039 = Correlation ID 12345
+CID:  0x00003039 = Correlation ID 12345
 Len:  0x000e = 14 bytes
 Data: "my-application"
 ```
@@ -311,7 +315,7 @@ class FilteringLogger implements LoggerInterface
     }
 }
 
-// Only log frames containing "0001" (OPEN command)
+// Only log frames containing "0015" (OPEN command)
 $filterLogger = new FilteringLogger($logger, ['Socket ->', 'Socket <-']);
 ```
 

@@ -166,8 +166,8 @@ Complete protocol frame structure:
 
 **Example frame:**
 ```
-Size:     [0x00 0x00 0x00 0x1A]  (26 bytes)
-Key:      [0x00 0x01]            (OPEN command)
+Size:     [0x00 0x00 0x00 0x18]  (24 bytes)
+Key:      [0x00 0x15]            (OPEN command)
 Version:  [0x00 0x01]            (version 1)
 Corr ID:  [0x00 0x00 0x30 0x39]  (12345)
 Content:  [0x00 0x0E my-application] (string: "my-application")

@@ -187,7 +187,6 @@ Negotiates connection parameters between client and server.
 ```
 Key:        0x0014 (uint16)
 Version:    1 (uint16)
-CorrelationId: (uint32)
 FrameMax:   uint32 (max frame size in bytes, 0 = unlimited)
 Heartbeat:  uint32 (heartbeat interval in seconds, 0 = disabled)
 ```
@@ -196,11 +195,13 @@ Heartbeat:  uint32 (heartbeat interval in seconds, 0 = disabled)
 ```
 Key:        0x8014 (uint16)
 Version:    1 (uint16)
-CorrelationId: (uint32)
-ResponseCode: (uint16) - 0x0001 for OK
 FrameMax:   uint32 (negotiated value)
 Heartbeat:  uint32 (negotiated value)
 ```
+
+> **No CorrelationId and no ResponseCode.** Tune is part of the connection
+> handshake, so neither direction carries a correlation ID, and the response
+> frame has no response code (a rejected Tune closes the connection instead).
 
 **Negotiation Logic:**
 
@@ -355,9 +356,12 @@ echo "Connection established successfully!";
 | Tune | 0x0014 | 0x8014 | Negotiate settings |
 | Open | 0x0015 | 0x8015 | Open virtual host |
 | Close | 0x0016 | 0x8016 | Close connection |
-| Heartbeat | 0x0017 | 0x8017 | Keepalive |
+| Heartbeat | 0x0017 | — | Keepalive (no response) |
 
-**Note:** Response keys are request keys with bit 15 set (OR with `0x8000`).
+**Note:** Response keys are request keys with bit 15 set (OR with `0x8000`),
+except for the handshake frames (Tune, Heartbeat) and Credit, which have no
+response frame in the normal case. `Heartbeat` is sent in both directions with
+the same key `0x0017` and expects no reply beyond the echo.
 
 ## Error Response Codes
 
