@@ -49,7 +49,9 @@ $consumer = $connection->createConsumer(
 
 ## Offset Types
 
-RabbitMQ Streams supports 6 offset specification types:
+RabbitMQ Streams supports the following offset specification types (the
+protocol defines five for `Subscribe`; the `interval()` factory is not one of
+them — see below):
 
 ### 1. First
 
@@ -126,7 +128,8 @@ $consumer = $connection->createConsumer(
 Ask the broker to start from a point in time:
 
 ```php
-$yesterday = time() - 86400;
+// The value is in MILLISECONDS since the Unix epoch.
+$yesterday = (time() - 86400) * 1000;
 $consumer = $connection->createConsumer(
     'events',
     OffsetSpec::timestamp($yesterday)
@@ -139,12 +142,17 @@ $consumer = $connection->createConsumer(
 > carry a single timestamp shared by every message in them, so messages
 > written *before* the boundary are legitimately delivered whenever they
 > share a chunk with a message written at or after it. A tie — the value
-> exactly equal to a chunk's timestamp — selects the *earlier* chunk.
+> exactly equal to a chunk's timestamp — selects the *earlier* chunk. An
+> out-of-range value clamps to the closest end of the log.
 >
 > To pick a boundary reliably, derive it from the chunk timestamps the broker
 > actually wrote — the `Message::getTimestamp()` values you read back from the
 > stream — rather than from the client clock. See
 > [`Message::getTimestamp()`](../api-reference/message.md#gettimestamp).
+>
+> **Milliseconds, not seconds.** `timestamp()` takes milliseconds since the
+> Unix epoch. A value in seconds resolves near 1970 and replays the whole
+> stream, like `first()`.
 
 **Use Cases:**
 - Time-based replay
@@ -152,23 +160,18 @@ $consumer = $connection->createConsumer(
 - Processing recent data only
 - Archival and cleanup
 
-### 6. Interval
+### 6. Interval — unsupported
 
-Start from messages within a time interval (in seconds):
+`OffsetSpec::interval()` serializes offset type `0x0006`, which the RabbitMQ
+Stream protocol does **not** define. The spec's `OffsetType` is `1` first,
+`2` last, `3` next, `4` offset and `5` timestamp, with `0` none allowed only
+in a `ConsumerUpdate` reply. The broker does not support an interval offset
+spec, so the factory can emit an out-of-spec frame. This is tracked by
+[#468](https://github.com/crazy-goat/rabbit-stream/issues/468); do not rely on
+`interval()`.
 
-```php
-$oneHourAgo = 3600;
-$consumer = $connection->createConsumer(
-    'events',
-    OffsetSpec::interval($oneHourAgo)  // Last hour only
-);
-```
-
-**Use Cases:**
-- Sliding time windows
-- Recent data processing
-- Time-based filtering
-- Relative time queries
+For a relative time window, resolve the boundary yourself and use
+`OffsetSpec::timestamp()` with a millisecond value.
 
 ### 7. Server-Side Resolution (RabbitMQ 4.3+)
 
@@ -533,7 +536,7 @@ OffsetSpec::last()
 // For resume after restart
 OffsetSpec::next()  // or OffsetSpec::offset($storedOffset)
 
-// For time-based replay
+// For time-based replay (value in milliseconds since the Unix epoch)
 OffsetSpec::timestamp($timestamp)
 ```
 

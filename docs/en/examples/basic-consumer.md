@@ -249,8 +249,8 @@ OffsetSpec::last()
 // From a specific offset
 OffsetSpec::offset(1000)
 
-// From a specific timestamp
-OffsetSpec::timestamp(time() - 3600)
+// From a specific timestamp (milliseconds since the Unix epoch)
+OffsetSpec::timestamp((time() - 3600) * 1000)
 ```
 
 ## Error Handling

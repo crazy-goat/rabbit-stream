@@ -19,9 +19,9 @@ The `OffsetSpec` value object defines the starting position for a consumer subsc
 | `TYPE_FIRST` | 0x0001 | Start from the first message in the stream |
 | `TYPE_LAST` | 0x0002 | Start from the last message (most recent) |
 | `TYPE_NEXT` | 0x0003 | Start from the next message (after last consumed) |
-| `TYPE_OFFSET` | 0x0004 | Start from a specific offset value |
-| `TYPE_TIMESTAMP` | 0x0005 | Start at the first chunk whose chunk timestamp is `>=` the value (chunk-granular, delivered in full) |
-| `TYPE_INTERVAL` | 0x0006 | Start with an interval offset |
+| `TYPE_OFFSET` | 0x0004 | Start from a specific offset value (inclusive) |
+| `TYPE_TIMESTAMP` | 0x0005 | Start at the first chunk whose chunk timestamp is `>=` the value, in milliseconds since the epoch (chunk-granular, delivered in full) |
+| `TYPE_INTERVAL` | 0x0006 | **Not in the protocol** — serializes an offset type the broker does not support; tracked by [#468](https://github.com/crazy-goat/rabbit-stream/issues/468) |
 
 ### Constructor
 
@@ -127,18 +127,24 @@ Create an offset spec for a specific timestamp.
 public static function timestamp(int $timestamp): self
 ```
 
+The broker resolves the value to the **first chunk whose chunk timestamp is
+`>=` the value** and delivers that chunk in full (a tie selects the earlier
+chunk); an out-of-range value clamps to the closest end of the log. Because
+chunks share one timestamp, derive the boundary from broker-written
+`Message::getTimestamp()` values rather than the client clock.
+
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `$timestamp` | `int` | Unix timestamp in milliseconds |
+| `$timestamp` | `int` | Unix timestamp in **milliseconds** since the epoch |
 
 **Example:**
 
 ```php
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-$timestamp = (int) (microtime(true) * 1000) - 3600000; // 1 hour ago
+$timestamp = (time() - 3600) * 1000; // 1 hour ago, in milliseconds
 $offset = OffsetSpec::timestamp($timestamp);
 ```
 
@@ -150,19 +156,20 @@ Create an offset spec with an interval.
 public static function interval(int $interval): self
 ```
 
+> **Not supported by the RabbitMQ Stream protocol.** `interval()` serializes
+> offset type `TYPE_INTERVAL` (`0x0006`), which the spec does not define: it
+> lists `1` first, `2` last, `3` next, `4` offset and `5` timestamp, with `0`
+> none allowed only in a `ConsumerUpdate` reply. The broker does not support
+> it, so the factory can emit an out-of-spec frame. Tracked by
+> [#468](https://github.com/crazy-goat/rabbit-stream/issues/468); do not rely
+> on it. For a relative time window, use `timestamp()` with a millisecond
+> value.
+
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `$interval` | `int` | Interval value |
-
-**Example:**
-
-```php
-use CrazyGoat\RabbitStream\VO\OffsetSpec;
-
-$offset = OffsetSpec::interval(5000);
-```
+| `$interval` | `int` | Value serialized as the 8-byte payload; its meaning is undefined because the broker has no interval offset type |
 
 ### Getters
 
