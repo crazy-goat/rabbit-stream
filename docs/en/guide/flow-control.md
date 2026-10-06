@@ -100,12 +100,12 @@ $stream = new StreamConnection('127.0.0.1', 5552);
 $stream->connect();
 $connection = Connection::create(host: '127.0.0.1', port: 5552, streamConnection: $stream);
 
-// Subscribe with an initial (minimum) window of 100 chunks
+// Subscribe with an initial credit of 100 chunks
 $subscribe = new SubscribeRequestV1(
     subscriptionId: 1,
     stream: 'my-stream',
     offsetSpec: OffsetSpec::next(),
-    credit: 100  // floor: at least 100 chunks in flight
+    credit: 100  // initial credit: up to 100 chunks may be sent before any replenishment
 );
 
 $stream->sendMessage($subscribe);
@@ -142,7 +142,7 @@ how much data one chunk is and how fast you consume, not from a message count:
 
 | `initialCredit` | When it fits | Trade-off |
 |-----------------|--------------|-----------|
-| `1` | Slow consumer, or large chunks (a batching producer, a super-stream partition with big batches) | One chunk at a time: lowest memory, most round trips |
+| `1` | Slow consumer, or large chunks (a batching producer, a super-stream partition with big batches) | One chunk in flight until the adaptive window measures the stream: lowest starting memory, most initial round trips |
 | `10` (default) | General-purpose floor | Good starting point; the adaptive window raises it automatically |
 | `50`-`100` | High throughput, small chunks, low-latency link | More memory; mostly a head start before adaptation kicks in |
 | `500`+ | Very high throughput where the window must start high | Highest memory; prefer raising `creditWindowBytes` instead |

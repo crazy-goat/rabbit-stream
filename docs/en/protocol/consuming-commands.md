@@ -163,14 +163,14 @@ Key:        0x0009 (uint16)
 Version:    1 (uint16)
 CorrelationId: (uint32)
 subscriptionId: uint8
-credit:        uint16 (additional credit to grant)
+credit:        int16 (additional credit to grant)
 ```
 
 **Request Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
 | `subscriptionId` | uint8 | Consumer to grant credit to |
-| `credit` | uint16 | Additional **chunks** server can send (1 credit = 1 chunk) |
+| `credit` | int16 | Additional **chunks** server can send (1 credit = 1 chunk) |
 
 **Response Frame Structure:**
 ```
