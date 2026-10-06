@@ -917,13 +917,15 @@ try {
 ### 5. Use Named Producers for Deduplication
 
 ```php
-// Good: Named producer survives reconnects
+// Good: a named producer resumes from the broker's stored sequence after a
+// restart, so the client does not replay already-stored messages
 $producer = $connection->createProducer(
     'my-stream',
     name: 'order-producer'
 );
 
-// Bad: Unnamed producer may duplicate on reconnect
+// Bad: an anonymous producer always starts at ID 0, so an application that
+// replays after a restart can publish duplicates
 $producer = $connection->createProducer('my-stream');
 ```
 

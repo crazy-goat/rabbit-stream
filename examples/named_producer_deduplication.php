@@ -12,16 +12,23 @@ require_once __DIR__ . '/../vendor/autoload.php';
  *
  * Demonstrates:
  * - Creating a named producer
- * - Publishing with sequence numbers
- * - Simulating a disconnect/reconnect
- * - Querying the last confirmed sequence
- * - Deduplication in action
+ * - Publishing with auto-assigned publishing IDs
+ * - Simulating a process restart (disconnect/reconnect)
+ * - Resuming from the broker's stored sequence instead of replaying
+ * - Why the broker never sees a duplicate publishing ID from this client
  */
 class NamedProducerDeduplicationExample
 {
     private string $producerName = 'order-producer';
     private string $streamName = 'orders-stream';
+
+    /** @var array<int, string> Message body keyed by the publishing ID it was sent with */
+    private array $sentMessages = [];
+
+    /** @var array<int, string> Confirmed message body keyed by publishing ID */
     private array $confirmedMessages = [];
+
+    /** @var array<int, int> Failure code keyed by publishing ID */
     private array $failedMessages = [];
 
     public function run(): void
@@ -35,48 +42,54 @@ class NamedProducerDeduplicationExample
         $this->createStream($connection1);
         $producer1 = $this->createNamedProducer($connection1);
 
-        // Publish messages 1-5
+        // Publish messages 1-5. A named producer starts at querySequence() + 1,
+        // so on a fresh stream its first message gets publishing ID 1.
         echo "Publishing messages 1-5...\n";
         for ($i = 1; $i <= 5; $i++) {
-            $producer1->send("Order #{$i}");
-            echo "  → Sent Order #{$i} (ID: {$producer1->getLastPublishingId()})\n";
+            $message = "Order #{$i}";
+            $producer1->send($message);
+            $this->sentMessages[$producer1->getLastPublishingId()] = $message;
+            echo "  → Sent {$message} (ID: {$producer1->getLastPublishingId()})\n";
         }
 
         $this->waitForConfirms($producer1);
         $this->showStatus("After Phase 1");
 
-        // Phase 2: Simulate disconnect
-        echo "\nPHASE 2: Simulating Disconnect\n";
+        // Phase 2: Simulate a process restart
+        echo "\nPHASE 2: Simulating a Restart\n";
         echo str_repeat('-', 40) . "\n";
-        echo "Closing connection (simulating network failure)...\n";
+        echo "Closing connection (simulating process exit)...\n";
         $producer1->close();
         $connection1->close();
         echo "  ✓ Connection closed\n";
 
-        // Phase 3: Reconnect with same producer name
+        // Phase 3: Reconnect with the same producer name
         echo "\nPHASE 3: Reconnecting\n";
         echo str_repeat('-', 40) . "\n";
         $connection2 = $this->createConnection();
         $producer2 = $this->createNamedProducer($connection2);
 
-        // Query the sequence - should be 5
-        $lastSequence = $producer2->querySequence();
-        echo "Last confirmed sequence from server: {$lastSequence}\n";
-        echo "Next publishing ID will be: " . ($lastSequence + 1) . "\n";
-
-        // Phase 4: Demonstrate deduplication
-        echo "\nPHASE 4: Deduplication in Action\n";
+        // Phase 4: Resume after the restart
+        echo "\nPHASE 4: Resuming After Restart\n";
         echo str_repeat('-', 40) . "\n";
 
-        // Try to "retry" messages 3, 4, 5 (these should be deduplicated)
-        echo "Attempting to retry messages 3, 4, 5 (should be deduplicated)...\n";
-        $producer2->send("Order #3 (retry)");
-        $producer2->send("Order #4 (retry)");
-        $producer2->send("Order #5 (retry)");
+        // The broker has durably stored everything up to ID 5. The producer
+        // already resumed there in its constructor; querySequence() returns the
+        // same value, so the application knows where to continue.
+        $resumeFrom = $producer2->querySequence();
+        echo "Broker stored publishing IDs up to: {$resumeFrom}\n";
+        echo "Next publishing ID will be: " . ($resumeFrom + 1) . "\n";
+        echo "getLastPublishingId() reports: " . $producer2->getLastPublishingId() . "\n";
 
-        // Send a new message (should succeed)
-        echo "Sending new message 6...\n";
-        $producer2->send("Order #6 (new)");
+        // Continue from ID 6. The client does not replay IDs 1-5, so the broker
+        // never receives a publishing ID it has already stored.
+        echo "Publishing messages 6-7...\n";
+        for ($i = 6; $i <= 7; $i++) {
+            $message = "Order #{$i}";
+            $producer2->send($message);
+            $this->sentMessages[$producer2->getLastPublishingId()] = $message;
+            echo "  → Sent {$message} (ID: {$producer2->getLastPublishingId()})\n";
+        }
 
         $this->waitForConfirms($producer2);
         $this->showStatus("After Phase 4");
@@ -90,11 +103,12 @@ class NamedProducerDeduplicationExample
 
         // Summary
         echo "\n=== Summary ===\n";
-        echo "Total confirmed (unique): " . count($this->confirmedMessages) . "\n";
-        echo "Total failed/duplicates: " . count($this->failedMessages) . "\n";
+        echo "Total confirmed: " . count($this->confirmedMessages) . "\n";
+        echo "Total failed: " . count($this->failedMessages) . "\n";
         echo "\nConfirmed messages:\n";
-        foreach ($this->confirmedMessages as $id => $msg) {
-            echo "  #{$id}: {$msg}\n";
+        ksort($this->confirmedMessages);
+        foreach ($this->confirmedMessages as $id => $message) {
+            echo "  #{$id}: {$message}\n";
         }
     }
 
@@ -131,14 +145,13 @@ class NamedProducerDeduplicationExample
             $this->streamName,
             name: $this->producerName,
             onConfirm: function (ConfirmationStatus $status) {
+                $id = $status->getPublishingId();
                 if ($status->isConfirmed()) {
-                    $id = $status->getPublishingId();
-                    $this->confirmedMessages[$id] = true;
+                    $this->confirmedMessages[$id] = $this->sentMessages[$id] ?? '(unknown)';
                     echo "    ✓ Confirmed: #{$id}\n";
                 } else {
-                    $id = $status->getPublishingId();
                     $this->failedMessages[$id] = $status->getErrorCode();
-                    echo "    ✗ Failed/duplicate: #{$id} (code: {$status->getErrorCode()})\n";
+                    echo "    ✗ Failed: #{$id} (code: {$status->getErrorCode()})\n";
                 }
             }
         );
@@ -162,7 +175,7 @@ class NamedProducerDeduplicationExample
     {
         echo "\n  Status [{$phase}]:\n";
         echo "    - Confirmed: " . count($this->confirmedMessages) . "\n";
-        echo "    - Failed/Duplicates: " . count($this->failedMessages) . "\n";
+        echo "    - Failed: " . count($this->failedMessages) . "\n";
     }
 }
 

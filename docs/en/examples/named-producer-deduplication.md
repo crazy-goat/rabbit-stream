@@ -1,14 +1,23 @@
 # Named Producer Deduplication Example
 
-This example demonstrates message deduplication using named producers in RabbitMQ Streams. Named producers track publishing IDs server-side, enabling exactly-once semantics across reconnections.
+This example demonstrates how named producers avoid duplicate messages across a
+process restart in RabbitMQ Streams. The broker stores the highest confirmed
+publishing ID per producer name, and the client resumes from it — so a restart
+continues the sequence instead of replaying it.
 
 ## Overview
 
-When a connection drops and reconnects, messages may be published twice. Named producers solve this by:
+When a process restarts, it must not publish messages the broker has already
+stored. A named producer solves this by:
 
 1. Assigning a unique name to each producer
-2. Tracking the highest confirmed publishing ID server-side
-3. Automatically deduplicating messages with IDs ≤ last confirmed ID
+2. Querying the broker's last confirmed publishing ID for that name on creation
+3. Continuing from that ID + 1, so the broker never sees an ID it already stored
+
+The broker also ignores any publish whose ID is `≤` the stored sequence for the
+name. The current high-level `Producer` API always advances IDs monotonically
+and starts above the stored sequence, so it cannot deliberately re-send an old
+ID. See [How Deduplication Works](#how-deduplication-works) below.
 
 ## Complete Working Example
 
@@ -17,107 +26,121 @@ When a connection drops and reconnects, messages may be published twice. Named p
 
 declare(strict_types=1);
 
-use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+use CrazyGoat\RabbitStream\Client\Connection;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Named Producer Deduplication Example
- * 
+ *
  * Demonstrates:
  * - Creating a named producer
- * - Publishing with sequence numbers
- * - Simulating a disconnect/reconnect
- * - Querying the last confirmed sequence
- * - Deduplication in action
+ * - Publishing with auto-assigned publishing IDs
+ * - Simulating a process restart (disconnect/reconnect)
+ * - Resuming from the broker's stored sequence instead of replaying
+ * - Why the broker never sees a duplicate publishing ID from this client
  */
 class NamedProducerDeduplicationExample
 {
     private string $producerName = 'order-producer';
     private string $streamName = 'orders-stream';
+
+    /** @var array<int, string> Message body keyed by the publishing ID it was sent with */
+    private array $sentMessages = [];
+
+    /** @var array<int, string> Confirmed message body keyed by publishing ID */
     private array $confirmedMessages = [];
+
+    /** @var array<int, int> Failure code keyed by publishing ID */
     private array $failedMessages = [];
-    
+
     public function run(): void
     {
         echo "=== Named Producer Deduplication Example ===\n\n";
-        
+
         // Phase 1: Initial connection and publishing
         echo "PHASE 1: Initial Connection\n";
         echo str_repeat('-', 40) . "\n";
         $connection1 = $this->createConnection();
         $this->createStream($connection1);
         $producer1 = $this->createNamedProducer($connection1);
-        
-        // Publish messages 1-5
+
+        // Publish messages 1-5. A named producer starts at querySequence() + 1,
+        // so on a fresh stream its first message gets publishing ID 1.
         echo "Publishing messages 1-5...\n";
         for ($i = 1; $i <= 5; $i++) {
-            $producer1->send("Order #{$i}");
-            echo "  → Sent Order #{$i} (ID: {$producer1->getLastPublishingId()})\n";
+            $message = "Order #{$i}";
+            $producer1->send($message);
+            $this->sentMessages[$producer1->getLastPublishingId()] = $message;
+            echo "  → Sent {$message} (ID: {$producer1->getLastPublishingId()})\n";
         }
-        
+
         $this->waitForConfirms($producer1);
         $this->showStatus("After Phase 1");
-        
-        // Phase 2: Simulate disconnect
-        echo "\nPHASE 2: Simulating Disconnect\n";
+
+        // Phase 2: Simulate a process restart
+        echo "\nPHASE 2: Simulating a Restart\n";
         echo str_repeat('-', 40) . "\n";
-        echo "Closing connection (simulating network failure)...\n";
+        echo "Closing connection (simulating process exit)...\n";
         $producer1->close();
         $connection1->close();
         echo "  ✓ Connection closed\n";
-        
-        // Phase 3: Reconnect with same producer name
+
+        // Phase 3: Reconnect with the same producer name
         echo "\nPHASE 3: Reconnecting\n";
         echo str_repeat('-', 40) . "\n";
         $connection2 = $this->createConnection();
         $producer2 = $this->createNamedProducer($connection2);
-        
-        // Query the sequence - should be 5
-        $lastSequence = $producer2->querySequence();
-        echo "Last confirmed sequence from server: {$lastSequence}\n";
-        echo "Next publishing ID will be: " . ($lastSequence + 1) . "\n";
-        
-        // Phase 4: Demonstrate deduplication
-        echo "\nPHASE 4: Deduplication in Action\n";
+
+        // Phase 4: Resume after the restart
+        echo "\nPHASE 4: Resuming After Restart\n";
         echo str_repeat('-', 40) . "\n";
-        
-        // Try to "retry" messages 3, 4, 5 (these should be deduplicated)
-        echo "Attempting to retry messages 3, 4, 5 (should be deduplicated)...\n";
-        $producer2->send("Order #3 (retry)");
-        $producer2->send("Order #4 (retry)");
-        $producer2->send("Order #5 (retry)");
-        
-        // Send a new message (should succeed)
-        echo "Sending new message 6...\n";
-        $producer2->send("Order #6 (new)");
-        
+
+        // The broker has durably stored everything up to ID 5. The producer
+        // already resumed there in its constructor; querySequence() returns the
+        // same value, so the application knows where to continue.
+        $resumeFrom = $producer2->querySequence();
+        echo "Broker stored publishing IDs up to: {$resumeFrom}\n";
+        echo "Next publishing ID will be: " . ($resumeFrom + 1) . "\n";
+        echo "getLastPublishingId() reports: " . $producer2->getLastPublishingId() . "\n";
+
+        // Continue from ID 6. The client does not replay IDs 1-5, so the broker
+        // never receives a publishing ID it has already stored.
+        echo "Publishing messages 6-7...\n";
+        for ($i = 6; $i <= 7; $i++) {
+            $message = "Order #{$i}";
+            $producer2->send($message);
+            $this->sentMessages[$producer2->getLastPublishingId()] = $message;
+            echo "  → Sent {$message} (ID: {$producer2->getLastPublishingId()})\n";
+        }
+
         $this->waitForConfirms($producer2);
         $this->showStatus("After Phase 4");
-        
+
         // Phase 5: Cleanup
         echo "\nPHASE 5: Cleanup\n";
         echo str_repeat('-', 40) . "\n";
         $producer2->close();
         $connection2->close();
         echo "  ✓ Cleanup complete\n";
-        
+
         // Summary
         echo "\n=== Summary ===\n";
-        echo "Total confirmed (unique): " . count($this->confirmedMessages) . "\n";
-        echo "Total failed/duplicates: " . count($this->failedMessages) . "\n";
+        echo "Total confirmed: " . count($this->confirmedMessages) . "\n";
+        echo "Total failed: " . count($this->failedMessages) . "\n";
         echo "\nConfirmed messages:\n";
-        foreach ($this->confirmedMessages as $id => $msg) {
-            echo "  #{$id}: {$msg}\n";
+        ksort($this->confirmedMessages);
+        foreach ($this->confirmedMessages as $id => $message) {
+            echo "  #{$id}: {$message}\n";
         }
     }
-    
+
     private function createConnection(): Connection
     {
         $host = getenv('RABBITMQ_HOST') ?: '127.0.0.1';
         $port = (int)(getenv('RABBITMQ_PORT') ?: 5552);
-        
+
         return Connection::create(
             host: $host,
             port: $port,
@@ -125,7 +148,7 @@ class NamedProducerDeduplicationExample
             password: 'guest',
         );
     }
-    
+
     private function createStream(Connection $connection): void
     {
         try {
@@ -137,32 +160,31 @@ class NamedProducerDeduplicationExample
             echo "  ℹ Stream may already exist\n";
         }
     }
-    
+
     private function createNamedProducer(Connection $connection): \CrazyGoat\RabbitStream\Client\Producer
     {
         echo "Creating named producer '{$this->producerName}'...\n";
-        
+
         $producer = $connection->createProducer(
             $this->streamName,
             name: $this->producerName,
             onConfirm: function (ConfirmationStatus $status) {
+                $id = $status->getPublishingId();
                 if ($status->isConfirmed()) {
-                    $id = $status->getPublishingId();
-                    $this->confirmedMessages[$id] = true;
+                    $this->confirmedMessages[$id] = $this->sentMessages[$id] ?? '(unknown)';
                     echo "    ✓ Confirmed: #{$id}\n";
                 } else {
-                    $id = $status->getPublishingId();
                     $this->failedMessages[$id] = $status->getErrorCode();
-                    echo "    ✗ Failed/duplicate: #{$id} (code: {$status->getErrorCode()})\n";
+                    echo "    ✗ Failed: #{$id} (code: {$status->getErrorCode()})\n";
                 }
             }
         );
-        
+
         echo "  ✓ Producer created\n";
-        
+
         return $producer;
     }
-    
+
     private function waitForConfirms(\CrazyGoat\RabbitStream\Client\Producer $producer): void
     {
         try {
@@ -172,12 +194,12 @@ class NamedProducerDeduplicationExample
             echo "  ⚠ Timeout waiting for confirms\n";
         }
     }
-    
+
     private function showStatus(string $phase): void
     {
         echo "\n  Status [{$phase}]:\n";
         echo "    - Confirmed: " . count($this->confirmedMessages) . "\n";
-        echo "    - Failed/Duplicates: " . count($this->failedMessages) . "\n";
+        echo "    - Failed: " . count($this->failedMessages) . "\n";
     }
 }
 
@@ -188,42 +210,54 @@ $example->run();
 
 ## How Deduplication Works
 
-### Publishing ID Tracking
+### Publishing ID Assignment
 
-Each message published by a named producer has a unique publishing ID:
+Every message published by a producer carries a publishing ID. The high-level
+`Producer` assigns these IDs itself, monotonically, starting at `0` for an
+anonymous producer and at `querySequence() + 1` for a named one:
 
 ```php
-// First connection
+// Fresh stream, named producer
 $producer1 = $connection->createProducer('orders', name: 'order-producer');
 $producer1->send("Order #1"); // ID: 1
 $producer1->send("Order #2"); // ID: 2
 $producer1->send("Order #3"); // ID: 3
 ```
 
-The server tracks: `order-producer` → last confirmed ID = 3
+After the messages are confirmed, the broker stores: `order-producer` → last
+confirmed ID = 3.
 
 ### Reconnect and Resume
 
 ```php
-// Connection drops, reconnect with same name
+// The process restarts and reconnects with the same producer name
 $producer2 = $connection->createProducer('orders', name: 'order-producer');
 
-// Automatically queries sequence from server
-$lastId = $producer2->querySequence(); // Returns 3
+// The constructor already queried the broker and resumed the sequence
+$lastId = $producer2->querySequence();       // Returns 3
 $nextId = $producer2->getLastPublishingId() + 1; // Returns 4
 ```
 
-### Deduplication Logic
+`querySequence()` is a manual round-trip to the broker; the constructor already
+performed one and set the next publishing ID, so calling it again is only for
+logging or for deciding which application messages still need to be sent.
+
+### Why the Client Never Sends a Duplicate ID
 
 ```php
-// These will be deduplicated (IDs 1-3 ≤ last confirmed ID 3)
-$producer2->send("Order #1 (retry)"); // Deduplicated
-$producer2->send("Order #2 (retry)"); // Deduplicated
-$producer2->send("Order #3 (retry)"); // Deduplicated
-
-// This will be stored (ID 4 > last confirmed ID 3)
-$producer2->send("Order #4 (new)");   // Stored
+// These do NOT re-use IDs 1-3. They continue at 4, 5, 6...
+$producer2->send("Order #4 (new)"); // ID: 4
+$producer2->send("Order #5 (new)"); // ID: 5
+$producer2->send("Order #6 (new)"); // ID: 6
 ```
+
+The API has no way to choose a publishing ID or reset the counter, so an
+application cannot deliberately re-send an ID that the broker has already
+stored. The broker's deduplication rule — *ignore a publish whose ID is `≤` the
+stored sequence* — is what makes the automatic resume safe: if a client reconnects
+and continues the same numbering, the broker drops anything it already has. With
+the current high-level API that rule is not reachable by hand; the guarantee you
+get is that a restart **resumes** rather than **replays**.
 
 ## Key Methods
 
@@ -236,7 +270,8 @@ $lastConfirmedId = $producer->querySequence();
 echo "Server has confirmed up to ID: {$lastConfirmedId}";
 ```
 
-This is automatically called when creating a named producer, but you can call it manually after reconnecting.
+This is automatically called when creating a named producer, but you can call it
+manually to log or inspect the broker's state.
 
 ### getLastPublishingId()
 
@@ -252,36 +287,35 @@ Returns `null` only for an anonymous producer that has not published yet. A
 `getLastPublishingId()` already returns a non-null id (`0` when the broker
 stored nothing) before the first `send()`.
 
-## Deduplication Flow Diagram
+## Resume Flow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Deduplication Flow                                    │
+│                        Resume After Restart                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-Connection 1:
-  ┌─────────────┐
-  │ Producer A  │──► Publish [seq=1] ──► Server (stored, last=1)
-  │  (name=X)   │──► Publish [seq=2] ──► Server (stored, last=2)
-  │             │──► Publish [seq=3] ──► Server (stored, last=3)
-  └─────────────┘
+Process 1:
+  ┌──────────────────┐
+  │ Producer         │──► Publish [ID=1] ──► Server (stored, last=1)
+  │  (name=X)        │──► Publish [ID=2] ──► Server (stored, last=2)
+  │                  │──► Publish [ID=3] ──► Server (stored, last=3)
+  └──────────────────┘
          │
-         ▼ (connection drops)
+         ▼ (process exits)
 
-Connection 2:
-  ┌─────────────┐
-  │ Producer B  │──► querySequence() ──► Server returns 3
-  │  (name=X)   │──► Publish [seq=1] ──► Server (duplicate, ignored)
-  │             │──► Publish [seq=2] ──► Server (duplicate, ignored)
-  │             │──► Publish [seq=3] ──► Server (duplicate, ignored)
-  │             │──► Publish [seq=4] ──► Server (stored, last=4)
-  └─────────────┘
+Process 2:
+  ┌──────────────────┐
+  │ Producer         │──► querySequence() ──► Server returns 3
+  │  (name=X)        │    next ID = 4 (set by the constructor)
+  │                  │──► Publish [ID=4] ──► Server (stored, last=4)
+  │                  │──► Publish [ID=5] ──► Server (stored, last=5)
+  └──────────────────┘
 
 Key Points:
-• Deduplication is per-producer-name, not per-connection
-• Server tracks last confirmed ID for each named producer
-• Messages with ID ≤ last confirmed are silently ignored
-• Different producer names have independent deduplication state
+• Deduplication state is per-producer-name, not per-connection
+• The server tracks the last confirmed ID for each named producer
+• The client resumes at stored ID + 1; it never replays old IDs
+• Different producer names have independent state
 ```
 
 ## Best Practices
@@ -296,35 +330,17 @@ $producer = $connection->createProducer('orders', name: 'payment-service-produce
 $producer = $connection->createProducer('orders', name: 'producer');
 ```
 
-### 2. Handle Reconnects Gracefully
+### 2. Resume, Do Not Replay
+
+After a restart, create the producer with the same name and let the constructor
+resume the sequence. Do not try to "retry" earlier messages with earlier IDs —
+the API will assign them fresh IDs and the broker will store them as new
+messages.
 
 ```php
-function publishWithReconnect($connection, $stream, $producerName, $messages) {
-    $attempts = 0;
-    $maxAttempts = 3;
-    
-    while ($attempts < $maxAttempts) {
-        try {
-            $producer = $connection->createProducer($stream, name: $producerName);
-            
-            foreach ($messages as $msg) {
-                $producer->send($msg);
-            }
-            
-            $producer->waitForConfirms(timeout: 5.0);
-            $producer->close();
-            
-            return true; // Success
-        } catch (ConnectionException $e) {
-            $attempts++;
-            echo "Connection lost, attempt {$attempts}/{$maxAttempts}\n";
-            sleep(1);
-            $connection = Connection::create(/* ... */);
-        }
-    }
-    
-    return false; // Failed after retries
-}
+// After a restart, the producer continues at stored ID + 1
+$producer = $connection->createProducer($stream, name: $producerName);
+$producer->send($nextMessage);
 ```
 
 ### 3. Track Publishing IDs for Debugging
@@ -337,7 +353,7 @@ $producer = $connection->createProducer(
     name: 'order-producer',
     onConfirm: function (ConfirmationStatus $status) use (&$sentMessages) {
         $id = $status->getPublishingId();
-        
+
         if ($status->isConfirmed()) {
             echo "Confirmed: #{$id} - {$sentMessages[$id]}\n";
         } else {
@@ -375,7 +391,7 @@ $producer2 = $connection->createProducer('payments', name: 'producer');
 // These share deduplication state! Don't do this.
 ```
 
-### Pitfall 2: Not Waiting for Confirms Before Reconnect
+### Pitfall 2: Not Waiting for Confirms Before Restart
 
 ```php
 // Wrong: May lose track of which messages were confirmed
@@ -388,13 +404,17 @@ $producer->waitForConfirms(timeout: 5.0);
 $connection->close();
 ```
 
-### Pitfall 3: Manual Publishing ID Management
+### Pitfall 3: Expecting the Broker to Deduplicate a Re-Sent Message
 
 ```php
-// Don't do this - the Producer class handles it automatically
-$publishingId = 1; // Manual tracking
-$producer->send($message); // Producer uses its own internal counter
+// Wrong: this gets a NEW publishing ID and is stored as a second message.
+// The API has no way to re-use an old ID, so the broker cannot recognise it
+// as a duplicate.
+$producer2->send("Order #3 (retry)");
 ```
+
+To avoid duplicates, resume from `querySequence()` and only send messages that
+have not been confirmed yet; do not resend already-stored messages.
 
 ## Running the Example
 
@@ -438,50 +458,56 @@ Publishing messages 1-5...
 
   Status [After Phase 1]:
     - Confirmed: 5
-    - Failed/Duplicates: 0
+    - Failed: 0
 
-PHASE 2: Simulating Disconnect
+PHASE 2: Simulating a Restart
 ----------------------------------------
-Closing connection (simulating network failure)...
+Closing connection (simulating process exit)...
   ✓ Connection closed
 
 PHASE 3: Reconnecting
 ----------------------------------------
 Creating named producer 'order-producer'...
   ✓ Producer created
-Last confirmed sequence from server: 5
-Next publishing ID will be: 6
 
-PHASE 4: Deduplication in Action
+PHASE 4: Resuming After Restart
 ----------------------------------------
-Attempting to retry messages 3, 4, 5 (should be deduplicated)...
-Sending new message 6...
-    ✗ Failed/duplicate: #3 (code: 0)
-    ✗ Failed/duplicate: #4 (code: 0)
-    ✗ Failed/duplicate: #5 (code: 0)
+Broker stored publishing IDs up to: 5
+Next publishing ID will be: 6
+getLastPublishingId() reports: 5
+Publishing messages 6-7...
+  → Sent Order #6 (ID: 6)
+  → Sent Order #7 (ID: 7)
     ✓ Confirmed: #6
+    ✓ Confirmed: #7
   ✓ All confirms received
 
   Status [After Phase 4]:
-    - Confirmed: 6
-    - Failed/Duplicates: 3
+    - Confirmed: 7
+    - Failed: 0
 
 PHASE 5: Cleanup
 ----------------------------------------
   ✓ Cleanup complete
 
 === Summary ===
-Total confirmed (unique): 6
-Total failed/duplicates: 3
+Total confirmed: 7
+Total failed: 0
 
 Confirmed messages:
-  #1: ✓
-  #2: ✓
-  #3: ✓
-  #4: ✓
-  #5: ✓
-  #6: ✓
+  #1: Order #1
+  #2: Order #2
+  #3: Order #3
+  #4: Order #4
+  #5: Order #5
+  #6: Order #6
+  #7: Order #7
 ```
+
+The IDs above assume a **fresh** `orders-stream` (the first run against the
+broker). If the stream already has a stored sequence for `order-producer`, the
+constructor resumes above it and the printed IDs will be higher — that is the
+deduplication behaviour this example demonstrates.
 
 ## See Also
 
