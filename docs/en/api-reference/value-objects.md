@@ -199,7 +199,7 @@ Returns the offset value (if applicable).
 Used in:
 - `SubscribeRequestV1` - `src/Request/SubscribeRequestV1.php`
 - `Consumer` - `src/Client/Consumer.php`
-- `Connection::subscribe()` - `src/Client/Connection.php`
+- `Connection::createConsumer()` - `src/Client/Connection.php`
 - `ResolveOffsetSpecRequestV1` - `src/Request/ResolveOffsetSpecRequestV1.php`
 
 **Example:**
@@ -208,25 +208,29 @@ Used in:
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\Client\Connection;
 
-$connection = new Connection('localhost', 5552);
-$connection->connect();
-
-// Subscribe from the beginning
-$consumer = $connection->subscribe(
-    'my-stream',
-    offset: OffsetSpec::first()
+$connection = Connection::create(
+    host: 'localhost',
+    port: 5552,
+    user: 'guest',
+    password: 'guest',
 );
 
-// Subscribe from the most recent message
-$consumer = $connection->subscribe(
+// Subscribe from the beginning
+$consumer = $connection->createConsumer(
     'my-stream',
-    offset: OffsetSpec::last()
+    OffsetSpec::first()
+);
+
+// Subscribe from the most recent chunk
+$consumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::last()
 );
 
 // Subscribe from a specific offset
-$consumer = $connection->subscribe(
+$consumer = $connection->createConsumer(
     'my-stream',
-    offset: OffsetSpec::offset(5000)
+    OffsetSpec::offset(5000)
 );
 ```
 

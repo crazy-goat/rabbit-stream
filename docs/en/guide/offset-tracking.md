@@ -163,7 +163,7 @@ $consumer = $connection->createConsumer(
 ### 6. Interval — unsupported
 
 `OffsetSpec::interval()` serializes offset type `0x0006`, which the RabbitMQ
-Stream protocol does **not** define. The spec's `OffsetType` is `1` first,
+Stream protocol does **not** define. The spec defines offset types `1` first,
 `2` last, `3` next, `4` offset and `5` timestamp, with `0` none allowed only
 in a `ConsumerUpdate` reply. The broker does not support an interval offset
 spec, so the factory can emit an out-of-spec frame. This is tracked by
