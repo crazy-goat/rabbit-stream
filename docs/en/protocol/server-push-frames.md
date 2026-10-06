@@ -138,7 +138,7 @@ osirisChunk:   bytes
 
 **When Triggered:**
 - When new messages are available in the stream
-- When consumer has credit and messages exist
+- When consumer has chunk credit and messages exist
 - May contain multiple messages per chunk
 
 **PHP Implementation:**

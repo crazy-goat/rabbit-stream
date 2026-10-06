@@ -61,7 +61,7 @@ Basic Consume Flow:
 │        └────────────────────────────────────────────────────────────┘       │
 │                              StoreOffset                                    │
 │                                                                              │
-│  Credit = "I can handle N more messages"                                    │
+│  Credit = "I can handle N more chunks" (1 credit = 1 chunk)                 │
 │  Server stops sending when credit exhausted                                 │
 │  Consumer must re-issue Credit to continue                                  │
 └─────────────────────────────────────────────────────────────────────────────┘

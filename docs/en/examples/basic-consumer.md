@@ -192,7 +192,7 @@ $consumer = $connection->createConsumer(
 **Parameters:**
 - `stream` - Name of the stream to consume from
 - `offset` - Starting position (first, last, next, offset, timestamp)
-- `initialCredit` - Number of messages to request initially
+- `initialCredit` - Initial number of **chunks** to request (credit is chunk-granular: 1 credit = 1 future chunk, not 1 message)
 
 ### Reading Messages
 

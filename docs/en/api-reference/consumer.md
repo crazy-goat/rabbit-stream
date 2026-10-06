@@ -87,7 +87,7 @@ $consumer = $connection->createConsumer(
 | `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver chunks containing messages published with no filter value. |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer: the broker activates exactly one consumer per `$name` group at a time. Requires `$name`; throws `InvalidArgumentException` otherwise. See [Single Active Consumer](../guide/consuming.md#8-single-active-consumer). |
 | `$superStream` | `?string` | No | Name of the super stream this partition belongs to (sent as the `super-stream` property). |
-| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#credit-is-counted-in-chunks-not-bytes). |
+| `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#initial-credit-and-the-adaptive-window). |
 | `$maxDecodeDepth` | `int` | No | Maximum AMQP nesting depth accepted when a delivered message is decoded (default `32`). Must be at least 1. A deeper frame is rejected with `DeserializationException` — the guard that stops a small malicious frame from exhausting the PHP stack. |
 
 ### Where the Decode Limit Applies
