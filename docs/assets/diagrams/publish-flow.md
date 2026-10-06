@@ -58,12 +58,16 @@ Basic Publish Flow:
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                                                                              │
-│  Publisher A ──► Publish [seq=1] ──► Server (stored)                        │
-│  Publisher A ──► Publish [seq=2] ──► Server (stored)                        │
-│  Publisher B ──► Publish [seq=1] ──► Server (duplicate - ignored)             │
-│  Publisher A ──► Publish [seq=3] ──► Server (stored)                        │
+│  Producer (name=X) ──► Publish [ID=1] ──► Server (stored, last=1)           │
+│  Producer (name=X) ──► Publish [ID=2] ──► Server (stored, last=2)           │
 │                                                                              │
-│  Deduplication is per-producer-name, not per-publisher-id                    │
+│  (process restarts, reconnects with name=X)                                  │
+│                                                                              │
+│  Producer (name=X) ──► querySequence() ──► Server returns 2                 │
+│  Producer (name=X) ──► Publish [ID=3] ──► Server (stored, last=3)           │
+│                                                                              │
+│  The client resumes at stored ID + 1; it never replays IDs 1-2.              │
+│  Deduplication state is per producer name, not per publisher id.             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 

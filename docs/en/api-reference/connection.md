@@ -793,7 +793,7 @@ public function createProducer(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to publish to |
-| `$name` | `?string` | No | Producer name for deduplication. Enables exactly-once semantics. |
+| `$name` | `?string` | No | Unique producer name for deduplication. If provided, the producer reads back its publishing sequence on creation and resumes from it, so a reconnect/restart continues above the broker's stored sequence instead of replaying it. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus`. |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding publishes. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
 | `$redeclareTimeout` | `float` | No | How long a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher. Default: `Producer::DEFAULT_REDECLARE_TIMEOUT` (5.0 s). See [Producer::isStale()](producer.md#isstale). |

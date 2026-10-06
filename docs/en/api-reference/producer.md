@@ -45,7 +45,7 @@ $producer = $connection->createProducer(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to publish to |
-| `$name` | `?string` | No | Unique producer name for deduplication. If provided, enables exactly-once semantics across reconnects and makes the producer read back its publishing sequence on creation. |
+| `$name` | `?string` | No | Unique producer name for deduplication. If provided, the producer reads back its publishing sequence on creation and resumes from it, so a reconnect/restart continues above the broker's stored sequence instead of replaying it. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus` object. |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Once reached, `send()`/`sendBatch()`/`sendWithFilter()` block, draining confirms until the count drops back below the limit. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
 | `$redeclareTimeout` | `float` | No | How long (seconds) a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher; default `5.0`. `0` fails on the first attempt. Must be `>= 0`. See [isStale()](#isstale). |
@@ -541,8 +541,8 @@ echo "Server has confirmed up to ID: {$lastConfirmed}";
 #### Notes
 
 - Only available for named producers (throws `InvalidArgumentException` for anonymous producers, i.e. a `null` or `""` name)
-- Automatically called during producer construction for named producers
-- Used for deduplication: messages with ID ≤ returned value are duplicates
+- Automatically called during producer construction for named producers, which then resumes from `sequence + 1`
+- The broker ignores a publish whose ID is ≤ the returned value. The high-level API assigns IDs itself and never lets the application choose one, so it cannot deliberately re-send such an ID; the rule makes the automatic resume safe rather than being an application-facing "resend and it will be deduplicated" feature
 - Makes a round-trip to the server
 
 ## ConfirmationStatus Class
@@ -683,7 +683,8 @@ $producer->close();
 
 ### Pattern 4: Named Producer with Deduplication
 
-For exactly-once semantics:
+For a publish sequence that resumes cleanly after a reconnect or process
+restart:
 
 ```php
 $producer = $connection->createProducer(
@@ -696,16 +697,22 @@ $producer = $connection->createProducer(
     }
 );
 
-// Publish with automatic deduplication on reconnect
+// Publish; a restart with the same name resumes above the stored sequence
 $producer->send(json_encode(['order_id' => 123, 'amount' => 99.99]));
 $producer->waitForConfirms(timeout: 5.0);
 
-// If connection drops and reconnects with same name,
-// duplicate messages will be automatically deduplicated
+// If the process restarts and recreates the producer with the same name,
+// the constructor queries the broker's last confirmed sequence and continues
+// from there, so the client does not replay already-stored messages.
 ```
 
-**Pros:** Exactly-once semantics, automatic deduplication  
+**Pros:** Restart resumes the sequence instead of replaying it  
 **Cons:** Slightly higher overhead for sequence tracking
+
+> The broker also drops a publish whose ID is ≤ the stored sequence, but the
+> high-level API assigns IDs internally and cannot re-send an old one, so that
+> rule is not an application-level "resend and it will be deduplicated"
+> feature. See [Publishing → Named Producers & Deduplication](../guide/publishing.md#3-named-producers--deduplication).
 
 ## Performance Considerations
 

@@ -206,7 +206,9 @@ This is normal behavior and improves performance. Your `onConfirm` callback will
 
 ### Creating a Named Producer
 
-Named producers enable message deduplication across reconnections:
+Named producers let the client resume a publishing sequence after a
+reconnect or process restart, so it does not replay messages the broker has
+already stored:
 
 ```php
 $producer = $connection->createProducer(
@@ -215,34 +217,48 @@ $producer = $connection->createProducer(
 );
 ```
 
-The name must be unique per stream. Multiple connections using the same name will share the same deduplication state.
+The name must be unique per stream. Multiple connections using the same name
+share the same deduplication state.
 
 ### How Deduplication Works
 
-Each message published by a named producer has a sequence number (publishing ID). The server tracks the highest confirmed publishing ID for each named producer. If a message with a publishing ID less than or equal to the last confirmed ID is received, it is ignored as a duplicate.
+Each message published by a named producer carries a publishing ID. The broker
+tracks the highest confirmed publishing ID for the producer's name on that
+stream and ignores a publish whose ID is **less than or equal to** the stored
+sequence, treating it as a duplicate.
+
+The high-level `Producer` assigns publishing IDs itself and never lets the
+application choose one. A named producer starts at `querySequence() + 1` and
+advances monotonically, so after a restart it continues above the stored
+sequence instead of replaying old IDs:
 
 ```
-Publisher A ──► Publish [seq=1] ──► Server (stored)
-Publisher A ──► Publish [seq=2] ──► Server (stored)
-Publisher B ──► Publish [seq=1] ──► Server (duplicate - ignored)
-Publisher A ──► Publish [seq=3] ──► Server (stored)
+Producer (name=X) ──► Publish [ID=1] ──► Server (stored, last=1)
+Producer (name=X) ──► Publish [ID=2] ──► Server (stored, last=2)
+   ... process restarts ...
+Producer (name=X) ──► querySequence() ──► Server returns 2
+Producer (name=X) ──► Publish [ID=3] ──► Server (stored, last=3)
 ```
 
-Deduplication is per-producer-name, not per-publisher-id.
+Deduplication state is per producer name (and per stream), not per publisher
+id or per connection. Because the API cannot re-send a specific old ID, the
+broker's duplicate rule is not something the application can trigger by hand:
+the guarantee it gives you is that a client which reconnects and continues the
+same numbering is not duplicated.
 
 ### Querying Sequence After Reconnect
 
-When reconnecting with a named producer, query the last confirmed sequence:
+The constructor already queries the broker's last confirmed sequence and sets
+the next publishing ID, so a new producer resumes automatically. Call
+`querySequence()` yourself when you want to log the broker's state or decide
+which application messages still need to be sent:
 
 ```php
-// After reconnect
+// After creating a producer with the same name
 $lastId = $producer->querySequence();
 echo "Last confirmed ID: {$lastId}\n";
-
-// The producer automatically resumes from lastId + 1
+echo "Next ID: " . ($lastId + 1) . "\n";
 ```
-
-The `Producer` class automatically handles this on creation - it queries the sequence and sets the next publishing ID accordingly.
 
 ### Local Tracking
 
@@ -259,14 +275,16 @@ the constructor queries the broker's last confirmed sequence and resumes from
 `sequence + 1`, so it returns that sequence (`0` when nothing was stored)
 immediately. See [getLastPublishingId()](../api-reference/producer.md#getlastpublishingid).
 
-### Deduplication Example
+### Resume Example
 
-Complete reconnect scenario with deduplication:
+A process publishes five orders, exits, restarts and continues where the
+broker left off. The new producer's first send uses ID 6 — it does not replay
+IDs 1-5:
 
 ```php
 <?php
 
-// First connection - publish messages 1-5
+// First run - publish messages with IDs 1-5
 $connection1 = Connection::create(host: '127.0.0.1', port: 5552, user: 'guest', password: 'guest');
 $producer1 = $connection1->createProducer('my-stream', name: 'order-producer');
 
@@ -274,19 +292,21 @@ for ($i = 1; $i <= 5; $i++) {
     $producer1->send("Order #{$i}");
 }
 $producer1->waitForConfirms(timeout: 5.0);
-
-// Connection drops, reconnect
+$producer1->close();
 $connection1->close();
 
-// Second connection - same producer name
+// Process restarts - same producer name, new connection
 $connection2 = Connection::create(host: '127.0.0.1', port: 5552, user: 'guest', password: 'guest');
 $producer2 = $connection2->createProducer('my-stream', name: 'order-producer');
 
-// Automatically resumes from ID 6
-// If we retry messages 3-5, they will be deduplicated
-$producer2->send("Order #3 (retry)"); // Will be deduplicated (ID 3 <= 5)
-$producer2->send("Order #4 (retry)"); // Will be deduplicated (ID 4 <= 5)
-$producer2->send("Order #6 (new)");  // Will be stored (ID 6 > 5)
+// The constructor already resumed the sequence: querySequence() returns 5
+$lastId = $producer2->querySequence();
+echo "Broker stored IDs up to: {$lastId}\n"; // 5
+echo "Next ID: " . ($producer2->getLastPublishingId() + 1) . "\n"; // 6
+
+// Continue from ID 6 - these are stored, not deduplicated
+$producer2->send("Order #6");
+$producer2->send("Order #7");
 
 $producer2->waitForConfirms(timeout: 5.0);
 $producer2->close();
@@ -557,7 +577,7 @@ the same recovery, which covers the case where the `MetadataUpdate` was missed.
 
 ## Best Practices
 
-1. **Always use named producers for deduplication in production** - Prevents duplicate messages on reconnect
+1. **Use named producers when a restart must resume a publish sequence** - The producer continues from the broker's stored sequence instead of replaying it
 2. **Set appropriate timeouts for waitForConfirms()** - Balance between reliability and responsiveness
 3. **Handle publish errors gracefully** - Log errors and implement retry logic
 4. **Close producers when done** - Frees server resources
