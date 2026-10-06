@@ -10,15 +10,15 @@ All value objects are immutable and located in `src/VO/` and `src/Client/` direc
 
 Specifies where to start consuming from a stream. Located in `src/VO/OffsetSpec.php`.
 
-The `OffsetSpec` value object defines the starting position for a consumer subscription. It supports various offset types including first/last messages, specific offsets, timestamps, and intervals.
+The `OffsetSpec` value object defines the starting position for a consumer subscription. It supports first/last/next, a specific offset, and a timestamp — the four offset types the RabbitMQ Stream protocol defines (plus `none`, valid only in a `ConsumerUpdate` reply). `interval` is exposed but **not supported by the protocol** (see below).
 
 ### Type Constants
 
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `TYPE_FIRST` | 0x0001 | Start from the first message in the stream |
-| `TYPE_LAST` | 0x0002 | Start from the last message (most recent) |
-| `TYPE_NEXT` | 0x0003 | Start from the next message (after last consumed) |
+| `TYPE_LAST` | 0x0002 | Start from the last **chunk**, delivered in full (not the last message) |
+| `TYPE_NEXT` | 0x0003 | Start at the end of the stream — messages written after the subscription (not "after the last consumed") |
 | `TYPE_OFFSET` | 0x0004 | Start from a specific offset value (inclusive) |
 | `TYPE_TIMESTAMP` | 0x0005 | Start at the first chunk whose chunk timestamp is `>=` the value, in milliseconds since the epoch (chunk-granular, delivered in full) |
 | `TYPE_INTERVAL` | 0x0006 | **Not in the protocol** — serializes an offset type the broker does not support; tracked by [#468](https://github.com/crazy-goat/rabbit-stream/issues/468) |
@@ -150,7 +150,7 @@ $offset = OffsetSpec::timestamp($timestamp);
 
 #### interval()
 
-Create an offset spec with an interval.
+Create an interval offset spec — **not supported by the RabbitMQ Stream protocol** (see below).
 
 ```php
 public static function interval(int $interval): self

@@ -98,20 +98,9 @@ class OffsetSpecDocblockTest extends TestCase
                 continue;
             }
 
-            preg_match_all('/@throws\s+([A-Za-z_\\\\][A-Za-z0-9_\\\\]*)/', $docblock, $matches);
-            foreach ($matches[1] as $name) {
-                $name = ltrim($name, '\\');
-                if (class_exists($name) || interface_exists($name)) {
-                    continue;
-                }
-                if (class_exists(self::EXCEPTION_NAMESPACE . $name)) {
-                    continue;
-                }
-                if (interface_exists(self::EXCEPTION_NAMESPACE . $name)) {
-                    continue;
-                }
-
-                $unknown[] = OffsetSpec::class . '::' . $method->getName() . '() -> ' . $name;
+            $label = OffsetSpec::class . '::' . $method->getName() . '()';
+            foreach ($this->unknownThrows($docblock, $label) as $name) {
+                $unknown[] = $name;
             }
         }
 
@@ -120,6 +109,59 @@ class OffsetSpecDocblockTest extends TestCase
             $unknown,
             "Documented @throws classes that do not exist:\n" . implode("\n", $unknown)
         );
+    }
+
+    /**
+     * The constructor's `@throws` set is part of the contract a caller reads —
+     * it validates the type/value pair eagerly — but the factory loop cannot
+     * see it because the constructor is not static.
+     */
+    public function testConstructorDocumentsItsThrows(): void
+    {
+        $constructor = (new \ReflectionClass(OffsetSpec::class))->getConstructor();
+        $this->assertNotNull($constructor);
+
+        $docblock = $constructor->getDocComment();
+        $this->assertNotFalse($docblock, 'OffsetSpec::__construct() must have a docblock.');
+        $this->assertStringContainsString(
+            '@throws InvalidArgumentException',
+            $docblock,
+            'The constructor must document the InvalidArgumentException it raises.'
+        );
+        $this->assertSame(
+            [],
+            $this->unknownThrows($docblock, 'OffsetSpec::__construct()'),
+            "Documented @throws classes on the constructor that do not exist."
+        );
+    }
+
+    /**
+     * The `@throws` class names in a docblock that do not resolve to a real
+     * class or interface.
+     *
+     * @return list<string>
+     */
+    private function unknownThrows(string $docblock, string $label): array
+    {
+        $unknown = [];
+
+        preg_match_all('/@throws\s+([A-Za-z_\\\\][A-Za-z0-9_\\\\]*)/', $docblock, $matches);
+        foreach ($matches[1] as $name) {
+            $name = ltrim($name, '\\');
+            if (class_exists($name) || interface_exists($name)) {
+                continue;
+            }
+            if (class_exists(self::EXCEPTION_NAMESPACE . $name)) {
+                continue;
+            }
+            if (interface_exists(self::EXCEPTION_NAMESPACE . $name)) {
+                continue;
+            }
+
+            $unknown[] = $label . ' -> ' . $name;
+        }
+
+        return $unknown;
     }
 
     /**
