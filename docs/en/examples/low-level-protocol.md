@@ -22,7 +22,7 @@ use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
-use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -111,12 +111,10 @@ class LowLevelConnectionExample
         echo "  → Sent PeerProperties request\n";
         
         // Receive response
-        $response = $this->stream->readMessage();
+        $response = $this->readResponse('PeerProperties');
         if (!$response instanceof PeerPropertiesResponseV1) {
             throw new \Exception('Expected PeerPropertiesResponseV1');
         }
-        
-        $this->assertResponseOk($response, 'PeerProperties');
         
         $properties = $response->getProperties();
         echo "  ← Received PeerProperties response\n";
@@ -136,12 +134,10 @@ class LowLevelConnectionExample
         echo "  → Sent SaslHandshake request\n";
         
         // Receive response
-        $response = $this->stream->readMessage();
+        $response = $this->readResponse('SaslHandshake');
         if (!$response instanceof SaslHandshakeResponseV1) {
             throw new \Exception('Expected SaslHandshakeResponseV1');
         }
-        
-        $this->assertResponseOk($response, 'SaslHandshake');
         
         $mechanisms = $response->getMechanisms();
         echo "  ← Received SaslHandshake response\n";
@@ -167,12 +163,11 @@ class LowLevelConnectionExample
         $this->stream->sendMessage($request);
         
         // Receive response
-        $response = $this->stream->readMessage();
+        $response = $this->readResponse('SaslAuthenticate');
         if (!$response instanceof SaslAuthenticateResponseV1) {
             throw new \Exception('Expected SaslAuthenticateResponseV1');
         }
         
-        $this->assertResponseOk($response, 'SaslAuthenticate');
         echo "  ← Authentication successful\n\n";
     }
     
@@ -232,12 +227,11 @@ class LowLevelConnectionExample
         $this->stream->sendMessage($request);
         
         // Receive response
-        $response = $this->stream->readMessage();
+        $response = $this->readResponse('Open');
         if (!$response instanceof OpenResponseV1) {
             throw new \Exception('Expected OpenResponseV1');
         }
         
-        $this->assertResponseOk($response, 'Open');
         echo "  ✓ Virtual host '{$this->vhost}' opened successfully\n";
     }
     
@@ -278,15 +272,19 @@ class LowLevelConnectionExample
     }
     
     /**
-     * Assert that a response has OK status
+     * Read a correlated response, turning a non-OK response code into an
+     * exception. readMessage() already throws ProtocolException while
+     * deserializing a non-OK code, so a returned response always carries OK.
      */
-    private function assertResponseOk($response, string $command): void
+    private function readResponse(string $command): object
     {
-        $code = $response->getResponseCode();
-        if ($code !== ResponseCodeEnum::OK->value) {
-            $error = ResponseCodeEnum::fromInt($code);
+        try {
+            return $this->stream->readMessage();
+        } catch (ProtocolException $e) {
+            $code = $e->getResponseCode();
             throw new \Exception(
-                "{$command} failed: " . ($error?->getMessage() ?? "Unknown error (code: {$code})")
+                "{$command} failed: " . ($code?->getMessage() ?? $e->getMessage()),
+                previous: $e
             );
         }
     }
@@ -382,13 +380,15 @@ if ($frameData instanceof ReadBuffer) {
 ```php
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
 try {
     // Send request
     $stream->sendMessage($request);
     
-    // Read response with timeout
+    // Read response with timeout. A non-OK response code throws
+    // ProtocolException during deserialization.
     $response = $stream->readMessage(timeout: 30.0);
     
     // Check response type
@@ -396,20 +396,17 @@ try {
         throw new \Exception('Unexpected response type');
     }
     
-    // Check response code
-    if ($response->getResponseCode() !== ResponseCodeEnum::OK->value) {
-        $code = ResponseCodeEnum::fromInt($response->getResponseCode());
-        
-        switch ($response->getResponseCode()) {
-            case ResponseCodeEnum::AUTHENTICATION_FAILURE->value:
-                throw new \Exception('Invalid credentials');
-                
-            case ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE->value:
-                throw new \Exception('Access denied to virtual host');
-                
-            default:
-                throw new \Exception('Error: ' . $code->getMessage());
-        }
+} catch (ProtocolException $e) {
+    // Inspect the broker's response code carried by the exception
+    switch ($e->getResponseCode()) {
+        case ResponseCodeEnum::AUTHENTICATION_FAILURE:
+            throw new \Exception('Invalid credentials');
+            
+        case ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE:
+            throw new \Exception('Access denied to virtual host');
+            
+        default:
+            throw new \Exception('Error: ' . $e->getMessage());
     }
     
 } catch (TimeoutException $e) {

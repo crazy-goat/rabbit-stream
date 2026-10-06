@@ -90,7 +90,7 @@ $stream->sendMessage(new SubscribeRequestV1(
 
 $response = $stream->readMessage();
 assert($response instanceof SubscribeResponseV1);
-assert($response->getResponseCode()->value === 0x0001);  // OK
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // Subscribe from specific offset
 $stream->sendMessage(new SubscribeRequestV1(
@@ -335,7 +335,7 @@ $stream->sendMessage(new UnsubscribeRequestV1(subscriptionId: 1));
 
 $response = $stream->readMessage();
 assert($response instanceof UnsubscribeResponseV1);
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ### 7. ConsumerUpdate (0x001a) - Bidirectional
@@ -441,7 +441,7 @@ $connection->sendMessage(new SubscribeRequestV1(
     credit: 10
 ));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 
 // 2. Consume messages
 $processedCount = 0;
@@ -480,7 +480,7 @@ while ($processedCount < 100) {
 // 5. Unsubscribe
 $connection->sendMessage(new UnsubscribeRequestV1($subscriptionId));
 $response = $connection->readMessage();
-assert($response->getResponseCode()->value === 0x0001);
+// Non-OK ResponseCode throws ProtocolException during deserialization (0x0001 = OK).
 ```
 
 ## Next Steps

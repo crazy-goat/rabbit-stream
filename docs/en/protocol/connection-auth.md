@@ -158,17 +158,21 @@ SaslData:   bytes (optional, for challenge-response mechanisms)
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
 // Send
 $stream->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
 
-// Receive
-$response = $stream->readMessage();
-assert($response instanceof SaslAuthenticateResponseV1);
-
-// Check response code
-if ($response->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE->value) {
-    throw new \Exception('Authentication failed: invalid credentials');
+// Receive. A non-OK response code is asserted during deserialization and
+// throws ProtocolException, so catch it to inspect the code.
+try {
+    $response = $stream->readMessage();
+    assert($response instanceof SaslAuthenticateResponseV1);
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE) {
+        throw new \Exception('Authentication failed: invalid credentials');
+    }
+    throw $e;
 }
 ```
 
@@ -271,17 +275,21 @@ ResponseCode: (uint16)
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
 // Send
 $stream->sendMessage(new OpenRequestV1('/'));
 
-// Receive
-$response = $stream->readMessage();
-assert($response instanceof OpenResponseV1);
-
-// Check response code
-if ($response->getResponseCode() === ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE->value) {
-    throw new \Exception('Access denied to virtual host');
+// Receive. A non-OK response code is asserted during deserialization and
+// throws ProtocolException, so catch it to inspect the code.
+try {
+    $response = $stream->readMessage();
+    assert($response instanceof OpenResponseV1);
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE) {
+        throw new \Exception('Access denied to virtual host');
+    }
+    throw $e;
 }
 ```
 
@@ -299,7 +307,6 @@ use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
-use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
 // 1. TCP Connect
 $stream = new StreamConnection('127.0.0.1', 5552);
@@ -315,26 +322,22 @@ $stream->sendMessage(new SaslHandshakeRequestV1());
 $handshakeResponse = $stream->readMessage();
 assert($handshakeResponse instanceof SaslHandshakeResponseV1);
 
-// 4. SaslAuthenticate
+// 4. SaslAuthenticate. A non-OK response code throws ProtocolException during
+// deserialization; reaching the next line means authentication succeeded.
 $stream->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
 $authResponse = $stream->readMessage();
 assert($authResponse instanceof SaslAuthenticateResponseV1);
-if ($authResponse->getResponseCode() !== ResponseCodeEnum::OK->value) {
-    throw new \Exception('Authentication failed');
-}
 
 // 5. Tune
 $tune = $stream->readMessage();
 assert($tune instanceof TuneRequestV1);
 $stream->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
 
-// 6. Open
+// 6. Open. Same: a non-OK response code throws ProtocolException during
+// deserialization, so no explicit check is needed here.
 $stream->sendMessage(new OpenRequestV1('/'));
 $openResponse = $stream->readMessage();
 assert($openResponse instanceof OpenResponseV1);
-if ($openResponse->getResponseCode() !== ResponseCodeEnum::OK->value) {
-    throw new \Exception('Failed to open virtual host');
-}
 
 echo "Connection established successfully!";
 ```

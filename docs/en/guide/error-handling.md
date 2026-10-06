@@ -145,6 +145,24 @@ try {
 
 Thrown when the server returns an error response code. Contains the response code for programmatic handling:
 
+> **A non-OK response code never comes back as a return value.** For the
+> correlated request/response methods whose reply carries a top-level response
+> code, that code is asserted **during deserialization** — by
+> `SimpleCorrelatedResponseV1::fromStreamBuffer()` for the shared response
+> classes and by `CommandTrait::assertResponseCodeOk()` in the hand-written
+> ones — which throws `ProtocolException` before the response object reaches
+> your code. That is why you will not find
+> `$response->getResponseCode()` on those responses: most response classes do
+> not define it, and a check such as
+> `if ($response->getResponseCode() !== ResponseCodeEnum::OK)` could never run.
+> Catch the exception and read the code from `$e->getResponseCode()` instead.
+> (A few correlated replies have no single top-level code — e.g. `Metadata`
+> reports a per-stream code through `StreamMetadata::getResponseCode()`, an
+> `int` you check after the call.) The rule is documented as
+> `@throws ProtocolException` on the
+> [`Connection`](../api-reference/connection.md) methods that send a request
+> and read a correlated response.
+
 ```php
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
