@@ -212,7 +212,7 @@ Connection::create()
 │  └──────────────┴─────────────────────────────────────────┘ │
 │                                                              │
 │  Response Key = Request Key | 0x8000                          │
-│  Example: 0x0001 (Open) → 0x8001 (OpenResponse)             │
+│  Example: 0x0015 (Open) → 0x8015 (OpenResponse)             │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
