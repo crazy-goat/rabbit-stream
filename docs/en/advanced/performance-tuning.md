@@ -541,10 +541,12 @@ is needed for back-pressure, so a long run of `send()` calls without
 broker then coalesces them into large chunks, which can slow down consumers
 and spike broker-side memory.
 
-The `maxPendingConfirms` constructor parameter (default `10000`) caps how many
-unconfirmed publishes are allowed before `send()`/`sendBatch()` transparently
-drain confirms off the socket (blocking, like `waitForConfirms()`) until the
-count drops back below the limit:
+The `maxPendingConfirms` constructor parameter (default `10000`) is a hard cap
+on outstanding (unconfirmed) publishes. `send()`/`sendWithFilter()` wait for a
+slot before publishing, and `sendBatch()` waits until the entire batch fits,
+draining confirms off the socket (blocking, like `waitForConfirms()`) as needed.
+A batch larger than a positive cap is rejected with `InvalidArgumentException`
+since it can never fit. `0` disables the cap:
 
 ```php
 $producer = new Producer(

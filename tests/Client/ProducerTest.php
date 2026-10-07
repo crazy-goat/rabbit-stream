@@ -562,6 +562,73 @@ class ProducerTest extends TestCase
         $this->assertSame(2, $producer->getPendingConfirms());
     }
 
+    public function testSendBatchNeverExceedsMaxPendingConfirms(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var callable|null $onConfirm */
+        $onConfirm = null;
+        $connection->expects($this->once())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $confirm) use (&$onConfirm): void {
+                $onConfirm = $confirm;
+            });
+
+        $inFlight = [];
+        $maxObservedInFlight = 0;
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$inFlight, &$maxObservedInFlight): void {
+                if (!$request instanceof PublishRequestV1) {
+                    return;
+                }
+                /** @var list<array{publishingId: int}> $messages */
+                $messages = $request->toArray()['messages'];
+                foreach ($messages as $message) {
+                    $inFlight[] = $message['publishingId'];
+                }
+                $maxObservedInFlight = max($maxObservedInFlight, count($inFlight));
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$onConfirm, &$inFlight): int {
+                if ($inFlight === [] || $onConfirm === null) {
+                    return 0;
+                }
+                $onConfirm([array_shift($inFlight)]);
+                return 1;
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 5);
+        $producer->sendBatch(['a1', 'a2', 'a3']);
+        $this->assertSame(3, $producer->getPendingConfirms());
+
+        // Only two slots are free, so the next three-message batch must first
+        // drain one confirm rather than growing the outstanding count to six.
+        $producer->sendBatch(['b1', 'b2', 'b3']);
+
+        $this->assertSame(5, $producer->getPendingConfirms());
+        $this->assertSame(5, $maxObservedInFlight);
+    }
+
+    public function testSendBatchLargerThanMaxPendingConfirmsIsRejected(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->never())->method('readLoop');
+        $connection->expects($this->once())
+            ->method('sendMessage')
+            ->with($this->isInstanceOf(DeclarePublisherRequestV1::class));
+
+        $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 5);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Batch size 6 exceeds maxPendingConfirms limit 5');
+        $producer->sendBatch(['a', 'b', 'c', 'd', 'e', 'f']);
+    }
+
     public function testSendBatchDrainsConfirmsWhenMaxPendingConfirmsReached(): void
     {
         $connection = $this->createMock(StreamConnection::class);

@@ -116,11 +116,11 @@ class Producer implements ProducerInterface
      * @param callable|null $onConfirm Called with (ConfirmationStatus $status)
      *                          for each publish as confirms/errors arrive; null
      *                          to disable the callback.
-     * @param int $maxPendingConfirms Back-pressure cap on outstanding
-     *                          (unconfirmed) publishes; once reached,
-     *                          send()/sendBatch()/sendWithFilter() block
-     *                          draining confirms until the count drops below
-     *                          it. 0 disables the cap.
+     * @param int $maxPendingConfirms Hard back-pressure cap on outstanding
+     *                          (unconfirmed) publishes; sends drain confirms
+     *                          until there is room for the next publish or the
+     *                          entire batch. A batch larger than a positive cap
+     *                          is rejected. 0 disables the cap.
      * @param float $redeclareTimeout Seconds a publish keeps retrying
      *                          DeclarePublisher after a MetadataUpdate dropped
      *                          the publisher; 0 fails on the first attempt. Must
@@ -464,7 +464,9 @@ class Producer implements ProducerInterface
      * @throws DeserializationException If a response or server-push frame read
      *                           while draining back-pressure cannot be deserialized.
      * @throws InvalidArgumentException If the serialized Publish request
-     *                           exceeds the negotiated outgoing frame size.
+     *                           exceeds the negotiated outgoing frame size, or
+     *                           the batch contains more messages than a positive
+     *                           maxPendingConfirms limit.
      * @throws ProtocolException If the broker rejects a re-declare with a
      *                           non-OK response code, or a frame has an
      *                           unexpected version or command.
@@ -476,8 +478,18 @@ class Producer implements ProducerInterface
         if ($messages === []) {
             return;
         }
+        if ($this->maxPendingConfirms > 0 && count($messages) > $this->maxPendingConfirms) {
+            throw new InvalidArgumentException(
+                sprintf(
+                    'Batch size %d exceeds maxPendingConfirms limit %d',
+                    count($messages),
+                    $this->maxPendingConfirms
+                )
+            );
+        }
+
         $this->ensureDeclared();
-        $this->applyBackpressure($timeout);
+        $this->applyBackpressure($timeout, count($messages));
         $published = [];
         $publishingId = $this->publishingId;
         foreach ($messages as $message) {
@@ -492,20 +504,23 @@ class Producer implements ProducerInterface
     }
 
     /**
-     * Block until pendingConfirms drops below maxPendingConfirms (0 = unlimited,
-     * old fire-and-forget behaviour). Drains confirms/errors off the socket via
-     * readLoop() one frame at a time so callbacks fire promptly.
+     * Drain confirms/errors off the socket until there is room for the requested
+     * number of publishes (0 maxPendingConfirms = unlimited, old fire-and-forget
+     * behaviour). Reads one frame at a time so callbacks fire promptly.
      *
      * @throws TimeoutException if the deadline passes before enough confirms arrive
      */
-    private function applyBackpressure(?float $timeout): void
+    private function applyBackpressure(?float $timeout, int $publishesToSend = 1): void
     {
-        if ($this->maxPendingConfirms <= 0 || count($this->pendingConfirms) < $this->maxPendingConfirms) {
+        if (
+            $this->maxPendingConfirms <= 0
+            || count($this->pendingConfirms) + $publishesToSend <= $this->maxPendingConfirms
+        ) {
             return;
         }
 
         $deadline = microtime(true) + ($timeout ?? self::DEFAULT_BACKPRESSURE_TIMEOUT);
-        while (($pending = count($this->pendingConfirms)) >= $this->maxPendingConfirms) {
+        while (($pending = count($this->pendingConfirms)) + $publishesToSend > $this->maxPendingConfirms) {
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 throw new TimeoutException(
