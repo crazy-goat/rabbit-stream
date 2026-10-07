@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Docs: consumer credit replenishment and buffer bounds now match the implementation (#549)** — the buffer threshold is a single gate: once unread messages fall below `maxBufferSize`, all withheld credits are sent together up to the current `creditTarget - creditsInFlight` and `MAX_CREDIT` limits, not one per chunk-sized amount of reopened headroom. Corrected the related source/API/performance documentation, clarified that the memory bound is `maxBufferSize` plus chunks already in flight, identified the fixed-credit benchmark as pre-#500 / `creditWindowBytes: 0`, and aligned the `MAX_CREDIT` source comment with the protocol's `int16` field. No behavior change.
+
 ### Fixed
 - **Bug: `StreamConnection::handleServerClose()` emitted a debug log with debug logging disabled (#481)** — the server-supplied close reason is now logged only when a non-`NullLogger` is configured, matching the `debugFrame()` gate.
 - **Performance: `AmqpDecoder` copied the accumulated body for every AMQP Data section (#543)** — decoding a message with many legal Data sections now collects their binary payloads and joins them once, replacing repeated whole-body copies with linear-time accumulation. Single-section bodies and the existing interaction with other body section types are unchanged.
