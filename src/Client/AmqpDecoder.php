@@ -7,6 +7,31 @@ namespace CrazyGoat\RabbitStream\Client;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Platform;
 
+/**
+ * Decoder for AMQP 1.0 values and message sections.
+ *
+ * ## Map keys
+ *
+ * An AMQP 1.0 map (`map8` 0xc1, `map32` 0xd1) may use any AMQP value as a key
+ * (Part 1, §1.6.23 forbids duplicate key *values*, not non-scalar keys). PHP
+ * arrays, however, accept only int and string keys, and the conversion is
+ * lossy: `null`, a list, a map and `''` all become `''`; a symbol and a string
+ * with the same characters become one key; `true`, `1.0` and `'1'` all become
+ * the int `1`. Coercing keys therefore silently collapses distinct entries
+ * (last one wins), which is data loss on untrusted broker data with no signal
+ * to the caller.
+ *
+ * This decoder prefers failing loudly over silent corruption: a key that cannot
+ * be represented without collision — a non-scalar key (null, list, map), a
+ * float/bool key that PHP would retype to int, or an int/string pair that lands
+ * on the same PHP array key (a symbol and a string of equal characters, or an
+ * int and its string spelling) — is rejected with a
+ * {@see DeserializationException} naming the key type, rather than overwriting
+ * an earlier entry. Keys that PHP preserves as-is (int and string, including an
+ * empty string) are kept, so every ordinary map still decodes unchanged. The
+ * alternative, a lossless representation (a map value object or a list of
+ * key/value pairs), is a larger design change and is not implemented here.
+ */
 class AmqpDecoder
 {
     /**
@@ -739,8 +764,7 @@ class AmqpDecoder
                 throw new DeserializationException('Map8 missing value for key');
             }
             $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
-            $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
-            $map[$mapKey] = $value;
+            self::addMapEntry($map, $key, $value, 'Map8');
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Map8');
 
@@ -838,8 +862,7 @@ class AmqpDecoder
                 throw new DeserializationException('Map32 missing value for key');
             }
             $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
-            $mapKey = is_int($key) ? $key : (is_scalar($key) ? (string) $key : '');
-            $map[$mapKey] = $value;
+            self::addMapEntry($map, $key, $value, 'Map32');
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Map32');
 
@@ -863,6 +886,79 @@ class AmqpDecoder
                 $count
             ));
         }
+    }
+
+    /**
+     * Convert a decoded AMQP map key to a PHP array key, or reject it (#525).
+     *
+     * AMQP 1.0 (§1.6.23) allows a key of any type, but PHP arrays take only int
+     * and string keys and retype the rest, so a lossy conversion makes distinct
+     * keys collide and silently drop entries: `null`, a list, a map and `''` all
+     * became `''`; a symbol and a string of the same characters became one key;
+     * and `true`, `1.0` and `'1'` all became the int `1`. Only int and string keys
+     * survive the conversion untouched, so those are kept and anything else —
+     * a non-scalar key (null, list, map, …) or a float/bool key PHP would retype
+     * to int — is rejected with a message naming the key type.
+     *
+     * @param string $what compound name, for exception messages
+     * @throws DeserializationException when the key has no lossless PHP array key
+     */
+    private static function toPhpMapKey(mixed $key, string $what): int|string
+    {
+        if (is_int($key) || is_string($key)) {
+            return $key;
+        }
+
+        if (is_float($key) || is_bool($key)) {
+            // PHP would retype these to an int key (true -> 1, 1.0 -> 1, ...),
+            // which is exactly how a `true`/`1.0`/`'1'` triple collapses to one.
+            throw new DeserializationException(sprintf(
+                '%s key of type %s cannot be represented as a PHP array key without colliding '
+                . '(PHP would retype it to an integer key); keys of type int and string are supported',
+                $what,
+                get_debug_type($key)
+            ));
+        }
+
+        throw new DeserializationException(sprintf(
+            '%s key of type %s cannot be represented as a PHP array key '
+            . '(only int and string keys are supported); refusing to map it to an empty string, '
+            . 'which would silently overwrite other keys',
+            $what,
+            get_debug_type($key)
+        ));
+    }
+
+    /**
+     * Add one key/value pair to a map being decoded, refusing to overwrite an
+     * earlier entry (#525).
+     *
+     * Two AMQP keys can reach the same PHP array key without being the same
+     * value: a symbol and a string with equal characters, or an int and the
+     * string spelling of that int. Assigning would silently drop the earlier
+     * entry, so a collision is rejected instead. Identical key values are also
+     * rejected, because AMQP 1.0 (§1.6.23) requires a map's keys to be distinct
+     * and silently keeping only the last one loses data too.
+     *
+     * @param array<int|string, mixed> $map
+     * @param string $what compound name, for exception messages
+     * @throws DeserializationException when the key collides with an earlier one
+     */
+    private static function addMapEntry(array &$map, mixed $key, mixed $value, string $what): void
+    {
+        $mapKey = self::toPhpMapKey($key, $what);
+
+        if (array_key_exists($mapKey, $map)) {
+            throw new DeserializationException(sprintf(
+                '%s key of type %s collides with an earlier key after conversion to a PHP array key '
+                . '(%s); refusing to overwrite the earlier entry',
+                $what,
+                get_debug_type($key),
+                is_string($mapKey) ? "'" . $mapKey . "'" : (string) $mapKey
+            ));
+        }
+
+        $map[$mapKey] = $value;
     }
 
     // Described type reader

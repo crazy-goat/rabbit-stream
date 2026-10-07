@@ -649,11 +649,12 @@ class AmqpDecoderTest extends TestCase
 
     public function testDecodeMap32CountWithinAvailableBytesStillDecodes(): void
     {
-        // Boundary: 1 pair = 2 elements, both 1-byte nulls. size = 6 (content = 2),
-        // count = 2. available = size - 4 = 2, 2 <= 2 -> decodes. Null key coerces
-        // to '' by the map key logic.
-        [$value, $pos] = AmqpDecoder::decodeValue("\xd1\x00\x00\x00\x06\x00\x00\x00\x02\x40\x40", 0);
-        $this->assertSame(['' => null], $value);
+        // Boundary: 1 pair = 2 elements, both 1-byte. size = 6 (content = 2),
+        // count = 2. available = size - 4 = 2, 2 <= 2 -> decodes. The key is
+        // uint zero (0x43), a 1-byte representable key; a null key would now be
+        // rejected (#525) because PHP cannot hold it without colliding.
+        [$value, $pos] = AmqpDecoder::decodeValue("\xd1\x00\x00\x00\x06\x00\x00\x00\x02\x43\x40", 0);
+        $this->assertSame([0 => null], $value);
         $this->assertSame(11, $pos);
     }
 
@@ -860,6 +861,181 @@ class AmqpDecoderTest extends TestCase
         $this->expectExceptionMessage('List8 size 0 is smaller than its own 1-byte count field');
 
         AmqpDecoder::decodeValue("\xc0\x00\x00", 0);
+    }
+
+    // ========== Map keys (issue #525) ==========
+
+    public function testMap8WithNullKeyIsRejected(): void
+    {
+        // A null AMQP key is legal, but PHP would have to store it under '' —
+        // colliding with an empty-string key and with any other non-scalar key.
+        // Pre-#525 it was silently mapped to '' and overwrote the earlier entry.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage(
+            'Map8 key of type null cannot be represented as a PHP array key '
+            . '(only int and string keys are supported)'
+        );
+
+        // map8: size=4 (count byte + 3 content bytes), count=2, key null (0x40), value 1.
+        AmqpDecoder::decodeValue("\xc1\x04\x02\x40\x52\x01", 0);
+    }
+
+    public function testMap8WithListKeyIsRejected(): void
+    {
+        // list0 (0x45) as a key: a non-scalar AMQP value, previously stored under ''.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map8 key of type array cannot be represented as a PHP array key');
+
+        AmqpDecoder::decodeValue("\xc1\x04\x02\x45\x52\x01", 0);
+    }
+
+    public function testMap8WithMapKeyIsRejected(): void
+    {
+        // An empty map8 (0xc1 0x01 0x00) as a key: a non-scalar AMQP value.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map8 key of type array cannot be represented as a PHP array key');
+
+        AmqpDecoder::decodeValue("\xc1\x06\x02\xc1\x01\x00\x52\x01", 0);
+    }
+
+    public function testMap32WithNullKeyIsRejected(): void
+    {
+        // The map32 reader shares the guard: size=7 (4 count bytes + 3 content).
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map32 key of type null cannot be represented as a PHP array key');
+
+        AmqpDecoder::decodeValue("\xd1" . pack('N', 7) . pack('N', 2) . "\x40\x52\x01", 0);
+    }
+
+    public function testMap8WithFalseKeyIsRejected(): void
+    {
+        // false is scalar, but (string) false === '', so it collided with an
+        // explicit empty-string key. PHP would also retype it to an int key.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage(
+            'Map8 key of type bool cannot be represented as a PHP array key without colliding'
+        );
+
+        AmqpDecoder::decodeValue("\xc1\x04\x02\x42\x52\x01", 0);
+    }
+
+    public function testMap8WithFloatKeyIsRejected(): void
+    {
+        // float 1.0 and uint 1 both became the PHP int key 1 before #525.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage(
+            'Map8 key of type float cannot be represented as a PHP array key without colliding'
+        );
+
+        AmqpDecoder::decodeValue("\xc1\x08\x02\x72" . pack('G', 1.0) . "\x52\x01", 0);
+    }
+
+    public function testMap8WithTwoIntEncodingsOfTheSameValueIsRejected(): void
+    {
+        // ubyte 1 (0x50 0x01) and smalluint 1 (0x52 0x01) are distinct AMQP
+        // keys of different types but both decode to the PHP int key 1, so the
+        // second silently overwrote the first before #525.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage("Map8 key of type int collides with an earlier key");
+
+        // map8: size=9 (count byte + 8 content), count=4, pairs (ubyte 1,1) and (smalluint 1,2).
+        AmqpDecoder::decodeValue("\xc1\x09\x04\x50\x01\x52\x01\x52\x01\x52\x02", 0);
+    }
+
+    public function testMap8WithTrueAndUintOneKeysIsRejected(): void
+    {
+        // true (0x41) and uint 1 are distinct AMQP keys that both became the PHP
+        // int key 1 before #525; true is rejected first because PHP would retype it.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map8 key of type bool cannot be represented as a PHP array key');
+
+        // map8: size=8 (count byte + 7 content), count=4, pairs (true,1) and (1,2).
+        AmqpDecoder::decodeValue("\xc1\x08\x04\x41\x52\x01\x52\x01\x52\x02", 0);
+    }
+
+    public function testMap8WithIntAndNumericStringKeyIsRejected(): void
+    {
+        // uint 1 and str8 "1" are distinct AMQP keys but PHP normalises the
+        // numeric string to the int key 1.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage("Map8 key of type string collides with an earlier key");
+
+        // map8: size=10 (count byte + 9 content), count=4, pairs (1,1) and ("1",2).
+        AmqpDecoder::decodeValue("\xc1\x0a\x04\x52\x01\x52\x01\xa1\x011\x52\x02", 0);
+    }
+
+    public function testMap8WithSymbolAndStringKeyOfSameTextIsRejected(): void
+    {
+        // sym8 "foo" (0xa3) and str8 "foo" (0xa1) are different AMQP types but
+        // both decode to the PHP string 'foo', so the second overwrote the first.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage("Map8 key of type string collides with an earlier key");
+
+        // map8: size=15 (count byte + 14 content), count=4.
+        AmqpDecoder::decodeValue(
+            "\xc1\x0f\x04" . "\xa3\x03foo\x52\x01" . "\xa1\x03foo\x52\x02",
+            0
+        );
+    }
+
+    public function testMap8WithDuplicateStringKeysIsRejected(): void
+    {
+        // AMQP 1.0 §1.6.23 requires a map's keys to be distinct, so an exact
+        // duplicate is malformed; keeping only the last value would lose data.
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage("Map8 key of type string collides with an earlier key");
+
+        AmqpDecoder::decodeValue("\xc1\x0b\x04\xa1\x01k\x52\x01\xa1\x01k\x52\x02", 0);
+    }
+
+    public function testMap32WithCollidingKeysIsRejected(): void
+    {
+        // Same collision through the map32 reader (count=4, content=9 bytes).
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage("Map32 key of type string collides with an earlier key");
+
+        AmqpDecoder::decodeValue(
+            "\xd1" . pack('N', 13) . pack('N', 4) . "\x52\x01\x52\x01\xa1\x011\x52\x02",
+            0
+        );
+    }
+
+    public function testMap8WithDistinctIntAndStringKeysStillDecodes(): void
+    {
+        // Regression guard: ordinary maps keep decoding unchanged. uint 1 and
+        // str8 "k" do not collide, so both entries survive.
+        [$value, $pos] = AmqpDecoder::decodeValue(
+            "\xc1\x0a\x04\x52\x01\x52\x01\xa1\x01k\x52\x02",
+            0
+        );
+
+        $this->assertSame([1 => 1, 'k' => 2], $value);
+        $this->assertSame(12, $pos);
+    }
+
+    public function testMap8WithEmptyStringKeyStillDecodes(): void
+    {
+        // An empty-string key is representable losslessly, so it is accepted as
+        // long as nothing else maps to it (see the null/false-key tests).
+        [$value, $pos] = AmqpDecoder::decodeValue("\xc1\x05\x02\xa1\x00\x52\x01", 0);
+
+        $this->assertSame(['' => 1], $value);
+        $this->assertSame(7, $pos);
+    }
+
+    public function testApplicationPropertiesMapWithNullKeyIsRejectedOnDecodeMessage(): void
+    {
+        // The guard is reached from untrusted broker data: an ApplicationProperties
+        // section (0x74) whose map8 has a null key. decodeMessage() decodes the
+        // section eagerly, so it throws there rather than at Message::getApplicationProperties().
+        $mapItems = "\x40\x52\x01"; // key null, value 1
+        $mapSize = strlen($mapItems) + 1; // +1 for the count byte
+        $section = "\x00\x53\x74" . "\xc1" . chr($mapSize) . chr(2) . $mapItems;
+
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Map8 key of type null cannot be represented as a PHP array key');
+
+        AmqpDecoder::decodeMessage($section);
     }
 
     // ========== Non-binary Data section (issue #452) ==========
