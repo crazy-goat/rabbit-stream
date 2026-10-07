@@ -925,6 +925,9 @@ class StreamConnection
      * @param callable $callback Called with (ConsumerUpdateResponseV1 $update); must return
      *                           [int $offsetType, int $offset] for the reply. The offset must
      *                           be 0 for the value-less none/first/last/next types.
+     *                           A return value that is not a two-element list of ints is
+     *                           rejected with an InvalidArgumentException when the frame is
+     *                           dispatched, not silently coerced.
      */
     public function onConsumerUpdate(callable $callback): void
     {
@@ -1623,7 +1626,9 @@ class StreamConnection
                 [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
             }
         } elseif ($this->consumerUpdateCallback instanceof \Closure) {
-            [$offsetType, $offset] = ($this->consumerUpdateCallback)($query);
+            [$offsetType, $offset] = $this->resolveGlobalConsumerUpdateReply(
+                ($this->consumerUpdateCallback)($query)
+            );
         }
 
         if ($offsetType < 0 || $offsetType > 5) {
@@ -1640,6 +1645,61 @@ class StreamConnection
         $reply->withCorrelationId($query->getCorrelationId());
         $content = $this->serializer->serialize($reply);
         $this->sendFrame($this->wrapFrame($content));
+    }
+
+    /**
+     * Validate the `[int $offsetType, int $offset]` a global onConsumerUpdate()
+     * callback returned before it is destructured.
+     *
+     * The callback is typed only as `callable`, so nothing stops it from
+     * returning `[]`, a one-element list, string keys or non-int values. PHP
+     * would then raise an "Undefined array key" warning (or a "Cannot use int as
+     * array" one) and hand `null` to the constructor, which fails with a raw
+     * `TypeError` (GitHub #529). A malformed return is a caller error, so it is
+     * reported here as an `InvalidArgumentException` naming the offending value.
+     *
+     * @param mixed $reply Return value of the global onConsumerUpdate() callback.
+     * @return array{0: int, 1: int} The validated offset type and offset.
+     * @throws InvalidArgumentException If the callback did not return a two-element
+     *                                  list of ints.
+     */
+    private function resolveGlobalConsumerUpdateReply(mixed $reply): array
+    {
+        if (
+            !is_array($reply)
+            || !array_key_exists(0, $reply)
+            || !array_key_exists(1, $reply)
+            || !is_int($reply[0])
+            || !is_int($reply[1])
+        ) {
+            throw new InvalidArgumentException(
+                'The onConsumerUpdate() callback must return [int $offsetType, int $offset], got '
+                . $this->describeConsumerUpdateReturn($reply)
+            );
+        }
+
+        return [$reply[0], $reply[1]];
+    }
+
+    /**
+     * Describe a malformed onConsumerUpdate() callback return for the error
+     * message. A bare `array` is useless to the caller, so an array is reported
+     * by the number of elements it has, or by the types at the two positions the
+     * reply is read from.
+     *
+     * @param mixed $reply Return value of the global onConsumerUpdate() callback.
+     */
+    private function describeConsumerUpdateReturn(mixed $reply): string
+    {
+        if (!is_array($reply)) {
+            return get_debug_type($reply);
+        }
+
+        if (!array_key_exists(0, $reply) || !array_key_exists(1, $reply)) {
+            return sprintf('array of %d element(s)', count($reply));
+        }
+
+        return sprintf('array{%s, %s}', get_debug_type($reply[0]), get_debug_type($reply[1]));
     }
 
     private function wrapFrame(string $content): string

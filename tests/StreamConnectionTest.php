@@ -1386,6 +1386,77 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    /**
+     * @return array<string, array{mixed, string}>
+     */
+    public static function malformedConsumerUpdateRepliesProvider(): array
+    {
+        return [
+            'empty array' => [[], 'array of 0 element(s)'],
+            'one element' => [[1], 'array of 1 element(s)'],
+            'string keys' => [['type' => 1, 'offset' => 0], 'array of 2 element(s)'],
+            'non-int values' => [['1', 'abc'], 'array{string, string}'],
+            'null' => [null, 'null'],
+            'not an array' => [5, 'int'],
+        ];
+    }
+
+    /**
+     * GitHub #529: onConsumerUpdate() is typed only as `callable`, so a
+     * malformed return value used to raise "Undefined array key" warnings and
+     * then a raw TypeError from ConsumerUpdateReplyV1 instead of a clear error.
+     *
+     * @dataProvider malformedConsumerUpdateRepliesProvider
+     */
+    public function testDispatchConsumerUpdateRejectsMalformedGlobalCallbackReturn(
+        mixed $returned,
+        string $expectedDescription
+    ): void {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $connection->onConsumerUpdate(
+            fn(ConsumerUpdateResponseV1 $query): mixed => $returned
+        );
+
+        $content = pack('N', 1)  // correlationId
+            . pack('C', 1)       // subscriptionId
+            . pack('C', 1);      // active
+        fwrite($serverSocket, $this->buildFrame(0x001a, 1, $content));
+
+        $warnings = [];
+        set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+            $warnings[] = $message;
+            return true;
+        });
+
+        $caught = null;
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        } catch (\Throwable $e) {
+            $caught = $e;
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame([], $warnings, 'PHP raised warnings for a malformed callback return');
+        $this->assertInstanceOf(
+            InvalidArgumentException::class,
+            $caught,
+            'Expected a clear library exception for a malformed callback return'
+        );
+        $this->assertSame(
+            'The onConsumerUpdate() callback must return [int $offsetType, int $offset], got '
+            . $expectedDescription,
+            $caught->getMessage()
+        );
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
     public function testDispatchConsumerUpdateRejectsNonZeroOffsetForValuelessTypeFromCallback(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
