@@ -7,7 +7,7 @@ The development process (issue, worktree, review, PR, merge) is in
 
 ## Project Overview
 
-`crazy-goat/rabbit-stream` is a pure PHP library implementing the RabbitMQ Streams Protocol client (port 5552). It has zero external dependencies — only native PHP socket functions.
+`crazy-goat/rabbit-stream` is a PHP library implementing the RabbitMQ Streams Protocol client (port 5552). Its Composer runtime dependencies are `psr/log ^3.0` and the `ext-mbstring` and `ext-sockets` PHP extensions.
 
 - Root namespace: `CrazyGoat\RabbitStream`
 - PSR-4 autoloading: `src/` → `CrazyGoat\RabbitStream\`
