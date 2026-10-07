@@ -24,6 +24,35 @@ class InterfaceImplementationTest extends TestCase
         );
     }
 
+    public function testConnectionInterfaceMatchesConsumerFactoryParameters(): void
+    {
+        foreach (['createConsumer', 'createSuperStreamConsumer'] as $method) {
+            $implementationParameters = array_map(
+                static fn (\ReflectionParameter $parameter): string => $parameter->getName(),
+                (new \ReflectionMethod(Connection::class, $method))->getParameters(),
+            );
+            $interfaceParameters = array_map(
+                static fn (\ReflectionParameter $parameter): string => $parameter->getName(),
+                (new \ReflectionMethod(ConnectionInterface::class, $method))->getParameters(),
+            );
+
+            self::assertSame(
+                $implementationParameters,
+                $interfaceParameters,
+                $method . ' parameters differ from interface',
+            );
+        }
+    }
+
+    public function testConnectionInterfaceDeclaresIsConnected(): void
+    {
+        self::assertTrue((new \ReflectionClass(ConnectionInterface::class))->hasMethod('isConnected'));
+        self::assertSame(
+            'bool',
+            (string) (new \ReflectionMethod(ConnectionInterface::class, 'isConnected'))->getReturnType(),
+        );
+    }
+
     public function testProducerImplementsProducerInterface(): void
     {
         // @phpstan-ignore method.alreadyNarrowedType

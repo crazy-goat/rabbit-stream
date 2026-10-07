@@ -271,6 +271,17 @@ interface ConnectionInterface
     public function close(): void;
 
     /**
+     * Whether the underlying socket is still valid.
+     *
+     * This is a local check of the stream resource; it does not probe the broker,
+     * so a peer that has gone away without the socket noticing still reports
+     * `true` until the next read or write fails.
+     *
+     * @return bool True while the underlying stream resource is still valid.
+     */
+    public function isConnected(): bool;
+
+    /**
      * Create a producer for publishing to a stream.
      *
      * Declares the publisher eagerly, so a missing stream is reported here as a
