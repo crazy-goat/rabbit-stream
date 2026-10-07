@@ -45,7 +45,7 @@ class NamedProducerDeduplicationTest extends E2ETestCase
         }
     }
 
-    public function testNamedProducerDeduplicationAcrossReconnect(): void
+    public function testNamedProducerResumesSequenceAcrossReconnect(): void
     {
         $this->assertNotNull($this->connection);
 
@@ -135,9 +135,8 @@ class NamedProducerDeduplicationTest extends E2ETestCase
 
         $consumer->close();
 
-        // Step 9: Verify exactly 15 messages exist (IDs 1-15), no duplicates
-        // Server-side deduplication should ensure only 15 unique messages in stream
-        $this->assertCount(15, $receivedMessages, 'Should have exactly 15 messages (server deduplicated)');
+        // Step 9: Verify exactly the 15 messages published across both sessions exist
+        $this->assertCount(15, $receivedMessages, 'Should have exactly 15 messages');
 
         // Extract message IDs and verify they are 1-15
         $receivedIds = [];

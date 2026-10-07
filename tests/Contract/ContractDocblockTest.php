@@ -169,6 +169,7 @@ class ContractDocblockTest extends TestCase
         ],
         'ConnectionInterface::supportsCommandVersion' => [],
         'ConnectionInterface::getSupportedCommandVersions' => [],
+        'ConnectionInterface::isConnected' => [],
         'ConnectionInterface::storeOffset' => [
             'ConnectionException',
             'InvalidArgumentException',
