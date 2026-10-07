@@ -26,7 +26,7 @@ runs the same checks, so skipping locally just moves the failure later.
 ## lint.sh
 
 Runs every lint step (PHPCS, Rector, PHPStan, kb-lint, docs link check, test suite
-coverage, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
+coverage, stale ext-sockets reference check, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
 the pre-push hook and the CI `lint` job all call it. Needs `shellcheck` on `PATH`.
 
 ## kb-lint.php

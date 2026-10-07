@@ -333,7 +333,7 @@ class StreamConnection
         // The stream is kept non-blocking: every read and write is driven by an
         // explicit stream_select() bounded by $socketTimeout, which gives the
         // same "no I/O call may block unboundedly" guarantee as the previous
-        // SO_RCVTIMEO/SO_SNDTIMEO set-up (GitHub #402). stream_set_timeout()
+        // socket timeout options (GitHub #402). stream_set_timeout()
         // could not be used because it bounds reads but NOT blocking writes.
         if (!stream_set_blocking($stream, false)) {
             fclose($stream);
@@ -448,7 +448,7 @@ class StreamConnection
      *    EINTR if some *other* diagnostic that says "interrupted system call"
      *    lands in the slot. The sound fix is to stop using the stream layer for
      *    this — socket_select() on an imported \Socket reports a per-socket errno
-     *    via socket_last_error(). Tracked as a follow-up; #602 makes the
+     *    via a per-socket error query. Tracked as a follow-up; #602 makes the
      *    predicate load-bearing for five call sites, so it is documented here
      *    rather than left as folklore in a scratch file.
      *
@@ -564,9 +564,9 @@ class StreamConnection
     /**
      * Check whether the underlying connection is currently established and usable.
      *
-     * Unlike the previous ext-sockets implementation, only resource validity is
-     * checked: PHP streams have no equivalent of the sticky socket_last_error()
-     * probe, so no fatal error state can be detected here. A dead peer is
+     * Unlike the previous socket-based implementation, only resource validity is
+     * checked: PHP streams have no equivalent of a sticky socket-error probe,
+     * so no fatal error state can be detected here. A dead peer is
      * surfaced by the next read/write instead (GitHub #391).
      *
      * @return bool True if the underlying stream resource is still valid
@@ -1902,9 +1902,9 @@ class StreamConnection
     /**
      * Read exactly $length bytes from the connection.
      *
-     * Streams have no MSG_WAITALL equivalent: fread() returns whatever is
-     * currently available, so short reads are accumulated in a loop, matching
-     * the semantics of the previous recv()-based implementation.
+     * fread() returns whatever is currently available, so short reads are
+     * accumulated in a loop, matching the semantics of the previous socket-based
+     * implementation.
      *
      * On a receive timeout (bounded by $socketTimeout via the stream_select()
      * loops, see {@see self::DEFAULT_SOCKET_TIMEOUT}) the outcome depends on
