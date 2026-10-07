@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-07
+
 ### Added
 - **Bug fix: `ConnectionInterface` now declares the connection-state check on `Connection` (#547)** — added `isConnected(): bool` to the contract; the two consumer factory signatures already included `bool $verifyCrc = true` and now have reflection coverage pinning their full parameter lists to the implementation.
 - **Feature: `ResponseCodeEnum` now carries the SASL cannot-change-mechanism (`0x14`) and cannot-change-username (`0x15`) codes (#648)** — the enum stopped at `NO_OFFSET` (`0x13`), so `ResponseCodeEnum::fromInt(0x14)`/`fromInt(0x15)` returned `null` and a broker reply with either code made `CommandTrait::assertResponseCodeOk()` throw a `ProtocolException` whose `getResponseCode()` was `null` — exactly the code the caller is supposed to branch on (#419). Both cases were added with the spec's message strings ("SASL cannot change mechanism" / "SASL cannot change username") and a docblock stating when the broker emits them and that a non-OK reply surfaces as a `ProtocolException`, not an `AuthenticationException`. The tables in `docs/en/api-reference/enums.md` and `docs/en/guide/error-handling.md` list them. No wire-format change: only a previously-unrecognised response code is now recognised.
