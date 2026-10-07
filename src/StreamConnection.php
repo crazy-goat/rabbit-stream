@@ -1065,8 +1065,8 @@ class StreamConnection
     /**
      * Write every byte of $frame, looping over partial writes.
      *
-     * socket_write() may accept fewer bytes than requested (SO_SNDBUF pressure,
-     * a large batch Publish frame, a signal). Sending the rest is not optional:
+     * fwrite() may accept fewer bytes than requested (send-buffer pressure, a
+     * large batch Publish frame, a signal). Sending the rest is not optional:
      * the broker reads the next 4 bytes as a frame length, so a frame left
      * half-written makes it parse payload bytes as framing — silent data loss
      * for the publisher, protocol error or a multi-gigabyte length for the
