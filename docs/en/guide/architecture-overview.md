@@ -173,7 +173,7 @@ Some frames are sent **Server → Client** without a correlation ID. These are h
 | `0x0017` | Heartbeat | — | Must echo back immediately |
 | `0x001a` | ConsumerUpdate | `subscriptionId` | Server asks for offset |
 
-The `StreamConnection::readMessage()` method handles these transparently using an internal loop with `socket_select()`. Server-push frames are dispatched to registered callbacks, while response frames are returned to the caller.
+The `StreamConnection::readMessage()` method handles these transparently using an internal loop with `stream_select()`. Server-push frames are dispatched to registered callbacks, while response frames are returned to the caller.
 
 ## Detailed Documentation
 

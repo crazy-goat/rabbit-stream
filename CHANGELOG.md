@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: StreamConnection transport documentation now matches PHP streams (#540)** — corrected the `isConnected()` description to explain resource-validity checks, described partial writes with `fwrite()`, and replaced the obsolete ext-sockets read/write examples with the `fread()`/`stream_select()` model. No behavior change.
 - **Docs: corrected Composer runtime requirements and AMQP version references (#432)** — documented `psr/log`, `ext-mbstring` and `ext-sockets` as runtime requirements, declared `ext-sockets` in Composer `require`, and corrected the AMQP message-decoding index link to AMQP 1.0.
 - **Docs: consumer credit replenishment and buffer bounds now match the implementation (#549)** — the buffer threshold is a single gate: once unread messages fall below `maxBufferSize`, all withheld credits are sent together up to the current `creditTarget - creditsInFlight` and `MAX_CREDIT` limits, not one per chunk-sized amount of reopened headroom. Corrected the related source/API/performance documentation, clarified that the memory bound is `maxBufferSize` plus chunks already in flight, identified the fixed-credit benchmark as pre-#500 / `creditWindowBytes: 0`, and aligned the `MAX_CREDIT` source comment with the protocol's `int16` field. No behavior change.
 

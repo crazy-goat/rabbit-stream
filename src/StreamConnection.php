@@ -1065,8 +1065,8 @@ class StreamConnection
     /**
      * Write every byte of $frame, looping over partial writes.
      *
-     * socket_write() may accept fewer bytes than requested (SO_SNDBUF pressure,
-     * a large batch Publish frame, a signal). Sending the rest is not optional:
+     * fwrite() may accept fewer bytes than requested (send-buffer pressure, a
+     * large batch Publish frame, a signal). Sending the rest is not optional:
      * the broker reads the next 4 bytes as a frame length, so a frame left
      * half-written makes it parse payload bytes as framing — silent data loss
      * for the publisher, protocol error or a multi-gigabyte length for the
@@ -1362,7 +1362,7 @@ class StreamConnection
             $write = null;
             $except = null;
 
-            // Calculate remaining timeout for socket_select.
+            // Calculate remaining timeout for stream_select.
             // Cap $remaining BEFORE the split and hand the capped value to the
             // helper: select(2) rejects tv_usec >= 1_000_000 with EINVAL (e.g.
             // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
@@ -1418,7 +1418,7 @@ class StreamConnection
                 continue;
             }
 
-            // socket_select() already confirmed the socket is readable above;
+            // stream_select() already confirmed the stream is readable above;
             // avoid a second, redundant select per frame (see readFrameNoWait()).
             $frame = $this->readFrameNoWait();
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
@@ -1777,13 +1777,11 @@ class StreamConnection
     }
 
     /**
-     * Read a single raw frame from the socket without first calling socket_select().
+     * Read a single raw frame from the stream without first calling stream_select().
      *
-     * Callers must already know the socket is readable (or be prepared to block on
-     * the underlying socket_read() calls) — this exists so readLoop(), which already
-     * performs its own socket_select() before every frame, does not pay for a second,
-     * redundant select per frame.
-     *
+     * Callers must already know the stream is readable — this exists so readLoop(),
+     * which already performs its own stream_select() before every frame, does not pay
+     * for a second, redundant select per frame. Reads use non-blocking fread() calls.
      * The frame is decoded as Size(uint32) + Key(uint16) + rest of payload: the key
      * is read separately from the remaining payload so that the size cap can be
      * chosen based on the frame's key — Deliver frames (0x0008) are not capped by
