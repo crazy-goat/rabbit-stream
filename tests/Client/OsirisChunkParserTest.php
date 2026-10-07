@@ -35,6 +35,57 @@ class OsirisChunkParserTest extends TestCase
         $this->assertSame(1234567890, $entries[0]->getTimestamp());
     }
 
+    public function testBothParsingPathsRejectRecordCountMismatches(): void
+    {
+        foreach ([false, true] as $useViews) {
+            foreach ([false, true] as $subBatch) {
+                $actualRecords = 2;
+                $entries = $subBatch
+                    ? [['type' => 'subbatch', 'codec' => 0, 'entries' => [
+                        ['data' => 'First'],
+                        ['data' => 'Second'],
+                    ]]]
+                    : [
+                        ['type' => 'simple', 'data' => 'First'],
+                        ['type' => 'simple', 'data' => 'Second'],
+                    ];
+                $numEntries = $subBatch ? 1 : 2;
+
+                foreach ([$actualRecords - 1, $actualRecords + 1] as $declaredRecords) {
+                    $chunk = $this->createChunk(
+                        numEntries: $numEntries,
+                        numRecords: $declaredRecords,
+                        timestamp: 1234567890,
+                        chunkFirstOffset: 0,
+                        entries: $entries
+                    );
+
+                    try {
+                        if ($useViews) {
+                            iterator_to_array(OsirisChunkParser::parseMessages($chunk), false);
+                        } else {
+                            OsirisChunkParser::parse($chunk);
+                        }
+                        $this->fail(sprintf(
+                            'Expected mismatch for %s entries through %s parsing path',
+                            $subBatch ? 'sub-batch' : 'simple',
+                            $useViews ? 'view' : 'raw'
+                        ));
+                    } catch (DeserializationException $e) {
+                        $this->assertSame(
+                            sprintf(
+                                'Chunk declares %d records, but parsed %d records',
+                                $declaredRecords,
+                                $actualRecords
+                            ),
+                            $e->getMessage()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     public function testCorruptedChunkCrcThrowsDeserializationExceptionNamingFirstOffset(): void
     {
         $chunk = $this->createChunk(

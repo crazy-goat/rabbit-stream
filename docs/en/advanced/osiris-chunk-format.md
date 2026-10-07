@@ -87,6 +87,7 @@ Example: 0x50 = Magic 5, Version 0
 **Number of Records (Bytes 4-7):**
 - Unsigned 32-bit integer
 - Total records across all entries; a sub-batch contributes its inner record count, not 1
+- Verified against the records parsed from the data section; a mismatch is rejected
 
 **Timestamp (Bytes 8-15):**
 - Signed 64-bit integer (milliseconds since Unix epoch)

@@ -188,10 +188,11 @@ class OsirisChunkParser
         ?int $length = null,
         bool $verifyCrc = true
     ): \Generator {
-        [$numEntries, $timestamp, $chunkFirstOffset, $pos, $dataEnd] =
+        [$numEntries, $numRecords, $timestamp, $chunkFirstOffset, $pos, $dataEnd] =
             self::parseChunkHeader($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc);
 
         $entryCount = 0;
+        $recordCount = 0;
         $currentOffset = $chunkFirstOffset;
 
         for ($i = 0; $i < $numEntries; $i++) {
@@ -209,6 +210,7 @@ class OsirisChunkParser
                 $entryData = self::readBytesAt($chunkBytes, $dataEnd, $pos, $entrySize);
                 yield [$currentOffset, $entryData, $timestamp];
                 $entryCount++;
+                $recordCount++;
                 $currentOffset++;
             } else {
                 $codec = ($entryType >> 4) & 0x07;
@@ -263,10 +265,13 @@ class OsirisChunkParser
                     $innerData = self::readBytesAt($subBatchData, $subLen, $subPos, $innerSize);
                     yield [$currentOffset, $innerData, $timestamp];
                     $entryCount++;
+                    $recordCount++;
                     $currentOffset++;
                 }
             }
         }
+
+        self::assertRecordCount($recordCount, $numRecords);
     }
 
     /**
@@ -278,8 +283,8 @@ class OsirisChunkParser
      * @param int $offset See parse().
      * @param ?int $length See parse().
      * @param bool $verifyCrc See parse().
-     * @return array{0: int, 1: int, 2: int, 3: int, 4: int} [numEntries, timestamp,
-     *         chunkFirstOffset, pos (absolute start of the data section), dataEnd
+     * @return array{0: int, 1: int, 2: int, 3: int, 4: int, 5: int} [numEntries, numRecords,
+     *         timestamp, chunkFirstOffset, pos (absolute start of the data section), dataEnd
      *         (absolute end of the data section)]
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
@@ -383,7 +388,7 @@ class OsirisChunkParser
             }
         }
 
-        return [$numEntries, $timestamp, $chunkFirstOffset, $headerSize, $dataEnd];
+        return [$numEntries, $numRecords, $timestamp, $chunkFirstOffset, $headerSize, $dataEnd];
     }
 
     /**
@@ -410,10 +415,11 @@ class OsirisChunkParser
         ?int $length = null,
         bool $verifyCrc = true
     ): \Generator {
-        [$numEntries, $timestamp, $chunkFirstOffset, $pos, $dataEnd] =
+        [$numEntries, $numRecords, $timestamp, $chunkFirstOffset, $pos, $dataEnd] =
             self::parseChunkHeader($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc);
 
         $entryCount = 0;
+        $recordCount = 0;
         $currentOffset = $chunkFirstOffset;
 
         for ($i = 0; $i < $numEntries; $i++) {
@@ -431,6 +437,7 @@ class OsirisChunkParser
                 $entryStart = self::checkBytesAt($dataEnd, $pos, $entrySize);
                 yield [$currentOffset, $timestamp, $entryStart, $entrySize];
                 $entryCount++;
+                $recordCount++;
                 $currentOffset++;
             } else {
                 $codec = ($entryType >> 4) & 0x07;
@@ -482,10 +489,13 @@ class OsirisChunkParser
                     $innerStart = self::checkBytesAt($subBatchEnd, $subPos, $innerSize);
                     yield [$currentOffset, $timestamp, $innerStart, $innerSize];
                     $entryCount++;
+                    $recordCount++;
                     $currentOffset++;
                 }
             }
         }
+
+        self::assertRecordCount($recordCount, $numRecords);
     }
 
     /**
@@ -607,6 +617,17 @@ class OsirisChunkParser
         $start = $pos;
         $pos += $length;
         return $start;
+    }
+
+    private static function assertRecordCount(int $recordCount, int $numRecords): void
+    {
+        if ($recordCount !== $numRecords) {
+            throw new DeserializationException(sprintf(
+                'Chunk declares %d records, but parsed %d records',
+                $numRecords,
+                $recordCount
+            ));
+        }
     }
 
     private static function entryLimitExceeded(int $maxEntriesPerChunk): DeserializationException
