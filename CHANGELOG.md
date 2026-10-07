@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Bug: `StreamConnection::handleServerClose()` emitted a debug log with debug logging disabled (#481)** — the server-supplied close reason is now logged only when a non-`NullLogger` is configured, matching the `debugFrame()` gate.
+
 ## [1.6.0] - 2026-10-07
 
 ### Added
