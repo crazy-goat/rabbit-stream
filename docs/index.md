@@ -1,6 +1,6 @@
 # RabbitStream Documentation
 
-Welcome to the RabbitStream documentation! RabbitStream is a pure PHP library implementing the RabbitMQ Streams Protocol client (port 5552) with zero external dependencies.
+Welcome to the RabbitStream documentation! RabbitStream is a PHP library implementing the RabbitMQ Streams Protocol client (port 5552). Its Composer runtime dependencies are `psr/log ^3.0` and the `ext-mbstring` and `ext-sockets` PHP extensions.
 
 ## Table of Contents
 
@@ -60,7 +60,7 @@ Welcome to the RabbitStream documentation! RabbitStream is a pure PHP library im
 ### Advanced Topics
 - [Binary Serialization](en/advanced/binary-serialization.md) - Understanding the binary protocol
 - [Custom Serializer](en/advanced/custom-serializer.md) - Implementing custom serialization
-- [AMQP Message Decoding](en/advanced/amqp-message-decoding.md) - Working with AMQP 0.9.1 messages
+- [AMQP Message Decoding](en/advanced/amqp-message-decoding.md) - Working with AMQP 1.0 messages
 - [Osiris Chunk Format](en/advanced/osiris-chunk-format.md) - Internal storage format
 - [PSR Logging](en/advanced/psr-logging.md) - Integrating with PSR-3 loggers
 - [Performance Tuning](en/advanced/performance-tuning.md) - Optimizing for high throughput
