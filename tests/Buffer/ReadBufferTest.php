@@ -502,6 +502,12 @@ class ReadBufferTest extends TestCase
         $this->assertSame(-2147483648, $buf->getInt32());
     }
 
+    public function testGetInt64WithMaxValue(): void
+    {
+        $buf = new ReadBuffer("\x7F\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
+        $this->assertSame(PHP_INT_MAX, $buf->getInt64());
+    }
+
     public function testGetInt64Negative(): void
     {
         $buf = new ReadBuffer("\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");

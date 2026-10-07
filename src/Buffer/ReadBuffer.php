@@ -190,9 +190,6 @@ class ReadBuffer
             throw new DeserializationException('Failed to unpack int64 at position ' . $this->position);
         }
         $this->position += 8;
-        if ($data[1] >= 0x8000000000000000) {
-            $data[1] -= 0x10000000000000000;
-        }
         return $data[1];
     }
 
