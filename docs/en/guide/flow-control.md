@@ -648,7 +648,6 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
     //   OffsetSpec::TYPE_NEXT      = 3 (start at the end of the stream)
     //   OffsetSpec::TYPE_OFFSET    = 4 (start from specific offset)
     //   OffsetSpec::TYPE_TIMESTAMP = 5 (start from timestamp, in milliseconds)
-    //   OffsetSpec::TYPE_INTERVAL  = 6 (NOT in the protocol — see issue #468)
 
     // Start from offset 100
     return [OffsetSpec::TYPE_OFFSET, 100];
@@ -665,7 +664,6 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
 | `OffsetSpec::TYPE_NEXT` | 3 | Start at the next offset to be written (end of the stream) |
 | `OffsetSpec::TYPE_OFFSET` | 4 | Start from specific offset (must provide offset, inclusive) |
 | `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start at the first chunk with chunk timestamp >= the value, in **milliseconds** since the epoch (chunk-granular) |
-| `OffsetSpec::TYPE_INTERVAL` | 6 | **Not in the protocol** — the broker does not support it (see [#468](https://github.com/crazy-goat/rabbit-stream/issues/468)) |
 
 ### Complete Example
 

@@ -47,11 +47,21 @@ class OffsetSpecTest extends TestCase
         $this->assertSame($ts, $spec->getValue());
     }
 
-    public function testIntervalHasCorrectTypeAndValue(): void
+    public function testRemovedIntervalTypeIsRejected(): void
     {
-        $spec = OffsetSpec::interval(3600);
-        $this->assertSame(OffsetSpec::TYPE_INTERVAL, $spec->getType());
-        $this->assertSame(3600, $spec->getValue());
+        // Offset type 0x0006 ("interval") was removed from the protocol surface
+        // in #468: it is not defined by the RabbitMQ Stream protocol and a
+        // Subscribe carrying it crashes the broker's connection process.
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid offset spec type: 6');
+        new OffsetSpec(0x0006, 3600);
+    }
+
+    public function testIntervalTypeIsNoLongerExposed(): void
+    {
+        $constants = (new \ReflectionClass(OffsetSpec::class))->getConstants();
+        $this->assertArrayNotHasKey('TYPE_INTERVAL', $constants);
+        $this->assertNotContains(0x0006, array_values($constants), 'Type 0x0006 must not be a public constant');
     }
 
     public function testInvalidTypeThrowsException(): void
@@ -107,22 +117,14 @@ class OffsetSpecTest extends TestCase
         $this->assertSame(pack('n', $type), $binary);
     }
 
-    public function testIntervalSerializesTypeAndUint64Value(): void
+    public function testTimestampSerializesTypeAndInt64Value(): void
     {
-        $binary = OffsetSpec::interval(3600)->toStreamBuffer()->getContents();
+        $binary = OffsetSpec::timestamp(3600)->toStreamBuffer()->getContents();
 
         $this->assertSame(10, strlen($binary));
 
-        $expected = pack('n', OffsetSpec::TYPE_INTERVAL) . pack('J', 3600);
+        $expected = pack('n', OffsetSpec::TYPE_TIMESTAMP) . pack('J', 3600);
         $this->assertSame($expected, $binary);
-    }
-
-    public function testIntervalWithoutValueThrows(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Offset spec type 6 requires a value');
-
-        new OffsetSpec(OffsetSpec::TYPE_INTERVAL);
     }
 
     public function testToStreamBufferWithValue(): void

@@ -133,7 +133,7 @@ try {
 
 ## 2. OffsetSpec - Where to Start
 
-The `OffsetSpec` determines where consumption begins in the stream. The protocol defines five offset types for a subscription (`interval()` is not one of them — see below):
+The `OffsetSpec` determines where consumption begins in the stream. The protocol defines five offset types for a subscription:
 
 | Method | Description | Use Case |
 |--------|-------------|----------|
@@ -142,7 +142,6 @@ The `OffsetSpec` determines where consumption begins in the stream. The protocol
 | `OffsetSpec::next()` | Start after the last consumed message | Resume after disconnect |
 | `OffsetSpec::offset(int $offset)` | Start at a specific offset (inclusive) | Resume from known position |
 | `OffsetSpec::timestamp(int $timestamp)` | Start at the first chunk with chunk timestamp >= the value; **milliseconds** since the epoch (chunk-granular) | Time-based replay |
-| `OffsetSpec::interval(int $interval)` | **Unsupported** — serializes offset type `0x0006`, which is not in the protocol (see [#468](https://github.com/crazy-goat/rabbit-stream/issues/468)) | Do not use |
 
 ### Offset Type Examples
 
@@ -206,16 +205,6 @@ $consumer = $connection->createConsumer(
 > **Milliseconds, not seconds.** `timestamp()` takes milliseconds since the
 > Unix epoch (as `Message::getTimestamp()` returns). A value in seconds
 > resolves near 1970 and silently replays the whole stream, like `first()`.
-
-**Interval-based — unsupported:**
-
-`OffsetSpec::interval()` serializes offset type `0x0006`, which the RabbitMQ
-Stream protocol does **not** define (the spec lists `1` first, `2` last,
-`3` next, `4` offset and `5` timestamp, with `0` none allowed only in a
-`ConsumerUpdate` reply). The broker does not support it, so the factory can
-emit an out-of-spec frame. This is tracked by
-[#468](https://github.com/crazy-goat/rabbit-stream/issues/468); do not rely on
-`interval()`.
 
 ### Choosing the Right Offset
 
