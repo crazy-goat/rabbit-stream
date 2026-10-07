@@ -109,6 +109,37 @@ public function getUint64(): int
 $value = $buffer->getUint64();  // e.g., 9223372036854775807
 ```
 
+### getUint64Array()
+
+Reads `$count` consecutive unsigned 64-bit integers (big-endian) with a single
+bounds check and a single `unpack()` call with an explicit repeat count
+(`unpack('J' . $count, ...)`). Use it instead of a loop over
+`getUint64()` on frames that carry an array of ids — a broker confirms thousands
+of publishing ids in one `PublishConfirm` frame.
+
+```php
+public function getUint64Array(int $count): array
+```
+
+**Parameters:**
+- `$count` - Number of values to read. Must be 0 or greater; `0` returns an
+  empty array and consumes nothing.
+
+**Returns:** Zero-indexed `array<int, int>` with values in range 0 to PHP_INT_MAX.
+Note that `unpack('J' . $count, ...)` is 1-indexed; this method re-indexes from 0,
+like every other array reader in this class.
+
+**Throws:**
+- `DeserializationException` - If `$count` is negative
+- `DeserializationException` - If buffer underflow (less than `$count * 8` bytes available)
+- `DeserializationException` - If any value exceeds `PHP_INT_MAX`, with the same message `getUint64()` uses. The whole array is checked, so a corrupt or hostile value anywhere in it is rejected at the parse site instead of flowing on as a wrapped negative id or offset.
+
+**Example:**
+```php
+$count = $buffer->getUint32();       // e.g., PublishingIdsCount
+$ids = $buffer->getUint64Array($count);  // e.g., [0, 1, 2]
+```
+
 ### getInt16()
 
 Reads a signed 16-bit integer (big-endian, two's complement).
@@ -400,7 +431,7 @@ Thrown for the following conditions:
 - **Unpack failure:** PHP's `unpack()` failed (rare, indicates corrupted data)
 - **Position past end:** Cursor position exceeds buffer length
 - **Object deserialization failure:** `fromStreamBuffer()` returned null
-- **uint64 out of range:** A `getUint64()` value exceeds `PHP_INT_MAX` and cannot be represented as a native signed int
+- **uint64 out of range:** A `getUint64()` or `getUint64Array()` value exceeds `PHP_INT_MAX` and cannot be represented as a native signed int
 
 **Error Message Format:**
 ```

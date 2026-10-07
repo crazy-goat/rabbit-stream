@@ -122,9 +122,11 @@ message on the hot publish path and per frame on the hot receive path:
 - `StreamConnection::wrapFrame()` and `CommandTrait::getKeyVersion()` build
   their fixed-width headers with a single `pack()` call instead of several
   chained `WriteBuffer::addUIntX()` calls.
-- `PublishConfirmResponseV1::fromStreamBuffer()` reads all publishing ids
-  with one `unpack('J*', ...)` call instead of one `ReadBuffer::getUint64()`
-  call per id.
+- `PublishConfirmResponseV1::fromStreamBuffer()` reads all publishing ids with
+  one `ReadBuffer::getUint64Array()` call — one bounds check and one
+  `unpack('J' . $count, ...)` for the whole array — instead of one
+  `ReadBuffer::getUint64()` call per id. The helper still rejects a publishing
+  id above `PHP_INT_MAX` rather than letting it wrap to a negative int.
 - `StreamConnection::readBytes()` reads with `socket_recv(..., MSG_WAITALL)`
   in a loop instead of looping `socket_read()` with `.=`, cutting the number
   of syscalls and string reallocations needed to read a large frame (e.g. an
