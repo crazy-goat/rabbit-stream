@@ -120,7 +120,9 @@ class Producer implements ProducerInterface
      *                          (unconfirmed) publishes; once reached,
      *                          send()/sendBatch()/sendWithFilter() block
      *                          draining confirms until the count drops below
-     *                          it. 0 disables the cap.
+     *                          it. It is a hard bound: a batch that would not
+     *                          fit in the window is split into window-sized
+     *                          Publish frames (GitHub #532). 0 disables the cap.
      * @param float $redeclareTimeout Seconds a publish keeps retrying
      *                          DeclarePublisher after a MetadataUpdate dropped
      *                          the publisher; 0 fails on the first attempt. Must
@@ -456,6 +458,18 @@ class Producer implements ProducerInterface
      *
      * An empty array is a no-op and returns without touching the socket.
      *
+     * The batch is split into consecutive `Publish` frames of at most
+     * `maxPendingConfirms` messages, so the outstanding count never exceeds
+     * that cap (GitHub #532). Every chunk is written and registered before the
+     * next one is admitted, and each chunk blocks for room in the window if it
+     * is full — the back-pressure wait (and therefore $timeout) applies per
+     * chunk, not once for the whole batch. All messages keep consecutive
+     * publishing ids. A batch of at most `maxPendingConfirms` messages is a
+     * single frame, exactly as before; only a larger batch can be split, and a
+     * failure on a later chunk then leaves the earlier chunks published (their
+     * ids stay outstanding). With the cap disabled (`0`) the whole batch is one
+     * frame, as before.
+     *
      * @param string[] $messages plain payloads; each one is automatically wrapped in an
      *                           AMQP 1.0 Data section on the wire (see send())
      * @param ?float $timeout socket write timeout in seconds; null uses connection default
@@ -477,35 +491,60 @@ class Producer implements ProducerInterface
             return;
         }
         $this->ensureDeclared();
-        $this->applyBackpressure($timeout);
-        $published = [];
-        $publishingId = $this->publishingId;
-        foreach ($messages as $message) {
-            $published[] = new PublishedMessage($publishingId++, AmqpMessageEncoder::encodeDataSection($message));
+
+        // Send the batch in window-sized chunks so the outstanding count is a
+        // hard bound (GitHub #532). applyBackpressure() used to run once before
+        // the ids were registered, so a batch of N was admitted as soon as a
+        // single slot was free and the window grew to max - 1 + N. Registering
+        // each chunk before asking for room for the next one keeps
+        // count(pendingConfirms) <= maxPendingConfirms at all times.
+        $chunkSize = $this->maxPendingConfirms > 0 ? $this->maxPendingConfirms : count($messages);
+        foreach (array_chunk($messages, $chunkSize) as $chunk) {
+            $this->applyBackpressure($timeout, count($chunk));
+            $published = [];
+            $publishingId = $this->publishingId;
+            foreach ($chunk as $message) {
+                $published[] = new PublishedMessage(
+                    $publishingId++,
+                    AmqpMessageEncoder::encodeDataSection($message)
+                );
+            }
+            // Counters advance only after a successful write — see send() (#395).
+            $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published), $timeout);
+            for ($id = $this->publishingId; $id < $publishingId; $id++) {
+                $this->pendingConfirms[$id] = true;
+            }
+            $this->publishingId = $publishingId;
         }
-        // Counters advance only after a successful write — see send() (#395).
-        $this->connection->sendMessage(new PublishRequestV1($this->publisherId, ...$published), $timeout);
-        for ($id = $this->publishingId; $id < $publishingId; $id++) {
-            $this->pendingConfirms[$id] = true;
-        }
-        $this->publishingId = $publishingId;
     }
 
     /**
-     * Block until pendingConfirms drops below maxPendingConfirms (0 = unlimited,
-     * old fire-and-forget behaviour). Drains confirms/errors off the socket via
-     * readLoop() one frame at a time so callbacks fire promptly.
+     * Block until the pendingConfirms window has room for $messages more
+     * publishes, i.e. until count(pendingConfirms) + $messages <=
+     * maxPendingConfirms (0 = unlimited, old fire-and-forget behaviour). Drains
+     * confirms/errors off the socket via readLoop() one frame at a time so
+     * callbacks fire promptly.
      *
+     * Accounting for the size of the frame about to be written is what makes
+     * the cap a hard bound for batches: a plain "pending < max" check admitted
+     * a whole batch as soon as one slot was free, so the window could reach
+     * max - 1 + batchSize (GitHub #532). sendBatch() splits the batch into
+     * chunks of at most maxPendingConfirms, so the caller always passes a
+     * $messages that can fit.
+     *
+     * @param int $messages Number of publishes the next write will add to the
+     *                      window; must be <= maxPendingConfirms when the cap
+     *                      is enabled (sendBatch() guarantees it).
      * @throws TimeoutException if the deadline passes before enough confirms arrive
      */
-    private function applyBackpressure(?float $timeout): void
+    private function applyBackpressure(?float $timeout, int $messages = 1): void
     {
-        if ($this->maxPendingConfirms <= 0 || count($this->pendingConfirms) < $this->maxPendingConfirms) {
+        if ($this->maxPendingConfirms <= 0) {
             return;
         }
 
         $deadline = microtime(true) + ($timeout ?? self::DEFAULT_BACKPRESSURE_TIMEOUT);
-        while (($pending = count($this->pendingConfirms)) >= $this->maxPendingConfirms) {
+        while (($pending = count($this->pendingConfirms)) + $messages > $this->maxPendingConfirms) {
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 throw new TimeoutException(

@@ -258,6 +258,61 @@ class ProducerTest extends E2ETestCase
         $streamConnection->close();
     }
 
+    public function testMaxPendingConfirmsBoundsBatchedInFlightMessages(): void
+    {
+        // Regression coverage for #532: sendBatch() ran applyBackpressure()
+        // before registering the batch ids, so a batch of any size was admitted
+        // as soon as one slot was free and the in-flight window grew to
+        // maxPendingConfirms - 1 + batchSize. A batch larger than the cap must
+        // be split into window-sized frames, so getPendingConfirms() never
+        // exceeds the cap and every message still ends up confirmed.
+        $streamConnection = $this->connectAndOpen();
+
+        $maxPendingConfirms = 100;
+        $batchSize = 1000;
+        $batchCount = 5;
+        $observedMax = 0;
+        $confirmedCount = 0;
+
+        $producer = new Producer(
+            $streamConnection,
+            $this->streamName,
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$confirmedCount): void {
+                if ($status->isConfirmed()) {
+                    $confirmedCount++;
+                }
+            },
+            maxPendingConfirms: $maxPendingConfirms,
+        );
+
+        $batch = [];
+        for ($i = 0; $i < $batchSize; $i++) {
+            $batch[] = "batched-message-{$i}";
+        }
+
+        for ($i = 0; $i < $batchCount; $i++) {
+            $producer->sendBatch($batch);
+            $observedMax = max($observedMax, $producer->getPendingConfirms());
+        }
+
+        $producer->waitForConfirms(timeout: 60.0);
+
+        $this->assertLessThanOrEqual(
+            $maxPendingConfirms,
+            $observedMax,
+            'a batch must never put more than maxPendingConfirms publishes in flight'
+        );
+        $this->assertSame(
+            $batchSize * $batchCount,
+            $confirmedCount,
+            'All messages of every split batch must eventually be confirmed'
+        );
+
+        $producer->close();
+        $streamConnection->close();
+    }
+
     /**
      * @param callable(int): string $messageFactory
      */

@@ -541,10 +541,10 @@ is needed for back-pressure, so a long run of `send()` calls without
 broker then coalesces them into large chunks, which can slow down consumers
 and spike broker-side memory.
 
-The `maxPendingConfirms` constructor parameter (default `10000`) caps how many
-unconfirmed publishes are allowed before `send()`/`sendBatch()` transparently
-drain confirms off the socket (blocking, like `waitForConfirms()`) until the
-count drops back below the limit:
+The `maxPendingConfirms` constructor parameter (default `10000`) is a **hard
+bound** on the number of unconfirmed publishes: `send()`/`sendBatch()` block,
+draining confirms off the socket (like `waitForConfirms()`), until the write
+they are about to make fits in the window:
 
 ```php
 $producer = new Producer(
@@ -559,9 +559,18 @@ for ($i = 0; $i < 200_000; $i++) {
 }
 ```
 
-Pass `0` to restore the old unlimited/fire-and-forget behavior. Use
-`getPendingConfirms(): int` to inspect the current outstanding count, e.g. for
-metrics or custom throttling logic.
+`getPendingConfirms()` therefore never exceeds `maxPendingConfirms`. A batch
+larger than the remaining room in the window cannot fit in one frame without
+breaking the cap, so `sendBatch()` splits it into consecutive `Publish` frames
+of at most `maxPendingConfirms` messages, writing and registering each chunk
+before admitting the next. This keeps the cap a true bound instead of one that
+could be overshot by a whole batch (GitHub #532), and the `$timeout` applies to
+the back-pressure wait of each chunk, not once for the whole batch.
+
+Pass `0` to restore the old unlimited/fire-and-forget behavior (the whole batch
+then goes in a single frame, as before). Use `getPendingConfirms(): int` to
+inspect the current outstanding count, e.g. for metrics or custom throttling
+logic.
 
 > **Memory note:** outstanding publishes are tracked per publishing id (since
 > #521), so each unconfirmed id keeps a small array entry until its confirm or

@@ -47,7 +47,7 @@ $producer = $connection->createProducer(
 | `$stream` | `string` | Yes | Name of the stream to publish to |
 | `$name` | `?string` | No | Unique producer name for deduplication. If provided, the producer reads back its publishing sequence on creation and resumes from it, so a reconnect/restart continues above the broker's stored sequence instead of replaying it. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus` object. |
-| `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Once reached, `send()`/`sendBatch()`/`sendWithFilter()` block, draining confirms until the count drops back below the limit. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
+| `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. It is a hard bound: `send()`/`sendBatch()`/`sendWithFilter()` block, draining confirms until the write fits in the window, so `getPendingConfirms()` never exceeds it. `sendBatch()` splits a batch larger than the remaining room into consecutive frames of at most this many messages. `0` disables the cap (old unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
 | `$redeclareTimeout` | `float` | No | How long (seconds) a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher; default `5.0`. `0` fails on the first attempt. Must be `>= 0`. See [isStale()](#isstale). |
 
 The underlying `Producer` constructor also takes an optional `$onClose` callback (called with the publisher id once `close()` has run, so the owning `Connection` can reclaim it) and an optional `$logger` (`LoggerInterface`, defaults to `NullLogger`); `Connection` supplies both, so they are not part of `createProducer()`.
@@ -167,7 +167,7 @@ $producer->sendBatch($messages);
 #### Notes
 
 - More efficient than multiple `send()` calls for high throughput
-- All messages in the batch share the same network frame
+- All messages in a chunk share the same network frame; a batch larger than the remaining room in the `maxPendingConfirms` window is split into consecutive frames of at most `maxPendingConfirms` messages, so the cap stays a hard bound (since #532)
 - Each message is a plain payload string, automatically wrapped in an AMQP 1.0 Data section (same encoding as `send()`)
 - Each message still gets its own publishing ID and confirmation
 - Empty arrays are silently ignored (no-op)

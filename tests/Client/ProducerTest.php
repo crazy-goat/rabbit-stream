@@ -596,6 +596,70 @@ class ProducerTest extends TestCase
         $this->assertSame(1, $producer->getPendingConfirms());
     }
 
+    public function testSendBatchNeverExceedsMaxPendingConfirms(): void
+    {
+        // Regression guard for #532: applyBackpressure() ran once before the
+        // batch ids were registered, and only tested "pending < max", so a
+        // batch of N was admitted as soon as one slot was free and the window
+        // grew to max - 1 + N. Each batch here is smaller than the cap, so the
+        // bound can only hold if the size of the frame about to be written is
+        // taken into account.
+        $producer = $this->createRecordingProducer(5);
+
+        $producer->sendBatch(['a1', 'a2', 'a3']);
+        $producer->sendBatch(['b1', 'b2', 'b3']);
+        $producer->sendBatch(['c1', 'c2', 'c3', 'c4']);
+
+        $this->assertLessThanOrEqual(
+            5,
+            $this->maxObservedInFlight,
+            'sendBatch() must never put more than maxPendingConfirms publishes in flight'
+        );
+        $this->assertLessThanOrEqual(5, $producer->getPendingConfirms());
+    }
+
+    public function testSendBatchLargerThanCapIsSplitIntoWindowSizedFrames(): void
+    {
+        // Regression guard for #532: a batch bigger than the window cannot fit
+        // in one frame without breaking the cap, so sendBatch() splits it into
+        // window-sized Publish frames and blocks for room between them.
+        $producer = $this->createRecordingProducer(5);
+
+        $batch = [];
+        for ($i = 0; $i < 50; $i++) {
+            $batch[] = "m{$i}";
+        }
+        $producer->sendBatch($batch);
+
+        $this->assertLessThanOrEqual(
+            5,
+            $this->maxObservedInFlight,
+            'a 50-message batch with maxPendingConfirms=5 must not put 50 publishes in flight'
+        );
+        $this->assertLessThanOrEqual(5, $producer->getPendingConfirms());
+        $this->assertSame(
+            [5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
+            $this->batchFrameSizes,
+            'the batch must be split into frames of at most maxPendingConfirms messages'
+        );
+        // Splitting must not disturb the publishing ids: 50 messages still
+        // consume ids 0..49, in order.
+        $this->assertSame(49, $producer->getLastPublishingId());
+    }
+
+    public function testSendBatchWithCapDisabledWritesOneFrame(): void
+    {
+        // maxPendingConfirms: 0 restores the old unlimited/fire-and-forget
+        // behaviour, so the batch must not be split and readLoop() must never
+        // be called to drain confirms.
+        $producer = $this->createRecordingProducer(0);
+
+        $producer->sendBatch(['a', 'b', 'c']);
+
+        $this->assertSame([3], $this->batchFrameSizes, 'with the cap disabled the batch stays one frame');
+        $this->assertSame(3, $producer->getPendingConfirms());
+    }
+
     public function testSendThrowsTimeoutExceptionWhenBackpressureNeverDrains(): void
     {
         $connection = $this->createMock(StreamConnection::class);
@@ -906,6 +970,78 @@ class ProducerTest extends TestCase
         $producer->close();
 
         $this->assertSame([1], $released, 'A stale publisher skips DeletePublisher but still frees its id');
+    }
+
+    /**
+     * Highest number of publishes observed in flight at once by
+     * createRecordingProducer()'s fake broker.
+     */
+    private int $maxObservedInFlight = 0;
+
+    /** @var list<int> Size (in messages) of every Publish frame the fake broker saw. */
+    private array $batchFrameSizes = [];
+
+    /**
+     * Producer wired to a mock connection that records how many publishes are
+     * outstanding after every Publish frame, like a broker that confirms one
+     * outstanding publish per readLoop() frame.
+     *
+     * The recorded maximum is the observable form of the back-pressure bound:
+     * a correct implementation keeps it at or below $maxPendingConfirms, while
+     * the pre-#532 code let it reach max - 1 + batchSize.
+     *
+     * @param int $maxPendingConfirms Cap under test; 0 disables it.
+     */
+    private function createRecordingProducer(int $maxPendingConfirms): Producer
+    {
+        $this->maxObservedInFlight = 0;
+        $this->batchFrameSizes = [];
+
+        $connection = $this->createMock(StreamConnection::class);
+
+        /** @var callable|null $onConfirm */
+        $onConfirm = null;
+        $connection->expects($this->any())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, callable $confirm, $error) use (&$onConfirm): void {
+                $onConfirm = $confirm;
+            });
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+
+        /** @var list<int> $inFlight */
+        $inFlight = [];
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(function (object $request) use (&$inFlight): void {
+                if (!$request instanceof PublishRequestV1) {
+                    return;
+                }
+                $array = $request->toArray();
+                $messages = is_array($array['messages'] ?? null) ? $array['messages'] : [];
+                $this->batchFrameSizes[] = count($messages);
+                foreach ($messages as $message) {
+                    if (is_array($message) && is_int($message['publishingId'] ?? null)) {
+                        $inFlight[] = $message['publishingId'];
+                    }
+                }
+                $this->maxObservedInFlight = max($this->maxObservedInFlight, count($inFlight));
+            });
+
+        // One readLoop() frame confirms the oldest in-flight publish, so a
+        // correct implementation can always drain enough room for the next
+        // window-sized chunk.
+        $connection->expects($this->any())
+            ->method('readLoop')
+            ->willReturnCallback(function () use (&$inFlight, &$onConfirm): int {
+                if ($inFlight === [] || $onConfirm === null) {
+                    return 0;
+                }
+                $id = array_shift($inFlight);
+                $onConfirm([$id]);
+                return 1;
+            });
+
+        return new Producer($connection, 'test-stream', 1, maxPendingConfirms: $maxPendingConfirms);
     }
 
     /**
