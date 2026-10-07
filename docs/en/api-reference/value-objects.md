@@ -10,7 +10,7 @@ All value objects are immutable and located in `src/VO/` and `src/Client/` direc
 
 Specifies where to start consuming from a stream. Located in `src/VO/OffsetSpec.php`.
 
-The `OffsetSpec` value object defines the starting position for a consumer subscription. It supports first/last/next, a specific offset, and a timestamp — the five offset types the RabbitMQ Stream protocol defines (plus `none`, valid only in a `ConsumerUpdate` reply). `interval` is exposed but **not supported by the protocol** (see below).
+The `OffsetSpec` value object defines the starting position for a consumer subscription. It supports first/last/next, a specific offset, and a timestamp — the five offset types the RabbitMQ Stream protocol defines (plus `none`, valid only in a `ConsumerUpdate` reply).
 
 ### Type Constants
 
@@ -21,7 +21,6 @@ The `OffsetSpec` value object defines the starting position for a consumer subsc
 | `TYPE_NEXT` | 0x0003 | Start at the end of the stream — messages written after the subscription (not "after the last consumed") |
 | `TYPE_OFFSET` | 0x0004 | Start from a specific offset value (inclusive) |
 | `TYPE_TIMESTAMP` | 0x0005 | Start at the first chunk whose chunk timestamp is `>=` the value, in milliseconds since the epoch (chunk-granular, delivered in full) |
-| `TYPE_INTERVAL` | 0x0006 | **Not in the protocol** — serializes an offset type the broker does not support; tracked by [#468](https://github.com/crazy-goat/rabbit-stream/issues/468) |
 
 ### Constructor
 
@@ -37,11 +36,11 @@ public function __construct(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `$type` | `int` | Yes | One of the `TYPE_*` constants |
-| `$value` | `?int` | Depends | Offset value; required (and enforced) for `TYPE_OFFSET`, `TYPE_TIMESTAMP` and `TYPE_INTERVAL`, and rejected (and enforced) for the value-less types `TYPE_NONE`, `TYPE_FIRST`, `TYPE_LAST` and `TYPE_NEXT`. |
+| `$value` | `?int` | Depends | Offset value; required (and enforced) for `TYPE_OFFSET` and `TYPE_TIMESTAMP`, and rejected (and enforced) for the value-less types `TYPE_NONE`, `TYPE_FIRST`, `TYPE_LAST` and `TYPE_NEXT`. |
 
 **Throws:**
 
-- `InvalidArgumentException` - If an invalid type is provided, if `TYPE_OFFSET`/`TYPE_TIMESTAMP`/`TYPE_INTERVAL` is used without a value, or if a value-less type (`TYPE_NONE`/`TYPE_FIRST`/`TYPE_LAST`/`TYPE_NEXT`) is given a value
+- `InvalidArgumentException` - If an invalid type is provided, if `TYPE_OFFSET`/`TYPE_TIMESTAMP` is used without a value, or if a value-less type (`TYPE_NONE`/`TYPE_FIRST`/`TYPE_LAST`/`TYPE_NEXT`) is given a value
 
 > `TYPE_TIMESTAMP` is encoded as a signed `int64` (milliseconds since the Unix
 > epoch), so negative (pre-1970) timestamps round-trip correctly. `TYPE_OFFSET`
@@ -147,29 +146,6 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
 $timestamp = (time() - 3600) * 1000; // 1 hour ago, in milliseconds
 $offset = OffsetSpec::timestamp($timestamp);
 ```
-
-#### interval()
-
-Create an interval offset spec — **not supported by the RabbitMQ Stream protocol** (see below).
-
-```php
-public static function interval(int $interval): self
-```
-
-> **Not supported by the RabbitMQ Stream protocol.** `interval()` serializes
-> offset type `TYPE_INTERVAL` (`0x0006`), which the spec does not define: it
-> lists `1` first, `2` last, `3` next, `4` offset and `5` timestamp, with `0`
-> none allowed only in a `ConsumerUpdate` reply. The broker does not support
-> it, so the factory can emit an out-of-spec frame. Tracked by
-> [#468](https://github.com/crazy-goat/rabbit-stream/issues/468); do not rely
-> on it. For a relative time window, use `timestamp()` with a millisecond
-> value.
-
-**Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `$interval` | `int` | Value serialized as the 8-byte payload; its meaning is undefined because the broker has no interval offset type |
 
 ### Getters
 
