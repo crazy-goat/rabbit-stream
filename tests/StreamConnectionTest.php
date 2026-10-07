@@ -1872,9 +1872,11 @@ class StreamConnectionTest extends TestCase
         // Small send buffer + a peer that never reads: the kernel accepts part
         // of the frame and then stalls, which is exactly the short write the
         // single unchecked write used to ignore (#389).
-        $imported = socket_import_stream($clientSocket);
-        if ($imported instanceof \Socket) {
-            socket_set_option($imported, SOL_SOCKET, SO_SNDBUF, 4096);
+        if (function_exists('socket_import_stream')) {
+            $imported = socket_import_stream($clientSocket);
+            if ($imported instanceof \Socket) {
+                socket_set_option($imported, SOL_SOCKET, SO_SNDBUF, 4096);
+            }
         }
 
         $frame = pack('N', 1_048_576) . str_repeat("\x00", 1_048_576);
