@@ -53,15 +53,10 @@ class Producer implements ProducerInterface
 {
     public const DEFAULT_MAX_PENDING_CONFIRMS = 10000;
     public const DEFAULT_REDECLARE_TIMEOUT = 5.0;
+    public const DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT = 2.0;
     private const DEFAULT_BACKPRESSURE_TIMEOUT = 30.0;
     private const REDECLARE_INITIAL_BACKOFF = 0.05;
     private const REDECLARE_MAX_BACKOFF = 1.0;
-    /**
-     * How long close() waits for in-flight PublishConfirm/PublishError frames
-     * to drain before giving up (GitHub #474).
-     */
-    private const CLOSE_CONFIRM_DRAIN_TIMEOUT = 2.0;
-
     private int $publishingId = 0;
 
     /**
@@ -130,7 +125,11 @@ class Producer implements ProducerInterface
      *                          it; null to disable the callback.
      * @param LoggerInterface|null $logger PSR-3 logger for warnings (e.g. lost
      *                          confirms); defaults to a NullLogger.
-     * @throws InvalidArgumentException If $redeclareTimeout is negative.
+     * @param float $closeConfirmDrainTimeout Seconds close() waits for in-flight
+     *                          publish confirms before abandoning them; defaults
+     *                          to DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT. Must be >= 0.
+     * @throws InvalidArgumentException If $redeclareTimeout or
+     *                          $closeConfirmDrainTimeout is negative.
      * @throws ConnectionException If the socket is not connected or the
      *                          DeclarePublisher/QueryPublisherSequence exchange
      *                          fails.
@@ -153,9 +152,13 @@ class Producer implements ProducerInterface
         private readonly float $redeclareTimeout = self::DEFAULT_REDECLARE_TIMEOUT,
         ?callable $onClose = null,
         ?LoggerInterface $logger = null,
+        private readonly float $closeConfirmDrainTimeout = self::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT,
     ) {
         if ($this->redeclareTimeout < 0) {
             throw new InvalidArgumentException('redeclareTimeout must be >= 0');
+        }
+        if ($this->closeConfirmDrainTimeout < 0) {
+            throw new InvalidArgumentException('closeConfirmDrainTimeout must be >= 0');
         }
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
@@ -587,7 +590,7 @@ class Producer implements ProducerInterface
      * frames decrement pendingConfirms instead of being dropped.
      *
      * Bounded: if the broker never confirms the in-flight messages within
-     * CLOSE_CONFIRM_DRAIN_TIMEOUT, close() gives up rather than hanging. The
+     * closeConfirmDrainTimeout, close() gives up rather than hanging. The
      * abandoned confirms are then lost, but they are counted in
      * getLostConfirmCount() and logged at warning level (GitHub #522).
      */
@@ -599,7 +602,7 @@ class Producer implements ProducerInterface
         // count plus a bounded prefix of the affected publishing ids (GitHub
         // #522). The full id list can be unbounded in fire-and-forget mode
         // (maxPendingConfirms: 0), so it must never reach the logger verbatim.
-        if ($this->drainUntilZero(self::CLOSE_CONFIRM_DRAIN_TIMEOUT)) {
+        if ($this->drainUntilZero($this->closeConfirmDrainTimeout)) {
             return;
         }
 
@@ -611,7 +614,7 @@ class Producer implements ProducerInterface
             . 'still unconfirmed; their confirms are lost',
             $this->publisherId,
             $this->stream,
-            self::CLOSE_CONFIRM_DRAIN_TIMEOUT,
+            $this->closeConfirmDrainTimeout,
             $lostCount
         );
         if ($lostCount > StreamConnection::MAX_LOGGED_PUBLISHING_IDS) {

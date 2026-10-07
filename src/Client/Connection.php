@@ -931,11 +931,15 @@ class Connection implements ConnectionInterface
      * @param float $redeclareTimeout Seconds a stale publisher keeps retrying
      *                                 DeclarePublisher after a MetadataUpdate before
      *                                 ensureDeclared() gives up.
+     * @param float $closeConfirmDrainTimeout Seconds close() waits for outstanding
+     *                                 publish confirms before abandoning them; defaults
+     *                                 to Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT.
      * @return ProducerInterface A declared producer whose publisher id stays reserved by
      *                                 this connection until the producer is closed.
      * @throws ConnectionException If the socket is not connected, a write or read fails, or
      *                                 all MAX_CONCURRENT_PUBLISHERS publisher ids are in use.
-     * @throws InvalidArgumentException If $redeclareTimeout is negative, or the serialized
+     * @throws InvalidArgumentException If $redeclareTimeout or
+     *                                 $closeConfirmDrainTimeout is negative, or the serialized
      *                                 DeclarePublisher request exceeds the negotiated outgoing
      *                                 frame size.
      * @throws ProtocolException If the stream does not exist (the DeclarePublisher response
@@ -952,8 +956,16 @@ class Connection implements ConnectionInterface
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
         float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
+        float $closeConfirmDrainTimeout = Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT,
     ): ProducerInterface {
-        return $this->newProducer($stream, $name, $onConfirm, $maxPendingConfirms, $redeclareTimeout);
+        return $this->newProducer(
+            $stream,
+            $name,
+            $onConfirm,
+            $maxPendingConfirms,
+            $redeclareTimeout,
+            $closeConfirmDrainTimeout
+        );
     }
 
     /**
@@ -968,6 +980,7 @@ class Connection implements ConnectionInterface
         ?callable $onConfirm,
         int $maxPendingConfirms,
         float $redeclareTimeout,
+        float $closeConfirmDrainTimeout = Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT,
     ): Producer {
         $publisherId = $this->allocateId(
             $this->publisherIdCursor,
@@ -987,6 +1000,7 @@ class Connection implements ConnectionInterface
                 unset($this->producers[$id]);
             },
             logger: $this->logger,
+            closeConfirmDrainTimeout: $closeConfirmDrainTimeout,
         );
         $this->producers[$publisherId] = $producer;
         return $producer;

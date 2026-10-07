@@ -37,6 +37,7 @@ $producer = $connection->createProducer(
     ?callable $onConfirm = null,       // Optional: Confirmation callback
     int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS, // Optional
     float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,    // Optional
+    float $closeConfirmDrainTimeout = Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT, // Optional
 ): ProducerInterface
 ```
 
@@ -49,6 +50,7 @@ $producer = $connection->createProducer(
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus` object. |
 | `$maxPendingConfirms` | `int` | No | Hard back-pressure cap on outstanding (unconfirmed) publishes; default `10000`. Sends drain confirms until there is room for the next publish or the entire batch. A batch larger than a positive cap is rejected with `InvalidArgumentException`; `0` disables the cap (unlimited behavior). See [Performance Tuning](../advanced/performance-tuning.md#producer-flow-control-maxpendingconfirms). |
 | `$redeclareTimeout` | `float` | No | How long (seconds) a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher; default `5.0`. `0` fails on the first attempt. Must be `>= 0`. See [isStale()](#isstale). |
+| `$closeConfirmDrainTimeout` | `float` | No | How long `close()` waits for in-flight publish confirms before abandoning them; default `2.0` seconds. Must be `>= 0`. |
 
 The underlying `Producer` constructor also takes an optional `$onClose` callback (called with the publisher id once `close()` has run, so the owning `Connection` can reclaim it) and an optional `$logger` (`LoggerInterface`, defaults to `NullLogger`); `Connection` supplies both, so they are not part of `createProducer()`.
 
