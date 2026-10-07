@@ -47,7 +47,7 @@ serialization unit tests never need the broker.
 (`0x001a`) arrive as **server → client** frames carrying the **request** key,
 *not* the `0x8000`-ORed response key. Routing them through a `0x8000`
 dispatcher will never match. `readMessage()` handles them transparently
-inside its `socket_select()` loop; `readLoop()` dispatches them to registered
+inside its `stream_select()` loop; `readLoop()` dispatches them to registered
 callbacks. Heartbeat must be **echoed back immediately**. See
 `AGENTS.md` → "Server-Push Frames (Async)".
 

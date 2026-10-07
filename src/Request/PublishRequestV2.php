@@ -22,6 +22,12 @@ class PublishRequestV2 implements ToStreamBufferInterface, ToArrayInterface, Key
 
     public function __construct(private int $publisherId, PublishedMessageV2 ...$messages)
     {
+        if ($this->publisherId < 0 || $this->publisherId > 255) {
+            throw new InvalidArgumentException(
+                "Value {$this->publisherId} is out of range for uint8 (0 to 255)"
+            );
+        }
+
         $this->messages = array_values($messages);
     }
 
@@ -37,12 +43,6 @@ class PublishRequestV2 implements ToStreamBufferInterface, ToArrayInterface, Key
      */
     public function toStreamBuffer(): WriteBuffer
     {
-        if ($this->publisherId < 0 || $this->publisherId > 255) {
-            throw new InvalidArgumentException(
-                "Value {$this->publisherId} is out of range for uint8 (0 to 255)"
-            );
-        }
-
         $payload = pack('nnCN', self::getKey(), self::getVersion(), $this->publisherId, count($this->messages));
 
         foreach ($this->messages as $message) {

@@ -81,9 +81,10 @@ public function isConnected(): bool
 
 **Returns:** `true` if connected, `false` otherwise
 
-`socket_last_error()` is sticky, so the error code is cleared after it is read
-and transient codes (a receive timeout, an interrupted call) are not treated as
-a disconnect — one timed-out read must not condemn a healthy connection.
+PHP streams have no equivalent sticky socket-error probe, so `isConnected()`
+checks the connection flag and whether the stream resource is still valid. A dead
+peer is detected by the next read or write; a timed-out read alone does not
+mark a still-valid stream as disconnected.
 
 ## Frame I/O Methods
 
@@ -128,9 +129,10 @@ public function sendFrame(string $frame, ?float $timeout = null): int
 - `ConnectionException` - If socket is not connected, the write fails, or a partial frame could not be completed (the connection is closed in that case: the broker cannot resynchronise mid-frame)
 - `TimeoutException` - If the `$timeout` select expires, or the `$socketTimeout` write deadline expires before *any* byte was written (the frame never started, so it is safe to retry)
 
-The whole frame is written, looping over partial writes: `socket_write()` may
-accept fewer bytes than requested under send-buffer pressure, and a frame left
-half-written makes the broker read payload bytes as the next frame length.
+The whole frame is written by looping over partial `fwrite()` calls: a
+non-blocking stream write may accept fewer bytes than requested under
+send-buffer pressure, and a frame left half-written makes the broker read
+payload bytes as the next frame length.
 
 ### readMessage()
 
