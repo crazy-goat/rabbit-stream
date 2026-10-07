@@ -1575,11 +1575,13 @@ class StreamConnection
         $correlationId = $frame->getUint32();
         $closingCode = $frame->getUint16();
         $closingReason = $frame->getString();
-        $this->logger->debug(sprintf(
-            'Server-initiated close: code=%d, reason=%s',
-            $closingCode,
-            $closingReason ?? ''
-        ));
+        if ($this->debugLogging) {
+            $this->logger->debug(sprintf(
+                'Server-initiated close: code=%d, reason=%s',
+                $closingCode,
+                $closingReason ?? ''
+            ));
+        }
 
         $response = (new WriteBuffer())
             ->addUInt16(KeyEnum::CLOSE_RESPONSE->value)

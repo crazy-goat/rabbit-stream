@@ -186,6 +186,8 @@ class AmqpDecoder
 
         $position = 0;
         $dataLength = strlen($data);
+        $bodyParts = [];
+        $isAccumulatingDataBody = false;
 
         while ($position < $dataLength) {
             // Check for described type marker
@@ -238,12 +240,21 @@ class AmqpDecoder
                             get_debug_type($value)
                         ));
                     }
-                    $currentBody = $sections['body'];
-                    $sections['body'] = (is_string($currentBody) ? $currentBody : '') . $value;
+                    if (!$isAccumulatingDataBody) {
+                        $currentBody = $sections['body'];
+                        $bodyParts = is_string($currentBody) && $currentBody !== '' ? [$currentBody] : [];
+                        $isAccumulatingDataBody = true;
+                    }
+                    $bodyParts[] = $value;
                     break;
 
                 case 0x76: // AmqpSequence (body)
                 case 0x77: // AmqpValue (body)
+                    if ($isAccumulatingDataBody) {
+                        $sections['body'] = implode('', $bodyParts);
+                        $bodyParts = [];
+                        $isAccumulatingDataBody = false;
+                    }
                     // For now, treat as array
                     $sections['body'] = $value;
                     break;
@@ -256,6 +267,10 @@ class AmqpDecoder
                     // Skip unknown sections
                     break;
             }
+        }
+
+        if ($isAccumulatingDataBody) {
+            $sections['body'] = implode('', $bodyParts);
         }
 
         return $sections;

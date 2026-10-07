@@ -118,6 +118,56 @@ class StreamConnectionTest extends TestCase
         $this->assertInstanceOf(StreamConnection::class, $connection);
     }
 
+    public function testServerCloseDebugLogIsGatedWhenUsingNullLogger(): void
+    {
+        $logger = new class extends NullLogger {
+            /** @var list<string> */
+            public array $debugMessages = [];
+
+            public function debug(string|\Stringable $message, array $context = []): void
+            {
+                $this->debugMessages[] = is_string($message) ? $message : $message->__toString();
+            }
+        };
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        $frame = new ReadBuffer(
+            pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 0x0001) . pack('n', 3) . 'bye'
+        );
+        $handler = new \ReflectionMethod($connection, 'handleServerClose');
+        $handler->invoke($connection, $frame);
+
+        self::assertSame([], $logger->debugMessages);
+        self::assertSame(
+            pack('nnNn', KeyEnum::CLOSE_RESPONSE->value, 1, 7, 0x0001),
+            $this->readResponse($serverSocket)
+        );
+        fclose($serverSocket);
+    }
+
+    public function testServerCloseDebugLogIsEmittedWithCustomLogger(): void
+    {
+        $logger = new RecordingLogger();
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        $frame = new ReadBuffer(
+            pack('nnNn', KeyEnum::CLOSE->value, 1, 8, 0x0001) . pack('n', 3) . 'bye'
+        );
+        $handler = new \ReflectionMethod($connection, 'handleServerClose');
+        $handler->invoke($connection, $frame);
+
+        self::assertSame('Server-initiated close: code=1, reason=bye', $logger->debugMessages()[0]);
+        self::assertSame(
+            pack('nnNn', KeyEnum::CLOSE_RESPONSE->value, 1, 8, 0x0001),
+            $this->readResponse($serverSocket)
+        );
+        fclose($serverSocket);
+    }
+
     public function testReadFrameAcceptsFloatTimeout(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);
