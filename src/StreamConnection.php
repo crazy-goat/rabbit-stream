@@ -1362,7 +1362,7 @@ class StreamConnection
             $write = null;
             $except = null;
 
-            // Calculate remaining timeout for socket_select.
+            // Calculate remaining timeout for stream_select.
             // Cap $remaining BEFORE the split and hand the capped value to the
             // helper: select(2) rejects tv_usec >= 1_000_000 with EINVAL (e.g.
             // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
