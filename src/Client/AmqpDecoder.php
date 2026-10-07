@@ -242,8 +242,8 @@ class AmqpDecoder
                     $sections['body'] = (is_string($currentBody) ? $currentBody : '') . $value;
                     break;
 
-                case 0x76:
-                case 0x77: // AmqpSequence (body)
+                case 0x76: // AmqpSequence (body)
+                case 0x77: // AmqpValue (body)
                     // For now, treat as array
                     $sections['body'] = $value;
                     break;
