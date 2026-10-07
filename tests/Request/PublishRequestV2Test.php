@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Request;
 
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Request\PublishRequestV2;
 use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 use PHPUnit\Framework\TestCase;
@@ -26,6 +27,20 @@ class PublishRequestV2Test extends TestCase
             . pack('N', 5) . 'hello';
 
         $this->assertSame($expected, $bytes);
+    }
+
+    public function testRejectsPublisherIdBelowUint8RangeInConstructor(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new PublishRequestV2(-1);
+    }
+
+    public function testRejectsPublisherIdAboveUint8RangeInConstructor(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new PublishRequestV2(256);
     }
 
     public function testSerializesWithMultipleMessages(): void
