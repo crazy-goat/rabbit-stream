@@ -248,8 +248,8 @@ class AmqpDecoder
                     $bodyParts[] = $value;
                     break;
 
-                case 0x76:
-                case 0x77: // AmqpSequence (body)
+                case 0x76: // AmqpSequence (body)
+                case 0x77: // AmqpValue (body)
                     if ($isAccumulatingDataBody) {
                         $sections['body'] = implode('', $bodyParts);
                         $bodyParts = [];
