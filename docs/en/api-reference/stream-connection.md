@@ -315,6 +315,8 @@ public function onConsumerUpdate(callable $callback): void
 **Parameters:**
 - `$callback` - Receives `ConsumerUpdateResponseV1`, must return `[int $offsetType, int $offset]`. For the value-less `none`/`first`/`last`/`next` types (0–3), the offset must be `0`.
 
+**Throws:** `InvalidArgumentException` (from `readLoop()`) if the callback returns anything other than a two-element list of ints — the return value is validated before the reply is built, so a malformed return fails with a clear message instead of a PHP warning and a `TypeError`. `InvalidArgumentException` is also thrown for an offset type outside 0–5, and for a non-zero offset with a value-less type.
+
 ## Event Loop Methods
 
 ### readLoop()

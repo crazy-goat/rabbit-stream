@@ -654,6 +654,8 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
 });
 ```
 
+The returned array is validated when the `ConsumerUpdate` frame is dispatched: it must be a two-element list of ints, or `readLoop()` throws `InvalidArgumentException` rather than sending a malformed reply.
+
 **Offset Types:**
 
 | Type | Value | Description |
