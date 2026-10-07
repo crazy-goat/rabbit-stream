@@ -399,8 +399,15 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
             function (): void {
             }
         );
-        $connection->readLoop(maxFrames: 1);
-        $this->assertSame(3, $confirmedCount);
+        $confirmDeadline = microtime(true) + 5.0;
+        while ($confirmedCount < count($publishedMessages) && microtime(true) < $confirmDeadline) {
+            $connection->readLoop(maxFrames: 1, timeout: $confirmDeadline - microtime(true));
+        }
+        $this->assertSame(
+            count($publishedMessages),
+            $confirmedCount,
+            'Should receive confirms for all published messages'
+        );
 
         // Subscribe and receive all messages
         $receivedMessages = [];
