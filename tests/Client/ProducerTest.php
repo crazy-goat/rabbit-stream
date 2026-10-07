@@ -1266,6 +1266,45 @@ class ProducerTest extends TestCase
         $this->assertSame(0, $producer->getPendingConfirms(), 'the confirm that raced with close() must be counted');
     }
 
+    public function testCloseUsesConfiguredConfirmDrainTimeout(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $capturedTimeout = null;
+        $connection->expects($this->once())
+            ->method('readLoop')
+            ->willReturnCallback(function ($maxFrames, $timeout) use (&$capturedTimeout): int {
+                $capturedTimeout = $timeout;
+                usleep((int) ($timeout * 1_000_000) + 10_000);
+                return 0;
+            });
+
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            closeConfirmDrainTimeout: 0.25,
+        );
+        $producer->send('msg1');
+
+        $producer->close();
+
+        $this->assertEqualsWithDelta(0.25, $capturedTimeout, 0.01);
+        $this->assertSame(1, $producer->getLostConfirmCount());
+    }
+
+    public function testCloseConfirmDrainTimeoutMustNotBeNegative(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('closeConfirmDrainTimeout must be >= 0');
+
+        new Producer($connection, 'test-stream', 1, closeConfirmDrainTimeout: -0.1);
+    }
+
     public function testCloseGivesUpAfterDrainTimeoutWhenBrokerNeverConfirms(): void
     {
         // Review round 1 finding: the timeout path of the bounded drain was
@@ -1299,7 +1338,7 @@ class ProducerTest extends TestCase
         $elapsed = microtime(true) - $start;
 
         $this->assertSame(1, $producer->getPendingConfirms(), 'the unconfirmed message stays pending');
-        $this->assertLessThan(5.0, $elapsed, 'close() must not wait much longer than the 2s drain timeout');
+        $this->assertLessThan(5.0, $elapsed, 'close() must not wait much longer than the default 2s drain timeout');
 
         // GitHub #522: the abandoned confirm is counted and logged.
         $this->assertSame(1, $producer->getLostConfirmCount(), 'the drained-out confirm must be recorded');
