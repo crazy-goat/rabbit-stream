@@ -52,7 +52,9 @@ class ConsumerUpdateReplyV1 implements
 
         // Only offset types with a value (4 = offset, 5 = timestamp) carry the
         // 8-byte value; types 0-3 (none/first/last/next) encode just the type.
-        if ($this->offsetType === OffsetSpec::TYPE_OFFSET || $this->offsetType === OffsetSpec::TYPE_TIMESTAMP) {
+        if ($this->offsetType === OffsetSpec::TYPE_TIMESTAMP) {
+            $buffer->addInt64($this->offset);
+        } elseif ($this->offsetType === OffsetSpec::TYPE_OFFSET) {
             $buffer->addUInt64($this->offset);
         }
 
