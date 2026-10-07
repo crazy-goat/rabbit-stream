@@ -16,8 +16,8 @@ use PHPUnit\Framework\TestCase;
  * deserialization and the `Producer`/`Consumer` constructors, which a
  * reflection test cannot see. What reflection can see is checked here: every
  * public method has a non-empty prose description, every declared parameter has
- * a matching `@param`, every method with a non-void return type has an
- * `@return`, and every documented `@throws` names a class that actually
+ * a matching `@param`, every method with a non-void return type has a
+ * descriptive `@return`, and every documented `@throws` names a class that actually
  * exists.
  */
 class ConnectionDocblockTest extends TestCase
@@ -54,7 +54,7 @@ class ConnectionDocblockTest extends TestCase
                 }
             }
 
-            if ($this->needsReturnTag($method) && preg_match('/@return\b/', $docblock) !== 1) {
+            if ($this->needsReturnTag($method) && !$this->hasReturnDescription($docblock)) {
                 $missingReturn[] = $label;
             }
         }
@@ -78,7 +78,7 @@ class ConnectionDocblockTest extends TestCase
         $this->assertSame(
             [],
             $missingReturn,
-            "Public methods on Connection whose non-void return type has no @return tag:\n"
+            "Public methods on Connection whose non-void return type has a missing or description-less @return tag:\n"
                 . implode("\n", $missingReturn)
         );
     }
@@ -122,6 +122,33 @@ class ConnectionDocblockTest extends TestCase
     }
 
     /**
+     * A spaced generic type must be consumed as a whole before deciding whether
+     * prose remains; otherwise `string>` can be mistaken for a description.
+     */
+    public function testReturnDescriptionHandlesGenericTypesWithSpaces(): void
+    {
+        $method = new \ReflectionMethod(self::class, 'hasReturnDescription');
+
+        $bare = "/**\n * @return array<string, string>\n */";
+        $this->assertFalse(
+            $method->invoke($this, $bare),
+            'A bare @return with a spaced generic type has no description.'
+        );
+
+        $inline = "/**\n * @return array<string, string> Map of filter name to value.\n */";
+        $this->assertTrue(
+            $method->invoke($this, $inline),
+            'A @return with a spaced generic type and inline prose has a description.'
+        );
+
+        $nextLine = "/**\n * @return array<string, string>\n * Map of filter name to value.\n */";
+        $this->assertTrue(
+            $method->invoke($this, $nextLine),
+            'A description on the line after the @return type counts.'
+        );
+    }
+
+    /**
      * The prose description: the docblock text before the first `@tag`.
      */
     private function description(string $docblock): string
@@ -140,6 +167,38 @@ class ConnectionDocblockTest extends TestCase
         }
 
         return trim(implode(' ', $prose));
+    }
+
+    /**
+     * Whether the docblock has an `@return` tag carrying a description after
+     * its type. A bare `@return <type>` whose type merely repeats the native
+     * return type is removed by Rector's DEAD_CODE set (FAQ-008), so tag
+     * presence alone is not enough — the gate must require prose too. A
+     * description may sit on the tag line or on the continuation line(s).
+     */
+    private function hasReturnDescription(string $docblock): bool
+    {
+        $body = preg_replace('~^/\\*\\*|\\*/$~', '', trim($docblock)) ?? '';
+        $lines = explode("\n", $body);
+
+        foreach ($lines as $index => $line) {
+            $line = trim(ltrim(trim($line), '*'));
+            if (preg_match('/^@return\\s+(?:\\S*<[^>]*>|\\S*\\{[^}]*\\}|\\S+)\\s*(.*)$/', $line, $matches) !== 1) {
+                continue;
+            }
+            if (trim($matches[1]) !== '') {
+                return true;
+            }
+            for ($next = $index + 1, $count = count($lines); $next < $count; $next++) {
+                $continuation = trim(ltrim(trim($lines[$next]), '*'));
+                if ($continuation === '' || str_starts_with($continuation, '@')) {
+                    break;
+                }
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function needsReturnTag(\ReflectionMethod $method): bool
