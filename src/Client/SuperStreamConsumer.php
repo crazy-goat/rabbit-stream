@@ -31,10 +31,12 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
     private int $roundRobinIndex = 0;
 
     /**
-     * @param list<string> $partitions
-     * @param array<string, ConsumerInterface> $consumers partition stream name => Consumer
-     * @param \Closure(float): int $readLoop runs exactly one bounded readLoop() pass
-     *                                        on the underlying connection
+     * Create a consumer that aggregates reads across all super-stream partitions.
+     *
+     * @param list<string> $partitions Partition stream names.
+     * @param array<string, ConsumerInterface> $consumers Partition stream name => Consumer.
+     * @param \Closure(float): int $readLoop Runs exactly one bounded readLoop() pass
+     *                                        on the underlying connection.
      */
     public function __construct(
         private readonly array $partitions,
@@ -89,7 +91,10 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
     }
 
     /**
-     * @return Message[]
+     * Return buffered messages across all partitions, waiting up to the timeout if needed.
+     *
+     * @param float $timeout Seconds to wait for at least one buffered message.
+     * @return Message[] Messages from all partitions, oldest first within each partition.
      */
     public function read(float $timeout = 5.0): array
     {
@@ -104,6 +109,12 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
         return $messages;
     }
 
+    /**
+     * Return one buffered message, fairly rotating across partitions.
+     *
+     * @param float $timeout Seconds to wait for a message before giving up.
+     * @return Message|null The next message, or null when none arrives in time.
+     */
     public function readOne(float $timeout = 5.0): ?Message
     {
         $this->waitForMessages($timeout);
@@ -126,6 +137,16 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
         return null;
     }
 
+    /**
+     * Store the next offset to consume for one partition.
+     *
+     * @param string $partition Partition stream name.
+     * @param int $offset Next offset to consume.
+     * @throws InvalidArgumentException If $partition is not a partition of this super stream.
+     * @throws ProtocolException If the partition's consumer has no name.
+     * @throws ConnectionException If the socket is not connected or the write fails.
+     * @throws TimeoutException If the write does not complete within the socket timeout.
+     */
     public function storeOffset(string $partition, int $offset): void
     {
         $this->consumerFor($partition)->storeOffset($offset);
@@ -140,6 +161,7 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
      * rather than an error (#467). Any other non-OK response code still raises
      * a ProtocolException.
      *
+     * @param string $partition Partition stream name.
      * @return int|null The stored next offset to consume for this partition,
      *              or null when no offset is stored.
      * @throws InvalidArgumentException If $partition is not a partition of this
@@ -157,23 +179,48 @@ class SuperStreamConsumer implements SuperStreamConsumerInterface
         return $this->consumerFor($partition)->queryOffset();
     }
 
-    /** @return list<string> */
+    /**
+     * Return the partition stream names this consumer subscribes to.
+     *
+     * @return list<string> Partition stream names.
+     */
     public function getPartitions(): array
     {
         return $this->partitions;
     }
 
-    /** @return array<string, ConsumerInterface> */
+    /**
+     * Return the underlying consumers keyed by partition stream name.
+     *
+     * @return array<string, ConsumerInterface> Partition stream name => consumer.
+     */
     public function getConsumers(): array
     {
         return $this->consumers;
     }
 
+    /**
+     * Whether one partition's consumer is currently allowed to receive messages.
+     *
+     * @param string $partition Partition stream name.
+     * @return bool True when the broker has that partition's consumer active.
+     * @throws InvalidArgumentException If $partition is not a partition of this super stream.
+     */
     public function isActive(string $partition): bool
     {
         return $this->consumerFor($partition)->isActive();
     }
 
+    /**
+     * Close every underlying partition consumer and release its subscription id.
+     *
+     * @throws ProtocolException If the broker rejects an Unsubscribe with a non-OK response code.
+     * @throws ConnectionException If the socket is not connected or an exchange fails.
+     * @throws DeserializationException If an Unsubscribe response frame cannot be deserialized.
+     * @throws TimeoutException If an Unsubscribe response does not arrive in time.
+     * @throws InvalidArgumentException If an Unsubscribe or auto-commit StoreOffset frame
+     *                                  exceeds the negotiated outgoing frame size.
+     */
     public function close(): void
     {
         foreach ($this->consumers as $consumer) {
