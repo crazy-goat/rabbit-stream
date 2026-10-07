@@ -1418,7 +1418,7 @@ class StreamConnection
                 continue;
             }
 
-            // socket_select() already confirmed the socket is readable above;
+            // stream_select() already confirmed the stream is readable above;
             // avoid a second, redundant select per frame (see readFrameNoWait()).
             $frame = $this->readFrameNoWait();
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
@@ -1777,13 +1777,11 @@ class StreamConnection
     }
 
     /**
-     * Read a single raw frame from the socket without first calling socket_select().
+     * Read a single raw frame from the stream without first calling stream_select().
      *
-     * Callers must already know the socket is readable (or be prepared to block on
-     * the underlying socket_read() calls) — this exists so readLoop(), which already
-     * performs its own socket_select() before every frame, does not pay for a second,
-     * redundant select per frame.
-     *
+     * Callers must already know the stream is readable — this exists so readLoop(),
+     * which already performs its own stream_select() before every frame, does not pay
+     * for a second, redundant select per frame. Reads use non-blocking fread() calls.
      * The frame is decoded as Size(uint32) + Key(uint16) + rest of payload: the key
      * is read separately from the remaining payload so that the size cap can be
      * chosen based on the frame's key — Deliver frames (0x0008) are not capped by
