@@ -99,13 +99,15 @@ class ReadBuffer
 
     /**
      * Reads $count uint64 values with a single bounds check and a single
-     * unpack('J*') call, for frames that carry a whole array of ids (a broker
-     * confirms thousands of publishing ids in one PublishConfirm frame, and
-     * one bounds check + unpack for the array beats per-value getUint64()).
+     * unpack() call with an explicit repeat count (unpack('J' . $count, ...)),
+     * for frames that carry a whole array of ids (a broker confirms thousands
+     * of publishing ids in one PublishConfirm frame, and one bounds check +
+     * unpack for the array beats per-value getUint64()).
      *
      * As in getUint64(), a value above PHP_INT_MAX is rejected rather than
-     * silently wrapped to negative: unpack('J*') has the same signed-wrap hole
-     * getUint64() guards, and a bulk read must not be a way around that guard.
+     * silently wrapped to negative: unpacking uint64 values in bulk has the
+     * same signed-wrap hole getUint64() guards, and a bulk read must not be a
+     * way around that guard.
      * The whole array is scanned, not just its first element.
      *
      * @return array<int, int> Zero-indexed values.
@@ -133,8 +135,8 @@ class ReadBuffer
             );
         }
 
-        // unpack('J*') is 1-indexed; array_values() makes the zero-indexed
-        // array<int, int> this method documents.
+        // unpack('J' . $count) is 1-indexed; array_values() makes the
+        // zero-indexed array<int, int> this method documents.
         $values = array_values($data);
         foreach ($values as $index => $value) {
             if ($value < 0) {

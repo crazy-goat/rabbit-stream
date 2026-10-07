@@ -39,10 +39,11 @@ class PublishConfirmResponseV1 implements KeyVersionInterface, FromStreamBufferI
     }
 
     /**
-     * Read all publishing ids with one bounds check and one unpack('J*') call
-     * instead of a getUint64() call (bounds check + unpack + guard + position
-     * bump) per id — this matters when a broker confirms thousands of
-     * publishing ids in one PublishConfirm frame.
+     * Read all publishing ids with one bounds check and one unpack() call with
+     * an explicit repeat count (unpack('J' . $count, ...)) instead of a
+     * getUint64() call (bounds check + unpack + guard + position bump) per id
+     * — this matters when a broker confirms thousands of publishing ids in one
+     * PublishConfirm frame.
      *
      * The bulk read goes through ReadBuffer::getUint64Array() rather than a
      * local unpack('J*'), because a raw bulk unpack has the same signed-wrap

@@ -358,8 +358,9 @@ class ReadBufferTest extends TestCase
 
     public function testGetUint64ArrayIsZeroIndexed(): void
     {
-        // unpack('J*') is 1-indexed; the helper must hand back array<int, int>
-        // with keys 0..n-1, like every other ReadBuffer array reader.
+        // unpack('J' . $count) is 1-indexed; the helper must hand back
+        // array<int, int> with keys 0..n-1, like every other ReadBuffer array
+        // reader.
         $ids = (new ReadBuffer(pack('J', 7) . pack('J', 9)))->getUint64Array(2);
         $this->assertSame([0, 1], array_keys($ids));
     }

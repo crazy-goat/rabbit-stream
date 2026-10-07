@@ -112,7 +112,8 @@ $value = $buffer->getUint64();  // e.g., 9223372036854775807
 ### getUint64Array()
 
 Reads `$count` consecutive unsigned 64-bit integers (big-endian) with a single
-bounds check and a single `unpack('J*')` call. Use it instead of a loop over
+bounds check and a single `unpack()` call with an explicit repeat count
+(`unpack('J' . $count, ...)`). Use it instead of a loop over
 `getUint64()` on frames that carry an array of ids — a broker confirms thousands
 of publishing ids in one `PublishConfirm` frame.
 
@@ -125,8 +126,8 @@ public function getUint64Array(int $count): array
   empty array and consumes nothing.
 
 **Returns:** Zero-indexed `array<int, int>` with values in range 0 to PHP_INT_MAX.
-Note that `unpack('J*')` is 1-indexed; this method re-indexes from 0, like every
-other array reader in this class.
+Note that `unpack('J' . $count, ...)` is 1-indexed; this method re-indexes from 0,
+like every other array reader in this class.
 
 **Throws:**
 - `DeserializationException` - If `$count` is negative
