@@ -36,7 +36,7 @@ class ResponseCodeEnumTest extends TestCase
 
     public function testFromIntReturnsNullForUnknownCode(): void
     {
-        $invalidCodes = [0x00, 0xFF, -1, 0x14, 999, 0x20, -100];
+        $invalidCodes = [0x00, 0xFF, -1, 0x16, 999, 0x20, -100];
 
         foreach ($invalidCodes as $code) {
             $result = ResponseCodeEnum::fromInt($code);
@@ -85,6 +85,8 @@ class ResponseCodeEnumTest extends TestCase
             'PRECONDITION_FAILED' => [ResponseCodeEnum::PRECONDITION_FAILED],
             'PUBLISHER_NOT_EXIST' => [ResponseCodeEnum::PUBLISHER_NOT_EXIST],
             'NO_OFFSET' => [ResponseCodeEnum::NO_OFFSET],
+            'SASL_CANNOT_CHANGE_MECHANISM' => [ResponseCodeEnum::SASL_CANNOT_CHANGE_MECHANISM],
+            'SASL_CANNOT_CHANGE_USERNAME' => [ResponseCodeEnum::SASL_CANNOT_CHANGE_USERNAME],
         ];
     }
 
@@ -127,6 +129,8 @@ class ResponseCodeEnumTest extends TestCase
             'PRECONDITION_FAILED (0x11)' => [0x11, ResponseCodeEnum::PRECONDITION_FAILED],
             'PUBLISHER_NOT_EXIST (0x12)' => [0x12, ResponseCodeEnum::PUBLISHER_NOT_EXIST],
             'NO_OFFSET (0x13)' => [0x13, ResponseCodeEnum::NO_OFFSET],
+            'SASL_CANNOT_CHANGE_MECHANISM (0x14)' => [0x14, ResponseCodeEnum::SASL_CANNOT_CHANGE_MECHANISM],
+            'SASL_CANNOT_CHANGE_USERNAME (0x15)' => [0x15, ResponseCodeEnum::SASL_CANNOT_CHANGE_USERNAME],
         ];
     }
 
@@ -170,6 +174,14 @@ class ResponseCodeEnumTest extends TestCase
             'PRECONDITION_FAILED' => [ResponseCodeEnum::PRECONDITION_FAILED, 'Precondition failed'],
             'PUBLISHER_NOT_EXIST' => [ResponseCodeEnum::PUBLISHER_NOT_EXIST, 'Publisher does not exist'],
             'NO_OFFSET' => [ResponseCodeEnum::NO_OFFSET, 'No offset'],
+            'SASL_CANNOT_CHANGE_MECHANISM' => [
+                ResponseCodeEnum::SASL_CANNOT_CHANGE_MECHANISM,
+                'SASL cannot change mechanism',
+            ],
+            'SASL_CANNOT_CHANGE_USERNAME' => [
+                ResponseCodeEnum::SASL_CANNOT_CHANGE_USERNAME,
+                'SASL cannot change username',
+            ],
         ];
     }
 }

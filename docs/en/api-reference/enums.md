@@ -169,6 +169,8 @@ The `ResponseCodeEnum` is a backed enum (`int`) that defines all possible respon
 | 17 | `PRECONDITION_FAILED` | 0x11 | Precondition failed |
 | 18 | `PUBLISHER_NOT_EXIST` | 0x12 | Publisher does not exist |
 | 19 | `NO_OFFSET` | 0x13 | No offset stored yet (normal `QueryOffset` reply, not an error) |
+| 20 | `SASL_CANNOT_CHANGE_MECHANISM` | 0x14 | SASL mechanism cannot be changed on an authenticated connection |
+| 21 | `SASL_CANNOT_CHANGE_USERNAME` | 0x15 | SASL username cannot be changed on an authenticated connection |
 
 ### Methods
 

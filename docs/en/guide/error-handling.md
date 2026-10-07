@@ -37,6 +37,8 @@ Every response from the server includes a response code. The `ResponseCodeEnum` 
 | 17 | `PRECONDITION_FAILED` | 0x11 | Precondition not met | Stream parameters don't match (e.g., max-age differs) |
 | 18 | `PUBLISHER_NOT_EXIST` | 0x12 | Publisher ID does not exist | Publishing with invalid publisher ID |
 | 19 | `NO_OFFSET` | 0x13 | No offset stored for consumer | First-time consumer with no stored offset |
+| 20 | `SASL_CANNOT_CHANGE_MECHANISM` | 0x14 | SASL mechanism cannot be changed | Switching mechanism on an authenticated connection |
+| 21 | `SASL_CANNOT_CHANGE_USERNAME` | 0x15 | SASL username cannot be changed | Switching username on an authenticated connection |
 
 ### Working with Response Codes
 
