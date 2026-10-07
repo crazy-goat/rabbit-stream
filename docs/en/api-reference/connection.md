@@ -56,6 +56,7 @@ class Connection
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
         float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
+        float $closeConfirmDrainTimeout = Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT,
     ): ProducerInterface;
     
     public function createConsumer(
@@ -785,6 +786,7 @@ public function createProducer(
     ?callable $onConfirm = null,
     int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
     float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
+    float $closeConfirmDrainTimeout = Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT,
 ): ProducerInterface
 ```
 
@@ -797,6 +799,7 @@ public function createProducer(
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus`. |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding publishes. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
 | `$redeclareTimeout` | `float` | No | How long a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher. Default: `Producer::DEFAULT_REDECLARE_TIMEOUT` (5.0 s). See [Producer::isStale()](producer.md#isstale). |
+| `$closeConfirmDrainTimeout` | `float` | No | How long `close()` waits for in-flight publish confirms before abandoning them. Default: `Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT` (2.0 s). Must be `>= 0`. |
 
 #### Return Value
 

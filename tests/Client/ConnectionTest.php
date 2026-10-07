@@ -797,6 +797,22 @@ class ConnectionTest extends TestCase
         $this->assertInstanceOf(Producer::class, $producer);
     }
 
+    public function testCreateProducerPassesCloseConfirmDrainTimeout(): void
+    {
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('registerPublisher');
+        $streamConnection->method('sendMessage');
+        $streamConnection->method('readMessage');
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+
+        $producer = $connection->createProducer('test-stream', closeConfirmDrainTimeout: 0.75);
+
+        $timeout = new \ReflectionProperty(Producer::class, 'closeConfirmDrainTimeout');
+        $this->assertSame(0.75, $timeout->getValue($producer));
+    }
+
     public function testCreateProducerStoresProducerInArray(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
