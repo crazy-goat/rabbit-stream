@@ -527,7 +527,7 @@ $creationTime = $message->getCreationTime();
 $serverTime = $message->getTimestamp();
 
 if ($creationTime !== null) {
-    $latency = $serverTime - $creationTime;
+    $latency = intdiv($serverTime - $creationTime, 1000);
     echo "Message latency: {$latency} seconds\n";
 }
 ```

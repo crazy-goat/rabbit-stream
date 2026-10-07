@@ -166,8 +166,11 @@ time produced chunks of **~5 messages**; `sendBatch(500)` produced **~106**.
 
 ### 2. Credit window
 
-Credit is granted per chunk. With 5-message chunks `initialCredit: 10` allows
-50 messages per round trip — the consumer is latency-bound regardless of CPU.
+Credit is granted per chunk. In this pre-#500 / `creditWindowBytes: 0`
+benchmark, 5-message chunks with `initialCredit: 10` allow 50 messages per
+round trip — the consumer is latency-bound regardless of CPU. With the default
+adaptive window, `initialCredit` is only the floor and the target can grow above
+10 chunks as small chunks are observed.
 
 | Consumer, 1 process | chunk ~5 msgs | chunk ~106 msgs |
 |---|---|---|
@@ -297,9 +300,10 @@ $consumer = new Consumer(
   bound by the chunks already granted (in flight) when it filled up, not by a
   single chunk's worth
 - Once the unread count reaches or exceeds `maxBufferSize`, no *new* credit is
-  granted; withheld credit is remembered and granted back — one credit per
-  chunk's worth of headroom that reopens — as the buffer drains via
-  `read()`/`readOne()`
+  granted. Withheld credit is remembered; when the unread count drops below the
+  threshold, all pending credits are sent in one go, up to
+  `creditTarget - creditsInFlight` and `MAX_CREDIT` — the threshold is a single
+  gate, not one credit per chunk-sized amount of reopened headroom.
 - The adaptive `creditTarget`
   (`min(32767, max(initialCredit, ceil(creditWindowBytes / avgChunk)))`) bounds
   outstanding (in-flight) credit only at grant time, not at `initialCredit`, so
@@ -307,8 +311,8 @@ $consumer = new Consumer(
   chunks grow the window; a later shrink of the target does not revoke credit
   already granted, so in-flight can transiently exceed the current target
 - Server stops delivering new chunks once it runs out of un-replenished credit
-- Prevents unbounded memory growth on slow consumers, bounded by chunk size
-  rather than message size alone
+- Prevents unbounded memory growth on slow consumers: memory is bounded by
+  `maxBufferSize` plus the chunks already in flight
 
 ### Buffer Size Guidelines
 
