@@ -87,6 +87,27 @@ class ConsumerUpdateReplyV1Test extends TestCase
         yield 'next (3)' => [3];
     }
 
+    public function testSerializesWithNegativeOffsetForTimestampType(): void
+    {
+        $reply = new ConsumerUpdateReplyV1(
+            responseCode: 0x0001,
+            offsetType: OffsetSpec::TYPE_TIMESTAMP,
+            offset: -1000,
+        );
+        $reply->withCorrelationId(7);
+
+        $bytes = $reply->toStreamBuffer()->getContents();
+
+        $expected = pack('n', KeyEnum::CONSUMER_UPDATE_RESPONSE->value)
+            . pack('n', 1)              // version
+            . pack('N', 7)              // correlationId
+            . pack('n', 0x0001)         // responseCode
+            . pack('n', OffsetSpec::TYPE_TIMESTAMP)
+            . pack('J', -1000);         // timestamp (int64)
+
+        $this->assertSame($expected, $bytes);
+    }
+
     public function testSerializesWithOffsetForTimestampType(): void
     {
         $reply = new ConsumerUpdateReplyV1(
