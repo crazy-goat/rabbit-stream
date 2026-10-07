@@ -406,6 +406,13 @@ class AmqpDecoder
             throw new DeserializationException('Unexpected end of data reading uint64');
         }
         $value = self::unpackIntAt('J', $data, $position, 'uint64');
+        if ($value < 0) {
+            throw new DeserializationException(sprintf(
+                'uint64 value 0x%s at position %d exceeds PHP_INT_MAX',
+                bin2hex(substr($data, $position, 8)),
+                $position
+            ));
+        }
         $position += 8;
         return $value;
     }

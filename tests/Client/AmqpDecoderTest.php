@@ -150,6 +150,33 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame(9, $pos);
     }
 
+    /**
+     * @dataProvider ulongAbovePhpIntMaxProvider
+     */
+    public function testDecodeUlongAbovePhpIntMaxThrows(string $bytes, string $hex): void
+    {
+        try {
+            AmqpDecoder::decodeValue("\x80" . $bytes, 0);
+            self::fail('Expected an unrepresentable AMQP ulong to be rejected');
+        } catch (DeserializationException $exception) {
+            self::assertSame(
+                sprintf('uint64 value 0x%s at position 1 exceeds PHP_INT_MAX', $hex),
+                $exception->getMessage()
+            );
+        }
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function ulongAbovePhpIntMaxProvider(): array
+    {
+        return [
+            '2^63' => ["\x80\x00\x00\x00\x00\x00\x00\x00", '8000000000000000'],
+            '2^64-1' => [str_repeat("\xff", 8), 'ffffffffffffffff'],
+        ];
+    }
+
     public function testDecodeLong(): void
     {
         [$value, $pos] = AmqpDecoder::decodeValue("\x81\xff\xff\xff\xff\xff\xff\xff\xfe", 0);
