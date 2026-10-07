@@ -315,6 +315,15 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame('Part 1Part 2Part 3', $sections['body']);
     }
 
+    public function testDecodeMessageWithManyDataSections(): void
+    {
+        $sectionCount = 50000;
+        $parts = array_fill(0, $sectionCount, $this->buildDataSection('x'));
+        $sections = AmqpDecoder::decodeMessage(implode('', $parts));
+
+        $this->assertSame(str_repeat('x', $sectionCount), $sections['body']);
+    }
+
     public function testDecodeMessageWithAllProperties(): void
     {
         // Test all 13 properties fields
