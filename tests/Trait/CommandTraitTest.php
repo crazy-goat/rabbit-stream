@@ -73,6 +73,8 @@ class CommandTraitTest extends TestCase
             'PRECONDITION_FAILED' => [0x11, 'PRECONDITION_FAILED', 'Precondition failed'],
             'PUBLISHER_NOT_EXIST' => [0x12, 'PUBLISHER_NOT_EXIST', 'Publisher does not exist'],
             'NO_OFFSET' => [0x13, 'NO_OFFSET', 'No offset'],
+            'SASL_CANNOT_CHANGE_MECHANISM' => [0x14, 'SASL_CANNOT_CHANGE_MECHANISM', 'SASL cannot change mechanism'],
+            'SASL_CANNOT_CHANGE_USERNAME' => [0x15, 'SASL_CANNOT_CHANGE_USERNAME', 'SASL cannot change username'],
         ];
     }
 

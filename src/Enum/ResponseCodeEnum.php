@@ -160,6 +160,28 @@ enum ResponseCodeEnum: int
      */
     case NO_OFFSET = 0x13;
 
+    /**
+     * SaslHandshake/SaslAuthenticate tried to switch to a different SASL
+     * mechanism on an already-authenticated connection, which the broker
+     * forbids. Handling: re-authenticate only with the mechanism chosen at
+     * handshake time, or close and reconnect; the non-OK reply surfaces as a
+     * {@see \CrazyGoat\RabbitStream\Exception\ProtocolException} whose
+     * `getResponseCode()` is this case. It is **not** an
+     * `AuthenticationException` — do not catch that for a mechanism change.
+     */
+    case SASL_CANNOT_CHANGE_MECHANISM = 0x14;
+
+    /**
+     * SaslAuthenticate tried to switch to a different username on an
+     * already-authenticated connection, which the broker forbids. Handling:
+     * re-authenticate with the original username, or close and reconnect; the
+     * non-OK reply surfaces as a
+     * {@see \CrazyGoat\RabbitStream\Exception\ProtocolException} whose
+     * `getResponseCode()` is this case. It is **not** an
+     * `AuthenticationException` — do not catch that for a username change.
+     */
+    case SASL_CANNOT_CHANGE_USERNAME = 0x15;
+
     public function getMessage(): string
     {
         return match ($this) {
@@ -182,6 +204,8 @@ enum ResponseCodeEnum: int
             self::PRECONDITION_FAILED => 'Precondition failed',
             self::PUBLISHER_NOT_EXIST => 'Publisher does not exist',
             self::NO_OFFSET => 'No offset',
+            self::SASL_CANNOT_CHANGE_MECHANISM => 'SASL cannot change mechanism',
+            self::SASL_CANNOT_CHANGE_USERNAME => 'SASL cannot change username',
         };
     }
 
