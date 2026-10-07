@@ -743,8 +743,8 @@ RabbitMQ Streams uses a credit-based flow control system:
 
 1. **Initial Credit** - Specified when creating the consumer (`initialCredit` parameter); it is the floor of the adaptive `creditTarget` (`min(32767, max(initialCredit, ceil(creditWindowBytes / avgChunk)))`). Outstanding (in-flight, i.e. sent-but-not-yet-consumed) credit is bounded by `creditTarget` only at the moment each chunk's credit is granted (≤ `MAX_CREDIT`); `observeChunkSize()` may later shrink the target below the in-flight count and granted credit is not revocable, so in-flight can transiently exceed the current target
 2. **Credits Consumed** - Each delivered chunk consumes one credit, no matter how many messages it contains
-3. **Credits Replenished** - The client automatically sends more credit as the buffer drains, one credit per chunk's worth of headroom that reopens
-4. **Backpressure** - While the unread count is at or over `maxBufferSize`, no new credit is granted at all; credit withheld this way is remembered and granted once the buffer drains
+3. **Credits Replenished** - Once the unread count drops below `maxBufferSize`, the buffer threshold is open and all pending credits are sent in one go, up to `creditTarget - creditsInFlight` and `MAX_CREDIT` (not one credit per chunk-sized amount of reopened space)
+4. **Backpressure** - While the unread count is at or over `maxBufferSize`, no new credit is granted at all; credit withheld this way is remembered and sent together once the buffer drains below the threshold
 
 ### Buffer Management
 

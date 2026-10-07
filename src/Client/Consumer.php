@@ -42,10 +42,12 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
  * controls is credit: once the unread count reaches or exceeds it, no further
  * credit is granted, so the server stops delivering new chunks until the buffer
  * drains back below the limit. Credits withheld this way are remembered
- * (`pendingCredits`, itself a chunk-granular counter) and granted back — one
- * credit per chunk's worth of headroom that reopens — as the application drains
- * the buffer via read()/readOne(). Outstanding (in-flight, i.e.
- * sent-but-not-yet-consumed) credit is bounded by the adaptive `creditTarget`
+ * (`pendingCredits`, itself a chunk-granular counter) and granted back once
+ * the unread count drops below `maxBufferSize`: that threshold is a single gate,
+ * not a per-credit headroom calculation. At that point all pending credits are
+ * sent in one go, up to `creditTarget - creditsInFlight` and `MAX_CREDIT`, as
+ * the application drains the buffer via read()/readOne(). Outstanding (in-flight,
+ * i.e. sent-but-not-yet-consumed) credit is bounded by the adaptive `creditTarget`
  * only at the moment each chunk's credit is granted: `observeChunkSize()` may
  * later shrink `creditTarget` below `creditsInFlight` (a larger chunk raises the
  * average and lowers the target), and granted credit is not revocable, so
@@ -56,9 +58,8 @@ class Consumer implements ConsumerInterface
 {
     /**
      * Largest credit value that is safe to put in a Credit frame. The protocol
-     * documents the field as uint16, but RabbitMQ (verified on 4.3.5) decodes
-     * it as a signed 16-bit integer: 32768 and above become negative, the
-     * subscription's credit goes below zero and it silently stops delivering.
+     * specifies the field as `int16`: values above 32767 become negative, so
+     * the subscription's credit goes below zero and it silently stops delivering.
      * Subscribe's initial credit does not have this problem, but the same cap
      * is applied everywhere for one consistent limit.
      */
@@ -164,10 +165,13 @@ class Consumer implements ConsumerInterface
      *                            so the server stops delivering new chunks until
      *                            read()/readOne() drains the buffer below the limit.
      *                            Withheld credits are remembered (pendingCredits, a
-     *                            chunk-granular counter) and granted back one credit
-     *                            per re-opened chunk's worth of headroom. Must be
-     *                            positive; see the class docblock for the full
-     *                            chunk-vs-message and credit interaction.
+     *                            chunk-granular counter) and sent together once the
+     *                            unread count drops below this threshold, up to the
+     *                            `creditTarget - creditsInFlight` and `MAX_CREDIT` caps.
+     *                            This is a single gate, not a per-credit headroom
+     *                            calculation. Must be positive. See the class
+     *                            docblock for details on chunk/message and credit
+     *                            interactions.
      * @param array<int, string> $filterValues Stream filtering values (protocol
      *                            keys `filter.0`, `filter.1`, ... — broker-side,
      *                            chunk-granular; see Producer::sendWithFilter()).
