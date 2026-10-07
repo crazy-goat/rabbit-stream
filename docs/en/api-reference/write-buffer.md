@@ -344,7 +344,7 @@ public function getContents(): string
 **Example:**
 ```php
 $frame = $buffer->getContents();
-socket_write($socket, $frame, strlen($frame));
+$connection->sendFrame($frame);  // Writes the complete frame, including partial writes
 ```
 
 ## Error Handling

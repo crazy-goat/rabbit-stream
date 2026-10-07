@@ -127,10 +127,9 @@ message on the hot publish path and per frame on the hot receive path:
   `unpack('J' . $count, ...)` for the whole array — instead of one
   `ReadBuffer::getUint64()` call per id. The helper still rejects a publishing
   id above `PHP_INT_MAX` rather than letting it wrap to a negative int.
-- `StreamConnection::readBytes()` reads with `socket_recv(..., MSG_WAITALL)`
-  in a loop instead of looping `socket_read()` with `.=`, cutting the number
-  of syscalls and string reallocations needed to read a large frame (e.g. an
-  8MB Deliver frame).
+- `StreamConnection::readBytes()` accumulates data with `fread()` from a
+  non-blocking stream, using `stream_select()` to wait for readability as it
+  assembles a large frame (e.g. an 8MB Deliver frame).
 
 Micro-benchmark results (Apple Silicon, PHP 8.5, localhost broker):
 

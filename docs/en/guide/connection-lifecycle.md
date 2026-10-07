@@ -483,7 +483,7 @@ The `readMessage()` method uses an internal loop to handle server-push frames:
 ```
 readMessage():
     while (true):
-        wait for data via socket_select()
+        wait for data via stream_select()
         frame = readFrame()
         if frame.key is server-push (0x0003/0x0004/0x0008/0x0010/0x0016/0x0017/0x001a):
             dispatch(frame) → handle heartbeat, close, etc.
