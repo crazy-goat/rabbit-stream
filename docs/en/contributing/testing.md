@@ -248,15 +248,22 @@ The `run-e2e.sh` script automates E2E test execution:
 docker compose up -d
 
 # 2. Wait for RabbitMQ to be healthy
-echo "Waiting for RabbitMQ..."
-sleep 5
-
+#    The wait is bounded (see below), reads the status with `docker inspect`
+#    and dumps the broker log before failing.
 # 3. Run E2E tests
 ./vendor/bin/phpunit --testsuite e2e
 
 # 4. Stop RabbitMQ
 docker compose down
 ```
+
+The wait resolves the container with `docker compose ps -q rabbitmq` (so a
+worktree's `COMPOSE_PROJECT_NAME` and remapped ports are honoured) and polls its
+health status with `docker inspect -f` — no host `python3` and no dependency on
+the JSON shape of `docker compose ps --format json`. It gives up after
+`E2E_HEALTH_RETRIES` polls (default `90`) spaced `E2E_HEALTH_INTERVAL` seconds
+apart (default `2`), i.e. three minutes; on timeout it prints the last status,
+the tail of the broker log and exits non-zero instead of polling forever.
 
 ## PHPUnit Configuration
 
