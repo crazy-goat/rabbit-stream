@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Feature: producer close confirm-drain timeout is configurable (#561)** — `Connection::createProducer()` and the `Producer` constructor now accept `closeConfirmDrainTimeout`, defaulting to 2.0 seconds for backward compatibility. `close()` waits up to this duration for in-flight publish confirms before reporting any remaining confirms as lost; negative values are rejected.
+
 ### Changed
 - **Docs: StreamConnection transport documentation now matches PHP streams (#540)** — corrected the `isConnected()` description to explain resource-validity checks, described partial writes with `fwrite()`, and replaced the obsolete ext-sockets read/write examples with the `fread()`/`stream_select()` model. No behavior change.
 - **Docs: corrected Composer runtime requirements and AMQP version references (#432)** — documented `psr/log`, `ext-mbstring` and `ext-sockets` as runtime requirements, declared `ext-sockets` in Composer `require`, and corrected the AMQP message-decoding index link to AMQP 1.0.
