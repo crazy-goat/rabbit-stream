@@ -349,6 +349,134 @@ class ReadBufferTest extends TestCase
         $this->assertSame(0, $buf->getPosition());
     }
 
+    public function testGetUint64Array(): void
+    {
+        $buf = new ReadBuffer(pack('J', 1) . pack('J', 2) . pack('J', 3));
+        $this->assertSame([1, 2, 3], $buf->getUint64Array(3));
+        $this->assertSame(24, $buf->getPosition());
+    }
+
+    public function testGetUint64ArrayIsZeroIndexed(): void
+    {
+        // unpack('J*') is 1-indexed; the helper must hand back array<int, int>
+        // with keys 0..n-1, like every other ReadBuffer array reader.
+        $ids = (new ReadBuffer(pack('J', 7) . pack('J', 9)))->getUint64Array(2);
+        $this->assertSame([0, 1], array_keys($ids));
+    }
+
+    public function testGetUint64ArrayWithZeroCount(): void
+    {
+        $buf = new ReadBuffer('');
+        $this->assertSame([], $buf->getUint64Array(0));
+        $this->assertSame(0, $buf->getPosition());
+    }
+
+    public function testGetUint64ArrayReadsOnlyTheRequestedCount(): void
+    {
+        // Bytes after the requested ids must be left for the next read. A
+        // trailing run of 8 bytes is itself a valid uint64, so a bulk read that
+        // over-reads shows up as an extra element rather than as a failure.
+        $buf = new ReadBuffer(pack('J', 1) . pack('J', 2) . pack('J', 99) . pack('J', 98));
+        $this->assertSame([1, 2], $buf->getUint64Array(2));
+        $this->assertSame(16, $buf->getPosition());
+        $this->assertSame([99, 98], $buf->getUint64Array(2));
+        $this->assertSame(32, $buf->getPosition());
+    }
+
+    public function testGetUint64ArrayStopsAtWindowEnd(): void
+    {
+        // The window is 16 bytes of a 32-byte backing string; reading 3 ids must
+        // fail on the bounds check rather than reading past the window.
+        $buf = new ReadBuffer(pack('J', 1) . pack('J', 2) . pack('J', 3) . pack('J', 4), 0, 16);
+        $this->assertSame([1, 2], $buf->getUint64Array(2));
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf->getUint64Array(1);
+    }
+
+    public function testGetUint64ArrayWithMaxRepresentableValue(): void
+    {
+        $buf = new ReadBuffer(pack('J', 0) . pack('J', PHP_INT_MAX));
+        $this->assertSame([0, PHP_INT_MAX], $buf->getUint64Array(2));
+    }
+
+    public function testGetUint64ArrayWithValueAbovePhpIntMaxThrows(): void
+    {
+        // Regression guard for #536: a bulk unpack('J*') wraps 0xFFFFFFFFFFFFFFFF
+        // to -1, bypassing the getUint64() guard added in #393. The helper must
+        // reject the array the same way, not return bogus ids.
+        $buf = new ReadBuffer(pack('J', 1) . "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
+        try {
+            $buf->getUint64Array(2);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0xffffffffffffffff', $e->getMessage());
+            $this->assertStringContainsString('exceeds PHP_INT_MAX', $e->getMessage());
+        }
+        $this->assertSame(0, $buf->getPosition(), 'position must not move on a rejected uint64 array');
+    }
+
+    public function testGetUint64ArrayWithFirstValueAbovePhpIntMaxReportsFirstPosition(): void
+    {
+        $buf = new ReadBuffer("\x80\x00\x00\x00\x00\x00\x00\x00" . pack('J', 5));
+        try {
+            $buf->getUint64Array(2);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0x8000000000000000', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+    }
+
+    public function testGetUint64ArrayWithOutOfRangeValueAtOffsetReportsItsPosition(): void
+    {
+        // The raw-bytes read must account for the offset of the offending id
+        // inside the array, not just the start of the window.
+        $buf = new ReadBuffer(pack('J', 1) . pack('J', 2) . "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
+        try {
+            $buf->getUint64Array(3);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0xffffffffffffffff', $e->getMessage());
+            $this->assertStringContainsString('position 16', $e->getMessage());
+        }
+    }
+
+    public function testGetUint64ArrayAbovePhpIntMaxInWindowedBufferReportsWindowPosition(): void
+    {
+        $buf = new ReadBuffer("\xAA\xBB\x80\x00\x00\x00\x00\x00\x00\x00", 2, 8);
+        try {
+            $buf->getUint64Array(1);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('0x8000000000000000', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+    }
+
+    public function testGetUint64ArrayThrowsOnUnderflow(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Buffer underflow');
+        $buf = new ReadBuffer(pack('J', 1));
+        $buf->getUint64Array(2);
+    }
+
+    public function testGetUint64ArrayWithNegativeCountThrows(): void
+    {
+        // A negative count would make ensureAvailable()'s check vacuously true
+        // and let unpack('J*') read to the end of the backing string (#447 shape).
+        $buf = new ReadBuffer('abcdef');
+        try {
+            $buf->getUint64Array(-1);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('Invalid uint64 array count -1', $e->getMessage());
+            $this->assertStringContainsString('position 0', $e->getMessage());
+        }
+        $this->assertSame(0, $buf->getPosition());
+    }
+
     public function testGetInt16Negative(): void
     {
         $buf = new ReadBuffer("\xFF\xFF");

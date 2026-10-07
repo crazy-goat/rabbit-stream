@@ -98,6 +98,62 @@ class ReadBuffer
     }
 
     /**
+     * Reads $count uint64 values with a single bounds check and a single
+     * unpack('J*') call, for frames that carry a whole array of ids (a broker
+     * confirms thousands of publishing ids in one PublishConfirm frame, and
+     * one bounds check + unpack for the array beats per-value getUint64()).
+     *
+     * As in getUint64(), a value above PHP_INT_MAX is rejected rather than
+     * silently wrapped to negative: unpack('J*') has the same signed-wrap hole
+     * getUint64() guards, and a bulk read must not be a way around that guard.
+     * The whole array is scanned, not just its first element.
+     *
+     * @return array<int, int> Zero-indexed values.
+     */
+    public function getUint64Array(int $count): array
+    {
+        if ($count < 0) {
+            throw new DeserializationException(
+                sprintf('Invalid uint64 array count %d at position %d', $count, $this->position)
+            );
+        }
+        if ($count === 0) {
+            return [];
+        }
+
+        $this->ensureAvailable($count * 8);
+
+        // An explicit repeat count, not 'J*': unpack() reads from the offset to
+        // the end of the *backing string*, so 'J*' would swallow trailing bytes
+        // of a shared/windowed buffer as extra elements.
+        $data = unpack('J' . $count, $this->buffer, $this->offset + $this->position);
+        if ($data === false) {
+            throw new DeserializationException(
+                sprintf('Failed to unpack %d uint64 values at position %d', $count, $this->position)
+            );
+        }
+
+        // unpack('J*') is 1-indexed; array_values() makes the zero-indexed
+        // array<int, int> this method documents.
+        $values = array_values($data);
+        foreach ($values as $index => $value) {
+            if ($value < 0) {
+                $valuePosition = $this->position + ($index * 8);
+                throw new DeserializationException(
+                    sprintf(
+                        'uint64 value 0x%s at position %d exceeds PHP_INT_MAX',
+                        bin2hex(substr($this->buffer, $this->offset + $valuePosition, 8)),
+                        $valuePosition
+                    )
+                );
+            }
+        }
+
+        $this->position += $count * 8;
+        return $values;
+    }
+
+    /**
      * uint64 is read as a native 64-bit PHP int, so values above PHP_INT_MAX
      * cannot be represented: they would wrap to negative, and are rejected
      * instead of being silently returned as a bogus offset. On a 32-bit build

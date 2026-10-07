@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Bug: `PublishConfirmResponseV1` wrapped publishing ids above `PHP_INT_MAX` into negative ids (#536)** — the #411 performance fast path reads all publishing ids with a single `unpack('J*', ...)` call, which bypassed the `ReadBuffer::getUint64()` guard added in #393. `unpack('J')` decodes a uint64 into PHP's *signed* int, so a `PublishConfirm` frame carrying a publishing id `>= 2^63` (e.g. `0xFFFFFFFFFFFFFFFF`) unpacked to a negative number and flowed through `getPublishingIds()` to the publisher's confirm callback, where it can never match a tracked sequence — a silently lost confirm rather than a reported error. The new `ReadBuffer::getUint64Array(int $count)` reads a run of uint64 values with one bounds check and one `unpack('J*')` call and applies the same guard to every element, so a corrupt or hostile id is rejected at the parse site with the familiar `uint64 value 0x... at position N exceeds PHP_INT_MAX` message. `PublishConfirmResponseV1::fromStreamBuffer()` now delegates to it: the single-`unpack` fast path of #411 is kept (per-id `getUint64()` calls would pay a bounds check, a guard and a position bump each), and `getUint64Array()` closes the "no shared uint64-array helper" gap #393 left open, so a future bulk read cannot reintroduce the signed-wrap hole. The helper re-indexes from 0 (`unpack('J*')` is 1-indexed), returns `[]` for a zero count without consuming bytes, and rejects a negative count instead of letting `ensureAvailable()`'s check pass vacuously. **Behaviour change:** a `PublishConfirm` frame with a publishing id above `PHP_INT_MAX` now raises a `DeserializationException` where it used to return a negative id — `readMessage()`/`readLoop()` surface it like any other malformed frame. `getInt64()` is untouched and keeps its two's-complement behaviour.
+
 ## [1.5.0] - 2026-10-07
 
 ### Added
