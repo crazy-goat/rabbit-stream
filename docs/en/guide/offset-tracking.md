@@ -49,9 +49,7 @@ $consumer = $connection->createConsumer(
 
 ## Offset Types
 
-RabbitMQ Streams supports the following offset specification types (the
-protocol defines five for `Subscribe`; the `interval()` factory is not one of
-them — see below):
+RabbitMQ Streams supports the following offset specification types:
 
 ### 1. First
 
@@ -160,20 +158,7 @@ $consumer = $connection->createConsumer(
 - Processing recent data only
 - Archival and cleanup
 
-### 6. Interval — unsupported
-
-`OffsetSpec::interval()` serializes offset type `0x0006`, which the RabbitMQ
-Stream protocol does **not** define. The spec defines offset types `1` first,
-`2` last, `3` next, `4` offset and `5` timestamp, with `0` none allowed only
-in a `ConsumerUpdate` reply. The broker does not support an interval offset
-spec, so the factory can emit an out-of-spec frame. This is tracked by
-[#468](https://github.com/crazy-goat/rabbit-stream/issues/468); do not rely on
-`interval()`.
-
-For a relative time window, resolve the boundary yourself and use
-`OffsetSpec::timestamp()` with a millisecond value.
-
-### 7. Server-Side Resolution (RabbitMQ 4.3+)
+### 6. Server-Side Resolution (RabbitMQ 4.3+)
 
 Resolve an OffsetSpec to a concrete offset value before subscribing. There is no high-level wrapper for this command yet — use a raw `StreamConnection` (`$stream`), i.e. the low-level API:
 

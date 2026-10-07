@@ -17,7 +17,6 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
     public const TYPE_NEXT = 0x0003;
     public const TYPE_OFFSET = 0x0004;
     public const TYPE_TIMESTAMP = 0x0005;
-    public const TYPE_INTERVAL = 0x0006;
 
     /**
      * Types that encode as the 2-byte type field only — no 8-byte value.
@@ -39,7 +38,6 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
     private const VALUE_TYPES = [
         self::TYPE_OFFSET,
         self::TYPE_TIMESTAMP,
-        self::TYPE_INTERVAL,
     ];
 
     /**
@@ -52,9 +50,9 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
      *
      * @param int $type One of the `TYPE_*` constants.
      * @param int|null $value Required for the value-carrying types
-     *                        (`TYPE_OFFSET`, `TYPE_TIMESTAMP`, `TYPE_INTERVAL`)
-     *                        and rejected for the value-less ones (`TYPE_NONE`,
-     *                        `TYPE_FIRST`, `TYPE_LAST`, `TYPE_NEXT`).
+     *                        (`TYPE_OFFSET`, `TYPE_TIMESTAMP`) and rejected for
+     *                        the value-less ones (`TYPE_NONE`, `TYPE_FIRST`,
+     *                        `TYPE_LAST`, `TYPE_NEXT`).
      * @throws InvalidArgumentException If `$type` is unknown, if a value-carrying
      *         type is given no value, or if a value-less type is given one.
      */
@@ -71,7 +69,7 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
 
         if (in_array($type, self::VALUE_TYPES, true) && $value === null) {
             throw new InvalidArgumentException(
-                "Offset spec type $type requires a value (offset/timestamp/interval)"
+                "Offset spec type $type requires a value (offset/timestamp)"
             );
         }
 
@@ -220,40 +218,13 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
         return new self(self::TYPE_TIMESTAMP, $timestamp);
     }
 
-    /**
-     * Start from a time interval — **not supported by the RabbitMQ Stream
-     * protocol**.
-     *
-     * This factory serializes offset type `TYPE_INTERVAL` (`0x0006`) with the
-     * given value. The protocol defines no such offset type: `OffsetType` is
-     * `1` first, `2` last, `3` next, `4` offset and `5` timestamp, with `0`
-     * none allowed only in a `ConsumerUpdate` reply. The broker therefore does
-     * not support `interval()`, and it can emit an out-of-spec frame that the
-     * broker rejects or misreads at runtime. The defect is tracked by
-     * [issue #468](https://github.com/crazy-goat/rabbit-stream/issues/468),
-     * which will decide whether to remove or replace it. Do not rely on it.
-     *
-     * The constructor raises `InvalidArgumentException` for a malformed spec
-     * (an unknown type, or a value-carrying type with no value); `interval()`
-     * supplies `TYPE_INTERVAL` and the given value, so that guard cannot fire.
-     *
-     * @param int $interval Value serialized as the 8-byte payload. Its meaning
-     *                      is undefined because the broker has no interval
-     *                      offset type; it is not a duration in any known unit.
-     * @return self New offset spec carrying the unsupported `TYPE_INTERVAL`.
-     */
-    public static function interval(int $interval): self
-    {
-        return new self(self::TYPE_INTERVAL, $interval);
-    }
-
     public function toStreamBuffer(): WriteBuffer
     {
         $buffer = new WriteBuffer();
         $buffer->addUInt16($this->type);
 
         // Value-less types (none/first/last/next) encode the type field only;
-        // only offset/timestamp/interval carry an 8-byte value. The constructor
+        // only offset/timestamp carry an 8-byte value. The constructor
         // guarantees a value is present for every value-carrying type.
         if (!in_array($this->type, self::VALUE_TYPES, true)) {
             return $buffer;
@@ -265,9 +236,8 @@ class OffsetSpec implements ToStreamBufferInterface, ToArrayInterface
             return $buffer;
         }
 
-        // The value field is uint64 for offset (and interval) and int64 for
-        // timestamp, so a pre-1970 (negative) timestamp is encoded as two's
-        // complement.
+        // The value field is uint64 for offset and int64 for timestamp, so a
+        // pre-1970 (negative) timestamp is encoded as two's complement.
         if ($this->type === self::TYPE_TIMESTAMP) {
             $buffer->addInt64($this->value);
         } else {

@@ -47,18 +47,72 @@ class OffsetSpecTest extends TestCase
         $this->assertSame($ts, $spec->getValue());
     }
 
-    public function testIntervalHasCorrectTypeAndValue(): void
-    {
-        $spec = OffsetSpec::interval(3600);
-        $this->assertSame(OffsetSpec::TYPE_INTERVAL, $spec->getType());
-        $this->assertSame(3600, $spec->getValue());
-    }
-
     public function testInvalidTypeThrowsException(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid offset spec type: 999');
         new OffsetSpec(999);
+    }
+
+    /**
+     * #468: the protocol defines exactly six offset types — 1 first, 2 last,
+     * 3 next, 4 offset, 5 timestamp, plus 0 none (allowed only in a
+     * ConsumerUpdate reply). Type 6 was exposed as TYPE_INTERVAL and made the
+     * broker drop the connection (`{case_clause,6}` in parse_request/1), so the
+     * set is pinned here: a seventh constant must be justified against the
+     * spec before it can be added.
+     */
+    public function testThePublicConstantSetIsExactlyTheProtocolTypes(): void
+    {
+        $constants = (new \ReflectionClass(OffsetSpec::class))
+            ->getConstants(\ReflectionClassConstant::IS_PUBLIC);
+
+        ksort($constants);
+
+        $this->assertSame(
+            [
+                'TYPE_FIRST' => 0x0001,
+                'TYPE_LAST' => 0x0002,
+                'TYPE_NEXT' => 0x0003,
+                'TYPE_NONE' => 0x0000,
+                'TYPE_OFFSET' => 0x0004,
+                'TYPE_TIMESTAMP' => 0x0005,
+            ],
+            $constants,
+            'OffsetSpec must expose exactly the six protocol offset types; '
+            . 'type 6 is not in the spec (#468).'
+        );
+    }
+
+    public function testThereIsNoIntervalFactory(): void
+    {
+        $this->assertFalse(
+            method_exists(OffsetSpec::class, 'interval'),
+            'OffsetSpec::interval() serialized the out-of-spec type 6 and must stay removed (#468).'
+        );
+    }
+
+    /**
+     * #468: offset type 6 ("interval") is not in the protocol (OffsetType is
+     * 1 first, 2 last, 3 next, 4 offset, 5 timestamp, plus 0 none only in a
+     * ConsumerUpdate reply). A Subscribe carrying it makes the broker kill the
+     * connection process with `{case_clause,6}` in parse_request/1, so the
+     * value object must reject it instead of serializing an out-of-spec frame.
+     */
+    public function testTypeSixIsRejectedWithAValue(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid offset spec type: 6');
+
+        new OffsetSpec(0x0006, 1000);
+    }
+
+    public function testTypeSixIsRejectedWithoutAValue(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid offset spec type: 6');
+
+        new OffsetSpec(0x0006);
     }
 
     /**
@@ -105,24 +159,6 @@ class OffsetSpecTest extends TestCase
 
         $this->assertSame(2, strlen($binary));
         $this->assertSame(pack('n', $type), $binary);
-    }
-
-    public function testIntervalSerializesTypeAndUint64Value(): void
-    {
-        $binary = OffsetSpec::interval(3600)->toStreamBuffer()->getContents();
-
-        $this->assertSame(10, strlen($binary));
-
-        $expected = pack('n', OffsetSpec::TYPE_INTERVAL) . pack('J', 3600);
-        $this->assertSame($expected, $binary);
-    }
-
-    public function testIntervalWithoutValueThrows(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Offset spec type 6 requires a value');
-
-        new OffsetSpec(OffsetSpec::TYPE_INTERVAL);
     }
 
     public function testToStreamBufferWithValue(): void
