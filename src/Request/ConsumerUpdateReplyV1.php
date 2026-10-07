@@ -52,8 +52,14 @@ class ConsumerUpdateReplyV1 implements
 
         // Only offset types with a value (4 = offset, 5 = timestamp) carry the
         // 8-byte value; types 0-3 (none/first/last/next) encode just the type.
-        if ($this->offsetType === OffsetSpec::TYPE_OFFSET || $this->offsetType === OffsetSpec::TYPE_TIMESTAMP) {
+        if ($this->offsetType === OffsetSpec::TYPE_OFFSET) {
             $buffer->addUInt64($this->offset);
+        } elseif ($this->offsetType === OffsetSpec::TYPE_TIMESTAMP) {
+            // PROTOCOL.adoc (ConsumerUpdateResponse): the value is uint64 for
+            // offset and int64 for timestamp, so a pre-1970 (negative)
+            // timestamp is encoded as two's complement — the same bytes
+            // OffsetSpec::toStreamBuffer() writes for the same spec.
+            $buffer->addInt64($this->offset);
         }
 
         return $buffer;

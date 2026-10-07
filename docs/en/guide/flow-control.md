@@ -662,8 +662,8 @@ $stream->onConsumerUpdate(function (ConsumerUpdateResponseV1 $query): array {
 | `OffsetSpec::TYPE_FIRST` | 1 | Start from first message in stream |
 | `OffsetSpec::TYPE_LAST` | 2 | Start from the last chunk of messages (delivered in full) |
 | `OffsetSpec::TYPE_NEXT` | 3 | Start at the next offset to be written (end of the stream) |
-| `OffsetSpec::TYPE_OFFSET` | 4 | Start from specific offset (must provide offset, inclusive) |
-| `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start at the first chunk with chunk timestamp >= the value, in **milliseconds** since the epoch (chunk-granular) |
+| `OffsetSpec::TYPE_OFFSET` | 4 | Start from specific offset (must provide offset, inclusive). The value is a **uint64**, so it must be non-negative |
+| `OffsetSpec::TYPE_TIMESTAMP` | 5 | Start at the first chunk with chunk timestamp >= the value, in **milliseconds** since the epoch (chunk-granular). The value is an **int64**, so a pre-1970 (negative) timestamp is encoded as two's complement |
 
 ### Complete Example
 
