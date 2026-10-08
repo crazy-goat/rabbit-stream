@@ -257,7 +257,12 @@ public function refreshPartitions(): void
 
 #### Throws
 
-- `ProtocolException` - if the super stream itself no longer exists
+- `ProtocolException` - if the super stream is gone, has zero partitions, a response has an unexpected command or version, or a producer close fails
+- `UnexpectedResponseException` - if the partitions resolver receives an unexpected response type
+- `InvalidArgumentException` - if the partitions request exceeds the negotiated outgoing frame size
+- `ConnectionException` - if the partitions resolver or a producer close encounters a socket failure
+- `DeserializationException` - if the partitions response or a producer close response cannot be deserialized
+- `TimeoutException` - if the partitions response or a producer close response does not arrive in time
 
 #### Notes
 

@@ -75,7 +75,19 @@ class SuperStreamProducer implements SuperStreamProducerInterface
      * Producers of partitions that disappeared are closed and dropped; the
      * routing strategy forgets any cached decisions.
      *
-     * @throws \CrazyGoat\RabbitStream\Exception\ProtocolException if the super stream itself is gone
+     * @throws \CrazyGoat\RabbitStream\Exception\ProtocolException If the super stream is gone,
+     *                                 has zero partitions, a response has an unexpected command or
+     *                                 version, or a producer close fails.
+     * @throws \CrazyGoat\RabbitStream\Exception\UnexpectedResponseException If the partitions
+     *                                 resolver receives an unexpected response type.
+     * @throws \CrazyGoat\RabbitStream\Exception\InvalidArgumentException If the partitions
+     *                                 request exceeds the negotiated outgoing frame size.
+     * @throws \CrazyGoat\RabbitStream\Exception\ConnectionException If the partitions
+     *                                 resolver or a producer close encounters a socket failure.
+     * @throws \CrazyGoat\RabbitStream\Exception\DeserializationException If the partitions
+     *                                 response or a producer close response cannot be deserialized.
+     * @throws \CrazyGoat\RabbitStream\Exception\TimeoutException If the partitions response
+     *                                 or a producer close response does not arrive in time.
      */
     public function refreshPartitions(): void
     {
