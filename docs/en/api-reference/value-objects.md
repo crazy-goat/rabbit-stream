@@ -16,6 +16,7 @@ The `OffsetSpec` value object defines the starting position for a consumer subsc
 
 | Constant | Value | Description |
 |----------|-------|-------------|
+| `TYPE_NONE` | 0x0000 | Keep current position (valid only in a `ConsumerUpdate` reply) |
 | `TYPE_FIRST` | 0x0001 | Start from the first message in the stream |
 | `TYPE_LAST` | 0x0002 | Start from the last **chunk**, delivered in full (not the last message) |
 | `TYPE_NEXT` | 0x0003 | Start at the end of the stream — messages written after the subscription (not "after the last consumed") |
@@ -98,7 +99,7 @@ $offset = OffsetSpec::next();
 
 #### offset()
 
-Create an offset spec for a specific offset value.
+Create an offset spec for a specific absolute offset in the stream. The offset is inclusive; if retention has removed it, the broker attaches at the first offset still available.
 
 ```php
 public static function offset(int $offset): self
@@ -108,7 +109,7 @@ public static function offset(int $offset): self
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `$offset` | `int` | The specific offset to start from |
+| `$offset` | `int` | Absolute offset to start from (inclusive) |
 
 **Example:**
 

@@ -881,7 +881,7 @@ public function createConsumer(
 - `OffsetSpec::first()` - Start from the first message
 - `OffsetSpec::last()` - Start from the last message (next new message)
 - `OffsetSpec::next()` - Start from the next message after the last consumed
-- `OffsetSpec::offset(int $offset)` - Start from a specific offset
+- `OffsetSpec::offset(int $offset)` - Start from a specific offset (inclusive); if retention removed it, the broker attaches at the first offset still available
 - `OffsetSpec::timestamp(int $timestamp)` - Start at the first chunk with chunk timestamp `>=` the value, delivered in full (chunk-granular). The value is in **milliseconds** since the Unix epoch
 
 #### Return Value

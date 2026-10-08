@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: offset guidance now describes gaps and retention clamping (#632)** — documented that requested offsets removed by retention attach at the first available offset, clarified that message offsets can have gaps due to broker-internal tracking entries, and added the `TYPE_NONE` value-object table row. No behavior change.
 - **Docs: flow-control guide shows how to configure `maxBufferSize` (#625)** — added a `Connection::createConsumer()` example beside the buffer gate description. No behavior change.
 - **Docs: low-level and protocol code-fence examples are now self-contained or labelled fragments (#635)** — fixed a missing `ResponseCodeEnum` import and unused imports, labelled response-reading fragments that assume a request is pending, and stopped metadata lookup at the matching stream. No behavior change.
 - **Docs: corrected the performance-tuning Consumer examples (#624)** — replaced direct `Consumer` construction with `Connection::createConsumer()` so the examples pass the high-level connection type accepted by the surrounding documentation. No behavior change.
