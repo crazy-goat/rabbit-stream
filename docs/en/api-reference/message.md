@@ -517,7 +517,7 @@ public function getCreationTime(): ?int
 
 #### Return Value
 
-`?int` - Unix timestamp when the message was created by the producer, or `null`
+`?int` - Milliseconds since the Unix epoch when the message was created by the producer, or `null`
 
 #### Example
 
@@ -534,9 +534,9 @@ if ($creationTime !== null) {
 
 #### Notes
 
-- `creation-time` is set by the producer
-- `getTimestamp()` is set by the server when received
-- The difference shows network/processing latency
+- `creation-time` is set by the producer and is expressed in milliseconds since the Unix epoch, the same unit documented for [`getTimestamp()`](#gettimestamp)
+- `getTimestamp()` is set by the server when received and is also expressed in milliseconds since the Unix epoch
+- The difference shows network/processing latency in milliseconds
 
 ---
 
