@@ -243,7 +243,7 @@ Choose where to start consuming:
 // From the beginning
 OffsetSpec::first()
 
-// From the last message (new messages only)
+// From the last chunk of messages (delivered in full)
 OffsetSpec::last()
 
 // From a specific offset

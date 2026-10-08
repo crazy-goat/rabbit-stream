@@ -67,7 +67,7 @@ $offset = OffsetSpec::first();
 
 #### last()
 
-Create an offset spec for the last message.
+Create an offset spec for the last chunk of messages, which the broker delivers in full.
 
 ```php
 public static function last(): self
@@ -83,7 +83,7 @@ $offset = OffsetSpec::last();
 
 #### next()
 
-Create an offset spec for the next message.
+Create an offset spec for the end of the stream; the broker delivers messages published after the subscription.
 
 ```php
 public static function next(): self

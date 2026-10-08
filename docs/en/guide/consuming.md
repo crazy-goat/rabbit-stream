@@ -138,9 +138,9 @@ The `OffsetSpec` determines where consumption begins in the stream. The protocol
 | Method | Description | Use Case |
 |--------|-------------|----------|
 | `OffsetSpec::first()` | Start from the first message | Initial data load, full replay |
-| `OffsetSpec::last()` | Start from the last message | Real-time processing, new messages only |
-| `OffsetSpec::next()` | Start after the last consumed message | Resume after disconnect |
-| `OffsetSpec::offset(int $offset)` | Start at a specific offset (inclusive); if retention removed it, start at the first available offset | Resume from known position |
+| `OffsetSpec::last()` | Start from the last chunk of messages, delivered in full | Real-time processing including the final chunk |
+| `OffsetSpec::next()` | Start at the end of the stream (messages published after subscription) | Receive only new messages |
+| `OffsetSpec::offset(int $offset)` | Start at a specific offset (inclusive); if retention has removed it, start at the first available offset | Resume from known position |
 | `OffsetSpec::timestamp(int $timestamp)` | Start at the first chunk with chunk timestamp >= the value; **milliseconds** since the epoch (chunk-granular) | Time-based replay |
 
 ### Offset Type Examples
@@ -154,22 +154,21 @@ $consumer = $connection->createConsumer(
 );
 ```
 
-**Last - Real-time Only:**
+**Last - Start at the Last Chunk:**
 ```php
-// Only receive new messages published after subscription
+// The broker delivers the final chunk in full, then newer messages
 $consumer = $connection->createConsumer(
     'events',
     OffsetSpec::last()
 );
 ```
 
-**Next - Resume After Disconnect:**
+**Next - New Messages Only:**
 ```php
-// Continue from where you left off (requires named consumer)
+// Start at the end of the stream; receive messages published after subscription
 $consumer = $connection->createConsumer(
     'events',
-    OffsetSpec::next(),
-    name: 'my-consumer'
+    OffsetSpec::next()
 );
 ```
 
@@ -214,14 +213,13 @@ $consumer = $connection->createConsumer(
 └─────────────────────────────────────────────────────────────────┘
 
 First time consuming?          →  OffsetSpec::first()
-                              →  OffsetSpec::last() (for new data only)
+Start from the last chunk?      →  OffsetSpec::last() (delivered in full)
+Start at the stream end?        →  OffsetSpec::next() (new messages only)
 
-Resuming after restart?        →  Query stored offset
-                              →  OffsetSpec::offset($storedOffset)
+Resuming after restart?        →  Consumer::queryOffset() / Connection::queryOffset()
+                              →  OffsetSpec::offset($storedOffset) (or first() if none)
 
 Processing recent data only?   →  OffsetSpec::timestamp((time() - 3600) * 1000)
-
-Exactly-once processing?       →  Named consumer with OffsetSpec::next()
 ```
 
 ## 3. Message Object

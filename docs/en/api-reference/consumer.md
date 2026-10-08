@@ -120,9 +120,9 @@ foreach ($consumer->read() as $message) {
 | Method | Description |
 |--------|-------------|
 | `OffsetSpec::first()` | Start from the first message in the stream |
-| `OffsetSpec::last()` | Start from the last message (receive next new message) |
-| `OffsetSpec::next()` | Start from the next message after the last consumed |
-| `OffsetSpec::offset(int $offset)` | Start from a specific offset number (inclusive); if retention removed it, the broker attaches at the first available offset |
+| `OffsetSpec::last()` | Start from the last chunk of messages, delivered in full |
+| `OffsetSpec::next()` | Start at the end of the stream; receive messages published after subscription |
+| `OffsetSpec::offset(int $offset)` | Start from a specific offset number (inclusive); if retention has removed it, the broker attaches at the first offset still available |
 | `OffsetSpec::timestamp(int $timestamp)` | Start at the **first chunk whose chunk timestamp is >= the value**, delivered in full (chunk-granular). The value is in **milliseconds** since the Unix epoch |
 
 > **Timestamp is chunk-granular.** Chunks are the broker's batching unit and
