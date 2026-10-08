@@ -137,6 +137,7 @@ $exists = false;
 foreach ($response->getStreamMetadata() as $meta) {
     if ($meta->getStreamName() === 'my-stream') {
         $exists = $meta->getResponseCode() === ResponseCodeEnum::OK->value;
+        break;
     }
 }
 ```
