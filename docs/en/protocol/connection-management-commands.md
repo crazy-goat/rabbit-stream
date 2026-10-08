@@ -338,7 +338,6 @@ use CrazyGoat\RabbitStream\VO\OffsetSpec;
 // Resolve "last" offset to concrete value
 $stream->sendMessage(new ResolveOffsetSpecRequestV1(
     stream: 'my-stream',
-    reference: 'my-consumer-group',
     offsetSpec: OffsetSpec::last()
 ));
 

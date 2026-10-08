@@ -281,7 +281,7 @@ use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 
 // Send
 $stream->sendMessage(new QueryPublisherSequenceRequestV1(
-    publisherReference: 'my-producer',
+    reference: 'my-producer',
     stream: 'my-stream'
 ));
 

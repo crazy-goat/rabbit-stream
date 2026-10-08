@@ -261,15 +261,11 @@ Use named arguments for clarity:
 ```php
 <?php
 
-// ❌ Unclear what parameters mean
-$buffer->addData($data, true, 1024);
+// ❌ Unclear what the value represents
+$buffer->addString($message);
 
-// ✅ Clear with named arguments
-$buffer->addData(
-    data: $data,
-    compress: true,
-    maxSize: 1024,
-);
+// ✅ Clear with a named argument
+$buffer->addString(value: $message);
 ```
 
 ## Pre-Commit Checklist

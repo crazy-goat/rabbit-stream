@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **CI: validate documentation PHP class references and constructor named arguments (#638)** — added a reflection-free source scanner for project classes and constructor parameters in English documentation PHP fences, with explicit opt-outs for intentionally illustrative snippets, and wired it into `bin/lint.sh`. Added regression tests. No behavior change.
+
 ### Changed
 - **Docs: publishing guide documents producer-name sequence collisions after stream recreation (#646)** — clarified that named producers resume above the broker's current publishing sequence, but deleting and recreating a stream resets it, allowing producers sharing a name to reuse IDs and have messages silently dropped as duplicates. Documented unique names or coordinated recovery after a fresh sequence query as mitigations. No behavior change.
 - **Docs: incoming socket frame logs now match the documented hex dumps (#642)** — clarified that `Socket <-` frame dumps begin at the key and omit the four-byte size prefix, unlike outgoing dumps, and corrected the examples. No behavior change.
