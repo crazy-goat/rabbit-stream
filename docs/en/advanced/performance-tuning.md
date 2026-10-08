@@ -215,14 +215,11 @@ Consumer ◄── Deliver (5 chunks)    ◄────── Server    [consum
 Set when creating a Consumer:
 
 ```php
-use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-$consumer = new Consumer(
-    connection: $connection,
-    stream: 'my-stream',
-    subscriptionId: 1,
-    offset: OffsetSpec::next(),
+$consumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::next(),
     initialCredit: 100,  // Request 100 chunks upfront
 );
 ```
@@ -282,11 +279,9 @@ Controls back-pressure on the consumer. `maxBufferSize` is a **message** bound
 [Understanding Credits](#understanding-credits)):
 
 ```php
-$consumer = new Consumer(
-    connection: $connection,
-    stream: 'my-stream',
-    subscriptionId: 1,
-    offset: OffsetSpec::next(),
+$consumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::next(),
     initialCredit: 100,
     maxBufferSize: 1000,  // Target: keep unread messages around/under 1000
 );
@@ -328,11 +323,9 @@ $consumer = new Consumer(
 <?php
 
 // Slow consumer with small buffer
-$consumer = new Consumer(
-    connection: $connection,
-    stream: 'my-stream',
-    subscriptionId: 1,
-    offset: OffsetSpec::next(),
+$consumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::next(),
     initialCredit: 5,
     maxBufferSize: 20,  // Small buffer
 );
