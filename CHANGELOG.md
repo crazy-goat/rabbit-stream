@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Security: mask SASL passwords and TLS private-key passphrases in traces and debug output** — marked credential parameters as sensitive and added redacted debug information for `TlsConfig`.
+
 ## [1.8.0] - 2026-10-08
 
 ### Added

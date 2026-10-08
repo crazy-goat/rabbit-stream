@@ -172,7 +172,7 @@ class Connection implements ConnectionInterface
         string $host = '127.0.0.1',
         int $port = 5552,
         string $user = 'guest',
-        string $password = 'guest',
+        #[\SensitiveParameter] string $password = 'guest',
         string $vhost = '/',
         ?BinarySerializerInterface $serializer = null,
         ?LoggerInterface $logger = null,
