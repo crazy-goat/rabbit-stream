@@ -2008,6 +2008,32 @@ class StreamConnectionTest extends TestCase
      * lands inside the select. The call must behave like a spurious wakeup: keep
      * waiting out the original timeout and report the normal timeout result.
      */
+    public function testStopInterruptsAnActiveReadFrameWithinOneSecond(): void
+    {
+        [$peer, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 5.0);
+        $this->injectSocket($connection, $clientSocket);
+        $this->armAlarm(1, function () use ($connection): void {
+            $connection->stop();
+        });
+
+        // The one-second alarm lands inside the first capped select (which is
+        // why this would take five seconds if readFrame still used the full budget).
+        usleep(100000);
+        $start = microtime(true);
+        $frame = $connection->readFrame(5.0);
+        $elapsed = microtime(true) - $start;
+
+        $this->assertSame(1, $this->alarms);
+        $this->assertNull($frame, 'stop() ends an idle read without fabricating a frame');
+        $this->assertGreaterThanOrEqual(0.7, $elapsed, 'the wait should end when stop() fires');
+        $this->assertLessThan(1.5, $elapsed, 'stop() must be observed within one polling interval');
+
+        fclose($peer);
+        fclose($clientSocket);
+    }
+
     public function testReadFrameSurvivesEintr(): void
     {
         [$peer, $clientSocket] = $this->createSocketPair();
@@ -2171,7 +2197,7 @@ class StreamConnectionTest extends TestCase
      * signal strictly inside a *shorter* select has to start its wait a little
      * after arming; see testReadLoopSurvivesEintr().
      */
-    private function armAlarm(int $seconds): void
+    private function armAlarm(int $seconds, ?callable $callback = null): void
     {
         // Check every function the arm/disarm pair below actually calls: a
         // partial disable_functions that removed only one of them would still
@@ -2187,8 +2213,11 @@ class StreamConnectionTest extends TestCase
         $this->alarms = 0;
         $this->alarmArmed = true;
         $this->asyncSignalsWereEnabled = pcntl_async_signals(true);
-        pcntl_signal(SIGALRM, function (): void {
+        pcntl_signal(SIGALRM, function () use ($callback): void {
             $this->alarms++;
+            if ($callback !== null) {
+                $callback();
+            }
         });
         pcntl_alarm($seconds);
     }
