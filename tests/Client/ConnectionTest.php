@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Client\Producer;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\CloseRequestV1;
@@ -15,17 +17,23 @@ use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeletePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
+use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
+use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
+use CrazyGoat\RabbitStream\Response\PeerPropertiesResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
+use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\Broker;
@@ -38,6 +46,46 @@ use Psr\Log\NullLogger;
 
 class ConnectionTest extends TestCase
 {
+    public function testCreateAcceptsSaslChallengeResponse(): void
+    {
+        $authResponse = SaslAuthenticateResponseV1::fromStreamBuffer(new ReadBuffer(
+            pack('n', 0x8013)
+                . pack('n', 1)
+                . pack('N', 1)
+                . pack('n', ResponseCodeEnum::SASL_CHALLENGE->value)
+                . pack('n', 0)
+        ));
+        $this->assertNotNull($authResponse);
+
+        $responses = [
+            new PeerPropertiesResponseV1(),
+            new SaslHandshakeResponseV1(['PLAIN']),
+            $authResponse,
+            new TuneRequestV1(),
+            new OpenResponseV1(),
+            new CloseResponseV1(),
+        ];
+        $responseIndex = 0;
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('readMessage')
+            ->willReturnCallback(function () use (&$responseIndex, $responses): object {
+                return $responses[$responseIndex++];
+            });
+
+        $sentRequests = [];
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function ($request) use (&$sentRequests): void {
+                $sentRequests[] = $request;
+            });
+        $streamConnection->method('close');
+
+        $connection = Connection::create(streamConnection: $streamConnection);
+
+        $this->assertInstanceOf(Connection::class, $connection);
+        $this->assertInstanceOf(OpenRequestV1::class, $sentRequests[4]);
+        $connection->close();
+    }
+
     public function testCreateStreamSendsCorrectRequest(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
