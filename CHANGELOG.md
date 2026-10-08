@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **CI: guard documented protocol keys and socket-frame size fields (#643)** — added a documentation lint gate that checks command-key literals against `KeyEnum` and validates logged frame sizes and correlation-id widths. Unknown or intentionally illustrative key literals can be exempted with the documented inline opt-out marker. No behavior change.
 - **Docs: complete `SuperStreamProducer::refreshPartitions()` exception reference (#649)** — documented failures from partition resolution and closing producers for removed partitions in the source PHPDoc and API reference. No behavior change.
 - **Docs: publishing guide documents producer-name sequence collisions after stream recreation (#646)** — clarified that named producers resume above the broker's current publishing sequence, but deleting and recreating a stream resets it, allowing producers sharing a name to reuse IDs and have messages silently dropped as duplicates. Documented unique names or coordinated recovery after a fresh sequence query as mitigations. No behavior change.
 - **Docs: incoming socket frame logs now match the documented hex dumps (#642)** — clarified that `Socket <-` frame dumps begin at the key and omit the four-byte size prefix, unlike outgoing dumps, and corrected the examples. No behavior change.

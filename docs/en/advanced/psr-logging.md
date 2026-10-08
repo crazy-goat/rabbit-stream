@@ -226,7 +226,7 @@ $producer->send('Hello, World!');
 
 `Publish` (`0x0002`) is fire-and-forget and has **no** response frame. The
 `PublishConfirm` (`0x0003`) above is an uncorrelated server-push frame (it
-carries no CorrelationId); there is no `Publish` response key such as `0x8002`.
+carries no CorrelationId); there is no `Publish` response key such as `0x8002`. <!-- docs-frame-keys: ignore 0x8002 -->
 
 ### Interpreting Hex Dumps
 
