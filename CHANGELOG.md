@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Bug: `StreamConnection` now recognizes interrupted `stream_select()` calls with a swallowing error handler (#621)** — centralized every `stream_select()` call through a helper that captures the select warning before delegating to the application's current PHP error handler. EINTR is therefore still retried when that handler returns `true`, and real select failures cannot be mistaken for an unrelated stale `error_get_last()` message. The handler is restored even if select or the application handler throws. The transport remains PHP streams: changing it to `\Socket` would break the TLS stream layer and make optional `ext-sockets` a runtime dependency; per-select handler capture has a small stack-management cost instead. Covered by signal-interrupted and genuine select-failure `readFrame()` regression tests with a swallowing handler.
 - **Security: mask SASL passwords and TLS private-key passphrases in traces and debug output** — marked credential parameters as sensitive and added redacted debug information for `TlsConfig`.
 - **Consumer: resume after the committed message offset on leader moves (#584)** — re-subscription now distinguishes a recreated stream using `committed_offset`, not the first offset in the last committed chunk, so consumers do not replay already-processed messages from their initial offset.
 

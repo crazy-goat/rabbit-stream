@@ -61,6 +61,18 @@ The socket is kept non-blocking; every read and write is driven by an explicit
 that stops mid-frame blocks the client forever and every documented timeout
 (`Consumer::read()`, `readFrame()`, `readLoop()`) silently becomes infinite.
 
+`StreamConnection` deliberately keeps PHP stream resources for both plaintext and
+TLS connections rather than converting the transport to `\Socket`. PHP's TLS
+stream layer operates above the underlying descriptor, so importing that
+descriptor as a `\Socket` would expose ciphertext and cannot replace the TLS
+stream. It would also make the optional `ext-sockets` extension a runtime
+requirement. Since streams expose no errno for a failed `stream_select()`, each
+select temporarily captures its warning and delegates it to the application's
+existing error handler; this makes EINTR detection reliable even when that
+handler swallows warnings. The extra work is one short-lived PHP error-handler
+stack entry per select, rather than per-socket errno access. No socket transport
+or TLS behavior changes.
+
 ### close()
 
 Closes the socket connection and cleans up resources.
