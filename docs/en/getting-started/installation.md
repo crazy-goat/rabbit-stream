@@ -112,7 +112,7 @@ Upgrade to PHP 8.1 or higher:
 php -v
 
 # On Ubuntu/Debian
-sudo apt-get install php8.1 php8.1-mbstring php8.1-sockets
+sudo apt-get install php8.1 php8.1-mbstring
 
 # On macOS with Homebrew
 brew install php@8.1
@@ -141,15 +141,9 @@ brew install php
 
 Then restart your web server or PHP-FPM.
 
-### Issue: "Extension sockets not loaded"
+### Issue: Running the test suite without ext-sockets
 
-**Error:**
-```
-The requested PHP extension ext-sockets * is missing from your system.
-```
-
-**Solution:**
-Install the sockets extension:
+`ext-sockets` is only a development dependency used by the test suite; the library runtime uses PHP streams and does not require the extension. If you install development dependencies to run the tests and Composer reports that `ext-sockets` is missing, install it for your PHP environment:
 
 ```bash
 # Ubuntu/Debian
@@ -161,6 +155,8 @@ sudo yum install php-sockets
 # macOS (usually included with PHP)
 brew install php
 ```
+
+Consumers installing the library without development dependencies do not need ext-sockets.
 
 ### Issue: Composer not found
 

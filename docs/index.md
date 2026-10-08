@@ -1,6 +1,6 @@
 # RabbitStream Documentation
 
-Welcome to the RabbitStream documentation! RabbitStream is a PHP library implementing the RabbitMQ Streams Protocol client (port 5552). Its Composer runtime dependencies are `psr/log ^3.0` and the `ext-mbstring` and `ext-sockets` PHP extensions.
+Welcome to the RabbitStream documentation! RabbitStream is a PHP library implementing the RabbitMQ Streams Protocol client (port 5552). Its Composer runtime dependencies are `psr/log ^3.0` and the `ext-mbstring` PHP extension; `ext-sockets` is only a development dependency for tests.
 
 ## Table of Contents
 
