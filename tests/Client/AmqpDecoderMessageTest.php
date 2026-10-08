@@ -286,6 +286,24 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame(42, $sections['body']);
     }
 
+    public function testDecodeMessageWithDataThenAmqpValueBody(): void
+    {
+        $message = $this->buildDataSection('abc') . $this->buildAmqpValueSection(42);
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame(42, $sections['body']);
+    }
+
+    public function testDecodeMessageWithAmqpValueThenDataBody(): void
+    {
+        $message = $this->buildAmqpValueSection(42) . $this->buildDataSection('abc');
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame('abc', $sections['body']);
+    }
+
     public function testDecodeMessageWithMessageAnnotations(): void
     {
         // Message with MessageAnnotations + Data
