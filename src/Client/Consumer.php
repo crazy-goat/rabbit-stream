@@ -388,8 +388,11 @@ class Consumer implements ConsumerInterface
      * continue right after the last message we processed. If it was deleted
      * and recreated its offsets start over: continuing at our old offset would
      * silently wait until the new stream grows past it, so we fall back to the
-     * initial OffsetSpec. StreamStats tells the two apart: the committed offset
-     * of a recreated stream is below what we already consumed.
+     * initial OffsetSpec. StreamStats' `committed_offset` is the last committed
+     * message offset and distinguishes a recreated stream from a leader move.
+     * `committed_chunk_id` is only the first message offset in the last committed
+     * chunk, so it can be lower than lastOffset during normal consumption and
+     * must not be used for this comparison.
      */
     private function resumeOffset(): OffsetSpec
     {
@@ -401,7 +404,7 @@ class Consumer implements ConsumerInterface
             throw UnexpectedResponseException::create(StreamStatsResponseV1::class, $response);
         }
         foreach ($response->getStats() as $stat) {
-            if ($stat->getKey() === 'committed_chunk_id') {
+            if ($stat->getKey() === 'committed_offset') {
                 return $stat->getValue() < $this->lastOffset
                     ? $this->offset
                     : OffsetSpec::offset($this->lastOffset + 1);

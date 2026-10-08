@@ -117,13 +117,13 @@ class MetadataUpdateRecoveryE2ETest extends E2ETestCase
         $admin->createStream($stream);
 
         $seed = $admin->createProducer($stream);
-        $seed->sendBatch(['a', 'b']);
+        $seed->sendBatch(['a', 'b', 'e', 'f']);
         $seed->waitForConfirms(timeout: 5.0);
         $seed->close();
 
         $consumer = $connection->createConsumer($stream, OffsetSpec::first());
         $this->assertInstanceOf(Consumer::class, $consumer);
-        $this->assertCount(2, $consumer->read(timeout: 5.0));
+        $this->assertCount(4, $consumer->read(timeout: 5.0));
         $this->assertFalse($consumer->isSubscriptionLost());
 
         $admin->deleteStream($stream);
@@ -132,7 +132,9 @@ class MetadataUpdateRecoveryE2ETest extends E2ETestCase
 
         $admin->createStream($stream);
         $reseed = $admin->createProducer($stream);
-        $reseed->sendBatch(['c', 'd']);
+        // Keep the recreated stream shorter than the old one so its committed
+        // offset is below the consumer's last processed offset.
+        $reseed->send('c');
         $reseed->waitForConfirms(timeout: 5.0);
         $reseed->close();
 
@@ -142,7 +144,7 @@ class MetadataUpdateRecoveryE2ETest extends E2ETestCase
         $bodies = $this->bodiesOf($consumer->read(timeout: 5.0));
         $consumer->close();
 
-        $this->assertSame(['c', 'd'], $bodies);
+        $this->assertSame(['c'], $bodies);
         $this->assertFalse($consumer->isSubscriptionLost());
         $this->assertSame(1, $consumer->getResubscribeCount());
     }
