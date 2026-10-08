@@ -89,21 +89,57 @@ foreach ($docsFiles as $docsFile) {
     $lines = explode("\n", str_replace("\r\n", "\n", $content));
     $relativePath = ltrim(str_replace('\\', '/', substr($docsFile->getPathname(), strlen($root))), '/');
     $insideCommandKeyTable = false;
+    $isTableSeparator = false;
 
     foreach ($lines as $lineNumber => $line) {
         $lineNo = $lineNumber + 1;
-        if (str_contains($line, '|')) {
-            $isKeyTableHeader = preg_match(
-                '/\|[^\n]*\b(?:case|command|name)\b[^\n]*\b(?:hex|key)\b[^\n]*\|/i',
-                $line
-            ) === 1;
+        $isTableLine = str_contains($line, '|');
+        $isTableSeparator = $isTableLine
+            && preg_match('/^\|?\s*(?::?-{3,}:?\s*\|)+\s*$/', $line) === 1;
+        if ($isTableLine && !$isTableSeparator) {
+            $headerCells = array_map(
+                static function (string $cell): string {
+                    $cell = strtolower(trim(strip_tags($cell), " `*_"));
+                    $cell = preg_replace('/[^a-z0-9 ]/', '', $cell) ?? $cell;
+
+                    return trim(preg_replace('/\s+/', ' ', $cell) ?? $cell);
+                },
+                explode('|', trim($line, "| \t"))
+            );
+            $headerCells = array_values(array_filter($headerCells, static fn (string $cell): bool => $cell !== ''));
+            $hasKeyColumn = false;
+            $hasCaseColumn = false;
+            $hasHexColumn = false;
+            $hasCommandColumn = false;
+            $hasRequestColumn = false;
+            $hasResponseColumn = false;
+            $isResponseCodeTableHeader = false;
+            foreach ($headerCells as $cell) {
+                $isKeyColumn = preg_match(
+                    '/^(?:(?:request|response) )?key(?: (?:hex|value))?$/',
+                    $cell
+                ) === 1;
+                $hasKeyColumn = $hasKeyColumn || $isKeyColumn;
+                $hasCaseColumn = $hasCaseColumn || $cell === 'case';
+                $hasHexColumn = $hasHexColumn || $cell === 'hex';
+                $hasCommandColumn = $hasCommandColumn || $cell === 'command';
+                $hasRequestColumn = $hasRequestColumn || $cell === 'request';
+                $hasResponseColumn = $hasResponseColumn || $cell === 'response';
+                $isResponseCodeTableHeader = $isResponseCodeTableHeader || $cell === 'code';
+            }
+            $isKeyTableHeader = $hasKeyColumn
+                || ($hasCaseColumn && $hasHexColumn)
+                || ($hasCommandColumn && $hasRequestColumn && $hasResponseColumn);
             if ($isKeyTableHeader) {
                 $insideCommandKeyTable = true;
+            } elseif ($isResponseCodeTableHeader && !$hasCommandColumn) {
+                // Response-code tables (Code | Name) are not command-key tables.
+                $insideCommandKeyTable = false;
             }
-        } else {
+        } elseif (!$isTableSeparator) {
             $insideCommandKeyTable = false;
         }
-        $isCommandKeyTableRow = $insideCommandKeyTable && str_contains($line, '|');
+        $isCommandKeyTableRow = $insideCommandKeyTable && $isTableLine;
         $ignoredKeys = [];
         $isIgnoredLine = preg_match(
             '/<!--\s*docs-frame-keys:\s*ignore(?:\s+(0x[0-9a-fA-F]{4}))?\s*-->/',
