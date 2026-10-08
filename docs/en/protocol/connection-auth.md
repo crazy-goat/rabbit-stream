@@ -152,9 +152,26 @@ SaslData:   bytes (optional, for challenge-response mechanisms)
 | Code | Name | Description |
 |------|------|-------------|
 | 0x0001 | OK | Authentication successful |
+| 0x000a | SASL_CHALLENGE | Server requests the next challenge-response step |
 | 0x0008 | AUTHENTICATION_FAILURE | Invalid credentials |
 | 0x0007 | SASL_MECHANISM_NOT_SUPPORTED | Mechanism not available |
 | 0x0009 | SASL_ERROR | General SASL error |
+
+**Challenge response data:** `SaslAuthenticateResponseV1::getChallenge(): ?string`
+returns the optional opaque challenge payload from the response. It is populated from the response's SASL data
+when that payload is present; otherwise it returns `null`. For a challenge-response
+mechanism, pass the challenge to the mechanism's handler before preparing its next
+response:
+
+```php
+$response = $stream->readMessage();
+assert($response instanceof SaslAuthenticateResponseV1);
+$challenge = $response->getChallenge(); // ?string; null when no SASL data is present
+if ($challenge !== null) {
+    $nextResponse = $saslMechanism->respondToChallenge($challenge);
+    // Use $nextResponse in the next SaslAuthenticate request for this mechanism.
+}
+```
 
 **PHP Implementation:**
 ```php
@@ -166,8 +183,8 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
 // Send
 $stream->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
 
-// Receive. A non-OK response code is asserted during deserialization and
-// throws ProtocolException, so catch it to inspect the code.
+// Receive. Any response code other than OK or SASL_CHALLENGE is asserted
+// during deserialization and throws ProtocolException, so catch it to inspect the code.
 try {
     $response = $stream->readMessage();
     assert($response instanceof SaslAuthenticateResponseV1);
@@ -326,8 +343,8 @@ $stream->sendMessage(new SaslHandshakeRequestV1());
 $handshakeResponse = $stream->readMessage();
 assert($handshakeResponse instanceof SaslHandshakeResponseV1);
 
-// 4. SaslAuthenticate. A non-OK response code throws ProtocolException during
-// deserialization; reaching the next line means authentication succeeded.
+// 4. SaslAuthenticate. This PLAIN example expects OK. Any code other than OK
+// or SASL_CHALLENGE throws ProtocolException; challenge mechanisms need another step.
 $stream->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
 $authResponse = $stream->readMessage();
 assert($authResponse instanceof SaslAuthenticateResponseV1);
