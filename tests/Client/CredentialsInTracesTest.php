@@ -41,10 +41,8 @@ final class CredentialsInTracesTest extends TestCase
         self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
         $createFrame = $this->createFrame($exception);
         self::assertNotNull($createFrame, 'Connection::create() should appear in the exception trace.');
-        if (isset($createFrame['args'])) {
-            self::assertArrayHasKey(3, $createFrame['args']);
-            self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
-        }
+        self::assertArrayHasKey(3, $createFrame['args']);
+        self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
     }
 
     public function testValidationErrorTraceDoesNotContainPassword(): void
@@ -65,10 +63,8 @@ final class CredentialsInTracesTest extends TestCase
         self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
         $createFrame = $this->createFrame($exception);
         self::assertNotNull($createFrame, 'Connection::create() should appear in the exception trace.');
-        if (isset($createFrame['args'])) {
-            self::assertArrayHasKey(3, $createFrame['args']);
-            self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
-        }
+        self::assertArrayHasKey(3, $createFrame['args']);
+        self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
     }
 
     public function testCreatePasswordIsSensitiveParameter(): void
@@ -122,12 +118,16 @@ final class CredentialsInTracesTest extends TestCase
         return $args;
     }
 
-    /** @return array<string, mixed>|null */
+    /** @return array{class: string, function: string, args: list<mixed>}|null */
     private function createFrame(Throwable $exception): ?array
     {
         foreach ($exception->getTrace() as $frame) {
-            if (($frame['class'] ?? null) === Connection::class && ($frame['function'] ?? null) === 'create') {
-                return $frame;
+            if (($frame['class'] ?? null) === Connection::class && $frame['function'] === 'create') {
+                return [
+                    'class' => Connection::class,
+                    'function' => 'create',
+                    'args' => $frame['args'] ?? [],
+                ];
             }
         }
 
