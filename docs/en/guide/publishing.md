@@ -534,8 +534,15 @@ publisher declared on that stream. The `Producer` handles this for you:
 3. The next `send()`/`sendBatch()`/`sendWithFilter()` re-runs
    `DeclarePublisher` before publishing, retrying with exponential back-off
    while the stream is missing (it is usually being recreated). A named
-   producer re-reads its publishing sequence from the broker, so publishing IDs
-   never collide.
+   producer resumes above the broker's current publishing sequence, avoiding
+   collisions with IDs already stored for that stream. However, deleting and
+   recreating a stream resets its sequence. If connections share a producer
+   name, each can query the reset sequence before either publishes and restart
+   at ID 1; the broker may then silently drop one producer's messages as
+   duplicates. Use unique producer names for independent producers, or
+   coordinate recovery so each producer is recreated only after the previous
+   producer has published, allowing it to query the resulting sequence. A
+   query alone does not change an existing producer's in-memory next publishing ID.
 
 ```php
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
