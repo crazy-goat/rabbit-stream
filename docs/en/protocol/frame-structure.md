@@ -20,7 +20,7 @@ Complete Frame Layout:
 Payload Structure:
 ┌──────────┬──────────┬─────────────────────┬──────────────────────────────────┐
 │ Key      │ Version  │ [CorrelationId]     │ Content                          │
-│ (2 bytes)│ (2 bytes)│ (optional, 4 bytes)  │ (variable)                       │
+│ (2 bytes)│ (2 bytes)│ (optional, 4 bytes) │ (variable)                       │
 │ uint16   │ uint16   │ uint32              │ command-specific                 │
 └──────────┴──────────┴─────────────────────┴──────────────────────────────────┘
 ```
@@ -91,13 +91,13 @@ Version = 2  (for extended features like Deliver v2)
 
 ### CorrelationId (optional uint32, 4 bytes)
 
-When present, this identifier matches a request with its response. Some commands, including `Tune` (`0x0014`), `Heartbeat` (`0x0017`), `Credit` (`0x0009`), `Publish` (`0x0002`), and `StoreOffset` (`0x000a`), omit it. Server-push frames also omit it or use 0, except `Close` (`0x0016`), which carries the client's CorrelationId for its response:
+When present, this identifier matches a request with its response. Some commands, including `Tune` (`0x0014`), `Heartbeat` (`0x0017`), `Credit` (`0x0009`), `Publish` (`0x0002`), and `StoreOffset` (`0x000a`), omit it. Server-push frames also omit it or use 0, except `Close` (`0x0016`), which carries a server-generated CorrelationId that the client echoes in its `CloseResponse`:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  Correlated request: Client generates a unique CorrelationId                │
 │  Correlated response: Server echoes the same CorrelationId                  │
-│  Server-Push: CorrelationId = 0 (or omitted), except Close (0x0016)          │
+│  Server-Push: CorrelationId = 0 (or omitted), except Close (0x0016)         │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -306,9 +306,10 @@ Server-push frames have slight differences:
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Size (4 bytes)                                                              │
 │  Key (2 bytes) - in request range (0x0001-0x7FFF)                           │
-│  Version (2 bytes)                                                           │
-│  [CorrelationId may be 0 or omitted; Close (0x0016) echoes the client's ID]  │
-│  Content (variable)                                                          │
+│  Version (2 bytes)                                                          │
+│  [CorrelationId may be 0 or omitted; Close (0x0016) carries one]            │
+│  [The client echoes Close's CorrelationId in its CloseResponse]             │
+│  Content (variable)                                                         │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 Note: Server-push frames use REQUEST keys (0x0003, 0x0004, 0x0008, etc.)
