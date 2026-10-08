@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: publishing guide documents producer-name sequence collisions after stream recreation (#646)** — clarified that named producers resume above the broker's current publishing sequence, but deleting and recreating a stream resets it, allowing producers sharing a name to reuse IDs and have messages silently dropped as duplicates. Documented unique names or coordinated recovery after a fresh sequence query as mitigations. No behavior change.
 - **Docs: frame-structure reference distinguishes correlated and correlation-less frame sizes (#641)** — clarified that correlated frames include a 4-byte CorrelationId while `Tune`, `Heartbeat`, `Credit`, `Publish`, and `StoreOffset` use the 4-byte key/version header only, and corrected the server-push `Close` CorrelationId direction. No behavior change.
 - **Docs: English examples use the library exception hierarchy (#634)** — replaced generic `\Exception` throws in `docs/en` with specific library exceptions and rewrote the correlated response-code examples in `enums.md` to catch `ProtocolException` and inspect its response code. No behavior change.
 - **Docs: offset guidance now describes gaps and retention clamping (#632)** — documented that requested offsets removed by retention attach at the first available offset, clarified that message offsets can have gaps due to broker-internal tracking entries, and added the `TYPE_NONE` value-object table row. No behavior change.
