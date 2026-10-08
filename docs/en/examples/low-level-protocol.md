@@ -19,9 +19,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
-use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
-use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
@@ -354,6 +351,7 @@ Parse raw response data with `ReadBuffer`:
 
 ```php
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
+use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
 // Read raw frame data from socket
 $frameData = $stream->readFrame();

@@ -465,6 +465,8 @@ $connection->close();
 
 ### 2. Handle Server-Initiated Closes
 
+Fragment: assumes `$stream` is connected and a request has been sent, with its response pending.
+
 ```php
 try {
     $response = $stream->readMessage();
@@ -476,6 +478,8 @@ try {
 ```
 
 ### 3. Set Appropriate Timeouts
+
+Fragment: assumes `$stream` is connected and a request has been sent, with its response pending.
 
 ```php
 // Use reasonable timeouts for operations
@@ -524,7 +528,8 @@ try {
 ### Response Code Errors
 
 A non-OK response code is asserted during deserialization and surfaces as a
-`ProtocolException`; inspect the code via the caught exception:
+`ProtocolException`; inspect the code via the caught exception. This fragment assumes
+`$stream` is connected and a request has been sent, with its response pending.
 ```php
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
