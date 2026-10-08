@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Docs: SASL authentication guidance now describes challenge responses (#717)** — clarified that only codes other than `OK` and `SASL_CHALLENGE` throw during deserialization, and documented `SaslAuthenticateResponseV1::getChallenge()` for reading the optional challenge payload. No behavior change.
+
 ## [1.7.0] - 2026-10-08
 
 ### Added
