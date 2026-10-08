@@ -222,8 +222,8 @@ Offset specifications:
 | Offset | Description |
 |--------|-------------|
 | `OffsetSpec::first()` | Start from the first message |
-| `OffsetSpec::last()` | Start from the last message |
-| `OffsetSpec::next()` | Start after the last message (new messages only) |
+| `OffsetSpec::last()` | Start from the last chunk of messages, delivered in full |
+| `OffsetSpec::next()` | Start at the end of the stream; receive messages published after subscription |
 | `OffsetSpec::offset(123)` | Start from a specific offset |
 
 ### 5. Cleanup

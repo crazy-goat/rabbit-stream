@@ -304,7 +304,7 @@ $consumer = $connection->createConsumer(
 
 ### Recovery After Restart
 
-When the consumer restarts, it can resume from the last stored offset:
+A consumer can resume from the last stored offset by querying it and passing it to `OffsetSpec::offset()` (as shown here). Auto-commit stores offsets but does not select the initial subscription offset; the executable example's alignment with this recipe is tracked in [issue #619](https://github.com/crazy-goat/rabbit-stream/issues/619).
 
 ```php
 // Check for existing offset

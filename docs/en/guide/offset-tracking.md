@@ -70,7 +70,7 @@ $consumer = $connection->createConsumer(
 
 ### 2. Last
 
-Start from the last message (receive only new messages):
+Start from the last chunk of messages, delivered in full. The broker can deliver multiple messages from that final chunk, then continues with messages published later:
 
 ```php
 $consumer = $connection->createConsumer(
@@ -87,22 +87,20 @@ $consumer = $connection->createConsumer(
 
 ### 3. Next
 
-Start from the message after the last consumed:
+Start at the end of the stream—the next offset to be written—so only messages published after the subscription are delivered. A `Subscribe` frame carries no consumer reference, so `OffsetSpec::next()` does not consult a named consumer's stored offset and is not a resume mechanism.
 
 ```php
 $consumer = $connection->createConsumer(
     'events',
-    OffsetSpec::next(),
-    name: 'my-consumer'  // Requires named consumer
+    OffsetSpec::next()
 );
 ```
 
-**Use Cases:**
-- Resume after disconnect
-- Exactly-once processing
-- Consumer restart recovery
+**Use cases:**
+- Start processing live events from the current end of the stream
+- Receive only messages published after subscribing
 
-**Important**: `OffsetSpec::next()` uses the stored offset to determine the next message. It requires a named consumer with a previously stored offset.
+To resume an offset-tracked consumer, query its stored offset and pass that value to `OffsetSpec::offset()`; see the resume patterns below.
 
 ### 4. Offset
 
@@ -347,9 +345,9 @@ try {
 }
 ```
 
-### Pattern 2: Resume with OffsetSpec::next()
+### Pattern 2: Resume with queryOffset() and OffsetSpec::offset()
 
-Use the built-in `next()` offset type for automatic resume:
+`OffsetSpec::next()` starts at the end of the stream; it does not resume from a named consumer's stored offset. Query that offset explicitly, then subscribe at it (or start from the beginning if no offset exists):
 
 ```php
 <?php
@@ -360,13 +358,18 @@ use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 $connection = Connection::create('127.0.0.1');
+$stream = 'events';
+$consumerName = 'my-consumer';
 
-// Create consumer with OffsetSpec::next()
-// It will automatically use the stored offset
+$storedOffset = $connection->queryOffset($consumerName, $stream);
+$startOffset = $storedOffset === null
+    ? OffsetSpec::first()
+    : OffsetSpec::offset($storedOffset);
+
 $consumer = $connection->createConsumer(
-    'events',
-    OffsetSpec::next(),
-    name: 'my-consumer'
+    $stream,
+    $startOffset,
+    name: $consumerName
 );
 
 try {
@@ -378,8 +381,6 @@ try {
     $consumer->close();
 }
 ```
-
-**Note**: `OffsetSpec::next()` requires the consumer to be named and have a previously stored offset. If no offset exists, it starts from the beginning.
 
 ### Pattern 3: Resume with Auto-Commit
 
@@ -518,8 +519,9 @@ OffsetSpec::first()
 // For real-time processing
 OffsetSpec::last()
 
-// For resume after restart
-OffsetSpec::next()  // or OffsetSpec::offset($storedOffset)
+// For resume after restart, query the stored next offset first
+$storedOffset = $connection->queryOffset('my-consumer', 'events');
+$resumeAt = $storedOffset === null ? OffsetSpec::first() : OffsetSpec::offset($storedOffset);
 
 // For time-based replay (value in milliseconds since the Unix epoch)
 OffsetSpec::timestamp($timestamp)
