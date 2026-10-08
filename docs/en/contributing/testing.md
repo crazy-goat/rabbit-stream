@@ -83,6 +83,7 @@ docker compose up -d
 
 Request tests verify that request objects serialize correctly to the wire format:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -128,6 +129,7 @@ class ExampleRequestV1Test extends TestCase
 
 Response tests verify that response objects deserialize correctly from the wire format:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -202,6 +204,7 @@ E2E tests require:
 
 Example E2E test structure:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 

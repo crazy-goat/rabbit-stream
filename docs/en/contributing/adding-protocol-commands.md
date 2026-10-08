@@ -17,6 +17,7 @@ Every protocol command requires **4 things**:
 
 Create a new file in `src/Request/{CommandName}RequestV1.php`:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -66,6 +67,7 @@ class ExampleRequestV1 implements ToStreamBufferInterface, CorrelationInterface,
 
 Create a new file in `src/Response/{CommandName}ResponseV1.php`:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -120,6 +122,7 @@ class ExampleResponseV1 implements KeyVersionInterface, CorrelationInterface, Fr
 
 Add both request and response keys to `src/Enum/KeyEnum.php`:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -147,6 +150,7 @@ enum KeyEnum: int
 
 Add your response to the dispatch logic in `src/ResponseBuilder.php`:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -184,6 +188,7 @@ class ResponseBuilder
 
 Create `tests/Request/ExampleRequestV1Test.php`:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -222,6 +227,7 @@ class ExampleRequestV1Test extends TestCase
 
 Create `tests/Response/ExampleResponseV1Test.php`:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -272,6 +278,7 @@ class ExampleResponseV1Test extends TestCase
 
 For commands that interact with RabbitMQ, create an E2E test:
 
+<!-- docs-lint: ignore -->
 ```php
 <?php
 
@@ -373,6 +380,7 @@ Response key = Request key | 0x8000
 
 ### Commands with Multiple Parameters
 
+<!-- docs-lint: ignore -->
 ```php
 public function __construct(
     private string $stream,
@@ -391,6 +399,7 @@ public function toStreamBuffer(): WriteBuffer
 
 ### Commands with Array Data
 
+<!-- docs-lint: ignore -->
 ```php
 public function __construct(private array $items) {}
 

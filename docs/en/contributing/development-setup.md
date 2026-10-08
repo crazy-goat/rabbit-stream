@@ -142,7 +142,7 @@ php -m | grep -E "mbstring|sockets|pcntl"
 ```
 rabbit-stream/
 ├── src/              # Source code (PSR-4: CrazyGoat\RabbitStream)
-├── tests/            # Test suite (PSR-4: CrazyGoat\RabbitStream\Tests)
+├── tests/            # Test suite (PSR-4: `CrazyGoat\RabbitStream\Tests`)
 ├── docs/             # Documentation
 ├── examples/         # Usage examples
 ├── composer.json     # Dependencies
