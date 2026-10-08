@@ -14,16 +14,19 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedClosures;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedObjects;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\VO\Statistic;
 use PHPUnit\Framework\TestCase;
 
 class ConsumerTest extends TestCase
@@ -105,6 +108,63 @@ class ConsumerTest extends TestCase
     {
         $value = (new \ReflectionProperty($consumer, 'pendingCredits'))->getValue($consumer);
         return is_int($value) ? $value : 0;
+    }
+
+    public function testResumeOffsetContinuesAfterLastProcessedMessageWithinCommittedChunk(): void
+    {
+        $this->assertResumeOffset(105, 100, 109, OffsetSpec::offset(106));
+    }
+
+    public function testResumeOffsetFallsBackWhenStreamWasRecreatedWithLowerCommittedOffset(): void
+    {
+        $this->assertResumeOffset(105, 0, 4, OffsetSpec::first());
+    }
+
+    private function assertResumeOffset(
+        int $lastOffset,
+        int $committedChunkId,
+        int $committedOffset,
+        OffsetSpec $expected
+    ): void {
+        $metadataHandler = null;
+        $subscribes = [];
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(
+                function (string $stream, string $handlerId, callable $handler) use (&$metadataHandler): void {
+                    $metadataHandler = $handler;
+                }
+            );
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('request')->willReturnCallback(
+            function (object $request) use (&$subscribes, $committedChunkId, $committedOffset): object {
+                if ($request instanceof SubscribeRequestV1) {
+                    $subscribes[] = $request;
+                }
+                if ($request instanceof StreamStatsRequestV1) {
+                    return new StreamStatsResponseV1([
+                        new Statistic('committed_chunk_id', $committedChunkId),
+                        new Statistic('committed_offset', $committedOffset),
+                    ]);
+                }
+                return new \stdClass();
+            }
+        );
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        (new \ReflectionProperty($consumer, 'lastOffset'))->setValue($consumer, $lastOffset);
+        (new \ReflectionProperty($consumer, 'hasProcessedMessage'))->setValue($consumer, true);
+
+        $this->assertIsCallable($metadataHandler);
+        $metadataHandler();
+        $this->assertTrue($consumer->resubscribeIfLost());
+
+        $this->assertCount(2, $subscribes);
+        $resumedSpec = (new \ReflectionProperty($subscribes[1], 'offsetSpec'))->getValue($subscribes[1]);
+        $this->assertInstanceOf(OffsetSpec::class, $resumedSpec);
+        $this->assertSame($expected->getType(), $resumedSpec->getType());
+        $this->assertSame($expected->getValue(), $resumedSpec->getValue());
     }
 
     public function testReadAcceptsFloatTimeout(): void

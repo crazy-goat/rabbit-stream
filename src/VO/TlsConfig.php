@@ -18,11 +18,29 @@ final class TlsConfig
         public readonly ?string $cafile = null,
         public readonly ?string $localCert = null,
         public readonly ?string $localPk = null,
-        public readonly ?string $passphrase = null,
+        #[\SensitiveParameter] public readonly ?string $passphrase = null,
         public readonly ?string $peerName = null,
         public readonly bool $verifyPeer = true,
         public readonly bool $verifyPeerName = true,
     ) {
+    }
+
+    /**
+     * Return the configuration fields with the private-key passphrase masked.
+     *
+     * @return array<string, bool|string|null>
+     */
+    public function __debugInfo(): array
+    {
+        return [
+            'cafile' => $this->cafile,
+            'localCert' => $this->localCert,
+            'localPk' => $this->localPk,
+            'passphrase' => $this->passphrase === null ? null : '***',
+            'peerName' => $this->peerName,
+            'verifyPeer' => $this->verifyPeer,
+            'verifyPeerName' => $this->verifyPeerName,
+        ];
     }
 
     /**
