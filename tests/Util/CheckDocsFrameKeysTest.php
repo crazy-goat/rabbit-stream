@@ -37,6 +37,22 @@ class CheckDocsFrameKeysTest extends TestCase
         $this->assertStringContainsString('docs/en/guide.md:1: unknown command key 0x8002', $stderr);
     }
 
+    public function testRejectsUnknownKeyInCommandTableWithPathLineAndToken(): void
+    {
+        $root = $this->makeTempRoot([
+            'docs/en/keys.md' => implode("\n", [
+                '| Case | Hex | Description |',
+                '| HEARTBEAT | 0x0017 | Keepalive |',
+                '| PHANTOM | 0x8017 | Not a response key |',
+            ]) . "\n",
+        ]);
+
+        [$exit, , $stderr] = $this->runGate($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('docs/en/keys.md:3: unknown command key 0x8017', $stderr);
+    }
+
     public function testRejectsOutgoingFrameWithInconsistentSize(): void
     {
         $root = $this->makeTempRoot([

@@ -88,9 +88,22 @@ foreach ($docsFiles as $docsFile) {
     }
     $lines = explode("\n", str_replace("\r\n", "\n", $content));
     $relativePath = ltrim(str_replace('\\', '/', substr($docsFile->getPathname(), strlen($root))), '/');
+    $insideCommandKeyTable = false;
 
     foreach ($lines as $lineNumber => $line) {
         $lineNo = $lineNumber + 1;
+        if (str_contains($line, '|')) {
+            $isKeyTableHeader = preg_match(
+                '/\|[^\n]*\b(?:case|command|name)\b[^\n]*\b(?:hex|key)\b[^\n]*\|/i',
+                $line
+            ) === 1;
+            if ($isKeyTableHeader) {
+                $insideCommandKeyTable = true;
+            }
+        } else {
+            $insideCommandKeyTable = false;
+        }
+        $isCommandKeyTableRow = $insideCommandKeyTable && str_contains($line, '|');
         $ignoredKeys = [];
         $isIgnoredLine = preg_match(
             '/<!--\s*docs-frame-keys:\s*ignore(?:\s+(0x[0-9a-fA-F]{4}))?\s*-->/',
@@ -216,7 +229,7 @@ foreach ($docsFiles as $docsFile) {
                 '/\b[A-Z][A-Za-z0-9]*(?:_[A-Z0-9]+)*\s*\(\s*$/',
                 substr($line, 0, $tokenOffset)
             ) === 1;
-            $looksLikeKey = $hasKeyContext || $looksLikeNamedCommand
+            $looksLikeKey = $hasKeyContext || $looksLikeNamedCommand || $isCommandKeyTableRow
                 || preg_match(
                     '/^\s*=\s*[A-Z][A-Z0-9_]+\b/',
                     substr($line, $tokenOffset + strlen($tokenMatch[0][0]))
