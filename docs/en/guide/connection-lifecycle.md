@@ -192,6 +192,7 @@ For advanced use cases or protocol debugging, use the low-level `StreamConnectio
 
 ```php
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -228,7 +229,7 @@ assert($handshakeResponse instanceof SaslHandshakeResponseV1);
 // Verify PLAIN is supported
 $mechanisms = $handshakeResponse->getMechanisms();
 if (!in_array('PLAIN', $mechanisms, true)) {
-    throw new \Exception('PLAIN mechanism not supported');
+    throw new AuthenticationException('PLAIN mechanism not supported');
 }
 
 // 4. SaslAuthenticate
@@ -358,6 +359,7 @@ $this->close();
 Occurs when credentials are invalid:
 
 ```php
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
@@ -367,7 +369,7 @@ try {
     $response = $stream->readMessage();
 } catch (ProtocolException $e) {
     if ($e->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE) {
-        throw new \Exception('Invalid username or password');
+        throw new AuthenticationException('Invalid username or password', previous: $e, responseCode: $e->getResponseCode());
     }
     throw $e;
 }
@@ -380,6 +382,7 @@ try {
 Occurs when the user doesn't have access to the requested virtual host:
 
 ```php
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
@@ -389,7 +392,7 @@ try {
     $response = $stream->readMessage();
 } catch (ProtocolException $e) {
     if ($e->getResponseCode() === ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE) {
-        throw new \Exception('Access denied to virtual host');
+        throw new AuthenticationException('Access denied to virtual host', previous: $e, responseCode: $e->getResponseCode());
     }
     throw $e;
 }
@@ -425,7 +428,7 @@ try {
     $response = $stream->readMessage();
 } catch (ProtocolException $e) {
     if ($e->getResponseCode() === ResponseCodeEnum::FRAME_TOO_LARGE) {
-        throw new \Exception('Frame size exceeded maximum allowed');
+        throw new ProtocolException('Frame size exceeded maximum allowed', previous: $e, responseCode: $e->getResponseCode());
     }
     throw $e;
 }

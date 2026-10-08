@@ -275,19 +275,22 @@ if ($responseCode?->isError()) {
 
 ### Common Error Handling Patterns
 
-#### Pattern 1: Check Response Code
+Correlated commands throw `ProtocolException` during response deserialization when the broker returns a non-OK code. Inspect `getResponseCode()` in the catch block rather than parsing the response code from the buffer. `ResponseCodeEnum::fromInt()` remains useful for codes in server-push frames such as `PublishError`, whose errors are delivered to callbacks.
+
+#### Pattern 1: Check a Response Code
 
 ```php
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
-$responseCode = ResponseCodeEnum::fromInt($buffer->getUint16());
-
-if ($responseCode === null) {
-    throw new \Exception("Unknown response code");
-}
-
-if ($responseCode->isError()) {
-    throw new \Exception($responseCode->getMessage());
+try {
+    $connection->createStream($streamName);
+} catch (ProtocolException $e) {
+    if ($e->getResponseCode() === ResponseCodeEnum::STREAM_ALREADY_EXISTS) {
+        // Stream already exists - that's fine.
+    } else {
+        throw $e;
+    }
 }
 ```
 
@@ -295,22 +298,18 @@ if ($responseCode->isError()) {
 
 ```php
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
-$responseCode = ResponseCodeEnum::fromInt($rawCode);
-
-switch ($responseCode) {
-    case ResponseCodeEnum::OK:
-        // Success - continue
-        break;
-    case ResponseCodeEnum::STREAM_NOT_EXIST:
-        // Create the stream first
-        $connection->createStream($streamName);
-        break;
-    case ResponseCodeEnum::STREAM_ALREADY_EXISTS:
-        // Stream already exists - that's fine
-        break;
-    default:
-        throw new \Exception($responseCode->getMessage());
+try {
+    $connection->deleteStream($streamName);
+} catch (ProtocolException $e) {
+    switch ($e->getResponseCode()) {
+        case ResponseCodeEnum::STREAM_NOT_EXIST:
+            // The stream is already absent - that's fine.
+            break;
+        default:
+            throw $e;
+    }
 }
 ```
 
