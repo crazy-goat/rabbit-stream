@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: distinguish broker-reported and client-side frame-size errors (#636)** — clarified that broker `FRAME_TOO_LARGE` responses become `ProtocolException`, oversized incoming frames become `ConnectionException`, and oversized outgoing frames are rejected by `sendFrame()` with `InvalidArgumentException`. No behavior change.
 - **Docs: corrected `OffsetSpec::last()` and `OffsetSpec::next()` semantics (#631)** — clarified that `last()` starts at the last chunk (delivered in full) and `next()` starts at the stream end (new messages only), and replaced the false `next()` resume advice with a stored-offset query followed by `OffsetSpec::offset()`. No behavior change.
 - **Docs: flow-control guide shows how to configure `maxBufferSize` (#625)** — added a `Connection::createConsumer()` example beside the buffer gate description. No behavior change.
 - **Docs: low-level and protocol code-fence examples are now self-contained or labelled fragments (#635)** — fixed a missing `ResponseCodeEnum` import and unused imports, labelled response-reading fragments that assume a request is pending, and stopped metadata lookup at the matching stream. No behavior change.
