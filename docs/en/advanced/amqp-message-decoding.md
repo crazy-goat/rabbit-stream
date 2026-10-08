@@ -156,8 +156,8 @@ An AMQP message consists of multiple sections, each with a descriptor:
 | 0x73 | Properties | Message properties (13 fields) |
 | 0x74 | ApplicationProperties | Application-defined properties |
 | 0x75 | Data | Binary body content |
-| 0x76 | AmqpValue | AMQP-typed body value |
-| 0x77 | AmqpSequence | Body as AMQP sequence |
+| 0x76 | AmqpSequence | Body as AMQP sequence |
+| 0x77 | AmqpValue | AMQP-typed body value |
 | 0x78 | Footer | Message footer (annotations) |
 
 ### Section Binary Format
@@ -477,8 +477,8 @@ if (isset($sections['applicationProperties']['priority'])) {
 
 The body can be:
 - **Data (0x75):** Binary string — most common
-- **AmqpValue (0x76):** Any AMQP type
-- **AmqpSequence (0x77):** Array of AMQP values
+- **AmqpSequence (0x76):** Array of AMQP values
+- **AmqpValue (0x77):** Any AMQP type
 
 ```php
 $body = $sections['body'];
