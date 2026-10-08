@@ -283,23 +283,6 @@ Exception: Stream 'my-stream' does not exist
 - Create the stream first: `$connection->createStream('my-stream')`
 - Or check if it exists: `$connection->streamExists('my-stream')`
 
-### Error: Extension not loaded
-
-```
-Error: Call to undefined function socket_create()
-```
-
-**Cause:** The `sockets` extension is not enabled.
-
-**Solution:**
-```bash
-# Install sockets extension
-sudo apt-get install php-sockets
-
-# Or check if loaded
-php -m | grep sockets
-```
-
 ## Next Steps
 
 Now that you've completed the quick start:
