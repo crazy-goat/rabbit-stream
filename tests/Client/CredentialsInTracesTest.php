@@ -38,11 +38,14 @@ final class CredentialsInTracesTest extends TestCase
 
         self::assertNotNull($exception, 'Expected a connection failure.');
         self::assertStringNotContainsString(self::PASSWORD, $exception->getTraceAsString());
-        self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
+
         $createFrame = $this->createFrame($exception);
         self::assertNotNull($createFrame, 'Connection::create() should appear in the exception trace.');
-        self::assertArrayHasKey(3, $createFrame['args']);
-        self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
+        if ($this->traceArgumentsAreAvailable()) {
+            self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
+            self::assertArrayHasKey(3, $createFrame['args']);
+            self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
+        }
     }
 
     public function testValidationErrorTraceDoesNotContainPassword(): void
@@ -60,11 +63,14 @@ final class CredentialsInTracesTest extends TestCase
 
         self::assertNotNull($exception, 'Expected an invalid-argument exception.');
         self::assertStringNotContainsString(self::PASSWORD, $exception->getTraceAsString());
-        self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
+
         $createFrame = $this->createFrame($exception);
         self::assertNotNull($createFrame, 'Connection::create() should appear in the exception trace.');
-        self::assertArrayHasKey(3, $createFrame['args']);
-        self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
+        if ($this->traceArgumentsAreAvailable()) {
+            self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
+            self::assertArrayHasKey(3, $createFrame['args']);
+            self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
+        }
     }
 
     public function testCreatePasswordIsSensitiveParameter(): void
@@ -103,6 +109,11 @@ final class CredentialsInTracesTest extends TestCase
         self::assertStringNotContainsString(self::PASSPHRASE, $dumped);
         self::assertStringContainsString('***', $dumped);
         self::assertSame('***', $tls->__debugInfo()['passphrase']);
+    }
+
+    private function traceArgumentsAreAvailable(): bool
+    {
+        return !filter_var(ini_get('zend.exception_ignore_args'), FILTER_VALIDATE_BOOL);
     }
 
     /** @return list<mixed> */
