@@ -14,22 +14,22 @@ Every frame consists of a **Size header** followed by a **Payload**:
 Complete Frame Layout:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  Size (4 bytes)  │  Payload (variable)                                      │
-│  uint32 BE       │  Key + Version + CorrelationId + Content                 │
+│  uint32 BE       │  Key + Version + [optional CorrelationId] + Content      │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 Payload Structure:
-┌──────────┬──────────┬─────────────────┬──────────────────────────────────────┐
-│ Key      │ Version  │ CorrelationId   │ Content                              │
-│ (2 bytes)│ (2 bytes)│ (4 bytes)       │ (variable)                           │
-│ uint16   │ uint16   │ uint32          │ command-specific                     │
-└──────────┴──────────┴─────────────────┴──────────────────────────────────────┘
+┌──────────┬──────────┬─────────────────────┬──────────────────────────────────┐
+│ Key      │ Version  │ [CorrelationId]     │ Content                          │
+│ (2 bytes)│ (2 bytes)│ (optional, 4 bytes)  │ (variable)                       │
+│ uint16   │ uint16   │ uint32              │ command-specific                 │
+└──────────┴──────────┴─────────────────────┴──────────────────────────────────┘
 ```
 
 ## Field Details
 
 ### Size (uint32, 4 bytes)
 
-The total size of the frame **excluding** the Size field itself:
+The total size of the frame **excluding** the Size field itself. Frames that carry a CorrelationId—including correlated request/response frames and server-push `Close` (`0x0016`)—include its 4 bytes in the payload:
 
 ```
 Size = Length(Key) + Length(Version) + Length(CorrelationId) + Length(Content)
@@ -37,13 +37,25 @@ Size = 2 + 2 + 4 + len(Content)
 Size = 8 + len(Content)
 ```
 
+Correlation-less frames omit the CorrelationId and use:
+
+```
+Size = Length(Key) + Length(Version) + Length(Content)
+Size = 2 + 2 + len(Content)
+Size = 4 + len(Content)
+```
+
+Client-initiated correlation-less frames include `Tune` (`0x0014`), `Heartbeat` (`0x0017`), `Credit` (`0x0009`), `Publish` (`0x0002`), and `StoreOffset` (`0x000a`).
+
 **Byte order:** Big-endian (network byte order)
 
-**Example:** A frame with 20 bytes of content:
+**Example:** A correlated frame with 20 bytes of content:
 ```
 Size = 8 + 20 = 28
 Bytes: [0x00 0x00 0x00 0x1C]
 ```
+
+A correlation-less frame with the same content is 24 bytes (`4 + 20`).
 
 ### Key (uint16, 2 bytes)
 
@@ -77,15 +89,15 @@ Version = 1  (for most current commands)
 Version = 2  (for extended features like Deliver v2)
 ```
 
-### CorrelationId (uint32, 4 bytes)
+### CorrelationId (optional uint32, 4 bytes)
 
-Unique identifier to match requests with responses:
+When present, this identifier matches a request with its response. Some commands, including `Tune` (`0x0014`), `Heartbeat` (`0x0017`), `Credit` (`0x0009`), `Publish` (`0x0002`), and `StoreOffset` (`0x000a`), omit it. Server-push frames also omit it or use 0, except `Close` (`0x0016`), which carries the client's CorrelationId for its response:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  Request:  Client generates unique CorrelationId                             │
-│  Response: Server echoes the same CorrelationId                              │
-│  Server-Push: CorrelationId = 0 (or omitted)                                 │
+│  Correlated request: Client generates a unique CorrelationId                │
+│  Correlated response: Server echoes the same CorrelationId                  │
+│  Server-Push: CorrelationId = 0 (or omitted), except Close (0x0016)          │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -242,16 +254,21 @@ $buffer = new ReadBuffer($frameData);
 $size = $buffer->getUint32();     // Frame size
 $key = $buffer->getUint16();      // Command key
 $version = $buffer->getUint16();  // Protocol version
-$correlationId = $buffer->getUint32();  // Correlation ID
+if ($commandCarriesCorrelationId) {
+    $correlationId = $buffer->getUint32();  // Correlated commands only
+}
 // ... read command-specific content
 ```
 
 ### Frame Size Calculation
 
 ```php
-// Calculate frame size before sending
+// Calculate frame size before sending a correlated frame
 $contentLength = strlen($content);
-$frameSize = 8 + $contentLength;  // 8 = Key(2) + Version(2) + CorrelationId(4)
+$frameSize = 8 + $contentLength;  // Key(2) + Version(2) + CorrelationId(4)
+
+// For a correlation-less frame (e.g. Publish or Credit), use:
+$frameSize = 4 + $contentLength;  // Key(2) + Version(2)
 
 // Write size header followed by payload
 $sizeBuffer = new WriteBuffer();
@@ -290,7 +307,7 @@ Server-push frames have slight differences:
 │  Size (4 bytes)                                                              │
 │  Key (2 bytes) - in request range (0x0001-0x7FFF)                           │
 │  Version (2 bytes)                                                           │
-│  [CorrelationId may be 0 or omitted]                                         │
+│  [CorrelationId may be 0 or omitted; Close (0x0016) echoes the client's ID]  │
 │  Content (variable)                                                          │
 └─────────────────────────────────────────────────────────────────────────────┘
 
