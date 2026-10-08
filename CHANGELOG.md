@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: publishing guide documents producer-name sequence collisions after stream recreation (#646)** — clarified that named producers resume above the broker's current publishing sequence, but deleting and recreating a stream resets it, allowing producers sharing a name to reuse IDs and have messages silently dropped as duplicates. Documented unique names or coordinated recovery after a fresh sequence query as mitigations. No behavior change.
 - **Docs: incoming socket frame logs now match the documented hex dumps (#642)** — clarified that `Socket <-` frame dumps begin at the key and omit the four-byte size prefix, unlike outgoing dumps, and corrected the examples. No behavior change.
 - **Docs: distinguish broker-reported and client-side frame-size errors (#636)** — clarified that broker `FRAME_TOO_LARGE` responses become `ProtocolException`, oversized incoming frames become `ConnectionException`, and oversized outgoing frames are rejected by `sendFrame()` with `InvalidArgumentException`. No behavior change.
 - **Docs: frame-structure reference distinguishes correlated and correlation-less frame sizes (#641)** — clarified that correlated frames include a 4-byte CorrelationId while `Tune`, `Heartbeat`, `Credit`, `Publish`, and `StoreOffset` use the 4-byte key/version header only, and corrected the server-push `Close` CorrelationId direction. No behavior change.
