@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - **Docs: corrected `OffsetSpec::last()` and `OffsetSpec::next()` semantics (#631)** — clarified that `last()` starts at the last chunk (delivered in full) and `next()` starts at the stream end (new messages only), and replaced the false `next()` resume advice with a stored-offset query followed by `OffsetSpec::offset()`. No behavior change.
+- **Docs: flow-control guide shows how to configure `maxBufferSize` (#625)** — added a `Connection::createConsumer()` example beside the buffer gate description. No behavior change.
 - **Docs: low-level and protocol code-fence examples are now self-contained or labelled fragments (#635)** — fixed a missing `ResponseCodeEnum` import and unused imports, labelled response-reading fragments that assume a request is pending, and stopped metadata lookup at the matching stream. No behavior change.
 - **Docs: corrected the performance-tuning Consumer examples (#624)** — replaced direct `Consumer` construction with `Connection::createConsumer()` so the examples pass the high-level connection type accepted by the surrounding documentation. No behavior change.
 - **Docs: SASL authentication guidance now describes challenge responses (#717)** — clarified that only codes other than `OK` and `SASL_CHALLENGE` throw during deserialization, and documented `SaslAuthenticateResponseV1::getChallenge()` for reading the optional challenge payload. No behavior change.

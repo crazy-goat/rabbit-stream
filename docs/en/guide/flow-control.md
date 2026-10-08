@@ -80,7 +80,9 @@ of MB in flight on the first case and a few hundred messages on the second.
 Setting `creditWindowBytes: 0` disables the adaptation and pins the window to
 exactly `initialCredit` chunks. `Consumer::getCreditTarget()` exposes the current
 target for monitoring, and the `maxBufferSize` gate (no credit while too many
-unread messages are buffered) still applies on top of the window.
+unread messages are buffered) still applies on top of the window. Configure it
+through the high-level factory, for example:
+`$connection->createConsumer('orders', OffsetSpec::first(), maxBufferSize: 100)`.
 
 This guide shows the low-level API — the snippet uses a raw `StreamConnection`
 (`$stream`):
