@@ -384,20 +384,25 @@ function createResumingConsumer(
 }
 ```
 
-### Pattern 2: Using OffsetSpec::next()
+### Pattern 2: Resume with queryOffset() and OffsetSpec::offset()
 
-Use the built-in `next()` type for automatic resume:
+`OffsetSpec::next()` starts at the end of the stream and receives only messages published after the subscription; it does not resume from a named consumer's stored offset. Query the stored offset and subscribe at it explicitly:
 
 ```php
-// Automatically resumes from stored offset
+$consumerName = 'my-consumer';
+$stream = 'events';
+$storedOffset = $connection->queryOffset($consumerName, $stream);
+
+$startOffset = $storedOffset === null
+    ? OffsetSpec::first()
+    : OffsetSpec::offset($storedOffset);
+
 $consumer = $connection->createConsumer(
-    'events',
-    OffsetSpec::next(),  // Uses stored offset
-    name: 'my-consumer'
+    $stream,
+    $startOffset,
+    name: $consumerName
 );
 ```
-
-**Note**: `OffsetSpec::next()` requires a previously stored offset. If none exists, it starts from the beginning.
 
 ### Pattern 3: Resume with Consumer Recovery
 
@@ -698,3 +703,4 @@ $lastOffset = $consumer->queryOffset() ?? -1;  // No offset stored yet
 - [Consuming Guide](../guide/consuming.md) - Comprehensive consuming documentation
 - [Offset Tracking Guide](../guide/offset-tracking.md) - Detailed offset management
 - [Consumer API Reference](../api-reference/consumer.md) - Complete API documentation
+- [Issue #619](https://github.com/crazy-goat/rabbit-stream/issues/619) - Align the executable resume examples and their output with the documented offset-resume behavior

@@ -879,8 +879,8 @@ public function createConsumer(
 #### OffsetSpec Factory Methods
 
 - `OffsetSpec::first()` - Start from the first message
-- `OffsetSpec::last()` - Start from the last message (next new message)
-- `OffsetSpec::next()` - Start from the next message after the last consumed
+- `OffsetSpec::last()` - Start from the last chunk of messages, delivered in full
+- `OffsetSpec::next()` - Start at the end of the stream; receive messages published after subscription
 - `OffsetSpec::offset(int $offset)` - Start from a specific offset
 - `OffsetSpec::timestamp(int $timestamp)` - Start at the first chunk with chunk timestamp `>=` the value, delivered in full (chunk-granular). The value is in **milliseconds** since the Unix epoch
 

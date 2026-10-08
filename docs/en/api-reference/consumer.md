@@ -9,7 +9,7 @@ namespace CrazyGoat\RabbitStream\Client;
 
 class Consumer
 {
-    // Constructor (via Connection::createConsumer())
+    // Constructor (direct; prefer Connection::createConsumer())
     public function __construct(
         StreamConnection $connection,
         string $stream,
@@ -25,6 +25,8 @@ class Consumer
         ?string $superStream = null,
         int $creditWindowBytes = self::DEFAULT_CREDIT_WINDOW_BYTES,
         int $maxDecodeDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+        ?callable $onClose = null,
+        bool $verifyCrc = true,
     );
     
     // Reading methods
@@ -63,13 +65,14 @@ $consumer = $connection->createConsumer(
     ?string $name = null,             // Optional: Consumer name for offset tracking
     int $autoCommit = 0,             // Optional: Auto-commit interval (messages)
     int $initialCredit = 10,          // Optional: Initial flow control credits (chunk-granular)
-    int $maxBufferSize = 1000,        // Optional: Target buffer bound (message-granular)
     array $filterValues = [],         // Optional: broker-side stream filtering values
     bool $matchUnfiltered = false,    // Optional: also receive messages with no filter value
     bool $singleActiveConsumer = false, // Optional: single active consumer (requires $name)
     ?string $superStream = null,      // Optional: super-stream partition name
     int $creditWindowBytes = 8 * 1024 * 1024, // Optional: adaptive credit window in bytes (0 = fixed initialCredit)
     int $maxDecodeDepth = 32,         // Optional: max AMQP nesting depth accepted when decoding
+    bool $verifyCrc = true,           // Optional: verify CRC-32 for every delivered chunk
+    int $maxBufferSize = 1000,        // Optional: Target buffer bound (message-granular)
 ): Consumer
 ```
 
@@ -82,13 +85,14 @@ $consumer = $connection->createConsumer(
 | `$name` | `?string` | No | Unique consumer name for offset tracking. Required for `storeOffset()` and `queryOffset()`, and for `singleActiveConsumer`. |
 | `$autoCommit` | `int` | No | Number of messages between automatic offset commits. `0` disables auto-commit. |
 | `$initialCredit` | `int` | No | Initial number of flow control credits. **Chunk-granular**: 1 credit = 1 future chunk delivery, and this is the starting and **minimum** in-flight chunk target; `$creditWindowBytes` may raise it when chunks turn out to be small. Must be 1–32767. |
-| `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — once the buffer is full no new credit is granted, but every chunk already granted (in flight) is still accepted in full (messages are never dropped), so the buffer can exceed this by the chunks in flight (each granted within the target in force then, ≤ `MAX_CREDIT`; a later shrink of `creditTarget` does not revoke them), not by a single chunk's worth. |
 | `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (sent as `filter.0`, `filter.1`, ... properties). Filtering is **chunk-granular** (bloom filter per chunk) — see [Stream Filtering](../guide/consuming.md#7-stream-filtering). |
 | `$matchUnfiltered` | `bool` | No | When `$filterValues` is non-empty, also deliver chunks containing messages published with no filter value. |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer: the broker activates exactly one consumer per `$name` group at a time. Requires `$name`; throws `InvalidArgumentException` otherwise. See [Single Active Consumer](../guide/consuming.md#8-single-active-consumer). |
 | `$superStream` | `?string` | No | Name of the super stream this partition belongs to (sent as the `super-stream` property). |
 | `$creditWindowBytes` | `int` | No | Adaptive credit window in **bytes** (default 8 MiB). The consumer keeps `ceil(creditWindowBytes / observed average chunk size)` chunks in flight, never fewer than `$initialCredit`, never more than 32,767. `0` pins the window to `$initialCredit` chunks. See [Flow Control](../guide/flow-control.md#initial-credit-and-the-adaptive-window). |
 | `$maxDecodeDepth` | `int` | No | Maximum AMQP nesting depth accepted when a delivered message is decoded (default `32`). Must be at least 1. A deeper frame is rejected with `DeserializationException` — the guard that stops a small malicious frame from exhausting the PHP stack. |
+| `$verifyCrc` | `bool` | No | Verify the CRC-32 in each delivered chunk header (default `true`). A mismatch is rejected with `DeserializationException`; disable only when the cost matters or corruption is handled upstream. |
+| `$maxBufferSize` | `int` | No | Target ceiling, in **messages** (not chunks), on unread messages held in the client-side buffer. See [Flow Control](#flow-control) for the exact chunk-vs-message contract — once the buffer is full no new credit is granted, but every chunk already granted (in flight) is still accepted in full (messages are never dropped), so the buffer can exceed this by the chunks in flight (each granted within the target in force then, ≤ `MAX_CREDIT`; a later shrink of `creditTarget` does not revoke them), not by a single chunk's worth. |
 
 ### Where the Decode Limit Applies
 
@@ -116,8 +120,8 @@ foreach ($consumer->read() as $message) {
 | Method | Description |
 |--------|-------------|
 | `OffsetSpec::first()` | Start from the first message in the stream |
-| `OffsetSpec::last()` | Start from the last message (receive next new message) |
-| `OffsetSpec::next()` | Start from the next message after the last consumed |
+| `OffsetSpec::last()` | Start from the last chunk of messages, delivered in full |
+| `OffsetSpec::next()` | Start at the end of the stream; receive messages published after subscription |
 | `OffsetSpec::offset(int $offset)` | Start from a specific offset number |
 | `OffsetSpec::timestamp(int $timestamp)` | Start at the **first chunk whose chunk timestamp is >= the value**, delivered in full (chunk-granular). The value is in **milliseconds** since the Unix epoch |
 
