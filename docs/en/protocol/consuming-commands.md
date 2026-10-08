@@ -53,8 +53,8 @@ Types:
 | Type | Value | Description |
 |------|-------|-------------|
 | `FIRST` | 0x0001 | Start from first message in stream |
-| `LAST` | 0x0002 | Start from last message (receive only new messages) |
-| `NEXT` | 0x0003 | Start after last message (receive only future messages) |
+| `LAST` | 0x0002 | Start from the last chunk of messages, delivered in full |
+| `NEXT` | 0x0003 | Start at the end of the stream; receive messages published after subscription |
 | `OFFSET` | 0x0004 | Start from specific offset (followed by uint64) |
 | `TIMESTAMP` | 0x0005 | Start at the first chunk with chunk timestamp >= the value (chunk-granular), followed by uint64 ms |
 
