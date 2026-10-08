@@ -2080,13 +2080,25 @@ class StreamConnectionTest extends TestCase
      */
     public function testReadFrameThrowsOnSelectFailureWithSwallowingErrorHandler(): void
     {
-        if (!function_exists('posix_getrlimit') || !function_exists('posix_setrlimit') || !defined('POSIX_RLIMIT_NOFILE')) {
+        if (
+            !function_exists('posix_getrlimit')
+            || !function_exists('posix_setrlimit')
+            || !defined('POSIX_RLIMIT_NOFILE')
+        ) {
             $this->markTestSkipped('Raising the descriptor limit requires ext-posix');
         }
 
         $limits = posix_getrlimit();
-        $originalSoftLimit = $limits['soft openfiles'];
-        $hardLimit = $limits['hard openfiles'];
+        if ($limits === false) {
+            $this->markTestSkipped('Could not inspect the descriptor limit');
+        }
+
+        $originalSoftLimit = $limits['soft openfiles'] ?? null;
+        $hardLimit = $limits['hard openfiles'] ?? null;
+        if (!is_int($originalSoftLimit)) {
+            $this->markTestSkipped('Could not inspect the descriptor limit');
+        }
+
         $hardLimitForSetter = is_int($hardLimit) ? $hardLimit : PHP_INT_MAX;
         if (!posix_setrlimit(POSIX_RLIMIT_NOFILE, 4096, $hardLimitForSetter)) {
             $this->markTestSkipped('Could not raise the descriptor limit past select fd_set size');
