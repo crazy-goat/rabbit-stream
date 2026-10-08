@@ -514,7 +514,6 @@ class StreamConnection
         return (bool) $handler($severity, $message, $file, $line);
     }
 
-
     /**
      * Split a timeout in seconds into the (tv_sec, tv_usec) pair that
      * stream_select()/select(2) expects.

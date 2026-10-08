@@ -2073,10 +2073,103 @@ class StreamConnectionTest extends TestCase
     }
 
     /**
-     * GitHub #602: the readLoop() select must retry on EINTR. The loop already
-     * recomputes its remaining budget and re-checks running/connected on every
-     * iteration, so a `continue` lets a signal handler that calls stop() end the
-     * loop cleanly instead of crashing the worker.
+     * A real select syscall failure must still throw ConnectionException when
+     * the application's error handler swallows PHP warnings. Use a descriptor
+     * beyond the platform's select fd_set limit to provoke that failure without
+     * closing the PHP stream resource (which would instead raise a TypeError).
+     */
+    public function testReadFrameThrowsOnSelectFailureWithSwallowingErrorHandler(): void
+    {
+        if (!function_exists('posix_getrlimit') || !function_exists('posix_setrlimit') || !defined('POSIX_RLIMIT_NOFILE')) {
+            $this->markTestSkipped('Raising the descriptor limit requires ext-posix');
+        }
+
+        $limits = posix_getrlimit();
+        $originalSoftLimit = $limits['soft openfiles'];
+        $hardLimit = $limits['hard openfiles'];
+        $hardLimitForSetter = is_int($hardLimit) ? $hardLimit : PHP_INT_MAX;
+        if (!posix_setrlimit(POSIX_RLIMIT_NOFILE, 4096, $hardLimitForSetter)) {
+            $this->markTestSkipped('Could not raise the descriptor limit past select fd_set size');
+        }
+
+        $selectedStream = null;
+        $streams = [];
+        $probeFailed = false;
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            // Keep every descriptor open while probing: closing one endpoint
+            // would let the OS reuse its descriptor number instead of reaching
+            // the select fd_set limit.
+            for ($attempt = 0; $attempt < 4096; $attempt++) {
+                $pair = @stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+                if ($pair === false) {
+                    break;
+                }
+
+                $streams[] = $pair[0];
+                $streams[] = $pair[1];
+                $read = [$pair[0]];
+                $write = null;
+                $except = null;
+                if (@stream_select($read, $write, $except, 0, 0) === false) {
+                    $selectedStream = $pair[0];
+                    $probeFailed = true;
+                    break;
+                }
+            }
+        } finally {
+            restore_error_handler();
+            foreach ($streams as $stream) {
+                if ($stream !== $selectedStream && is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+            $streams = $selectedStream === null ? [] : [$selectedStream];
+            posix_setrlimit(POSIX_RLIMIT_NOFILE, $originalSoftLimit, $hardLimitForSetter);
+        }
+
+        if (!$probeFailed || $selectedStream === null) {
+            foreach ($streams as $stream) {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+            $this->markTestSkipped('Could not create a descriptor beyond this PHP build\'s select fd_set limit');
+        }
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $selectedStream);
+        $warnings = 0;
+        set_error_handler(static function () use (&$warnings): bool {
+            $warnings++;
+
+            return true;
+        });
+
+        try {
+            try {
+                $connection->readFrame(1.0);
+                self::fail('A genuine stream_select failure must not be treated as a timeout');
+            } catch (ConnectionException $exception) {
+                $this->assertStringContainsString('stream_select failed', $exception->getMessage());
+            }
+        } finally {
+            restore_error_handler();
+            foreach ($streams as $stream) {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+        }
+
+        $this->assertGreaterThan(0, $warnings, 'The swallowing error handler must observe the select failure');
+    }
+
+    /**
+     * GitHub #602: readFrame() must recognize a signal-interrupted select even
+     * when the application's error handler swallows its warning, then retry the
+     * wait and return the normal timeout result instead of a fake failure.
      */
     public function testReadFrameSurvivesEintrWithSwallowingErrorHandler(): void
     {
@@ -2107,6 +2200,12 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    /**
+     * GitHub #602: the readLoop() select must retry on EINTR. The loop already
+     * recomputes its remaining budget and re-checks running/connected on every
+     * iteration, so a `continue` lets a signal handler that calls stop() end the
+     * loop cleanly instead of crashing the worker.
+     */
     public function testReadLoopSurvivesEintr(): void
     {
         [$peer, $clientSocket] = $this->createSocketPair();
