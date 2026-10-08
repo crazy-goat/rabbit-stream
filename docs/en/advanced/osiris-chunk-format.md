@@ -452,23 +452,32 @@ reads into the bloom filter or trailer.
 
 ### Batch Processing
 
-For high-throughput scenarios:
+For high-throughput scenarios, batch the zero-copy `Message` views yielded by
+`parseMessages()`. This keeps only the current batch of views in the batch array;
+there is no need to parse and copy every `ChunkEntry` first or call
+`AmqpMessageDecoder::decodeAll()`:
 
 ```php
-// Process entries in batches
 $batchSize = 100;
-$entries = OsirisChunkParser::parse($chunkBytes);
-
-foreach (array_chunk($entries, $batchSize) as $batch) {
-    $messages = AmqpMessageDecoder::decodeAll($batch);
-    
-    // Process batch
+$batch = [];
+$processBatch = static function (array $messages): void {
     foreach ($messages as $message) {
         processMessage($message);
     }
-    
-    // Free memory periodically
-    unset($messages);
+};
+
+foreach (OsirisChunkParser::parseMessages($chunkBytes) as $message) {
+    $batch[] = $message;
+
+    if (count($batch) === $batchSize) {
+        $processBatch($batch);
+        $batch = [];
+    }
+}
+
+// Process the final batch when it contains fewer than $batchSize messages.
+if ($batch !== []) {
+    $processBatch($batch);
 }
 ```
 
