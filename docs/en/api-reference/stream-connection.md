@@ -169,10 +169,15 @@ public function readFrame(float $timeout = 30.0): ?ReadBuffer
 ```
 
 **Parameters:**
-- `$timeout` - Timeout in seconds (default: 30.0, 0 = non-blocking)
+- `$timeout` - Total time budget in seconds (default: 30.0, 0 = non-blocking).
+  Each wait is capped at one second so a `stop()` request can be observed promptly
+  at the next poll boundary.
 
-**Returns:** `ReadBuffer` with frame data, or `null` when no frame arrived — the
-socket is then still at a frame boundary, so calling again is safe
+**Returns:** `ReadBuffer` with frame data, or `null` if the timeout expires before
+  a frame arrives — the socket is then still at a frame boundary, so calling again
+  is safe. If `stop()` is requested during the wait, the method also returns `null`
+  at the next poll boundary; in that case, `null` means the read was stopped, not
+  that its timeout expired.
 
 **Throws:**
 - `ConnectionException` - If socket error occurs
@@ -352,7 +357,11 @@ $connection->readLoop();
 
 ### stop()
 
-Stops the event loop.
+Stops the event loop and requests that an in-progress `readFrame()` or
+`readMessage()` wait end at the next poll boundary. Since each wait polls at most
+once per second, the request is observed within one second. A stopped
+`readFrame()` returns `null`; a stopped `readMessage()` throws `TimeoutException`
+because it cannot return a frame.
 
 ```php
 public function stop(): void
