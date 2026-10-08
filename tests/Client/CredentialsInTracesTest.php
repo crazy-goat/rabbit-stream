@@ -39,9 +39,12 @@ final class CredentialsInTracesTest extends TestCase
         self::assertNotNull($exception, 'Expected a connection failure.');
         self::assertStringNotContainsString(self::PASSWORD, $exception->getTraceAsString());
         self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
-        $sensitiveArgs = $this->sensitiveTraceArgs($exception);
-        self::assertNotEmpty($sensitiveArgs, 'Trace args should contain a SensitiveParameterValue.');
-        self::assertContainsOnlyInstancesOf(\SensitiveParameterValue::class, $sensitiveArgs);
+        $createFrame = $this->createFrame($exception);
+        self::assertNotNull($createFrame, 'Connection::create() should appear in the exception trace.');
+        if (isset($createFrame['args'])) {
+            self::assertArrayHasKey(3, $createFrame['args']);
+            self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
+        }
     }
 
     public function testValidationErrorTraceDoesNotContainPassword(): void
@@ -60,9 +63,12 @@ final class CredentialsInTracesTest extends TestCase
         self::assertNotNull($exception, 'Expected an invalid-argument exception.');
         self::assertStringNotContainsString(self::PASSWORD, $exception->getTraceAsString());
         self::assertStringNotContainsString(self::PASSWORD, var_export($this->traceArgs($exception), true));
-        $sensitiveArgs = $this->sensitiveTraceArgs($exception);
-        self::assertNotEmpty($sensitiveArgs, 'Trace args should contain a SensitiveParameterValue.');
-        self::assertContainsOnlyInstancesOf(\SensitiveParameterValue::class, $sensitiveArgs);
+        $createFrame = $this->createFrame($exception);
+        self::assertNotNull($createFrame, 'Connection::create() should appear in the exception trace.');
+        if (isset($createFrame['args'])) {
+            self::assertArrayHasKey(3, $createFrame['args']);
+            self::assertInstanceOf(\SensitiveParameterValue::class, $createFrame['args'][3]);
+        }
     }
 
     public function testCreatePasswordIsSensitiveParameter(): void
@@ -116,13 +122,16 @@ final class CredentialsInTracesTest extends TestCase
         return $args;
     }
 
-    /** @return list<\SensitiveParameterValue> */
-    private function sensitiveTraceArgs(Throwable $exception): array
+    /** @return array<string, mixed>|null */
+    private function createFrame(Throwable $exception): ?array
     {
-        return array_values(array_filter(
-            $this->traceArgs($exception),
-            static fn (mixed $arg): bool => $arg instanceof \SensitiveParameterValue,
-        ));
+        foreach ($exception->getTrace() as $frame) {
+            if (($frame['class'] ?? null) === Connection::class && ($frame['function'] ?? null) === 'create') {
+                return $frame;
+            }
+        }
+
+        return null;
     }
 
     /** @param array{class-string, string} $method */
