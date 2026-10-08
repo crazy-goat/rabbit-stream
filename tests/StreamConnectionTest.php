@@ -2078,6 +2078,35 @@ class StreamConnectionTest extends TestCase
      * iteration, so a `continue` lets a signal handler that calls stop() end the
      * loop cleanly instead of crashing the worker.
      */
+    public function testReadFrameSurvivesEintrWithSwallowingErrorHandler(): void
+    {
+        [$peer, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 2.0);
+        $this->injectSocket($connection, $clientSocket);
+
+        $warnings = 0;
+        set_error_handler(static function () use (&$warnings): bool {
+            $warnings++;
+
+            return true;
+        });
+        $this->armAlarm(1);
+
+        try {
+            $frame = $connection->readFrame(2.0);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame(1, $this->alarms, 'The signal must have interrupted the select');
+        $this->assertGreaterThanOrEqual(1, $warnings, 'The swallowing handler must observe the select warning');
+        $this->assertNull($frame, 'A swallowed EINTR warning must still be recognized and retried');
+
+        fclose($peer);
+        fclose($clientSocket);
+    }
+
     public function testReadLoopSurvivesEintr(): void
     {
         [$peer, $clientSocket] = $this->createSocketPair();
