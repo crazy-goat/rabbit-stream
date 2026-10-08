@@ -6,7 +6,7 @@ It provides low-level TCP communication with a RabbitMQ broker over the native S
 
 ## Requirements
 
-- PHP 8.1+, 64-bit build (stream offsets are uint64; see [Requirements](docs/en/getting-started/requirements.md))
+- PHP 8.1+, 64-bit build, `psr/log ^3.0`, and `ext-mbstring` (see [Requirements](docs/en/getting-started/requirements.md))
 - RabbitMQ with the `rabbitmq_stream` plugin enabled
 
 ## Installation
