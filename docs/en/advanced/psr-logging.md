@@ -58,8 +58,11 @@ Socket -> 000000180015000100003039000e6d792d6170706c69636174696f6e
 ```
 
 **Incoming frames:**
+
+Incoming frame dumps omit the four-byte size prefix; outgoing frame dumps include it.
+
 ```
-Socket <- 0000000e8015000100003039000100000000
+Socket <- 8015000100003039000100000000
 ```
 
 ### Connection Events
@@ -216,9 +219,9 @@ $producer->send('Hello, World!');
 
 ```
 [2024-01-15 10:30:45] DEBUG: Socket -> 000000180015000100003039000e6d792d6170706c69636174696f6e
-[2024-01-15 10:30:45] DEBUG: Socket <- 0000000e8015000100003039000100000000
+[2024-01-15 10:30:45] DEBUG: Socket <- 8015000100003039000100000000
 [2024-01-15 10:30:45] DEBUG: Socket -> 0000002200020001010000000100000000000000010000000d48656c6c6f2c20576f726c6421
-[2024-01-15 10:30:45] DEBUG: Socket <- 000000110003000101000000010000000000000001
+[2024-01-15 10:30:45] DEBUG: Socket <- 0003000101000000010000000000000001
 ```
 
 `Publish` (`0x0002`) is fire-and-forget and has **no** response frame. The
@@ -227,7 +230,8 @@ carries no CorrelationId); there is no `Publish` response key such as `0x8002`.
 
 ### Interpreting Hex Dumps
 
-Frame structure in hex:
+Outgoing frame dumps include the four-byte size prefix, while incoming frame dumps start at the key. The breakdown below is an outgoing frame:
+
 ```
 00000018 0015 0001 00003039 000e 6d792d6170706c69636174696f6e
 └─size─┘ └key┘ └ver┘ └─cid──┘ └len┘ └────── "my-application" ──────┘
