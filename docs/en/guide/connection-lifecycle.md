@@ -414,9 +414,11 @@ try {
 }
 ```
 
-### Frame Too Large (0x0e)
+### Frame Too Large
 
-Occurs when a received frame exceeds the negotiated `frameMax`:
+#### Broker-reported `FRAME_TOO_LARGE` response (0x0e)
+
+The broker returns this response code when it rejects a frame sent by the client because it exceeds the negotiated `frameMax`:
 
 ```php
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
@@ -436,18 +438,23 @@ try {
 
 **Response Code:** `0x0e` (FRAME_TOO_LARGE)
 
-Client-side, an oversized *incoming* frame throws `ConnectionException`
-("Frame size N exceeds maximum allowed M") from `readFrame()`/`readLoop()` and
-closes the connection — except for Deliver frames (key `0x0008`), which the
-broker does not bound by `frame_max` at all (a stream chunk is sent whole) and
-which are therefore checked against the separate, larger
-`maxDeliverFrameSize` instead of `maxFrameSize`. See
+#### Client-side: oversized incoming frame
+
+Separately, the client throws `ConnectionException` when it receives an
+oversized *incoming* frame. The exception ("Frame size N exceeds maximum
+allowed M") comes from `readFrame()`/`readLoop()` and closes the connection —
+except for Deliver frames (key `0x0008`), which the broker does not bound by
+`frame_max` at all (a stream chunk is sent whole) and which are therefore
+checked against the separate, larger `maxDeliverFrameSize` instead of
+`maxFrameSize`. See
 [Performance Tuning → Deliver frames need their own cap](../advanced/performance-tuning.md#setmaxdeliverframesize--deliver-frames-need-a-separate-larger-cap).
 
-An oversized *outgoing* frame is rejected up front by `sendFrame()` with
-`CrazyGoat\RabbitStream\Exception\InvalidArgumentException`, before anything
-is written to the socket — the connection is left connected and usable, so
-there is no need to reconnect after catching it.
+#### Client-side: oversized outgoing frame
+
+The client also rejects an oversized *outgoing* frame up front in `sendFrame()`
+with `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`, before
+anything is written to the socket — the connection is left connected and
+usable, so there is no need to reconnect after catching it.
 
 ### Socket Errors
 
