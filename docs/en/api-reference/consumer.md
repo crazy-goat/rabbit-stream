@@ -122,7 +122,7 @@ foreach ($consumer->read() as $message) {
 | `OffsetSpec::first()` | Start from the first message in the stream |
 | `OffsetSpec::last()` | Start from the last chunk of messages, delivered in full |
 | `OffsetSpec::next()` | Start at the end of the stream; receive messages published after subscription |
-| `OffsetSpec::offset(int $offset)` | Start from a specific offset number |
+| `OffsetSpec::offset(int $offset)` | Start from a specific offset number (inclusive); if retention has removed it, the broker attaches at the first offset still available |
 | `OffsetSpec::timestamp(int $timestamp)` | Start at the **first chunk whose chunk timestamp is >= the value**, delivered in full (chunk-granular). The value is in **milliseconds** since the Unix epoch |
 
 > **Timestamp is chunk-granular.** Chunks are the broker's batching unit and
@@ -841,6 +841,8 @@ try {
 ```php
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 
 function consumeWithRetry(
     Connection $connection,
@@ -876,14 +878,14 @@ function consumeWithRetry(
             $consumer->close();
             return;
             
-        } catch (\Exception $e) {
+        } catch (RabbitStreamExceptionInterface $e) {
             $retries++;
             echo "Error: {$e->getMessage()}. Retry {$retries}/{$maxRetries}\n";
             sleep(1);
         }
     }
     
-    throw new \Exception("Failed to consume after {$maxRetries} retries");
+    throw new ConnectionException("Failed to consume after {$maxRetries} retries");
 }
 ```
 

@@ -140,7 +140,7 @@ The `OffsetSpec` determines where consumption begins in the stream. The protocol
 | `OffsetSpec::first()` | Start from the first message | Initial data load, full replay |
 | `OffsetSpec::last()` | Start from the last chunk of messages, delivered in full | Real-time processing including the final chunk |
 | `OffsetSpec::next()` | Start at the end of the stream (messages published after subscription) | Receive only new messages |
-| `OffsetSpec::offset(int $offset)` | Start at a specific offset (inclusive) | Resume from known position |
+| `OffsetSpec::offset(int $offset)` | Start at a specific offset (inclusive); if retention has removed it, start at the first available offset | Resume from known position |
 | `OffsetSpec::timestamp(int $timestamp)` | Start at the first chunk with chunk timestamp >= the value; **milliseconds** since the epoch (chunk-granular) | Time-based replay |
 
 ### Offset Type Examples
@@ -943,6 +943,9 @@ try {
 ### Consumer Recovery Pattern
 
 ```php
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
+
 function consumeWithRetry(
     Connection $connection,
     string $stream,
@@ -977,14 +980,14 @@ function consumeWithRetry(
             $consumer->close();
             return;
             
-        } catch (\Exception $e) {
+        } catch (RabbitStreamExceptionInterface $e) {
             $retries++;
             echo "Error: {$e->getMessage()}. Retry {$retries}/{$maxRetries}\n";
             sleep(1);
         }
     }
     
-    throw new \Exception("Failed to consume after {$maxRetries} retries");
+    throw new ConnectionException("Failed to consume after {$maxRetries} retries");
 }
 ```
 

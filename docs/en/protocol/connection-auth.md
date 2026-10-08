@@ -178,6 +178,7 @@ if ($challenge !== null) {
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
 use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
 // Send
@@ -190,7 +191,7 @@ try {
     assert($response instanceof SaslAuthenticateResponseV1);
 } catch (ProtocolException $e) {
     if ($e->getResponseCode() === ResponseCodeEnum::AUTHENTICATION_FAILURE) {
-        throw new \Exception('Authentication failed: invalid credentials');
+        throw new AuthenticationException('Authentication failed: invalid credentials', previous: $e, responseCode: $e->getResponseCode());
     }
     throw $e;
 }
@@ -296,6 +297,7 @@ ResponseCode: (uint16)
 use CrazyGoat\RabbitStream\Request\OpenRequestV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 
 // Send
@@ -308,7 +310,7 @@ try {
     assert($response instanceof OpenResponseV1);
 } catch (ProtocolException $e) {
     if ($e->getResponseCode() === ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE) {
-        throw new \Exception('Access denied to virtual host');
+        throw new AuthenticationException('Access denied to virtual host', previous: $e, responseCode: $e->getResponseCode());
     }
     throw $e;
 }
