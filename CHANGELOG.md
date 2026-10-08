@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: complete `SuperStreamProducer::refreshPartitions()` exception reference (#649)** — documented failures from partition resolution and closing producers for removed partitions in the source PHPDoc and API reference. No behavior change.
 - **Docs: distinguish broker-reported and client-side frame-size errors (#636)** — clarified that broker `FRAME_TOO_LARGE` responses become `ProtocolException`, oversized incoming frames become `ConnectionException`, and oversized outgoing frames are rejected by `sendFrame()` with `InvalidArgumentException`. No behavior change.
 - **Docs: frame-structure reference distinguishes correlated and correlation-less frame sizes (#641)** — clarified that correlated frames include a 4-byte CorrelationId while `Tune`, `Heartbeat`, `Credit`, `Publish`, and `StoreOffset` use the 4-byte key/version header only, and corrected the server-push `Close` CorrelationId direction. No behavior change.
 - **Docs: English examples use the library exception hierarchy (#634)** — replaced generic `\Exception` throws in `docs/en` with specific library exceptions and rewrote the correlated response-code examples in `enums.md` to catch `ProtocolException` and inspect its response code. No behavior change.
