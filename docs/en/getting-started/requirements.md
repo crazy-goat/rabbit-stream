@@ -23,29 +23,28 @@ throws `UnsupportedPlatformException` as soon as it is asked to decode anything.
 
 ### Required PHP Extensions
 
-The following extensions must be enabled in your PHP installation:
+The following extension must be enabled in your PHP installation:
 
 | Extension | Purpose | Check Command |
 |-----------|---------|---------------|
 | `mbstring` | String encoding and manipulation | `php -m \| grep mbstring` |
-| `sockets` | TCP socket communication | `php -m \| grep sockets` |
 
-Check all required extensions:
+Check the required extension:
 
 ```bash
-php -m | grep -E "mbstring|sockets"
+php -m | grep mbstring
 ```
 
-Both extensions are typically enabled by default in most PHP installations. If missing, install them:
+`mbstring` is typically enabled by default in most PHP installations. If missing, install it:
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt-get install php-mbstring php-sockets
+sudo apt-get install php-mbstring
 ```
 
 **CentOS/RHEL/Fedora:**
 ```bash
-sudo yum install php-mbstring php-sockets
+sudo yum install php-mbstring
 ```
 
 **macOS (Homebrew):**
@@ -178,8 +177,8 @@ if (version_compare(PHP_VERSION, '8.1.0', '<')) {
 }
 echo "PHP Version: " . PHP_VERSION . " OK\n";
 
-// Check extensions
-$required = ['mbstring', 'sockets'];
+// Check required extensions
+$required = ['mbstring'];
 foreach ($required as $ext) {
     if (!extension_loaded($ext)) {
         echo "ERROR: Extension '{$ext}' is not loaded\n";
