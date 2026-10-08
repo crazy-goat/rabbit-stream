@@ -841,6 +841,8 @@ try {
 ```php
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 
 function consumeWithRetry(
     Connection $connection,
@@ -876,14 +878,14 @@ function consumeWithRetry(
             $consumer->close();
             return;
             
-        } catch (\Exception $e) {
+        } catch (RabbitStreamExceptionInterface $e) {
             $retries++;
             echo "Error: {$e->getMessage()}. Retry {$retries}/{$maxRetries}\n";
             sleep(1);
         }
     }
     
-    throw new \Exception("Failed to consume after {$maxRetries} retries");
+    throw new ConnectionException("Failed to consume after {$maxRetries} retries");
 }
 ```
 

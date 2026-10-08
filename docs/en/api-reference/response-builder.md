@@ -237,6 +237,7 @@ Failed to deserialize response for command: {commandName}
 ```php
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\ResponseBuilder;
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 
 // Frame data from socket (without size prefix)
 $frameData = "\x80\x15\x00\x01\x00\x00\x00\x01\x00\x01";
@@ -251,6 +252,8 @@ $response = ResponseBuilder::fromResponseBuffer($buffer);
 ### Handling Different Response Types
 
 ```php
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+
 $response = ResponseBuilder::fromResponseBuffer($buffer);
 
 match (true) {
@@ -258,7 +261,7 @@ match (true) {
     $response instanceof SubscribeResponseV1 => handleSubscribe($response),
     $response instanceof PublishConfirmResponseV1 => handleConfirm($response),
     $response instanceof DeliverResponseV1 => handleDeliver($response),
-    default => throw new \Exception('Unknown response type'),
+    default => throw new InvalidArgumentException('Unknown response type'),
 };
 ```
 

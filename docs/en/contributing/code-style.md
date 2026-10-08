@@ -234,6 +234,8 @@ Use match expressions instead of switch statements:
 ```php
 <?php
 
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
+
 // ❌ Old way - switch statement
 switch ($key) {
     case KeyEnum::DECLARE_PUBLISHER->value:
@@ -241,14 +243,14 @@ switch ($key) {
     case KeyEnum::PUBLISH->value:
         return 'publish';
     default:
-        throw new \Exception('Unknown key');
+        throw new InvalidArgumentException('Unknown key');
 }
 
 // ✅ New way - match expression
 return match ($key) {
     KeyEnum::DECLARE_PUBLISHER->value => 'declare_publisher',
     KeyEnum::PUBLISH->value => 'publish',
-    default => throw new \Exception('Unknown key'),
+    default => throw new InvalidArgumentException('Unknown key'),
 };
 ```
 

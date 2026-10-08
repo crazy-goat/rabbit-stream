@@ -20,6 +20,8 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
+use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Request\PeerPropertiesRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
@@ -110,7 +112,7 @@ class LowLevelConnectionExample
         // Receive response
         $response = $this->readResponse('PeerProperties');
         if (!$response instanceof PeerPropertiesResponseV1) {
-            throw new \Exception('Expected PeerPropertiesResponseV1');
+            throw UnexpectedResponseException::create(PeerPropertiesResponseV1::class, $response);
         }
         
         $properties = [];
@@ -136,7 +138,7 @@ class LowLevelConnectionExample
         // Receive response
         $response = $this->readResponse('SaslHandshake');
         if (!$response instanceof SaslHandshakeResponseV1) {
-            throw new \Exception('Expected SaslHandshakeResponseV1');
+            throw UnexpectedResponseException::create(SaslHandshakeResponseV1::class, $response);
         }
         
         $mechanisms = $response->getMechanisms();
@@ -145,7 +147,7 @@ class LowLevelConnectionExample
         
         // Verify PLAIN is supported
         if (!in_array('PLAIN', $mechanisms, true)) {
-            throw new \Exception('PLAIN mechanism not supported by server');
+            throw new AuthenticationException('PLAIN mechanism not supported by server');
         }
     }
     
@@ -165,7 +167,7 @@ class LowLevelConnectionExample
         // Receive response
         $response = $this->readResponse('SaslAuthenticate');
         if (!$response instanceof SaslAuthenticateResponseV1) {
-            throw new \Exception('Expected SaslAuthenticateResponseV1');
+            throw UnexpectedResponseException::create(SaslAuthenticateResponseV1::class, $response);
         }
         
         echo "  ← Authentication successful\n\n";
@@ -181,7 +183,7 @@ class LowLevelConnectionExample
         // Server sends TuneRequestV1 first
         $tuneRequest = $this->stream->readMessage();
         if (!$tuneRequest instanceof TuneRequestV1) {
-            throw new \Exception('Expected TuneRequestV1 from server');
+            throw UnexpectedResponseException::create(TuneRequestV1::class, $tuneRequest);
         }
         
         $serverFrameMax = $tuneRequest->getFrameMax();
@@ -229,7 +231,7 @@ class LowLevelConnectionExample
         // Receive response
         $response = $this->readResponse('Open');
         if (!$response instanceof OpenResponseV1) {
-            throw new \Exception('Expected OpenResponseV1');
+            throw UnexpectedResponseException::create(OpenResponseV1::class, $response);
         }
         
         echo "  ✓ Virtual host '{$this->vhost}' opened successfully\n";
@@ -282,9 +284,10 @@ class LowLevelConnectionExample
             return $this->stream->readMessage();
         } catch (ProtocolException $e) {
             $code = $e->getResponseCode();
-            throw new \Exception(
+            throw new ProtocolException(
                 "{$command} failed: " . ($code?->getMessage() ?? $e->getMessage()),
-                previous: $e
+                previous: $e,
+                responseCode: $code
             );
         }
     }
@@ -379,9 +382,11 @@ if ($frameData instanceof ReadBuffer) {
 ## Error Handling in Low-Level Code
 
 ```php
+use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 
 try {
@@ -394,20 +399,23 @@ try {
     
     // Check response type
     if (!$response instanceof ExpectedResponseV1) {
-        throw new \Exception('Unexpected response type');
+        throw UnexpectedResponseException::create(ExpectedResponseV1::class, $response);
     }
     
+} catch (UnexpectedResponseException $e) {
+    throw $e;
+
 } catch (ProtocolException $e) {
     // Inspect the broker's response code carried by the exception
     switch ($e->getResponseCode()) {
         case ResponseCodeEnum::AUTHENTICATION_FAILURE:
-            throw new \Exception('Invalid credentials');
+            throw new AuthenticationException('Invalid credentials', previous: $e, responseCode: $e->getResponseCode());
             
         case ResponseCodeEnum::VIRTUAL_HOST_ACCESS_FAILURE:
-            throw new \Exception('Access denied to virtual host');
+            throw new AuthenticationException('Access denied to virtual host', previous: $e, responseCode: $e->getResponseCode());
             
         default:
-            throw new \Exception('Error: ' . $e->getMessage());
+            throw new ProtocolException('Error: ' . $e->getMessage(), previous: $e, responseCode: $e->getResponseCode());
     }
     
 } catch (TimeoutException $e) {

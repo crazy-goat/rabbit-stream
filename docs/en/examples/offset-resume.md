@@ -409,6 +409,9 @@ $consumer = $connection->createConsumer(
 Handle connection failures and retry:
 
 ```php
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
+
 function consumeWithResume(
     Connection $connection,
     string $stream,
@@ -431,14 +434,14 @@ function consumeWithResume(
             $consumer->close();
             return;
             
-        } catch (\Exception $e) {
+        } catch (RabbitStreamExceptionInterface $e) {
             $retries++;
             echo "Error: {$e->getMessage()}. Retry {$retries}/{$maxRetries}\n";
             sleep(1);
         }
     }
     
-    throw new \Exception("Failed after {$maxRetries} retries");
+    throw new ConnectionException("Failed after {$maxRetries} retries");
 }
 ```
 

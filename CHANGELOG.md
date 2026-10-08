@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: English examples use the library exception hierarchy (#634)** — replaced generic `\Exception` throws in `docs/en` with specific library exceptions and rewrote the correlated response-code examples in `enums.md` to catch `ProtocolException` and inspect its response code. No behavior change.
 - **Docs: offset guidance now describes gaps and retention clamping (#632)** — documented that requested offsets removed by retention attach at the first available offset, clarified that message offsets can have gaps due to broker-internal tracking entries, and added the `TYPE_NONE` value-object table row. No behavior change.
 - **Docs: corrected `OffsetSpec::last()` and `OffsetSpec::next()` semantics (#631)** — clarified that `last()` starts at the last chunk (delivered in full) and `next()` starts at the stream end (new messages only), and replaced the false `next()` resume advice with a stored-offset query followed by `OffsetSpec::offset()`. No behavior change.
 - **Docs: flow-control guide shows how to configure `maxBufferSize` (#625)** — added a `Connection::createConsumer()` example beside the buffer gate description. No behavior change.
