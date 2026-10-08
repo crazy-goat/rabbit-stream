@@ -514,7 +514,7 @@ try {
 
 ### TimeoutException
 
-Thrown when operations timeout:
+Thrown when operations timeout. This fragment assumes `$stream` is connected and a request has been sent, with its response pending.
 ```php
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 
