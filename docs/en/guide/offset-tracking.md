@@ -10,23 +10,25 @@ Offset tracking is the mechanism that allows consumers to persist their position
 
 ### What is an Offset?
 
-An offset is a monotonically increasing integer that represents the position of a message in a stream:
+An offset is a monotonically increasing integer that represents the position of a message in a stream. Message offsets are usually contiguous, but broker-internal offset-tracking entries can create gaps:
 
-- **Sequential**: Offsets start at 0 and increase by 1 for each message
+- **Sequential**: Offsets usually increase by 1, but broker-internal offset-tracking entries can create gaps
 - **Immutable**: Once assigned, an offset never changes
 - **Durable**: Offsets survive server restarts
 - **Per-stream**: Each stream has its own offset sequence
 
 ```
 Stream: "events"
-┌─────┬─────┬─────┬─────┬─────┬─────┐
-│  0  │  1  │  2  │  3  │  4  │  5  │
-├─────┼─────┼─────┼─────┼─────┼─────┤
-│ msg │ msg │ msg │ msg │ msg │ msg │
-└─────┴─────┴─────┴─────┴─────┴─────┘
-  ▲                           ▲
-  │                           │
-Offset 0 (first)         Offset 5 (latest)
+┌─────┬─────┬─────┬─────────┬─────┬─────┐
+│  0  │  1  │  2  │   3     │  4  │  5  │
+├─────┼─────┼─────┼─────────┼─────┼─────┤
+│ msg │ msg │ msg │tracking │ msg │ msg │
+└─────┴─────┴─────┴─────────┴─────┴─────┘
+  ▲                                   ▲
+  │                                   │
+Offset 0 (first message)        Offset 5 (latest message)
+
+Offset 3 is a broker-internal tracking entry, not a message delivered to the consumer.
 ```
 
 ### Named Consumers

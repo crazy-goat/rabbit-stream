@@ -140,7 +140,7 @@ The `OffsetSpec` determines where consumption begins in the stream. The protocol
 | `OffsetSpec::first()` | Start from the first message | Initial data load, full replay |
 | `OffsetSpec::last()` | Start from the last chunk of messages, delivered in full | Real-time processing including the final chunk |
 | `OffsetSpec::next()` | Start at the end of the stream (messages published after subscription) | Receive only new messages |
-| `OffsetSpec::offset(int $offset)` | Start at a specific offset (inclusive) | Resume from known position |
+| `OffsetSpec::offset(int $offset)` | Start at a specific offset (inclusive); if retention has removed it, start at the first available offset | Resume from known position |
 | `OffsetSpec::timestamp(int $timestamp)` | Start at the first chunk with chunk timestamp >= the value; **milliseconds** since the epoch (chunk-granular) | Time-based replay |
 
 ### Offset Type Examples
