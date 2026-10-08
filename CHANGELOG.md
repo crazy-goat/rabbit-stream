@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Consumer: resume after the committed message offset on leader moves (#584)** — re-subscription now distinguishes a recreated stream using `committed_offset`, not the first offset in the last committed chunk, so consumers do not replay already-processed messages from their initial offset.
+
 ## [1.8.0] - 2026-10-08
 
 ### Added
