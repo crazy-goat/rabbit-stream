@@ -67,6 +67,7 @@ class StreamConnection
      */
     private array $pendingResponses = [];
     private bool $running = false;
+    private bool $stopRequested = false;
     private readonly bool $debugLogging;
 
     /** @var array<int, array{onConfirm: callable, onError: callable}> */
@@ -935,11 +936,12 @@ class StreamConnection
     }
 
     /**
-     * Signal the readLoop to stop gracefully at the next iteration.
+     * Signal an active read to stop gracefully at its next poll boundary.
      */
     public function stop(): void
     {
         $this->running = false;
+        $this->stopRequested = true;
     }
 
     /**
@@ -1712,20 +1714,37 @@ class StreamConnection
     }
 
     /**
+     * Consume a pending stop request, if one arrived during the current poll.
+     *
+     * @phpstan-impure
+     */
+    private function consumeStopRequest(): bool
+    {
+        if (!$this->stopRequested) {
+            return false;
+        }
+
+        $this->stopRequested = false;
+
+        return true;
+    }
+
+    /**
      * Read a single raw frame from the socket (length-prefixed).
      *
-     * @param float $timeout Seconds to wait for data (0.0 = non-blocking poll)
+     * @param float $timeout Seconds to wait for data (0.0 = non-blocking poll); stop() is observed within one second
      * @return ReadBuffer|null Parsed frame buffer, or null if no data arrived within the timeout
      * @throws ConnectionException If the socket is not connected, frame exceeds max size, or read error occurs
      */
     public function readFrame(float $timeout = 30.0): ?ReadBuffer
     {
         $stream = $this->requireStream();
+        $this->stopRequested = false;
 
-        // The timeout is a budget for the whole call, not for one select(2): a
+        // The timeout is a budget for the whole call, not for one select(2):
+        // waits are capped at one second so stop() is observed promptly, and a
         // select interrupted by a signal (EINTR, GitHub #602) is retried with
-        // whatever is left of it, so the caller never waits longer than it asked
-        // for and a SIGTERM handler does not crash the worker.
+        // whatever is left of the budget.
         $deadline = microtime(true) + max(0.0, $timeout);
         $retried = false;
 
@@ -1737,7 +1756,7 @@ class StreamConnection
             // the exhausted budget means "nothing readable right now" — the
             // same answer a poll gives — so it returns null instead of spinning
             // on a zero-length select.
-            if ($retried && $remaining <= 0) {
+            if ($this->consumeStopRequest() || ($retried && $remaining <= 0)) {
                 return null;
             }
 
@@ -1745,7 +1764,7 @@ class StreamConnection
             $write = null;
             $except = null;
 
-            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remaining));
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(min(max(0.0, $remaining), 1.0));
 
             // Drop any earlier diagnostic so selectWasInterrupted() can only see
             // an error this select itself raised (#602).
@@ -1768,8 +1787,16 @@ class StreamConnection
                 continue;
             }
 
-            if ($ready === 0) {
+            if ($this->consumeStopRequest()) {
                 return null;
+            }
+
+            if ($ready === 0) {
+                if (microtime(true) >= $deadline) {
+                    return null;
+                }
+
+                continue;
             }
 
             return $this->readFrameNoWait();
