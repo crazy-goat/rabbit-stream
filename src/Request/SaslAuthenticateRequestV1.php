@@ -24,8 +24,11 @@ class SaslAuthenticateRequestV1 implements
     use V1Trait;
     use CommandTrait;
 
-    public function __construct(private string $mechanism, private string $username, private string $password)
-    {
+    public function __construct(
+        private string $mechanism,
+        private string $username,
+        #[\SensitiveParameter] private string $password,
+    ) {
     }
 
     public function toStreamBuffer(): WriteBuffer
