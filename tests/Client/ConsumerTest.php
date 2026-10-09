@@ -437,8 +437,8 @@ class ConsumerTest extends TestCase
 
     public function testReadStopsWaitingWhenReadLoopDispatchesNothing(): void
     {
-        // 0 dispatched frames = readLoop() hit its own timeout (or the connection
-        // dropped): read() must return immediately instead of spinning.
+        // 0 dispatched frames = readLoop() hit its own timeout: read() must
+        // return immediately instead of spinning. A disconnect throws.
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerSubscriber');
         $connection->expects($this->any())->method('request')->willReturn(new \stdClass());

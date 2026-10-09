@@ -52,8 +52,8 @@ class StreamConnection
      */
     private function requireStream()
     {
-        if ($this->stream === null || !is_resource($this->stream)) {
-            throw new ConnectionException("Cannot read: socket is not connected");
+        if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            throw new ConnectionException('Cannot use socket: socket is not connected');
         }
 
         return $this->stream;
@@ -577,14 +577,14 @@ class StreamConnection
      */
     public function close(): void
     {
-        if ($this->connected && $this->stream !== null && is_resource($this->stream)) {
+        if ($this->stream !== null && is_resource($this->stream)) {
             try {
                 fclose($this->stream);
             } catch (\Throwable) {
                 // Stream may already be closed, ignore
             }
-            $this->stream = null;
         }
+        $this->stream = null;
         $this->connected = false;
         // A closed connection cannot read a late reply, so the abandoned-id set
         // has no further use and must not be carried by a reused instance (R2-3).
@@ -1157,7 +1157,7 @@ class StreamConnection
             $written = @fwrite($stream, $sent === 0 ? $frame : substr($frame, $sent));
 
             if ($written === false || $written === 0) {
-                $this->connected = false;
+                $this->close();
                 throw new ConnectionException(
                     'Failed to write to socket: peer closed the connection or write error. ' .
                     'On an ssl:// transport a false/0 fwrite() can also indicate a temporary ' .
@@ -2055,7 +2055,7 @@ class StreamConnection
             if ($chunk === false || $chunk === '') {
                 $meta = stream_get_meta_data($stream);
                 if ($meta['eof']) {
-                    $this->connected = false;
+                    $this->close();
                     throw new ConnectionException("Failed to read from socket: connection closed by peer");
                 }
 
