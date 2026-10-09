@@ -1562,112 +1562,118 @@ class StreamConnection
     {
         $stream = $this->requireStream();
 
+        $wasRunning = $this->running;
         $this->running = true;
         $dispatched = 0;
         $interruptions = 0;
         $deadline = $timeout !== null ? microtime(true) + $timeout : null;
 
-        while ($this->running && $this->connected) {
-            $this->maintainHeartbeat();
+        try {
+            while ($this->running && $this->connected) {
+                $this->maintainHeartbeat();
 
-            // Check if timeout has expired
-            if ($deadline !== null && microtime(true) >= $deadline) {
-                break;
-            }
-
-            $read = [$stream];
-            $write = null;
-            $except = null;
-
-            // Calculate remaining timeout for stream_select.
-            // Cap $remaining BEFORE the split and hand the capped value to the
-            // helper: select(2) rejects tv_usec >= 1_000_000 with EINVAL (e.g.
-            // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
-            // polling at most once per second keeps stop()/deadline checks
-            // responsive.
-            $selectTimeout = 1.0;
-            if ($deadline !== null) {
-                $remaining = $deadline - microtime(true);
-                if ($remaining <= 0) {
+                // Check if timeout has expired
+                if ($deadline !== null && microtime(true) >= $deadline) {
                     break;
                 }
-                $selectTimeout = min($selectTimeout, $remaining);
-            }
-            $selectTimeout = $this->heartbeatWaitTimeout($selectTimeout);
-            [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout($selectTimeout);
 
-            $ready = $this->selectStreams($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
+                $read = [$stream];
+                $write = null;
+                $except = null;
 
-            if ($ready === false) {
-                // A signal that lands inside select(2) fails it with EINTR, not
-                // with a broken socket (GitHub #602). Retry as a spurious
-                // wakeup: the loop head re-checks running/connected and
-                // recomputes the remaining budget, so a handler that calls
-                // stop() ends the loop cleanly and a deadline still holds.
-                if ($this->selectWasInterrupted()) {
-                    $interruptions++;
-
-                    // readLoop(null, null) has no deadline, so nothing else stops
-                    // a retry here. Bound the unbroken run explicitly and fail
-                    // loudly rather than spin: a misfiring predicate would
-                    // otherwise burn a core forever without marking the
-                    // connection dead.
-                    if ($interruptions > self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS) {
-                        throw new ConnectionException(sprintf(
-                            'stream_select failed in readLoop: %d consecutive signal interruptions',
-                            $interruptions
-                        ));
+                // Calculate remaining timeout for stream_select().
+                // Cap $remaining BEFORE the split and hand the capped value to the
+                // helper: select(2) rejects tv_usec >= 1_000_000 with EINVAL (e.g.
+                // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
+                // polling at most once per second keeps stop()/deadline checks
+                // responsive.
+                $selectTimeout = 1.0;
+                if ($deadline !== null) {
+                    $remaining = $deadline - microtime(true);
+                    if ($remaining <= 0) {
+                        break;
                     }
+                    $selectTimeout = min($selectTimeout, $remaining);
+                }
+                $selectTimeout = $this->heartbeatWaitTimeout($selectTimeout);
+                [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout($selectTimeout);
 
+                $ready = $this->selectStreams($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
+
+                if ($ready === false) {
+                    // A signal that lands inside select(2) fails it with EINTR, not
+                    // with a broken socket (GitHub #602). Retry as a spurious
+                    // wakeup: the loop head re-checks running/connected and
+                    // recomputes the remaining budget, so a handler that calls
+                    // stop() ends the loop cleanly and a deadline still holds.
+                    if ($this->selectWasInterrupted()) {
+                        $interruptions++;
+
+                        // readLoop(null, null) has no deadline, so nothing else stops
+                        // a retry here. Bound the unbroken run explicitly and fail
+                        // loudly rather than spin: a misfiring predicate would
+                        // otherwise burn a core forever without marking the
+                        // connection dead.
+                        if ($interruptions > self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS) {
+                            throw new ConnectionException(sprintf(
+                                'stream_select failed in readLoop: %d consecutive signal interruptions',
+                                $interruptions
+                            ));
+                        }
+
+                        continue;
+                    }
+                    $this->connected = false;
+                    $this->notifyConnectionLost('stream_select failed in readLoop');
+                    throw new ConnectionException('stream_select failed in readLoop');
+                }
+
+                // The select itself completed (with data or on timeout), so any
+                // earlier run of interruptions was a transient signal burst.
+                $interruptions = 0;
+
+                if ($ready === 0) {
+                    $this->maintainHeartbeat();
                     continue;
                 }
-                $this->connected = false;
-                $this->notifyConnectionLost('stream_select failed in readLoop');
-                throw new ConnectionException('stream_select failed in readLoop');
-            }
 
-            // The select itself completed (with data or on timeout), so any
-            // earlier run of interruptions was a transient signal burst.
-            $interruptions = 0;
+                // stream_select() already confirmed the stream is readable above;
+                // avoid a second, redundant select per frame (see readFrameNoWait()).
+                $frame = $this->readFrameNoWait();
+                if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
+                    continue;
+                }
 
-            if ($ready === 0) {
-                $this->maintainHeartbeat();
-                continue;
-            }
+                $key = $frame->peekUint16();
 
-            // stream_select() already confirmed the stream is readable above;
-            // avoid a second, redundant select per frame (see readFrameNoWait()).
-            $frame = $this->readFrameNoWait();
-            if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
-                continue;
-            }
+                if (isset(self::SERVER_PUSH_KEYS[$key])) {
+                    $this->dispatchServerPush($frame);
+                    $dispatched++;
 
-            $key = $frame->peekUint16();
+                    // Connection may have been closed by server-initiated close
+                    if (!$this->connected) {
+                        break;
+                    }
+                } else {
+                    $dispatched++;
+                    $this->logger->warning(
+                        'readLoop() received unexpected non-server-push frame, discarding',
+                        ['key' => sprintf('0x%04x', $key)]
+                    );
+                }
 
-            if (isset(self::SERVER_PUSH_KEYS[$key])) {
-                $this->dispatchServerPush($frame);
-                $dispatched++;
-
-                // Connection may have been closed by server-initiated close
-                if (!$this->connected) {
+                if ($maxFrames !== null && $dispatched >= $maxFrames) {
                     break;
                 }
-            } else {
-                $dispatched++;
-                $this->logger->warning(
-                    'readLoop() received unexpected non-server-push frame, discarding',
-                    ['key' => sprintf('0x%04x', $key)]
-                );
             }
 
-            if ($maxFrames !== null && $dispatched >= $maxFrames) {
-                break;
-            }
+            return $dispatched;
+        } finally {
+            // A nested loop must not stop its caller, but an explicit stop() must
+            // remain visible to every active loop. This also restores state if a
+            // callback or the loop itself throws.
+            $this->running = $wasRunning && $this->running;
         }
-
-        $this->running = false;
-
-        return $dispatched;
     }
 
     private function dispatchServerPush(ReadBuffer $frame): void
