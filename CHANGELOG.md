@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: fix stored-offset resume examples (#619)** — the auto-commit example now queries the named consumer's stored next offset and explicitly subscribes at it (auto-commit alone does not select the first Subscribe offset); the manual resume example reports the next offset actually stored and handles runs with no newly processed messages.
 - **Docs: README consuming examples use the decoded Consumer API (#616)** — replaced the incomplete raw-Deliver decoding placeholder with the `Consumer::read()`/`readOne()` decoded `Message` API and a link to the manual raw-chunk decoding guide; defined `$running` in the live-stream example. No behavior change.
 - **Docs: complete Consumer read-method exception references (#613)** — the `Consumer::read()`, `readOne()` and `drain()` PHPDoc now lists timeout and connection failures from credit and auto-commit `StoreOffset` writes; the blocking read methods also name heartbeat echoes, server-close acknowledgements, ConsumerUpdate replies and re-subscribe request timeouts. No behavior change.
 - **Docs: use one authoritative response-code table (#663)** — the error-handling guide now links to the `ResponseCodeEnum` API table instead of duplicating it, and both SASL response-code tables in `connection-auth.md` include `0x14` and `0x15`. No behavior change.

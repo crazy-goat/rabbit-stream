@@ -20,6 +20,7 @@ class OffsetResumeExample
 {
     private Connection $connection;
     private string $consumerName = 'offset-resume-demo';
+    private ?int $startOffset = null;
     private int $messagesToProcess = 30;
 
     public function run(): void
@@ -99,10 +100,12 @@ class OffsetResumeExample
         $tempConsumer->close();
 
         if ($lastOffset === null) {
+            $this->startOffset = null;
             echo "  ℹ No stored offset found (first run or offset expired)\n";
             echo "  ℹ {$resumeInfo}\n";
         } else {
             // The stored value already is the next offset to consume
+            $this->startOffset = $lastOffset;
             $startOffset = OffsetSpec::offset($lastOffset);
             $resumeInfo = "Resuming from offset {$lastOffset}";
 
@@ -132,7 +135,8 @@ class OffsetResumeExample
         echo "Step 4: Processing messages (max {$this->messagesToProcess})...\n";
 
         $processed = 0;
-        $lastStoredOffset = -1;
+        $lastStoredOffset = null;
+        $nextOffset = $this->startOffset;
 
         try {
             while ($processed < $this->messagesToProcess) {
@@ -152,8 +156,9 @@ class OffsetResumeExample
 
                     if ($success) {
                         // Store offset ONLY after successful processing
-                        $consumer->storeOffset($currentOffset + 1);
-                        $lastStoredOffset = $currentOffset;
+                        $nextOffset = $currentOffset + 1;
+                        $consumer->storeOffset($nextOffset);
+                        $lastStoredOffset = $nextOffset;
 
                         $processed++;
 
@@ -175,8 +180,13 @@ class OffsetResumeExample
             echo "  ✗ Error: {$e->getMessage()}\n";
         }
 
-        echo "\n  ℹ Last stored offset: {$lastStoredOffset}\n";
-        echo "  ℹ On next run, will resume from offset {$lastStoredOffset}\n\n";
+        if ($lastStoredOffset === null) {
+            echo "\n  ℹ No new offset stored; next run will resume from offset ";
+            echo $nextOffset === null ? "the first available offset\n\n" : "{$nextOffset}\n\n";
+        } else {
+            echo "\n  ℹ Last stored offset: {$lastStoredOffset}\n";
+            echo "  ℹ On next run, will resume from offset {$lastStoredOffset}\n\n";
+        }
 
         return $processed;
     }
