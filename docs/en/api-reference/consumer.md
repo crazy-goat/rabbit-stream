@@ -73,7 +73,7 @@ $consumer = $connection->createConsumer(
     int $maxDecodeDepth = 32,         // Optional: max AMQP nesting depth accepted when decoding
     bool $verifyCrc = true,           // Optional: verify CRC-32 for every delivered chunk
     int $maxBufferSize = 1000,        // Optional: Target buffer bound (message-granular)
-): Consumer
+): ConsumerInterface
 ```
 
 ### Parameters

@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
@@ -32,6 +33,8 @@ use CrazyGoat\RabbitStream\VO\TlsConfig;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use RuntimeException;
+use Throwable;
 
 class StreamConnectionTest extends TestCase
 {
@@ -1414,26 +1417,130 @@ class StreamConnectionTest extends TestCase
     public function testDispatchConsumerUpdateRejectsInvalidOffsetTypeFromCallback(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
 
-        $connection = new StreamConnection('127.0.0.1', 5552);
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
-
         $connection->onConsumerUpdate(fn(ConsumerUpdateResponseV1 $query): array => [6, 0]);
 
         $correlationId = 1;
-        $subscriptionId = 1;
-        $active = 1;
-        $content = pack('N', $correlationId)
-            . pack('C', $subscriptionId)
-            . pack('C', $active);
-        $frame = $this->buildFrame(0x001a, 1, $content);
-        fwrite($serverSocket, $frame);
+        fwrite($serverSocket, $this->buildFrame(
+            0x001a,
+            1,
+            pack('N', $correlationId) . pack('C', 1) . pack('C', 1)
+        ));
 
-        $this->expectException(\CrazyGoat\RabbitStream\Exception\InvalidArgumentException::class);
-        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        $caught = null;
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        } catch (\Throwable $exception) {
+            $caught = $exception;
+        }
+
+        $this->assertInstanceOf(InvalidArgumentException::class, $caught);
+        $this->assertConsumerUpdateNoneReply($serverSocket, $correlationId);
+        $errorRecords = array_values(array_filter(
+            $logger->records,
+            static fn (array $record): bool => $record['level'] === 'error'
+        ));
+        $this->assertCount(1, $errorRecords);
+        $this->assertSame($caught, $errorRecords[0]['context']['exception']);
 
         fclose($serverSocket);
         fclose($clientSocket);
+    }
+
+    public function testDispatchConsumerUpdateRepliesAndRethrowsWhenPerSubscriptionHandlerThrows(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->registerConsumerUpdateHandler(1, static function (): never {
+            throw new RuntimeException('handler failed');
+        });
+
+        $correlationId = 77;
+        fwrite($serverSocket, $this->buildFrame(
+            0x001a,
+            1,
+            pack('N', $correlationId) . pack('C', 1) . pack('C', 1)
+        ));
+
+        $caught = null;
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        } catch (Throwable $exception) {
+            $caught = $exception;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught);
+        $this->assertSame('handler failed', $caught->getMessage());
+        $this->assertConsumerUpdateNoneReply($serverSocket, $correlationId);
+        $errorRecords = array_values(array_filter(
+            $logger->records,
+            static fn (array $record): bool => $record['level'] === 'error'
+        ));
+        $this->assertCount(1, $errorRecords);
+        $this->assertSame($caught, $errorRecords[0]['context']['exception']);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testDispatchConsumerUpdateRejectsInvalidPerSubscriptionReturnWithReply(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->registerConsumerUpdateHandler(1, static fn(): array => ['nope']);
+
+        $correlationId = 78;
+        fwrite($serverSocket, $this->buildFrame(
+            0x001a,
+            1,
+            pack('N', $correlationId) . pack('C', 1) . pack('C', 1)
+        ));
+
+        $caught = null;
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        } catch (Throwable $exception) {
+            $caught = $exception;
+        }
+
+        $this->assertInstanceOf(InvalidArgumentException::class, $caught);
+        $this->assertStringContainsString('got array', $caught->getMessage());
+        $this->assertConsumerUpdateNoneReply($serverSocket, $correlationId);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    /**
+     * Assert that the broker received the fallback ConsumerUpdate response.
+     *
+     * @param resource $serverSocket
+     */
+    private function assertConsumerUpdateNoneReply($serverSocket, int $correlationId): void
+    {
+        $response = $this->readResponse($serverSocket);
+        if ($response === null) {
+            self::fail('A ConsumerUpdate fallback reply must be sent');
+        }
+        $key = unpack('n', substr($response, 0, 2));
+        $correlation = unpack('N', substr($response, 4, 4));
+        $responseCode = unpack('n', substr($response, 8, 2));
+        $offsetType = unpack('n', substr($response, 10, 2));
+        $this->assertIsArray($key);
+        $this->assertIsArray($correlation);
+        $this->assertIsArray($responseCode);
+        $this->assertIsArray($offsetType);
+        $this->assertSame(0x801a, $key[1]);
+        $this->assertSame($correlationId, $correlation[1]);
+        $this->assertSame(1, $responseCode[1]);
+        $this->assertSame(OffsetSpec::TYPE_NONE, $offsetType[1]);
+        $this->assertSame(12, strlen($response));
     }
 
     /**
@@ -1513,23 +1620,27 @@ class StreamConnectionTest extends TestCase
 
         $connection = new StreamConnection('127.0.0.1', 5552);
         $this->injectSocket($connection, $clientSocket);
-
         $connection->onConsumerUpdate(
             fn(ConsumerUpdateResponseV1 $query): array => [OffsetSpec::TYPE_LAST, 1000]
         );
 
         $correlationId = 1;
-        $subscriptionId = 1;
-        $active = 1;
-        $content = pack('N', $correlationId)
-            . pack('C', $subscriptionId)
-            . pack('C', $active);
-        $frame = $this->buildFrame(0x001a, 1, $content);
-        fwrite($serverSocket, $frame);
+        fwrite($serverSocket, $this->buildFrame(
+            0x001a,
+            1,
+            pack('N', $correlationId) . pack('C', 1) . pack('C', 1)
+        ));
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Offset type 2 does not accept a non-zero offset');
-        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        $caught = null;
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 1.0);
+        } catch (Throwable $exception) {
+            $caught = $exception;
+        }
+
+        $this->assertInstanceOf(InvalidArgumentException::class, $caught);
+        $this->assertSame('Offset type 2 does not accept a non-zero offset', $caught->getMessage());
+        $this->assertConsumerUpdateNoneReply($serverSocket, $correlationId);
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -2526,6 +2637,114 @@ class StreamConnectionTest extends TestCase
         }
 
         return $data;
+    }
+
+    public function testReadLoopAndReadFrameThrowAfterPeerEof(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        stream_socket_shutdown($peer, STREAM_SHUT_WR);
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected ConnectionException on peer EOF');
+        } catch (ConnectionException) {
+        }
+
+        self::assertFalse($connection->isConnected());
+        self::assertNotTrue(is_resource((new \ReflectionProperty($connection, 'stream'))->getValue($connection)));
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected a later readLoop() call to throw');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('not connected', $exception->getMessage());
+        }
+
+        $reflection = new \ReflectionMethod($connection, 'readFrame');
+        try {
+            $reflection->invoke($connection);
+            self::fail('Expected a later readFrame() call to throw');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('not connected', $exception->getMessage());
+        }
+
+        fclose($peer);
+        $connection->close();
+    }
+
+    public function testConsumerReadThrowsAfterPeerEofInsteadOfReturningEmptyForever(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        $payload = pack('nnNn', 0x8007, 1, 1, 1);
+        fwrite($peer, pack('N', strlen($payload)) . $payload);
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        stream_socket_shutdown($peer, STREAM_SHUT_WR);
+
+        try {
+            $consumer->read(0.5);
+            self::fail('Expected ConnectionException on peer EOF');
+        } catch (ConnectionException) {
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            try {
+                $consumer->read(0.2);
+                self::fail('Consumer::read() must throw after the connection is disconnected');
+            } catch (ConnectionException $exception) {
+                self::assertStringContainsString('not connected', $exception->getMessage());
+            }
+        }
+
+        fclose($peer);
+    }
+
+    public function testSendFrameThrowsWithoutWritingAfterPeerEof(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        stream_socket_shutdown($peer, STREAM_SHUT_WR);
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected ConnectionException on peer EOF');
+        } catch (ConnectionException) {
+        }
+
+        try {
+            $connection->sendMessage(new TuneRequestV1(1024, 100));
+            self::fail('Expected ConnectionException on a disconnected connection');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('not connected', $exception->getMessage());
+        }
+
+        stream_set_blocking($peer, false);
+        self::assertSame('', fread($peer, 1), 'The disconnected connection must not send bytes to the peer');
+        fclose($peer);
+    }
+
+    public function testFailedWriteClosesStreamAndPreventsFurtherWrites(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        fclose($peer);
+
+        try {
+            $connection->sendMessage(new TuneRequestV1(1024, 100));
+            self::fail('Expected ConnectionException when writing to a closed peer');
+        } catch (ConnectionException) {
+        }
+
+        self::assertFalse($connection->isConnected());
+        self::assertNotTrue(is_resource((new \ReflectionProperty($connection, 'stream'))->getValue($connection)));
+        $this->expectException(ConnectionException::class);
+        $connection->sendMessage(new TuneRequestV1(1024, 100));
     }
 
     public function testSendFrameThrowsWhenSocketIsNull(): void
