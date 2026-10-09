@@ -14,31 +14,7 @@ Understanding these mechanisms is essential for building robust stream applicati
 
 ## Response Code Reference
 
-Every response from the server includes a response code. The `ResponseCodeEnum` defines all 19 possible codes:
-
-| Code | Name | Hex | Description | When It Occurs |
-|------|------|-----|-------------|----------------|
-| 1 | `OK` | 0x01 | Operation completed successfully | Normal successful response |
-| 2 | `STREAM_NOT_EXIST` | 0x02 | The referenced stream does not exist | Creating publisher/consumer for non-existent stream, deleting non-existent stream |
-| 3 | `SUBSCRIPTION_ID_ALREADY_EXISTS` | 0x03 | Subscription ID is already in use | Subscribing with an ID that's already active |
-| 4 | `SUBSCRIPTION_ID_NOT_EXIST` | 0x04 | Subscription ID does not exist | Committing offset or unsubscribing with invalid ID |
-| 5 | `STREAM_ALREADY_EXISTS` | 0x05 | Stream already exists | Creating a stream that already exists |
-| 6 | `STREAM_NOT_AVAILABLE` | 0x06 | Stream is temporarily unavailable | Stream leader is down, partition is being reassigned |
-| 7 | `SASL_MECHANISM_NOT_SUPPORTED` | 0x07 | Authentication mechanism not supported | Requesting SASL mechanism server doesn't support |
-| 8 | `AUTHENTICATION_FAILURE` | 0x08 | Authentication failed | Invalid credentials |
-| 9 | `SASL_ERROR` | 0x09 | Generic SASL error | Authentication protocol error |
-| 10 | `SASL_CHALLENGE` | 0x0a | SASL challenge received | Part of multi-step authentication |
-| 11 | `SASL_AUTHENTICATION_FAILURE_LOOPBACK` | 0x0b | Loopback authentication failed | Internal authentication error |
-| 12 | `VIRTUAL_HOST_ACCESS_FAILURE` | 0x0c | Cannot access virtual host | User lacks permissions for vhost |
-| 13 | `UNKNOWN_FRAME` | 0x0d | Unknown command frame | Protocol mismatch or corruption |
-| 14 | `FRAME_TOO_LARGE` | 0x0e | Frame exceeds maximum size | Sending oversized messages |
-| 15 | `INTERNAL_ERROR` | 0x0f | Server internal error | RabbitMQ server error |
-| 16 | `ACCESS_REFUSED` | 0x10 | Access refused | Insufficient permissions for operation |
-| 17 | `PRECONDITION_FAILED` | 0x11 | Precondition not met | Stream parameters don't match (e.g., max-age differs) |
-| 18 | `PUBLISHER_NOT_EXIST` | 0x12 | Publisher ID does not exist | Publishing with invalid publisher ID |
-| 19 | `NO_OFFSET` | 0x13 | No offset stored for consumer | First-time consumer with no stored offset |
-| 20 | `SASL_CANNOT_CHANGE_MECHANISM` | 0x14 | SASL mechanism cannot be changed | Switching mechanism on an authenticated connection |
-| 21 | `SASL_CANNOT_CHANGE_USERNAME` | 0x15 | SASL username cannot be changed | Switching username on an authenticated connection |
+Every response from the server includes a response code. See the [ResponseCodeEnum reference](../api-reference/enums.md#response-codes-table) for the complete, authoritative list and descriptions.
 
 ### Working with Response Codes
 

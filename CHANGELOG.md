@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Docs: use one authoritative response-code table (#663)** — the error-handling guide now links to the `ResponseCodeEnum` API table instead of duplicating it, and both SASL response-code tables in `connection-auth.md` include `0x14` and `0x15`. No behavior change.
+
 ### Fixed
 - **Test: EINTR regression checks no longer depend on flaky timing/platform behavior (#711)** — `testReadFrameSurvivesEintr` verifies signal delivery, timeout behavior and successful reading of a later frame without wall-clock elapsed-time bounds, which could fail spuriously after process suspension or clock adjustments. The swallowing-error-handler variant skips only its warning-specific assertion on PHP/OS combinations where interrupted `stream_select()` emits no warning; when a warning is emitted, the test still verifies the read recovers.
 - **Bug: `createSuperStreamProducer()` now passes `closeConfirmDrainTimeout` through to each partition Producer (#561)** — a configured close-confirm drain duration now applies to every lazily created partition Producer, matching `createProducer()`.
