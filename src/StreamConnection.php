@@ -1664,13 +1664,6 @@ class StreamConnection
             ));
         }
 
-        $this->connected = false;
-        $this->notifyConnectionLost(sprintf(
-            'Server-initiated close (code=%d, reason=%s)',
-            $closingCode,
-            $closingReason ?? ''
-        ));
-
         $response = (new WriteBuffer())
             ->addUInt16(KeyEnum::CLOSE_RESPONSE->value)
             ->addUInt16(1) // version
