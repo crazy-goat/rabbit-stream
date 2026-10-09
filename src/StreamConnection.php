@@ -29,6 +29,7 @@ use CrazyGoat\RabbitStream\VO\PublishingError;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Throwable;
 
 class StreamConnection
 {
@@ -55,6 +56,10 @@ class StreamConnection
     private function requireStream()
     {
         if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            if ($this->connected) {
+                $this->connected = false;
+                $this->notifyConnectionLost('Connection stream is not available');
+            }
             throw new ConnectionException('Cannot use socket: socket is not connected');
         }
 
@@ -76,6 +81,8 @@ class StreamConnection
 
     /** @var array<int, array{onConfirm: callable, onError: callable}> */
     private array $publisherCallbacks = [];
+    /** @var array<int, callable(string): void> */
+    private array $connectionLostHandlers = [];
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
     /** @var array<int, callable> */
@@ -604,6 +611,7 @@ class StreamConnection
      */
     public function close(): void
     {
+        $wasConnected = $this->connected;
         if ($this->stream !== null && is_resource($this->stream)) {
             try {
                 fclose($this->stream);
@@ -613,6 +621,9 @@ class StreamConnection
         }
         $this->stream = null;
         $this->connected = false;
+        if ($wasConnected) {
+            $this->notifyConnectionLost('Connection was closed');
+        }
         // A closed connection cannot read a late reply, so the abandoned-id set
         // has no further use and must not be carried by a reused instance (R2-3).
         $this->abandonedCorrelationIds = [];
@@ -644,6 +655,7 @@ class StreamConnection
 
         if ($this->stream === null || !is_resource($this->stream)) {
             $this->connected = false;
+            $this->notifyConnectionLost('Connection stream is no longer available');
             return false;
         }
 
@@ -906,6 +918,9 @@ class StreamConnection
      * @param int      $subscriptionId Subscription ID as declared with the server
      * @param callable $handler        Called with (ConsumerUpdateResponseV1 $update): ?OffsetSpec.
      *                                 Returning null means "none" (offsetType 0).
+     *
+     * If the handler throws or returns an invalid value, StreamConnection logs the
+     * failure, sends a "none" reply for the query, then rethrows to the readLoop() caller.
      */
     public function registerConsumerUpdateHandler(int $subscriptionId, callable $handler): void
     {
@@ -930,6 +945,37 @@ class StreamConnection
     public function unregisterPublisher(int $publisherId): void
     {
         unset($this->publisherCallbacks[$publisherId]);
+    }
+
+    /**
+     * Register a handler notified when this connection can no longer carry frames.
+     *
+     * @param int $handlerId Unique handler id, typically a publisher id
+     * @param callable(string): void $handler Receives the reason the connection was lost
+     */
+    public function registerConnectionLostHandler(int $handlerId, callable $handler): void
+    {
+        $this->connectionLostHandlers[$handlerId] = $handler;
+    }
+
+    /** Remove a connection-loss handler registered for a producer. */
+    public function unregisterConnectionLostHandler(int $handlerId): void
+    {
+        unset($this->connectionLostHandlers[$handlerId]);
+    }
+
+    /** Notify every active producer once, before discarding the callbacks. */
+    private function notifyConnectionLost(string $reason): void
+    {
+        if ($this->connectionLostHandlers === []) {
+            return;
+        }
+
+        $handlers = $this->connectionLostHandlers;
+        $this->connectionLostHandlers = [];
+        foreach ($handlers as $handler) {
+            $handler($reason);
+        }
     }
 
     /**
@@ -993,6 +1039,9 @@ class StreamConnection
      *                           A return value that is not a two-element list of ints is
      *                           rejected with an InvalidArgumentException when the frame is
      *                           dispatched, not silently coerced.
+     *
+     * If the callback throws or returns an invalid reply, StreamConnection logs the
+     * failure, sends a "none" reply for the query, then rethrows to the readLoop() caller.
      */
     public function onConsumerUpdate(callable $callback): void
     {
@@ -1107,6 +1156,8 @@ class StreamConnection
 
                 if ($ready === false) {
                     if (!$this->selectWasInterrupted()) {
+                        $this->connected = false;
+                        $this->notifyConnectionLost('stream_select failed while waiting for write readiness');
                         throw new ConnectionException("stream_select failed while waiting for write readiness");
                     }
 
@@ -1170,6 +1221,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while writing');
                 throw new ConnectionException('stream_select failed while writing');
             }
             if ($ready === 0) {
@@ -1508,6 +1561,8 @@ class StreamConnection
 
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed in readLoop');
                 throw new ConnectionException('stream_select failed in readLoop');
             }
 
@@ -1720,32 +1775,62 @@ class StreamConnection
         if (!$query instanceof ConsumerUpdateResponseV1) {
             throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
         }
-        $offsetType = OffsetSpec::TYPE_NONE;
-        $offset = 0;
 
-        $subscriptionHandler = $this->consumerUpdateHandlers[$query->getSubscriptionId()] ?? null;
-        if ($subscriptionHandler !== null) {
-            $offsetSpec = $subscriptionHandler($query);
-            if ($offsetSpec !== null) {
-                [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
+        try {
+            $offsetType = OffsetSpec::TYPE_NONE;
+            $offset = 0;
+
+            $subscriptionHandler = $this->consumerUpdateHandlers[$query->getSubscriptionId()] ?? null;
+            if ($subscriptionHandler !== null) {
+                $offsetSpec = $subscriptionHandler($query);
+                if ($offsetSpec !== null && !$offsetSpec instanceof OffsetSpec) {
+                    throw new InvalidArgumentException(
+                        'The per-subscription ConsumerUpdate handler must return OffsetSpec|null, got '
+                        . get_debug_type($offsetSpec)
+                    );
+                }
+                if ($offsetSpec instanceof OffsetSpec) {
+                    [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
+                }
+            } elseif ($this->consumerUpdateCallback instanceof \Closure) {
+                [$offsetType, $offset] = $this->resolveGlobalConsumerUpdateReply(
+                    ($this->consumerUpdateCallback)($query)
+                );
             }
-        } elseif ($this->consumerUpdateCallback instanceof \Closure) {
-            [$offsetType, $offset] = $this->resolveGlobalConsumerUpdateReply(
-                ($this->consumerUpdateCallback)($query)
+
+            if ($offsetType < 0 || $offsetType > 5) {
+                throw new InvalidArgumentException(
+                    "Invalid ConsumerUpdate reply offset type: {$offsetType} (must be 0-5)"
+                );
+            }
+
+            $reply = new ConsumerUpdateReplyV1(
+                responseCode: 0x0001,
+                offsetType: $offsetType,
+                offset: $offset,
             );
+        } catch (Throwable $exception) {
+            $this->logger->error(
+                'ConsumerUpdate handler failed; sending a none reply before rethrowing',
+                [
+                    'correlationId' => $query->getCorrelationId(),
+                    'subscriptionId' => $query->getSubscriptionId(),
+                    'exception' => $exception,
+                ]
+            );
+
+            $reply = new ConsumerUpdateReplyV1(
+                responseCode: 0x0001,
+                offsetType: OffsetSpec::TYPE_NONE,
+                offset: 0,
+            );
+            $reply->withCorrelationId($query->getCorrelationId());
+            $content = $this->serializer->serialize($reply);
+            $this->sendFrame($this->wrapFrame($content));
+
+            throw $exception;
         }
 
-        if ($offsetType < 0 || $offsetType > 5) {
-            throw new InvalidArgumentException(
-                "Invalid ConsumerUpdate reply offset type: {$offsetType} (must be 0-5)"
-            );
-        }
-
-        $reply = new ConsumerUpdateReplyV1(
-            responseCode: 0x0001,
-            offsetType: $offsetType,
-            offset: $offset,
-        );
         $reply->withCorrelationId($query->getCorrelationId());
         $content = $this->serializer->serialize($reply);
         $this->sendFrame($this->wrapFrame($content));
@@ -1870,6 +1955,8 @@ class StreamConnection
 
             if ($ready === false) {
                 if (!$this->selectWasInterrupted()) {
+                    $this->connected = false;
+                    $this->notifyConnectionLost('stream_select failed while waiting for frame data');
                     throw new ConnectionException('stream_select failed while waiting for frame data');
                 }
 
@@ -2079,6 +2166,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while reading');
                 throw new ConnectionException('stream_select failed while reading');
             }
             if ($ready === 0 && $this->readTimeout($data, $length, $mustComplete)) {
