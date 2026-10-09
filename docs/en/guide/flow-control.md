@@ -577,10 +577,13 @@ The **Single Active Consumer** feature ensures only one consumer processes messa
 4. When the active consumer disconnects, the server promotes an inactive one
 5. The server sends `ConsumerUpdate` to ask the newly active consumer for its offset
 
-> Note: the current client cannot subscribe with a consumer reference, so
-> group-based coordination is not available through `SubscribeRequestV1`
-> yet. The `ConsumerUpdate` handling below still applies to any
-> subscription that receives such frames.
+Use the high-level `Consumer` to join a single-active-consumer group: give
+each group member the same `name` and set `singleActiveConsumer: true`.
+The client includes the required properties in `SubscribeRequestV1` and
+handles `ConsumerUpdate` by resuming from the stored offset (or the initial
+`OffsetSpec` when no offset is stored). The low-level
+`StreamConnection::onConsumerUpdate()` callback remains useful when managing
+subscriptions directly or when you need custom reply logic.
 
 ### ConsumerUpdate Flow
 
@@ -612,20 +615,23 @@ The **Single Active Consumer** feature ensures only one consumer processes messa
 
 ### Auto-Reply Mechanism
 
-By default, the client automatically replies to `ConsumerUpdate` with offset type 0 (none, keep the current position) and offset 0. A high-level `Consumer` with `singleActiveConsumer: true` instead resumes from its stored offset (or the initial `OffsetSpec` when nothing is stored). The subscribe command itself does not carry a consumer reference in this client (single-active-consumer groups are not supported yet), but a subscription may still receive `ConsumerUpdate` frames:
+For a low-level subscription without a custom handler, the client automatically replies to `ConsumerUpdate` with `OffsetSpec::TYPE_NONE` (0, keep the current position) and offset 0. For single-active-consumer groups, prefer the high-level `Consumer`: pass the same `name` to each group member and set `singleActiveConsumer: true`. It sends the required subscribe properties and automatically resumes from the stored offset, or from the initial `OffsetSpec` if no offset is stored. Use the low-level `StreamConnection::onConsumerUpdate()` callback when you manage subscriptions directly or need to choose a custom reply offset:
 
 ```php
 <?php
 
-// Low-level API
-$subscribe = new SubscribeRequestV1(
-    subscriptionId: 1,
-    stream: 'my-stream',
-    offsetSpec: OffsetSpec::next(),
-    credit: 100
+// High-level API: joins the group named "orders" and uses the Consumer's
+// built-in stored-offset resume handling.
+$consumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::first(),
+    name: 'orders',
+    autoCommit: 1,
+    singleActiveConsumer: true,
 );
 
-// Auto-reply is handled internally - no code needed!
+// For a low-level SubscribeRequestV1, pass consumer properties explicitly
+// and use StreamConnection::onConsumerUpdate() if you need a custom reply.
 ```
 
 ### Custom ConsumerUpdate Callback

@@ -95,6 +95,7 @@ batch. Loop on a flag and treat `[]` as "nothing yet" (see
 `examples/consumer.php` for a full version with signal handling):
 
 ```php
+$running = true; // Set to false from a signal handler to stop consuming.
 while ($running) {
     foreach ($consumer->read(timeout: 5) as $msg) {
         echo $msg->getBody() . "\n";
@@ -146,25 +147,11 @@ $connection->close();
 
 ### Consuming with Message Decoding
 
-```php
-use CrazyGoat\RabbitStream\Client\AmqpMessageDecoder;
-use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
-
-// ... subscribe to stream and receive Deliver response
-
-$chunk = $deliverResponse->getChunkBytes();
-$entries = OsirisChunkParser::parse($chunk);
-
-// Decode AMQP 1.0 messages into Message objects
-$messages = AmqpMessageDecoder::decodeAll($entries);
-
-foreach ($messages as $message) {
-    echo "Offset: {$message->getOffset()}\n";
-    echo "Body: {$message->getBody()}\n";
-    echo "Content-Type: {$message->getContentType()}\n";
-    echo "Message-ID: {$message->getMessageId()}\n";
-}
-```
+`Consumer::read()` and `Consumer::readOne()` already return decoded `Message`
+objects; access fields such as `$message->getOffset()`, `$message->getBody()`,
+`$message->getContentType()` and `$message->getMessageId()` directly. See the
+[AMQP message decoding guide](docs/en/advanced/amqp-message-decoding.md) for
+manual decoding of raw chunks with `OsirisChunkParser` and `AmqpMessageDecoder`.
 
 ### Consumer with Auto-Commit
 
