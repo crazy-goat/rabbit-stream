@@ -156,6 +156,8 @@ SaslData:   bytes (optional, for challenge-response mechanisms)
 | 0x0008 | AUTHENTICATION_FAILURE | Invalid credentials |
 | 0x0007 | SASL_MECHANISM_NOT_SUPPORTED | Mechanism not available |
 | 0x0009 | SASL_ERROR | General SASL error |
+| 0x0014 | SASL_CANNOT_CHANGE_MECHANISM | The SASL mechanism cannot be changed on an authenticated connection |
+| 0x0015 | SASL_CANNOT_CHANGE_USERNAME | The SASL username cannot be changed on an authenticated connection |
 
 **Challenge response data:** `SaslAuthenticateResponseV1::getChallenge(): ?string`
 returns the optional opaque challenge payload from the response. It is populated from the response's SASL data
@@ -390,6 +392,8 @@ the same key `0x0017` and expects no reply beyond the echo.
 | 0x000c | VIRTUAL_HOST_ACCESS_FAILURE | No access to vhost |
 | 0x0007 | SASL_MECHANISM_NOT_SUPPORTED | Mechanism not available |
 | 0x0009 | SASL_ERROR | General SASL error |
+| 0x0014 | SASL_CANNOT_CHANGE_MECHANISM | The SASL mechanism cannot be changed on an authenticated connection |
+| 0x0015 | SASL_CANNOT_CHANGE_USERNAME | The SASL username cannot be changed on an authenticated connection |
 | 0x0001 | OK | Success |
 
 ## See Also

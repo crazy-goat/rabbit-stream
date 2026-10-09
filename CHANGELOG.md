@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Docs: use one authoritative response-code table (#663)** — the error-handling guide now links to the `ResponseCodeEnum` API table instead of duplicating it, and both SASL response-code tables in `connection-auth.md` include `0x14` and `0x15`. No behavior change.
+
 ### Fixed
 - **Bug: `createSuperStreamProducer()` now passes `closeConfirmDrainTimeout` through to each partition Producer (#561)** — a configured close-confirm drain duration now applies to every lazily created partition Producer, matching `createProducer()`.
 - **Bug: `Message` map getter types now include preserved integer keys (#672)** — ApplicationProperties and MessageAnnotations maps can contain integer keys in the decoded PHP array, so the `Message` constructor/getter PHPDoc and API reference now declare `array<int|string, mixed>` instead of the inaccurate string-only key type. Added decoder regression coverage for both sections; decoding behaviour is unchanged.
