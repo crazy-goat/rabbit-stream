@@ -3346,6 +3346,70 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    public function testLateErrorReplyForAnAbandonedCorrelationIdIsDiscarded(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        try {
+            $connection->request(new CreateRequestV1('a'), 0.05);
+            self::fail('Expected TimeoutException');
+        } catch (TimeoutException) {
+            // Expected: the id is then marked abandoned by the client layer.
+        }
+        $connection->abandonCorrelation(1);
+
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 0x0005)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('b'), 1.0);
+
+        self::assertInstanceOf(CreateResponseV1::class, $response);
+        self::assertSame(2, $response->getCorrelationId());
+        self::assertCount(1, $logger->warningContexts());
+        self::assertSame(1, $logger->warningContexts()[0]['correlationId']);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testNestedRequestParksOuterErrorUntilItsRequestOwnerReadsIt(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // The ConsumerUpdate handler issues correlation 2 while the outer
+        // request (correlation 1) is waiting. Its error arrives first.
+        fwrite($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 0x0005)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $nested = null;
+        $connection->registerConsumerUpdateHandler(
+            1,
+            function () use ($connection, &$nested): OffsetSpec {
+                $nested = $connection->request(new CreateRequestV1('nested'), 1.0);
+                return OffsetSpec::offset(42);
+            }
+        );
+
+        try {
+            $connection->request(new CreateRequestV1('outer'), 1.0);
+            self::fail('Expected the outer request to receive its protocol error');
+        } catch (ProtocolException $exception) {
+            self::assertSame(0x0005, $exception->getResponseCode()?->value);
+        }
+
+        self::assertInstanceOf(CreateResponseV1::class, $nested);
+        self::assertSame(2, $nested->getCorrelationId());
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
     public function testAbandonedCorrelationIdsAreClearedByClose(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);

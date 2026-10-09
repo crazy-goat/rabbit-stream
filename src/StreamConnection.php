@@ -72,7 +72,7 @@ class StreamConnection
      * such as a ConsumerUpdate query). Consumed FIFO by readMessage() and by
      * correlation ID by request().
      *
-     * @var list<object>
+     * @var list<array{correlationId: int, result: object|ProtocolException}>
      */
     private array $pendingResponses = [];
     private bool $running = false;
@@ -1304,7 +1304,7 @@ class StreamConnection
     public function readMessage(float $timeout = 30.0): object
     {
         if ($this->pendingResponses !== []) {
-            return array_shift($this->pendingResponses);
+            return $this->unwrapPendingResponse(array_shift($this->pendingResponses)['result']);
         }
 
         return $this->readResponse($timeout, null);
@@ -1386,7 +1386,7 @@ class StreamConnection
             if ($expectedCorrelationId !== null) {
                 $parked = $this->takePendingResponse($expectedCorrelationId);
                 if ($parked !== null) {
-                    return $parked;
+                    return $this->unwrapPendingResponse($parked['result']);
                 }
             }
 
@@ -1420,61 +1420,99 @@ class StreamConnection
                 continue;
             }
 
-            $response = $this->serializer->deserialize($frame->getRemainingBytes());
+            $payload = $frame->getRemainingBytes();
+            $correlationId = $this->readCorrelationId($key, $payload);
+            try {
+                $result = $this->serializer->deserialize($payload);
+            } catch (ProtocolException $exception) {
+                if ($correlationId === null) {
+                    throw $exception;
+                }
+                $result = $exception;
+            }
 
-            if (
-                $response instanceof CorrelationInterface
-                && isset($this->abandonedCorrelationIds[$response->getCorrelationId()])
-            ) {
+            if ($correlationId !== null && isset($this->abandonedCorrelationIds[$correlationId])) {
                 // Reply to a request that already timed out (see
                 // abandonCorrelation()): dropping it keeps the next caller from
-                // misattributing it as their own response.
-                unset($this->abandonedCorrelationIds[$response->getCorrelationId()]);
+                // misattributing it as their own response, including error replies.
+                unset($this->abandonedCorrelationIds[$correlationId]);
                 $this->logger->warning(
                     'Discarding a late reply for a request that already timed out',
                     [
-                        'correlationId' => $response->getCorrelationId(),
-                        'response' => $response::class,
+                        'correlationId' => $correlationId,
+                        'response' => $result instanceof ProtocolException ? 'error' : $result::class,
                     ]
                 );
                 continue;
             }
 
             if ($expectedCorrelationId === null) {
-                return $response;
+                return $this->unwrapPendingResponse($result);
             }
 
-            if (!$response instanceof CorrelationInterface) {
+            if ($correlationId === null) {
                 // A response frame without a correlation ID (in practice a Credit
                 // error, which the broker only sends for a rejected Credit request,
                 // e.g. after a single-active-consumer handover) cannot be the reply
                 // we are waiting for. Log and keep reading.
                 $this->logger->warning('Unsolicited response received while awaiting correlated reply', [
-                    'response' => $response::class,
-                    'details' => $response instanceof CreditResponseV1
+                    'response' => $result instanceof ProtocolException ? 'error' : $result::class,
+                    'details' => $result instanceof CreditResponseV1
                         ? [
-                            'subscriptionId' => $response->getSubscriptionId(),
-                            'responseCode' => $response->getResponseCode(),
+                            'subscriptionId' => $result->getSubscriptionId(),
+                            'responseCode' => $result->getResponseCode(),
                         ]
                         : [],
                 ]);
                 continue;
             }
 
-            if ($response->getCorrelationId() !== $expectedCorrelationId) {
+            if ($correlationId !== $expectedCorrelationId) {
                 // Belongs to another in-flight request (outer or nested) — park it.
-                $this->pendingResponses[] = $response;
+                $this->pendingResponses[] = ['correlationId' => $correlationId, 'result' => $result];
                 continue;
             }
 
-            return $response;
+            return $this->unwrapPendingResponse($result);
         }
     }
 
-    private function takePendingResponse(int $correlationId): ?object
+    /**
+     * Read the correlation id from a correlated response frame without consuming
+     * the payload used by the configured serializer.
+     *
+     * @param string $payload Frame payload beginning with key and version.
+     */
+    private function readCorrelationId(int $key, string $payload): ?int
+    {
+        // Credit errors and server-push frames have no correlation ID. Those are
+        // handled separately, but the key guard also protects custom serializers.
+        if ($key === KeyEnum::CREDIT_RESPONSE->value || strlen($payload) < 8) {
+            return null;
+        }
+
+        $correlation = unpack('N', $payload, 4);
+        return $correlation === false ? null : $correlation[1];
+    }
+
+    /**
+     * Return a parked response or throw the protocol error it represents.
+     */
+    private function unwrapPendingResponse(object $result): object
+    {
+        if ($result instanceof ProtocolException) {
+            throw $result;
+        }
+        return $result;
+    }
+
+    /**
+     * @return array{correlationId: int, result: object|ProtocolException}|null
+     */
+    private function takePendingResponse(int $correlationId): ?array
     {
         foreach ($this->pendingResponses as $index => $pending) {
-            if ($pending instanceof CorrelationInterface && $pending->getCorrelationId() === $correlationId) {
+            if ($pending['correlationId'] === $correlationId) {
                 array_splice($this->pendingResponses, $index, 1);
                 return $pending;
             }
