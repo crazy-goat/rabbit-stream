@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\AmqpDecoder;
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use PHPUnit\Framework\TestCase;
 
 class AmqpDecoderMessageTest extends TestCase
@@ -392,6 +393,18 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame('group-1', $properties['group-id']);
         $this->assertSame(1, $properties['group-sequence']);
         $this->assertSame('reply-group', $properties['reply-to-group-id']);
+    }
+
+    public function testDecodeMessageRejectsPropertiesListWithMoreThanThirteenFields(): void
+    {
+        $listItems = str_repeat("\x40", 14);
+        $listData = "\xc0" . chr(strlen($listItems) + 1) . chr(14) . $listItems;
+        $message = $this->buildSection(0x73, $listData);
+
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Properties section (0x73) contains 14 fields; maximum is 13');
+
+        AmqpDecoder::decodeMessage($message);
     }
 
     public function testDecodeEmptyMessage(): void
