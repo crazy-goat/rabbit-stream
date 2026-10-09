@@ -12,9 +12,9 @@ use CrazyGoat\RabbitStream\Exception\ProtocolException;
  */
 class AccessRefusedE2ETest extends E2ETestCase
 {
-    private const string RESTRICTED_USER = 'restricted-user';
-    private const string RESTRICTED_PASS = 'restricted-pass';
-    private const string RESTRICTED_VHOST = 'restricted-vhost';
+    private const RESTRICTED_USER = 'restricted-user';
+    private const RESTRICTED_PASS = 'restricted-pass';
+    private const RESTRICTED_VHOST = 'restricted-vhost';
 
     private static int $managementPort = 15672;
     private static bool $managementAvailable = false;
