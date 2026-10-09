@@ -321,6 +321,12 @@ class Consumer implements ConsumerInterface
         // with it every outstanding credit.
         $this->creditsInFlight = 0;
         $this->pendingCredits = 0;
+        // Reset unread messages as well: the broker resumes from lastOffset + 1
+        // (or the initial OffsetSpec when nothing was processed), so retaining
+        // them would append duplicates after re-subscription.
+        $this->buffer = [];
+        $this->bufferHead = 0;
+        $this->unreadCount = 0;
         $this->active = !$this->singleActiveConsumer;
         $this->resubscribeBackoff = self::RESUBSCRIBE_INITIAL_BACKOFF;
         $this->nextResubscribeAt = microtime(true);
