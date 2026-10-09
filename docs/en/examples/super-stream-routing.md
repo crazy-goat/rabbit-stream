@@ -203,7 +203,7 @@ its `UnsubscribeResponse`. This is a pre-existing limitation of `Consumer`'s
 non-correlated response dispatch, not something `SuperStreamConsumer`
 introduces — its `close()` tolerates the race per-partition (it keeps closing
 the remaining partitions rather than aborting). See the
-[Super Streams Guide](../guide/super-streams.md#known-limitations) for details.
+[Super Streams Guide](../guide/super-streams.md#superstreamconsumer-api) for details.
 
 ## Troubleshooting
 
