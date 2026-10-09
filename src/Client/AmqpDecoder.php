@@ -278,6 +278,8 @@ class AmqpDecoder
 
     /**
      * Parse Properties list (descriptor 0x73) into named fields.
+     * A list with more than the 13 fields defined by AMQP 1.0 is rejected
+     * instead of silently discarding the trailing values.
      *
      * @param array<int, mixed> $list
      * @return array<string, mixed>
@@ -299,6 +301,14 @@ class AmqpDecoder
             11 => 'group-sequence',
             12 => 'reply-to-group-id',
         ];
+
+        if (count($list) > count($propertyNames)) {
+            throw new DeserializationException(sprintf(
+                'Properties section (0x73) contains %d fields; maximum is %d',
+                count($list),
+                count($propertyNames)
+            ));
+        }
 
         $properties = [];
         foreach ($list as $index => $value) {

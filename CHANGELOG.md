@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Bug: AMQP Properties sections reject extra fields** — a Properties list longer than the 13 fields defined by AMQP 1.0 now raises `DeserializationException` instead of silently dropping its trailing values.
+
 ## [1.9.0] - 2026-10-09
 
 ### Added
