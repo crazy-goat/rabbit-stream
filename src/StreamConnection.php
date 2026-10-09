@@ -35,6 +35,9 @@ class StreamConnection
 {
     private bool $connected = false;
     private ?string $lastSelectErrorMessage = null;
+    private int $heartbeatInterval = 0;
+    private float $lastReadAt = 0.0;
+    private float $lastWriteAt = 0.0;
     /**
      * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
      * used for BOTH transports because TLS in PHP is only available through
@@ -355,6 +358,8 @@ class StreamConnection
 
         $this->connected = true;
         $this->stream = $stream;
+        $this->lastReadAt = microtime(true);
+        $this->lastWriteAt = $this->lastReadAt;
     }
 
     /**
@@ -575,6 +580,29 @@ class StreamConnection
     public function getSocketTimeout(): float
     {
         return $this->socketTimeout;
+    }
+
+    /**
+     * Set the negotiated heartbeat interval. A value of zero disables heartbeat
+     * sending and missed-heartbeat detection.
+     *
+     * Heartbeats are maintained while the application is inside a library I/O
+     * call; time spent outside the library cannot be monitored by this client.
+     */
+    public function setHeartbeatInterval(int $seconds): void
+    {
+        if ($seconds < 0) {
+            throw new InvalidArgumentException('heartbeatInterval must not be negative');
+        }
+
+        $this->heartbeatInterval = $seconds;
+        $this->lastReadAt = microtime(true);
+        $this->lastWriteAt = $this->lastReadAt;
+    }
+
+    public function getHeartbeatInterval(): int
+    {
+        return $this->heartbeatInterval;
     }
 
     /**
@@ -1144,7 +1172,10 @@ class StreamConnection
             }
         }
 
-        return $this->writeAll($frame);
+        $written = $this->writeAll($frame);
+        $this->lastWriteAt = microtime(true);
+
+        return $written;
     }
 
     /**
@@ -1289,6 +1320,43 @@ class StreamConnection
         return $this->readResponse($timeout, $request->getCorrelationId());
     }
 
+    private function maintainHeartbeat(): void
+    {
+        if ($this->heartbeatInterval === 0 || !$this->connected) {
+            return;
+        }
+
+        $now = microtime(true);
+        if ($now - $this->lastReadAt >= 2 * $this->heartbeatInterval) {
+            $this->close();
+            throw new ConnectionException(sprintf(
+                'Connection closed after missing inbound frames for %.1f seconds (heartbeat interval: %d seconds)',
+                $now - $this->lastReadAt,
+                $this->heartbeatInterval
+            ));
+        }
+
+        if ($now - $this->lastWriteAt >= $this->heartbeatInterval) {
+            // HeartbeatRequestV1 is deliberately sent as a raw frame: sendMessage()
+            // assigns correlation IDs to correlated request objects, and protocol
+            // heartbeats have no correlation ID.
+            $content = $this->serializer->serialize(new HeartbeatRequestV1());
+            $this->sendFrame($this->wrapFrame($content));
+        }
+    }
+
+    private function heartbeatWaitTimeout(float $timeout): float
+    {
+        if ($this->heartbeatInterval === 0) {
+            return $timeout;
+        }
+
+        $untilWrite = $this->lastWriteAt + $this->heartbeatInterval - microtime(true);
+        $untilDead = $this->lastReadAt + 2 * $this->heartbeatInterval - microtime(true);
+
+        return min($timeout, max(0.0, min($untilWrite, $untilDead)));
+    }
+
     private function readResponse(float $timeout, ?int $expectedCorrelationId): object
     {
         $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
@@ -1315,9 +1383,13 @@ class StreamConnection
                 }
             }
 
-            $frame = $this->readFrame($remainingTimeout);
+            $frame = $this->readFrame($this->heartbeatWaitTimeout($remainingTimeout));
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
-                throw new TimeoutException("Read timeout");
+                $this->maintainHeartbeat();
+                if ($timeout <= 0 || ($deadline !== null && microtime(true) >= $deadline)) {
+                    throw new TimeoutException("Read timeout");
+                }
+                continue;
             }
 
             $key = $frame->peekUint16();
@@ -1436,6 +1508,8 @@ class StreamConnection
         $deadline = $timeout !== null ? microtime(true) + $timeout : null;
 
         while ($this->running && $this->connected) {
+            $this->maintainHeartbeat();
+
             // Check if timeout has expired
             if ($deadline !== null && microtime(true) >= $deadline) {
                 break;
@@ -1451,15 +1525,16 @@ class StreamConnection
             // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
             // polling at most once per second keeps stop()/deadline checks
             // responsive.
-            $selectTimeoutSec = 1;
-            $selectTimeoutUsec = 0;
+            $selectTimeout = 1.0;
             if ($deadline !== null) {
                 $remaining = $deadline - microtime(true);
                 if ($remaining <= 0) {
                     break;
                 }
-                [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout(min($remaining, 1));
+                $selectTimeout = min($selectTimeout, $remaining);
             }
+            $selectTimeout = $this->heartbeatWaitTimeout($selectTimeout);
+            [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout($selectTimeout);
 
             $ready = $this->selectStreams($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
@@ -1496,6 +1571,7 @@ class StreamConnection
             $interruptions = 0;
 
             if ($ready === 0) {
+                $this->maintainHeartbeat();
                 continue;
             }
 
@@ -1981,6 +2057,7 @@ class StreamConnection
         }
 
         $this->debugFrame('Socket <-', $frameData, keyOffset: 0);
+        $this->lastReadAt = microtime(true);
 
         return new ReadBuffer($frameData);
     }
