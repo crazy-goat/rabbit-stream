@@ -35,6 +35,9 @@ class StreamConnection
 {
     private bool $connected = false;
     private ?string $lastSelectErrorMessage = null;
+    private int $heartbeatInterval = 0;
+    private float $lastReadAt = 0.0;
+    private float $lastWriteAt = 0.0;
     /**
      * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
      * used for BOTH transports because TLS in PHP is only available through
@@ -53,6 +56,10 @@ class StreamConnection
     private function requireStream()
     {
         if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            if ($this->connected) {
+                $this->connected = false;
+                $this->notifyConnectionLost('Connection stream is not available');
+            }
             throw new ConnectionException('Cannot use socket: socket is not connected');
         }
 
@@ -74,6 +81,8 @@ class StreamConnection
 
     /** @var array<int, array{onConfirm: callable, onError: callable}> */
     private array $publisherCallbacks = [];
+    /** @var array<int, callable(string): void> */
+    private array $connectionLostHandlers = [];
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
     /** @var array<int, callable> */
@@ -352,6 +361,8 @@ class StreamConnection
 
         $this->connected = true;
         $this->stream = $stream;
+        $this->lastReadAt = microtime(true);
+        $this->lastWriteAt = $this->lastReadAt;
     }
 
     /**
@@ -575,11 +586,35 @@ class StreamConnection
     }
 
     /**
+     * Set the negotiated heartbeat interval. A value of zero disables heartbeat
+     * sending and missed-heartbeat detection.
+     *
+     * Heartbeats are maintained while the application is inside a library I/O
+     * call; time spent outside the library cannot be monitored by this client.
+     */
+    public function setHeartbeatInterval(int $seconds): void
+    {
+        if ($seconds < 0) {
+            throw new InvalidArgumentException('heartbeatInterval must not be negative');
+        }
+
+        $this->heartbeatInterval = $seconds;
+        $this->lastReadAt = microtime(true);
+        $this->lastWriteAt = $this->lastReadAt;
+    }
+
+    public function getHeartbeatInterval(): int
+    {
+        return $this->heartbeatInterval;
+    }
+
+    /**
      * Close the TCP socket connection.
      * Safe to call multiple times — subsequent calls are no-ops.
      */
     public function close(): void
     {
+        $wasConnected = $this->connected;
         if ($this->stream !== null && is_resource($this->stream)) {
             try {
                 fclose($this->stream);
@@ -589,6 +624,9 @@ class StreamConnection
         }
         $this->stream = null;
         $this->connected = false;
+        if ($wasConnected) {
+            $this->notifyConnectionLost('Connection was closed');
+        }
         // A closed connection cannot read a late reply, so the abandoned-id set
         // has no further use and must not be carried by a reused instance (R2-3).
         $this->abandonedCorrelationIds = [];
@@ -620,6 +658,7 @@ class StreamConnection
 
         if ($this->stream === null || !is_resource($this->stream)) {
             $this->connected = false;
+            $this->notifyConnectionLost('Connection stream is no longer available');
             return false;
         }
 
@@ -924,6 +963,37 @@ class StreamConnection
     }
 
     /**
+     * Register a handler notified when this connection can no longer carry frames.
+     *
+     * @param int $handlerId Unique handler id, typically a publisher id
+     * @param callable(string): void $handler Receives the reason the connection was lost
+     */
+    public function registerConnectionLostHandler(int $handlerId, callable $handler): void
+    {
+        $this->connectionLostHandlers[$handlerId] = $handler;
+    }
+
+    /** Remove a connection-loss handler registered for a producer. */
+    public function unregisterConnectionLostHandler(int $handlerId): void
+    {
+        unset($this->connectionLostHandlers[$handlerId]);
+    }
+
+    /** Notify every active producer once, before discarding the callbacks. */
+    private function notifyConnectionLost(string $reason): void
+    {
+        if ($this->connectionLostHandlers === []) {
+            return;
+        }
+
+        $handlers = $this->connectionLostHandlers;
+        $this->connectionLostHandlers = [];
+        foreach ($handlers as $handler) {
+            $handler($reason);
+        }
+    }
+
+    /**
      * Register a callback for metadata update notifications from the server.
      *
      * The global callback is invoked for every MetadataUpdate, after the
@@ -1101,6 +1171,8 @@ class StreamConnection
 
                 if ($ready === false) {
                     if (!$this->selectWasInterrupted()) {
+                        $this->connected = false;
+                        $this->notifyConnectionLost('stream_select failed while waiting for write readiness');
                         throw new ConnectionException("stream_select failed while waiting for write readiness");
                     }
 
@@ -1115,7 +1187,10 @@ class StreamConnection
             }
         }
 
-        return $this->writeAll($frame);
+        $written = $this->writeAll($frame);
+        $this->lastWriteAt = microtime(true);
+
+        return $written;
     }
 
     /**
@@ -1161,6 +1236,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while writing');
                 throw new ConnectionException('stream_select failed while writing');
             }
             if ($ready === 0) {
@@ -1258,6 +1335,43 @@ class StreamConnection
         return $this->readResponse($timeout, $request->getCorrelationId());
     }
 
+    private function maintainHeartbeat(): void
+    {
+        if ($this->heartbeatInterval === 0 || !$this->connected) {
+            return;
+        }
+
+        $now = microtime(true);
+        if ($now - $this->lastReadAt >= 2 * $this->heartbeatInterval) {
+            $this->close();
+            throw new ConnectionException(sprintf(
+                'Connection closed after missing inbound frames for %.1f seconds (heartbeat interval: %d seconds)',
+                $now - $this->lastReadAt,
+                $this->heartbeatInterval
+            ));
+        }
+
+        if ($now - $this->lastWriteAt >= $this->heartbeatInterval) {
+            // HeartbeatRequestV1 is deliberately sent as a raw frame: sendMessage()
+            // assigns correlation IDs to correlated request objects, and protocol
+            // heartbeats have no correlation ID.
+            $content = $this->serializer->serialize(new HeartbeatRequestV1());
+            $this->sendFrame($this->wrapFrame($content));
+        }
+    }
+
+    private function heartbeatWaitTimeout(float $timeout): float
+    {
+        if ($this->heartbeatInterval === 0) {
+            return $timeout;
+        }
+
+        $untilWrite = $this->lastWriteAt + $this->heartbeatInterval - microtime(true);
+        $untilDead = $this->lastReadAt + 2 * $this->heartbeatInterval - microtime(true);
+
+        return min($timeout, max(0.0, min($untilWrite, $untilDead)));
+    }
+
     private function readResponse(float $timeout, ?int $expectedCorrelationId): object
     {
         $deadline = $timeout > 0 ? microtime(true) + $timeout : null;
@@ -1284,9 +1398,13 @@ class StreamConnection
                 }
             }
 
-            $frame = $this->readFrame($remainingTimeout);
+            $frame = $this->readFrame($this->heartbeatWaitTimeout($remainingTimeout));
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
-                throw new TimeoutException("Read timeout");
+                $this->maintainHeartbeat();
+                if ($timeout <= 0 || ($deadline !== null && microtime(true) >= $deadline)) {
+                    throw new TimeoutException("Read timeout");
+                }
+                continue;
             }
 
             $key = $frame->peekUint16();
@@ -1405,6 +1523,8 @@ class StreamConnection
         $deadline = $timeout !== null ? microtime(true) + $timeout : null;
 
         while ($this->running && $this->connected) {
+            $this->maintainHeartbeat();
+
             // Check if timeout has expired
             if ($deadline !== null && microtime(true) >= $deadline) {
                 break;
@@ -1420,15 +1540,16 @@ class StreamConnection
             // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
             // polling at most once per second keeps stop()/deadline checks
             // responsive.
-            $selectTimeoutSec = 1;
-            $selectTimeoutUsec = 0;
+            $selectTimeout = 1.0;
             if ($deadline !== null) {
                 $remaining = $deadline - microtime(true);
                 if ($remaining <= 0) {
                     break;
                 }
-                [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout(min($remaining, 1));
+                $selectTimeout = min($selectTimeout, $remaining);
             }
+            $selectTimeout = $this->heartbeatWaitTimeout($selectTimeout);
+            [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout($selectTimeout);
 
             $ready = $this->selectStreams($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
 
@@ -1455,6 +1576,8 @@ class StreamConnection
 
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed in readLoop');
                 throw new ConnectionException('stream_select failed in readLoop');
             }
 
@@ -1463,6 +1586,7 @@ class StreamConnection
             $interruptions = 0;
 
             if ($ready === 0) {
+                $this->maintainHeartbeat();
                 continue;
             }
 
@@ -1868,6 +1992,8 @@ class StreamConnection
 
             if ($ready === false) {
                 if (!$this->selectWasInterrupted()) {
+                    $this->connected = false;
+                    $this->notifyConnectionLost('stream_select failed while waiting for frame data');
                     throw new ConnectionException('stream_select failed while waiting for frame data');
                 }
 
@@ -1968,6 +2094,7 @@ class StreamConnection
         }
 
         $this->debugFrame('Socket <-', $frameData, keyOffset: 0);
+        $this->lastReadAt = microtime(true);
 
         return new ReadBuffer($frameData);
     }
@@ -2076,6 +2203,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while reading');
                 throw new ConnectionException('stream_select failed while reading');
             }
             if ($ready === 0 && $this->readTimeout($data, $length, $mustComplete)) {

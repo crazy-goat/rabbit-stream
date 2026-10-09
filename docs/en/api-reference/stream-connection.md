@@ -96,7 +96,11 @@ public function isConnected(): bool
 PHP streams have no equivalent sticky socket-error probe, so `isConnected()`
 checks the connection flag and whether the stream resource is still valid. A dead
 peer is detected by the next read or write; a timed-out read alone does not
-mark a still-valid stream as disconnected.
+mark a still-valid stream as disconnected. When created through `Connection::create()`,
+the negotiated heartbeat is retained: active library I/O sends an idle heartbeat
+once per interval and closes the connection after two intervals without inbound
+frames. Heartbeats are not maintained while application code runs outside a library
+call. A negotiated interval of zero disables heartbeat handling.
 
 ## Frame I/O Methods
 
@@ -160,7 +164,7 @@ public function readMessage(float $timeout = 30.0): object
 **Returns:** Deserialized response object
 
 **Throws:**
-- `ConnectionException` - If connection is closed
+- `ConnectionException` - If connection is closed or the negotiated heartbeat detects a silent peer
 - `TimeoutException` - If read timeout expires
 - `DeserializationException` - If frame parsing fails
 

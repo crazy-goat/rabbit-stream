@@ -265,6 +265,7 @@ class Connection implements ConnectionInterface
             $requestedHeartbeat ?? $tune->getHeartbeat(),
             $tune->getHeartbeat()
         );
+        $streamConnection->setHeartbeatInterval($negotiatedHeartbeat);
         $streamConnection->sendMessage(new TuneResponseV1($negotiatedFrameMax, $negotiatedHeartbeat));
 
         // Negotiation must only ever LOWER the incoming control-frame cap from its

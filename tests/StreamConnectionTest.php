@@ -3157,6 +3157,99 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    public function testHeartbeatIntervalIsStoredAndZeroDisablesIt(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        self::assertSame(0, $connection->getHeartbeatInterval());
+
+        $connection->setHeartbeatInterval(5);
+        self::assertSame(5, $connection->getHeartbeatInterval());
+
+        $connection->setHeartbeatInterval(0);
+        self::assertSame(0, $connection->getHeartbeatInterval());
+    }
+
+    public function testReadLoopSendsCorrelationFreeHeartbeatAndClosesSilentConnection(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+
+        $start = microtime(true);
+        try {
+            $connection->readLoop(timeout: 4.0);
+            self::fail('Expected ConnectionException after missed heartbeats');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('missing inbound frames', $exception->getMessage());
+        }
+
+        $elapsed = microtime(true) - $start;
+        self::assertLessThan(3.5, $elapsed);
+        self::assertFalse($connection->isConnected());
+
+        stream_set_blocking($serverSocket, false);
+        $frame = stream_get_contents($serverSocket);
+        self::assertIsString($frame);
+        self::assertGreaterThanOrEqual(8, strlen($frame));
+        $size = unpack('N', substr($frame, 0, 4));
+        $key = unpack('n', substr($frame, 4, 2));
+        $version = unpack('n', substr($frame, 6, 2));
+        self::assertIsArray($size);
+        self::assertIsArray($key);
+        self::assertIsArray($version);
+        self::assertSame(4, $size[1]);
+        self::assertSame(KeyEnum::HEARTBEAT->value, $key[1]);
+        self::assertSame(1, $version[1]);
+
+        fclose($serverSocket);
+    }
+
+    public function testZeroHeartbeatIntervalKeepsIdleConnectionOpenWithoutSendingFrames(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(0);
+
+        self::assertSame(0, $connection->readLoop(timeout: 0.1));
+        self::assertTrue($connection->isConnected());
+
+        stream_set_blocking($serverSocket, false);
+        self::assertSame('', stream_get_contents($serverSocket));
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadMessageSendsHeartbeatAndDetectsSilentPeer(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+
+        $start = microtime(true);
+        try {
+            $connection->readMessage(3.5);
+            self::fail('Expected ConnectionException after missed heartbeats');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('missing inbound frames', $exception->getMessage());
+        }
+        self::assertLessThan(3.0, microtime(true) - $start);
+        self::assertFalse($connection->isConnected());
+
+        stream_set_blocking($serverSocket, false);
+        $frame = stream_get_contents($serverSocket);
+        self::assertIsString($frame);
+        self::assertGreaterThanOrEqual(8, strlen($frame));
+        $key = unpack('n', substr($frame, 4, 2));
+        self::assertIsArray($key);
+        self::assertSame(KeyEnum::HEARTBEAT->value, $key[1]);
+
+        fclose($serverSocket);
+    }
+
     // ---------------------------------------------------------------------
     // ExchangeCommandVersions negotiation state (GitHub #381).
     // ---------------------------------------------------------------------
