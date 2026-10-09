@@ -983,7 +983,8 @@ class ProducerTest extends TestCase
      *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
      *     1: CapturedClosures,
      *     2: CapturedClosures,
-     *     3: CapturedClosures
+     *     3: CapturedClosures,
+     *     4: CapturedClosures
      * }
      */
     private function connectionCapturingHandlers(): array
@@ -991,6 +992,7 @@ class ProducerTest extends TestCase
         $metadataHandlers = new CapturedClosures();
         $errorCallbacks = new CapturedClosures();
         $confirmCallbacks = new CapturedClosures();
+        $connectionLostHandlers = new CapturedClosures();
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())
             ->method('registerMetadataUpdateHandler')
@@ -1014,8 +1016,13 @@ class ProducerTest extends TestCase
                     $errorCallbacks->add($onError);
                 }
             );
+        $connection->expects($this->any())
+            ->method('registerConnectionLostHandler')
+            ->willReturnCallback(function (int $id, \Closure $handler) use ($connectionLostHandlers): void {
+                $connectionLostHandlers->add($handler);
+            });
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
-        return [$connection, $metadataHandlers, $errorCallbacks, $confirmCallbacks];
+        return [$connection, $metadataHandlers, $errorCallbacks, $confirmCallbacks, $connectionLostHandlers];
     }
 
     public function testMetadataUpdateMarksProducerStaleAndNextSendRedeclares(): void
@@ -1431,6 +1438,157 @@ class ProducerTest extends TestCase
             2,
             $readLoopCallCount,
             'waitForConfirms() must keep draining until the still-outstanding id 1 is confirmed'
+        );
+    }
+
+    public function testRealConnectionLossFailsInflightPublishesWhileWaitingForConfirms(): void
+    {
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $this->assertNotFalse($pair);
+        [$server, $client] = $pair;
+        stream_set_blocking($client, false);
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        (new \ReflectionProperty($connection, 'stream'))->setValue($connection, $client);
+        (new \ReflectionProperty($connection, 'connected'))->setValue($connection, true);
+
+        // DeclarePublisher response read synchronously by the Producer constructor.
+        fwrite($server, pack('N', 10) . pack('nnNn', 0x8001, 1, 1, 0x0001));
+
+        /** @var list<ConfirmationStatus> $statuses */
+        $statuses = [];
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: static function (ConfirmationStatus $status) use (&$statuses): void {
+                $statuses[] = $status;
+            },
+            logger: $logger,
+        );
+        $producer->send('a');
+        $producer->send('b');
+        $producer->send('c');
+
+        // Confirm publishing id 0, then close the peer before ids 1 and 2 resolve.
+        fwrite($server, pack('N', 17) . pack('nnCNJ', 0x0003, 1, 1, 1, 0));
+        fclose($server);
+
+        try {
+            $producer->waitForConfirms(2.0);
+            $this->fail('waitForConfirms() must surface the lost connection');
+        } catch (ConnectionException) {
+            // Expected after the pending ids have been reported by the loss hook.
+        }
+
+        $confirmed = [];
+        $failed = [];
+        foreach ($statuses as $status) {
+            if ($status->isConfirmed()) {
+                $confirmed[] = $status->getPublishingId();
+            } else {
+                $failed[] = $status->getPublishingId();
+                $this->assertSame(Producer::CONNECTION_LOST_ERROR_CODE, $status->getErrorCode());
+            }
+        }
+        sort($failed);
+
+        $this->assertSame([0], $confirmed);
+        $this->assertSame([1, 2], $failed);
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(2, $producer->getLostConfirmCount());
+        $this->assertCount(1, $logger->warningMessages());
+
+        try {
+            $producer->close();
+        } catch (ConnectionException) {
+            // DeletePublisher cannot be sent after the peer has closed.
+        }
+
+        $this->assertCount(3, $statuses, 'Closing after loss must not report ids twice');
+    }
+
+    public function testConnectionCloseNotifiesProducersAndRemovesOnlyTheirPendingIds(): void
+    {
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $this->assertNotFalse($pair);
+        [$server, $client] = $pair;
+        stream_set_blocking($client, false);
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        (new \ReflectionProperty($connection, 'stream'))->setValue($connection, $client);
+        (new \ReflectionProperty($connection, 'connected'))->setValue($connection, true);
+        fwrite($server, pack('N', 10) . pack('nnNn', 0x8001, 1, 1, 0x0001));
+
+        /** @var list<ConfirmationStatus> $statuses */
+        $statuses = [];
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: static function (ConfirmationStatus $status) use (&$statuses): void {
+                $statuses[] = $status;
+            },
+        );
+        $producer->send('unconfirmed');
+        $connection->close();
+
+        $this->assertFalse($connection->isConnected());
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(1, $producer->getLostConfirmCount());
+        $this->assertCount(1, $statuses);
+        $this->assertFalse($statuses[0]->isConfirmed());
+        $this->assertSame(0, $statuses[0]->getPublishingId());
+
+        fclose($server);
+        try {
+            $producer->close();
+        } catch (ConnectionException) {
+            // The connection has already been closed explicitly above.
+        }
+    }
+
+    public function testConnectionLossReportsOnlyStillOutstandingIdsAndLogsBoundedSet(): void
+    {
+        [$connection, , , $confirmCallbacks, $connectionLostHandlers] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var CapturedObjects<ConfirmationStatus> $statuses */
+        $statuses = new CapturedObjects();
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use ($statuses): void {
+                $statuses->add($status);
+            },
+            logger: $logger,
+        );
+
+        for ($i = 0; $i < StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 2; $i++) {
+            $producer->send('message-' . $i);
+        }
+        $confirmCallbacks->at()([0]);
+        $connectionLostHandlers->at()('peer closed connection');
+
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 1, $producer->getLostConfirmCount());
+        $this->assertCount(StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 2, $statuses->all());
+        $this->assertTrue($statuses->at(0)->isConfirmed());
+        $this->assertFalse($statuses->at(1)->isConfirmed());
+        $this->assertSame(Producer::CONNECTION_LOST_ERROR_CODE, $statuses->at(1)->getErrorCode());
+        $this->assertSame(1, $statuses->at(1)->getPublishingId());
+        $this->assertSame(StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 1, $statuses->at(11)->getPublishingId());
+        $this->assertSame(1, count($logger->warningMessages()));
+        $warningContexts = $logger->warningContexts();
+        $this->assertCount(1, $warningContexts);
+        $this->assertArrayHasKey('publishingIds', $warningContexts[0]);
+        $this->assertIsArray($warningContexts[0]['publishingIds']);
+        $this->assertCount(
+            StreamConnection::MAX_LOGGED_PUBLISHING_IDS,
+            $warningContexts[0]['publishingIds']
         );
     }
 

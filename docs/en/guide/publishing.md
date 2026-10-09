@@ -110,7 +110,7 @@ $stream->sendMessage($request);
 
 ### Closing the Producer
 
-Always close producers when you're done to free up resources:
+Always close producers when you're done to free up resources. Any unconfirmed publishes are drained during close; if the connection is lost, remaining publishing IDs are reported once through `onConfirm` as failed and included in `getLostConfirmCount()`. Connection-loss failures use the client-side `Producer::CONNECTION_LOST_ERROR_CODE` (`0x10000`), which is outside the broker response-code range. Their outcomes are unknown, so applications should decide whether to resend with their delivery guarantees in mind.
 
 ```php
 $producer->close();
@@ -172,6 +172,15 @@ The `waitForConfirms()` method:
 - Blocks until all pending confirmations are received
 - Throws `TimeoutException` if the timeout is reached
 - Returns immediately if there are no pending confirms
+- Throws `ConnectionException` if the connection is lost; any sent but unconfirmed IDs are reported once to `onConfirm` with `isConfirmed() === false`, removed from `getPendingConfirms()`, and included in `getLostConfirmCount()`
+
+A connection loss detected by `waitForConfirms()`, back-pressure, `readLoop()`, or
+`close()` fails every still-unconfirmed publish so the application can decide
+which messages to retry. The callback's error code is
+`Producer::CONNECTION_LOST_ERROR_CODE` (`0x10000`), a client-side code outside
+the broker's 16-bit response-code range. Already-confirmed or broker-failed IDs
+are not reported again. A warning records the number of lost IDs and a bounded
+prefix; it never logs an unbounded set.
 
 ### Non-blocking Dispatch
 
