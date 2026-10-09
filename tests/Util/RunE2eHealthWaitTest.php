@@ -67,6 +67,41 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringNotContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
+    public function testRejectsNonNumericHealthRetriesBeforeStartingCompose(): void
+    {
+        $result = $this->runE2e('healthy', retries: 'abc');
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertNotSame(0, $result['exit']);
+        $this->assertStringContainsString(
+            "E2E_HEALTH_RETRIES must be a positive integer, got 'abc'",
+            $result['stderr']
+        );
+        $this->assertStringNotContainsString('Starting RabbitMQ', $result['stdout']);
+    }
+
+    public function testRejectsZeroHealthRetries(): void
+    {
+        $result = $this->runE2e('healthy', retries: '0');
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertNotSame(0, $result['exit']);
+        $this->assertStringContainsString('E2E_HEALTH_RETRIES must be a positive integer', $result['stderr']);
+    }
+
+    public function testRejectsNonNumericHealthIntervalBeforeStartingCompose(): void
+    {
+        $result = $this->runE2e('healthy', interval: 'abc');
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertNotSame(0, $result['exit']);
+        $this->assertStringContainsString(
+            "E2E_HEALTH_INTERVAL must be a non-negative integer, got 'abc'",
+            $result['stderr']
+        );
+        $this->assertStringNotContainsString('Starting RabbitMQ', $result['stdout']);
+    }
+
     public function testDoesNotInvokeHostPython3(): void
     {
         // A failing `python3` shadows any real one. The old pipeline piped
@@ -87,18 +122,29 @@ class RunE2eHealthWaitTest extends TestCase
     /**
      * @return array{exit: int, stdout: string, stderr: string, timedOut: bool}
      */
-    private function runE2e(string $health, string $psQ = 'fakecid', int $timeoutSeconds = 30): array
-    {
+    private function runE2e(
+        string $health,
+        string $psQ = 'fakecid',
+        int $timeoutSeconds = 30,
+        string $retries = '3',
+        string $interval = '0'
+    ): array {
         $dir = $this->makeFixture();
 
-        return $this->runE2eIn($dir, $psQ, $health, $timeoutSeconds);
+        return $this->runE2eIn($dir, $psQ, $health, $timeoutSeconds, $retries, $interval);
     }
 
     /**
      * @return array{exit: int, stdout: string, stderr: string, timedOut: bool}
      */
-    private function runE2eIn(string $dir, string $psQ, string $health, int $timeoutSeconds = 30): array
-    {
+    private function runE2eIn(
+        string $dir,
+        string $psQ,
+        string $health,
+        int $timeoutSeconds = 30,
+        string $retries = '3',
+        string $interval = '0'
+    ): array {
         $stdoutFile = $dir . '/stdout.txt';
         $stderrFile = $dir . '/stderr.txt';
 
@@ -113,8 +159,8 @@ class RunE2eHealthWaitTest extends TestCase
                 'FAKE_LOG' => $dir . '/docker.log',
                 'FAKE_HEALTH' => $health,
                 'FAKE_PS_Q' => $psQ,
-                'E2E_HEALTH_RETRIES' => '3',
-                'E2E_HEALTH_INTERVAL' => '0',
+                'E2E_HEALTH_RETRIES' => $retries,
+                'E2E_HEALTH_INTERVAL' => $interval,
             ]
         );
         if (!is_resource($process)) {

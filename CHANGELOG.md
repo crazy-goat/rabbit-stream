@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Bug: `run-e2e.sh` reports invalid health-wait settings clearly (#666)** — validates `E2E_HEALTH_RETRIES` and `E2E_HEALTH_INTERVAL` before starting Docker and reports the invalid variable and value instead of a misleading broker-health timeout.
 - **Bug: `ReadBuffer` array count checks could overflow (#656)** — `getUint64Array()` now rejects counts whose byte-size multiplication would overflow before checking buffer availability, and both uint64/string array bounds checks avoid overflow-prone multiplication. Regression tests cover maximum counts.
 - **Bug: `ReadBuffer` rejects windows outside the backing string (#655)** — explicitly requested window lengths larger than the bytes available from the offset (or negative lengths/invalid offsets) now raise `DeserializationException` during construction, before a read can invoke `unpack()` with insufficient input. Valid window behavior is unchanged.
 - **Consumer: filter messages before the requested absolute subscribe offset (#585)** — initial, SAC resume, and re-subscribe deliveries now discard earlier entries from the broker's containing chunk.
