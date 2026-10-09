@@ -110,6 +110,37 @@ interface ProducerInterface
     public function querySequence(): int;
 
     /**
+     * Whether the broker has dropped this publisher and the next publish will re-declare it.
+     *
+     * @return bool True while the publisher is stale.
+     */
+    public function isStale(): bool;
+
+    /**
+     * Number of successful re-declarations after a MetadataUpdate.
+     *
+     * @return int Count of successful re-declarations since construction.
+     */
+    public function getRedeclareCount(): int;
+
+    /**
+     * Whether close() has already run.
+     *
+     * @return bool True once close() has been called.
+     */
+    public function isClosed(): bool;
+
+    /**
+     * Number of publishes whose outcomes became unknowable to this producer.
+     *
+     * Includes publishes lost on connection/broker failure or a bounded close
+     * confirm-drain timeout.
+     *
+     * @return int Cumulative number of publishes reported lost.
+     */
+    public function getLostConfirmCount(): int;
+
+    /**
      * Number of publishes sent but not yet confirmed or reported failed.
      *
      * @return int Current number of outstanding (unconfirmed) publishes.

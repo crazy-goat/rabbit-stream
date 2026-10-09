@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Contracts: expose producer and consumer recovery/status methods (#592)** — added the public recovery and lifecycle methods to the Producer, Consumer and SuperStreamProducer interfaces returned by Connection factories. A reflection-based contract test now verifies that every public non-internal client method is declared with a matching signature on its interface.
+
 ### Fixed
 - **Bug: failed Producer/Consumer construction cleans up registered handlers (#590)** — a failed named Producer now unregisters its callbacks and best-effort deletes a publisher declared before sequence lookup failed; a failed Consumer subscribe unregisters its subscription callbacks and handlers while preserving the original failure.
 - **Consumer: discard partial deliveries and return credit after chunk parse failures (#591)** — messages from a Deliver chunk are buffered only after the entire chunk parses, and the consumed chunk credit is accounted for even when deserialization fails.
