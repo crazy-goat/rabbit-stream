@@ -7,6 +7,7 @@ namespace CrazyGoat\RabbitStream\Tests;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Buffer\ToStreamBufferInterface;
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
+use CrazyGoat\RabbitStream\Client\Consumer;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
@@ -2526,6 +2527,114 @@ class StreamConnectionTest extends TestCase
         }
 
         return $data;
+    }
+
+    public function testReadLoopAndReadFrameThrowAfterPeerEof(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        stream_socket_shutdown($peer, STREAM_SHUT_WR);
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected ConnectionException on peer EOF');
+        } catch (ConnectionException) {
+        }
+
+        self::assertFalse($connection->isConnected());
+        self::assertNotTrue(is_resource((new \ReflectionProperty($connection, 'stream'))->getValue($connection)));
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected a later readLoop() call to throw');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('not connected', $exception->getMessage());
+        }
+
+        $reflection = new \ReflectionMethod($connection, 'readFrame');
+        try {
+            $reflection->invoke($connection);
+            self::fail('Expected a later readFrame() call to throw');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('not connected', $exception->getMessage());
+        }
+
+        fclose($peer);
+        $connection->close();
+    }
+
+    public function testConsumerReadThrowsAfterPeerEofInsteadOfReturningEmptyForever(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        $payload = pack('nnNn', 0x8007, 1, 1, 1);
+        fwrite($peer, pack('N', strlen($payload)) . $payload);
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        stream_socket_shutdown($peer, STREAM_SHUT_WR);
+
+        try {
+            $consumer->read(0.5);
+            self::fail('Expected ConnectionException on peer EOF');
+        } catch (ConnectionException) {
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            try {
+                $consumer->read(0.2);
+                self::fail('Consumer::read() must throw after the connection is disconnected');
+            } catch (ConnectionException $exception) {
+                self::assertStringContainsString('not connected', $exception->getMessage());
+            }
+        }
+
+        fclose($peer);
+    }
+
+    public function testSendFrameThrowsWithoutWritingAfterPeerEof(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        stream_socket_shutdown($peer, STREAM_SHUT_WR);
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected ConnectionException on peer EOF');
+        } catch (ConnectionException) {
+        }
+
+        try {
+            $connection->sendMessage(new TuneRequestV1(1024, 100));
+            self::fail('Expected ConnectionException on a disconnected connection');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('not connected', $exception->getMessage());
+        }
+
+        stream_set_blocking($peer, false);
+        self::assertSame('', fread($peer, 1), 'The disconnected connection must not send bytes to the peer');
+        fclose($peer);
+    }
+
+    public function testFailedWriteClosesStreamAndPreventsFurtherWrites(): void
+    {
+        [$peer, $client] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $client);
+        fclose($peer);
+
+        try {
+            $connection->sendMessage(new TuneRequestV1(1024, 100));
+            self::fail('Expected ConnectionException when writing to a closed peer');
+        } catch (ConnectionException) {
+        }
+
+        self::assertFalse($connection->isConnected());
+        self::assertNotTrue(is_resource((new \ReflectionProperty($connection, 'stream'))->getValue($connection)));
+        $this->expectException(ConnectionException::class);
+        $connection->sendMessage(new TuneRequestV1(1024, 100));
     }
 
     public function testSendFrameThrowsWhenSocketIsNull(): void
