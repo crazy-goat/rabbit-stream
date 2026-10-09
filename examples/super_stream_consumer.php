@@ -26,6 +26,8 @@ $consumer = $connection->createSuperStreamConsumer(
 );
 
 $running = true;
+$smokeRun = getenv('RABBITMQ_SMOKE') === '1';
+$readTimeout = $smokeRun ? 1.0 : 5.0;
 pcntl_signal(SIGINT, function () use (&$running) {
     echo "\nShutting down...\n";
     $running = false;
@@ -35,7 +37,7 @@ $count = 0;
 while ($running) {
     pcntl_signal_dispatch();
 
-    $messages = $consumer->read(timeout: 5);
+    $messages = $consumer->read(timeout: $readTimeout);
 
     foreach ($messages as $msg) {
         // getStream() names the partition (physical stream) this particular
@@ -44,6 +46,10 @@ while ($running) {
         echo "partition={$msg->getStream()} offset={$msg->getOffset()} body={$msg->getBody()}\n";
         $consumer->storeOffset($msg->getStream(), $msg->getOffset() + 1);
         $count++;
+    }
+
+    if ($smokeRun) {
+        break;
     }
 }
 

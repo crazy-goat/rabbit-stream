@@ -43,6 +43,7 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
         $this->assertSame(0, $result['exit'], $result['stderr']);
         $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
+        $this->assertStringContainsString('FAKE-EXAMPLES-RAN', $result['stdout']);
     }
 
     public function testFailsWithDiagnosticsWhenTheBrokerNeverBecomesHealthy(): void
@@ -113,6 +114,7 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish without python3');
         $this->assertSame(0, $result['exit'], $result['stderr']);
         $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
+        $this->assertStringContainsString('FAKE-EXAMPLES-RAN', $result['stdout']);
         $this->assertFileDoesNotExist(
             $dir . '/python3-was-called',
             'run-e2e.sh invoked the host python3'
@@ -201,6 +203,7 @@ class RunE2eHealthWaitTest extends TestCase
         $dir = $this->makeTempDir([
             'run-e2e.sh' => (string) file_get_contents(dirname(__DIR__, 2) . '/run-e2e.sh'),
             'vendor/bin/phpunit' => "#!/usr/bin/env bash\necho FAKE-PHPUNIT-RAN\nexit 0\n",
+            'bin/run-examples.sh' => "#!/usr/bin/env bash\necho FAKE-EXAMPLES-RAN\nexit 0\n",
             'bin/docker' => <<<'SH'
                 #!/usr/bin/env bash
                 echo "$*" >> "$FAKE_LOG"
@@ -221,7 +224,15 @@ class RunE2eHealthWaitTest extends TestCase
             'bin/curl' => "#!/usr/bin/env bash\nexit 0\n",
             'bin/python3' => "#!/usr/bin/env bash\ntouch \"\$(dirname \"\$0\")/../python3-was-called\"\nexit 127\n",
         ]);
-        $executables = ['run-e2e.sh', 'vendor/bin/phpunit', 'bin/docker', 'bin/sleep', 'bin/curl', 'bin/python3'];
+        $executables = [
+            'run-e2e.sh',
+            'vendor/bin/phpunit',
+            'bin/run-examples.sh',
+            'bin/docker',
+            'bin/sleep',
+            'bin/curl',
+            'bin/python3',
+        ];
         foreach ($executables as $file) {
             if (chmod($dir . '/' . $file, 0755) === false) {
                 $this->fail('Could not make ' . $file . ' executable');

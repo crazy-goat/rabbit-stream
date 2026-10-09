@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **CI: smoke-run all examples against RabbitMQ (#617)** — `./run-e2e.sh` now runs a bounded smoke runner for every `examples/*.php` script while the broker is still running, makes legacy consumer examples exit after a bounded read in smoke mode, and isolates stream-management examples from shared demo streams.
+
 ### Fixed
 - **E2E: publisher and publish tests now create their own streams (#659)** — the tests no longer depend on `run-e2e.sh` provisioning a shared `test-stream`; each creates and removes an isolated stream, so they can run directly against an existing broker.
 
