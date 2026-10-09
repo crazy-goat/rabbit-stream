@@ -39,7 +39,27 @@ class ReadBuffer
         // getUint32()/getUint64()/getInt64() would return floats instead of ints
         // on a 32-bit build, silently corrupting offsets (#458).
         Platform::assertSixtyFourBitIntegers();
-        $this->windowLength = $length ?? (strlen($buffer) - $this->offset);
+
+        $bufferLength = strlen($buffer);
+        if ($this->offset < 0 || $this->offset > $bufferLength) {
+            throw new DeserializationException(
+                sprintf('Invalid buffer window offset %d for buffer length %d', $this->offset, $bufferLength)
+            );
+        }
+
+        $available = $bufferLength - $this->offset;
+        if ($length !== null && ($length < 0 || $length > $available)) {
+            throw new DeserializationException(
+                sprintf(
+                    'Invalid buffer window length %d at offset %d: only %d bytes available',
+                    $length,
+                    $this->offset,
+                    $available
+                )
+            );
+        }
+
+        $this->windowLength = $length ?? $available;
     }
 
     private function ensureAvailable(int $bytes): void
