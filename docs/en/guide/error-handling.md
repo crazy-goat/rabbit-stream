@@ -147,9 +147,13 @@ try {
 
 Thrown when the server returns an error response code. Contains the response code for programmatic handling:
 
-> **A non-OK response code never comes back as a return value.** For the
-> correlated request/response methods whose reply carries a top-level response
-> code, that code is asserted **during deserialization** — by
+> A non-OK response code is normally thrown during deserialization rather than
+> returned as a response value. The exception is `SASL_CHALLENGE`:
+> `SaslAuthenticateResponseV1` returns it as a response object for
+> challenge-response SASL mechanisms; see the
+> [authentication challenge flow](../protocol/connection-auth.md#challenge-response-data).
+> For the correlated request/response methods whose reply carries a top-level
+> response code, that code is asserted **during deserialization** — by
 > `SimpleCorrelatedResponseV1::fromStreamBuffer()` for the shared response
 > classes and by `CommandTrait::assertResponseCodeOk()` in the hand-written
 > ones — which throws `ProtocolException` before the response object reaches
