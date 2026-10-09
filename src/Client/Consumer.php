@@ -928,7 +928,7 @@ class Consumer implements ConsumerInterface
      */
     private function throwCreditError(): void
     {
-        if ($this->creditError instanceof \CrazyGoat\RabbitStream\Exception\ProtocolException) {
+        if ($this->creditError instanceof ProtocolException) {
             throw $this->creditError;
         }
     }
@@ -936,7 +936,7 @@ class Consumer implements ConsumerInterface
     private function sendPendingCredits(): void
     {
         if (
-            $this->creditError instanceof \CrazyGoat\RabbitStream\Exception\ProtocolException
+            $this->creditError instanceof ProtocolException
             || $this->pendingCredits <= 0
         ) {
             return;
