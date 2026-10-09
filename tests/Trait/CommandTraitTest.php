@@ -46,36 +46,16 @@ class CommandTraitTest extends TestCase
      */
     public static function knownErrorCodesProvider(): array
     {
-        return [
-            'STREAM_NOT_EXIST' => [0x02, 'STREAM_NOT_EXIST', 'Stream does not exist'],
-            'SUBSCRIPTION_ID_ALREADY_EXISTS' => [
-                0x03,
-                'SUBSCRIPTION_ID_ALREADY_EXISTS',
-                'Subscription ID already exists',
-            ],
-            'SUBSCRIPTION_ID_NOT_EXIST' => [0x04, 'SUBSCRIPTION_ID_NOT_EXIST', 'Subscription ID does not exist'],
-            'STREAM_ALREADY_EXISTS' => [0x05, 'STREAM_ALREADY_EXISTS', 'Stream already exists'],
-            'STREAM_NOT_AVAILABLE' => [0x06, 'STREAM_NOT_AVAILABLE', 'Stream not available'],
-            'SASL_MECHANISM_NOT_SUPPORTED' => [0x07, 'SASL_MECHANISM_NOT_SUPPORTED', 'SASL mechanism not supported'],
-            'AUTHENTICATION_FAILURE' => [0x08, 'AUTHENTICATION_FAILURE', 'Authentication failure'],
-            'SASL_ERROR' => [0x09, 'SASL_ERROR', 'SASL error'],
-            'SASL_CHALLENGE' => [0x0a, 'SASL_CHALLENGE', 'SASL challenge'],
-            'SASL_AUTHENTICATION_FAILURE_LOOPBACK' => [
-                0x0b,
-                'SASL_AUTHENTICATION_FAILURE_LOOPBACK',
-                'SASL authentication failure loopback',
-            ],
-            'VIRTUAL_HOST_ACCESS_FAILURE' => [0x0c, 'VIRTUAL_HOST_ACCESS_FAILURE', 'Virtual host access failure'],
-            'UNKNOWN_FRAME' => [0x0d, 'UNKNOWN_FRAME', 'Unknown frame'],
-            'FRAME_TOO_LARGE' => [0x0e, 'FRAME_TOO_LARGE', 'Frame too large'],
-            'INTERNAL_ERROR' => [0x0f, 'INTERNAL_ERROR', 'Internal error'],
-            'ACCESS_REFUSED' => [0x10, 'ACCESS_REFUSED', 'Access refused'],
-            'PRECONDITION_FAILED' => [0x11, 'PRECONDITION_FAILED', 'Precondition failed'],
-            'PUBLISHER_NOT_EXIST' => [0x12, 'PUBLISHER_NOT_EXIST', 'Publisher does not exist'],
-            'NO_OFFSET' => [0x13, 'NO_OFFSET', 'No offset'],
-            'SASL_CANNOT_CHANGE_MECHANISM' => [0x14, 'SASL_CANNOT_CHANGE_MECHANISM', 'SASL cannot change mechanism'],
-            'SASL_CANNOT_CHANGE_USERNAME' => [0x15, 'SASL_CANNOT_CHANGE_USERNAME', 'SASL cannot change username'],
-        ];
+        $codes = [];
+        foreach (ResponseCodeEnum::cases() as $code) {
+            if (!$code->isError()) {
+                continue;
+            }
+
+            $codes[$code->name] = [$code->value, $code->name, $code->getMessage()];
+        }
+
+        return $codes;
     }
 
     public function testAssertResponseCodeOkThrowsForUnknownCode(): void
