@@ -44,26 +44,24 @@ $connection = new StreamConnection(
 
 | Level | When | Example Message |
 |-------|------|-----------------|
-| DEBUG | Frame sent/received | `Socket -> [hex dump]` |
+| DEBUG | Frame sent/received | `Socket -> PUBLISH v1, 4194330 bytes` |
 | DEBUG | Server-initiated close | `Server-initiated close: code=1, reason=...` |
 | WARNING | Unexpected frames in readLoop | `readLoop() received unexpected non-server-push frame` |
 
 ### Debug Frame Logging
 
-All protocol frames are logged at DEBUG level with hex dumps:
-
-**Outgoing frames:**
-```
-Socket -> 000000180015000100003039000e6d792d6170706c69636174696f6e
-```
-
-**Incoming frames:**
-
-Incoming frame dumps omit the four-byte size prefix; outgoing frame dumps include it.
+Protocol frames are logged at DEBUG level using metadata only: direction, command
+name, protocol version, and frame size. Payload bytes are never included, avoiding
+application-data disclosure and unbounded log records. For example:
 
 ```
-Socket <- 8015000100003039000100000000
+Socket -> OPEN v1, 28 bytes
+Socket <- OPEN_RESPONSE v1, 16 bytes
 ```
+
+`SASL_AUTHENTICATE` request frames use an explicit redaction marker instead of the
+command metadata. Frame dumps are not available: the library never writes frame
+payloads to logs.
 
 ### Connection Events
 
@@ -111,7 +109,7 @@ $connection = new StreamConnection(
 ```php
 use Monolog\Logger;
 
-// DEBUG: All protocol frames (very verbose)
+// DEBUG: Frame metadata and connection diagnostics
 $logger->pushHandler(new StreamHandler('logs/debug.log', Logger::DEBUG));
 
 // INFO: Connection events, errors
@@ -189,6 +187,9 @@ $connection = new StreamConnection(
 
 ### Enabling Frame Debugging
 
+A DEBUG-enabled logger receives bounded frame metadata, not hex dumps. Payloads are
+never logged, including Publish and Deliver bodies.
+
 ```php
 <?php
 
@@ -210,7 +211,7 @@ $connection = Connection::create(
     logger: $logger,  // Pass logger to connection
 );
 
-// All frames will now be logged
+// Frame metadata will now be logged; frame payloads are never included
 $producer = $connection->createProducer('my-stream');
 $producer->send('Hello, World!');
 ```
@@ -218,31 +219,25 @@ $producer->send('Hello, World!');
 ### Sample Debug Output
 
 ```
-[2024-01-15 10:30:45] DEBUG: Socket -> 000000180015000100003039000e6d792d6170706c69636174696f6e
-[2024-01-15 10:30:45] DEBUG: Socket <- 8015000100003039000100000000
-[2024-01-15 10:30:45] DEBUG: Socket -> 0000002200020001010000000100000000000000010000000d48656c6c6f2c20576f726c6421
-[2024-01-15 10:30:45] DEBUG: Socket <- 0003000101000000010000000000000001
+[2024-01-15 10:30:45] DEBUG: Socket -> OPEN v1, 28 bytes
+[2024-01-15 10:30:45] DEBUG: Socket <- OPEN_RESPONSE v1, 16 bytes
+[2024-01-15 10:30:45] DEBUG: Socket -> PUBLISH v1, 34 bytes
+[2024-01-15 10:30:45] DEBUG: Socket <- PUBLISH_CONFIRM v1, 18 bytes
 ```
+
+Frame records contain only protocol metadata; message bodies and other frame
+payloads are never logged.
 
 `Publish` (`0x0002`) is fire-and-forget and has **no** response frame. The
 `PublishConfirm` (`0x0003`) above is an uncorrelated server-push frame (it
 carries no CorrelationId); there is no `Publish` response key such as `0x8002`. <!-- docs-frame-keys: ignore 0x8002 -->
 
-### Interpreting Hex Dumps
+### Interpreting Frame Metadata
 
-Outgoing frame dumps include the four-byte size prefix, while incoming frame dumps start at the key. The breakdown below is an outgoing frame:
-
-```
-00000018 0015 0001 00003039 000e 6d792d6170706c69636174696f6e
-└─size─┘ └key┘ └ver┘ └─cid──┘ └len┘ └────── "my-application" ──────┘
-
-Size: 0x00000018 = 24 bytes
-Key:  0x0015 = OPEN command
-Ver:  0x0001 = Version 1
-CID:  0x00003039 = Correlation ID 12345
-Len:  0x000e = 14 bytes
-Data: "my-application"
-```
+Each frame record gives the transport direction, command key name, protocol
+version, and total frame size. Outgoing sizes include the four-byte length prefix;
+incoming sizes include it as well, even though it is not present in the buffer
+passed to the frame logger. No key, correlation ID, or payload bytes are dumped.
 
 ## Custom Logger Implementation
 

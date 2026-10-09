@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Security: frame debug logs no longer expose application payloads** — `StreamConnection` logs bounded command/version/size metadata instead of hex-dumping full Publish, Deliver, and other frame contents. `SASL_AUTHENTICATE` remains explicitly redacted.
 - **Bug: `Consumer` could redeliver unread buffered messages after a lost subscription (#586)** — unread messages are now discarded when a MetadataUpdate drops the subscription, so re-subscription from the last processed offset (or the initial OffsetSpec) does not append duplicate copies. Added callback-driven regression coverage for losses before and after draining a message.
 - **Consumer: dispatch rejected credit responses to the owning subscription (#605)** — unsolicited `CreditResponse` frames are now handled as server pushes, logged with their subscription and response code, and surfaced as a `ProtocolException` by the owning Consumer's next `read()`/`readOne()` call instead of being mistaken for another request's reply.
 - **Bug: `StreamConnection` routed protocol-error replies to the caller reading instead of the request owner (#588)** — response correlation IDs are now extracted before deserialization, so late errors for abandoned requests are logged and discarded, while errors read during a nested request are parked and thrown only when their owning request reads them. Added socket-pair regression tests for both cases.
