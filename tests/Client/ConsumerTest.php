@@ -881,6 +881,45 @@ class ConsumerTest extends TestCase
         new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: -1);
     }
 
+    public function testFailedChunkIsAtomicAndStillReturnsCredit(): void
+    {
+        [$consumer, $deliver, $credits] = $this->consumerWithCapturedCredits(2, 0);
+        $chunk = $this->buildOneEntryChunk('first');
+        $data = substr($chunk, 48);
+        $inner = pack('N', 4) . 'test';
+        $data .= pack('C', 0x80 | (1 << 4)); // gzip-compressed sub-batch
+        $data .= pack('n', 1);
+        $data .= pack('N', strlen($inner));
+        $data .= pack('N', strlen($inner));
+        $data .= $inner;
+        $chunk = substr($chunk, 0, 32)
+            . pack('N', crc32($data))
+            . pack('N', strlen($data))
+            . substr($chunk, 40, 8)
+            . $data;
+        // The test chunk header declares two entries and records: the valid plain
+        // entry above followed by the compressed sub-batch.
+        $chunk[2] = "\x00";
+        $chunk[3] = "\x02";
+        $chunk[4] = "\x00";
+        $chunk[5] = "\x00";
+        $chunk[6] = "\x00";
+        $chunk[7] = "\x02";
+
+        try {
+            $deliver($this->deliverOf($chunk));
+            self::fail('Expected a compressed sub-batch to be rejected');
+        } catch (DeserializationException $exception) {
+            $this->assertStringContainsString('Compressed sub-batches not supported', $exception->getMessage());
+        }
+
+        $this->assertFalse($consumer->hasUnread(), 'A failed chunk must not expose its successfully parsed prefix');
+        $this->assertSame([], $consumer->read(0));
+        $this->assertSame(2, (new \ReflectionProperty($consumer, 'creditsInFlight'))->getValue($consumer));
+        $this->assertSame(0, (new \ReflectionProperty($consumer, 'pendingCredits'))->getValue($consumer));
+        $this->assertSame([1], $credits->getArrayCopy(), 'The failed chunk credit must be granted back');
+    }
+
     public function testDeliverCallbackNeverDropsMessagesEvenPastMaxBufferSize(): void
     {
         // #485: a whole chunk is always accepted into the buffer, even when it
