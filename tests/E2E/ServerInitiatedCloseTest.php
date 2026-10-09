@@ -17,6 +17,9 @@ class ServerInitiatedCloseTest extends E2ETestCase
     private ?Connection $connection = null;
     private string $streamName;
 
+    /** @var list<string> */
+    private array $probeStreamNames = [];
+
     /**
      * Names of stream connections that already existed before this test opened
      * its own connection. The test's connection is the one that is present
@@ -55,6 +58,16 @@ class ServerInitiatedCloseTest extends E2ETestCase
         }
 
         if ($this->connection instanceof Connection) {
+            foreach ($this->probeStreamNames as $probeStreamName) {
+                try {
+                    $cleanupConn = $this->createConnection();
+                    $cleanupConn->deleteStream($probeStreamName);
+                    $cleanupConn->close();
+                } catch (\Exception) {
+                    // Ignore cleanup errors
+                }
+            }
+
             try {
                 $this->connection->close();
             } catch (\Exception) {
@@ -76,22 +89,39 @@ class ServerInitiatedCloseTest extends E2ETestCase
         // Force-close the connection via management API
         $this->forceCloseConnection($connectionName);
 
-        // The server needs a moment to close the TCP connection.
-        // Retry createStream until it throws ConnectionException.
-        $maxAttempts = 10;
+        // Wait until both the client observes the close and the management API
+        // confirms that the broker has removed this connection. Use a deadline
+        // rather than a fixed number of attempts because broker load varies.
+        $deadline = hrtime(true) + 30_000_000_000;
+        $retryDelay = 100_000;
         $lastException = null;
+        $connectionClosed = false;
 
-        for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
-            try {
-                $connection->createStream('another-stream-' . uniqid());
-                // Still connected - wait and retry
-                usleep(200_000);
-            } catch (ConnectionException $e) {
-                $lastException = $e;
+        while (hrtime(true) < $deadline) {
+            if (!$lastException instanceof ConnectionException) {
+                $probeStreamName = 'another-stream-' . uniqid();
+                $this->probeStreamNames[] = $probeStreamName;
+
+                try {
+                    $connection->createStream($probeStreamName);
+                } catch (ConnectionException $e) {
+                    $lastException = $e;
+                }
+            }
+
+            $connectionClosed = $this->isConnectionClosed($connectionName);
+            if ($lastException instanceof ConnectionException && $connectionClosed) {
                 break;
             }
+
+            usleep($retryDelay);
+            $retryDelay = min($retryDelay * 2, 1_000_000);
         }
 
+        $this->assertTrue(
+            $connectionClosed,
+            'The management API still reported the connection after the close deadline'
+        );
         $this->assertNotNull(
             $lastException,
             'Expected ConnectionException was not thrown after server-initiated close'
@@ -173,6 +203,26 @@ class ServerInitiatedCloseTest extends E2ETestCase
         }
 
         return $names;
+    }
+
+    private function isConnectionClosed(string $name): bool
+    {
+        $url = sprintf(
+            'http://%s:%d/api/connections/%s',
+            self::$host,
+            self::$managementPort,
+            rawurlencode($name)
+        );
+        $cmd = sprintf(
+            'curl -s --max-time 2 -u guest:guest -o /dev/null -w %%{http_code} %s 2>/dev/null',
+            escapeshellarg($url)
+        );
+
+        $output = [];
+        $returnCode = 0;
+        exec($cmd, $output, $returnCode);
+
+        return $returnCode === 0 && implode('', $output) === '404';
     }
 
     private function forceCloseConnection(string $name): void
