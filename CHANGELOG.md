@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Chore: exclude development files from Composer archives (#594)** — Composer distribution archives now omit tests, documentation, examples, CI configuration and development-only files, reducing the package size while retaining the files needed by library users.
 - **Docs: README consuming examples use the decoded Consumer API (#616)** — replaced the incomplete raw-Deliver decoding placeholder with the `Consumer::read()`/`readOne()` decoded `Message` API and a link to the manual raw-chunk decoding guide; defined `$running` in the live-stream example. No behavior change.
 - **Docs: complete Consumer read-method exception references (#613)** — the `Consumer::read()`, `readOne()` and `drain()` PHPDoc now lists timeout and connection failures from credit and auto-commit `StoreOffset` writes; the blocking read methods also name heartbeat echoes, server-close acknowledgements, ConsumerUpdate replies and re-subscribe request timeouts. No behavior change.
 - **Docs: use one authoritative response-code table (#663)** — the error-handling guide now links to the `ResponseCodeEnum` API table instead of duplicating it, and both SASL response-code tables in `connection-auth.md` include `0x14` and `0x15`. No behavior change.
