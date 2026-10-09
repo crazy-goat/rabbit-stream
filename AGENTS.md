@@ -184,7 +184,7 @@ examples/         # Working usage examples
 ### PHP Features in Use
 - PHP 8.1+ backed enums (`enum KeyEnum: int`)
 - Constructor property promotion
-- `match` expressions with `default => throw new \Exception(...)` pattern
+- `match` expressions with a concrete `src/Exception/` class in the `default => throw new ...` arm (import the matching exception class)
 - Named arguments where appropriate
 - Nullsafe operator and null coalescing where applicable
 
