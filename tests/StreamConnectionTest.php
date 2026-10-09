@@ -2531,11 +2531,18 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552, socketTimeout: 2.0);
         $this->injectSocket($connection, $clientSocket);
 
-        set_error_handler(static fn (): bool => true);
+        $selectWarnings = 0;
+        set_error_handler(static function (int $severity, string $message) use (&$selectWarnings): bool {
+            if ($severity === E_WARNING && str_starts_with($message, 'stream_select():')) {
+                $selectWarnings++;
+            }
+
+            return true;
+        });
         $this->armAlarm(1);
 
-        // Keep SIGALRM away from the boundary between select calls so the test
-        // reliably exercises an interruption when this PHP/platform emits one.
+        // Keep SIGALRM away from the boundary between select calls. Some PHP/OS
+        // combinations restart select after the signal and emit no warning.
         usleep(100000);
 
         try {
@@ -2549,6 +2556,10 @@ class StreamConnectionTest extends TestCase
 
         fclose($peer);
         fclose($clientSocket);
+
+        if ($selectWarnings === 0) {
+            $this->markTestSkipped('This PHP/platform combination did not emit a stream_select warning for EINTR');
+        }
     }
 
     /**
