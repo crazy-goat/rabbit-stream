@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Bug: failed Producer/Consumer construction cleans up registered handlers (#590)** — a failed named Producer now unregisters its callbacks and best-effort deletes a publisher declared before sequence lookup failed; a failed Consumer subscribe unregisters its subscription callbacks and handlers while preserving the original failure.
 - **Bug: `run-e2e.sh` reports invalid health-wait settings clearly (#666)** — validates `E2E_HEALTH_RETRIES` and `E2E_HEALTH_INTERVAL` before starting Docker and reports the invalid variable and value instead of a misleading broker-health timeout.
 - **Connection: correlate every command and discard replies that arrive after a timeout (#587)** — moved stream, producer and close exchanges from uncorrelated `sendMessage()`/`readMessage()` reads to `request()`. Timed-out requests now abandon their IDs, so late replies cannot desynchronize later commands; nested server-push requests also preserve the parked outer reply.
 - **Bug: `ReadBuffer` array count checks could overflow (#656)** — `getUint64Array()` now rejects counts whose byte-size multiplication would overflow before checking buffer availability, and both uint64/string array bounds checks avoid overflow-prone multiplication. Regression tests cover maximum counts.

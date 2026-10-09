@@ -573,7 +573,29 @@ class Consumer implements ConsumerInterface
             }
         );
 
-        $this->sendSubscribe($this->offset);
+        try {
+            $this->sendSubscribe($this->offset);
+        } catch (\Throwable $e) {
+            try {
+                $this->connection->unregisterSubscriber($this->subscriptionId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the subscription failure.
+            }
+            try {
+                $this->connection->unregisterConsumerUpdateHandler($this->subscriptionId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the subscription failure.
+            }
+            try {
+                $this->connection->unregisterMetadataUpdateHandler(
+                    $this->stream,
+                    "subscription-{$this->subscriptionId}"
+                );
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the subscription failure.
+            }
+            throw $e;
+        }
     }
 
     private function sendSubscribe(OffsetSpec $offset): void
