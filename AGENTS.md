@@ -7,7 +7,7 @@ The development process (issue, worktree, review, PR, merge) is in
 
 ## Project Overview
 
-`crazy-goat/rabbit-stream` is a PHP library implementing the RabbitMQ Streams Protocol client (port 5552). Its Composer runtime dependencies are `psr/log ^3.0` and the `ext-mbstring` PHP extension; `ext-sockets` is a development dependency used by tests.
+`crazy-goat/rabbit-stream` is a PHP library implementing the RabbitMQ Streams Protocol client (port 5552), using PHP streams for TCP and TLS transport. Its Composer runtime dependencies are `psr/log ^3.0` and the `ext-mbstring` PHP extension; `ext-sockets` is a development dependency used by tests.
 
 - Root namespace: `CrazyGoat\RabbitStream`
 - PSR-4 autoloading: `src/` → `CrazyGoat\RabbitStream\`
@@ -55,11 +55,24 @@ composer lint:fix
 ./vendor/bin/phpunit --testdox
 ```
 
-Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\RabbitStream\Tests\`, mirroring the `src/` structure:
-- `tests/Buffer/` — ReadBuffer, WriteBuffer tests
-- `tests/Request/` — serialization tests for each request class
-- `tests/Response/` — deserialization tests for each response class
+Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\RabbitStream\Tests\`:
+- `tests/Buffer/` — ReadBuffer and WriteBuffer tests
+- `tests/Client/` — public client API, message codecs, chunk parsing, and publishing-status tests
+- `tests/Client/Routing/` — routing strategies and Murmur3 tests
+- `tests/Contract/` — public contract documentation and implementation tests
 - `tests/E2E/` — integration tests against real RabbitMQ (via Docker)
+- `tests/Enum/` — protocol key and response-code enum tests
+- `tests/Exception/` — exception hierarchy tests
+- `tests/Request/` — request serialization and array-conversion tests
+- `tests/Repro/` — focused regression reproductions
+- `tests/Response/` — response deserialization and array-conversion tests
+- `tests/Serializer/` — binary serializer tests
+- `tests/Support/` — shared test fixtures and captured values
+- `tests/Trait/` — shared command-trait tests and fixtures
+- `tests/Trait/Fixtures/` — fixtures for trait tests
+- `tests/Util/` — utility and repository-script tests
+- `tests/VO/` — value-object tests
+- Root-level tests include `PlatformTest.php`, `ResponseBuilderTest.php`, and `StreamConnectionTest.php`.
 
 The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars (default: `127.0.0.1:5552`) and `RABBITMQ_MANAGEMENT_PORT` (default: `15672`).
 
@@ -105,15 +118,41 @@ such as `composer.json` scripts) before approving the run.
 
 ```
 src/
-├── Buffer/       # ReadBuffer, WriteBuffer, interfaces
+├── Buffer/       # ReadBuffer, WriteBuffer, and stream/array conversion interfaces
+├── Client/       # Public Connection, Producer, Consumer, and super-stream APIs; AMQP codecs and chunk parsing
+│   └── Routing/  # Super-stream routing strategies and Murmur3
+├── Contract/     # Public Connection/Producer/Consumer contracts and protocol correlation/key-version interfaces
 ├── Enum/         # KeyEnum (protocol command keys), ResponseCodeEnum
-├── Request/      # Client-sent command classes (*RequestV1.php)
+├── Exception/    # Library exception hierarchy
+├── Request/      # Client-sent command classes (*RequestV1.php, *RequestV2.php)
 ├── Response/     # Server-sent response classes (*ResponseV1.php)
-├── Contract/     # Interfaces (CorrelationInterface, KeyVersionInterface)
+├── Serializer/   # Binary serializer interface and PHP implementation
 ├── Trait/        # Shared traits (CorrelationTrait, V1Trait, CommandTrait)
-├── VO/           # Value Objects (KeyValue)
+├── Util/         # Shared type-conversion utilities
+├── VO/           # Protocol and client value objects
+├── Platform.php  # Runtime platform capability checks
 ├── ResponseBuilder.php   # Static dispatcher: raw buffer → typed response object
-└── StreamConnection.php  # TCP socket connection management
+└── StreamConnection.php  # Non-blocking PHP stream transport and protocol frame handling
+
+tests/
+├── Buffer/       # ReadBuffer and WriteBuffer tests
+├── Client/       # Public client API, codecs, chunk parsing, and publishing status tests
+│   └── Routing/  # Routing strategy and Murmur3 tests
+├── Contract/     # Public contract documentation and implementation tests
+├── E2E/          # Integration tests against real RabbitMQ (via Docker)
+├── Enum/         # Protocol key and response-code enum tests
+├── Exception/    # Exception hierarchy tests
+├── Request/      # Request serialization and array-conversion tests
+├── Repro/        # Focused regression reproductions
+├── Response/     # Response deserialization and array-conversion tests
+├── Serializer/   # Binary serializer tests
+├── Support/      # Shared test fixtures and captured values
+├── Trait/        # Shared command-trait tests and fixtures
+│   └── Fixtures/ # Fixtures for trait tests
+├── Util/         # Utility and repository-script tests
+├── VO/           # Value-object tests
+└── *.php          # Root-level platform, response-builder, and stream-connection tests
+
 examples/         # Working usage examples
 ```
 
@@ -131,7 +170,7 @@ examples/         # Working usage examples
 
 ### Methods
 - `public static function` ordering per PSR-12
-- Static factory methods on response/request classes: `fromStreamBuffer(ReadBuffer $buffer): ?object`
+- Static factory methods on response classes: `fromStreamBuffer(ReadBuffer $buffer): ?static`; request classes expose their documented factories as appropriate
 - Fluent builder methods on `WriteBuffer`: all `add*()` return `self`
 
 ### Constants / Enum Cases
@@ -231,7 +270,7 @@ class ExampleResponseV1 implements KeyVersionInterface, CorrelationInterface, Fr
     use CommandTrait;
     use V1Trait;
 
-    public static function fromStreamBuffer(ReadBuffer $buffer): ?object
+    public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
         self::validateKeyVersion($buffer->getUint16(), $buffer->getUint16());
         $correlationId = $buffer->getUint32();
@@ -276,7 +315,7 @@ The generic flow is in [docs/workflow.md](docs/workflow.md). On top of it:
 - Run `bin/lint.sh && composer test:unit` before the review. Run `./run-e2e.sh` only for
   wire-level changes (it needs Docker).
 - An extra-careful review (re-check against the protocol spec) is required when the
-  diff touches `src/StreamConnection.php` (the `socket_select` loop, server-push dispatch,
+  diff touches `src/StreamConnection.php` (the `stream_select` loops, server-push dispatch,
   heartbeat echo, `ConsumerUpdate` reply), wire-format code (`*RequestV1`, `*ResponseV1`,
   `Buffer/`), `ResponseBuilder` dispatch or `KeyEnum` values, security-relevant socket and
   parsing code, a public API (`Connection`, `Producer`, `Consumer`), or more than 200 changed lines.
@@ -307,38 +346,40 @@ and `composer kb-lint:fix` regenerates the index. Format: [docs/helpers/README.m
 
 ## Server-Push Frames (Async)
 
-Some frames are sent **Server → Client** without a correlation ID — they are not responses to a specific request. These require a `readLoop()` dispatcher in `StreamConnection`, not a simple `readMessage()` call.
+Some frames are sent **Server → Client** outside the normal request/response exchange. Most are uncorrelated server-push frames; `CreditResponse` is an error-only response without a correlation ID, while server-initiated `Close` carries one and must be acknowledged. These frames are handled by the dispatcher in `StreamConnection`, not returned as ordinary responses from `readMessage()`.
 
 | Key    | Command         | Routed by        | Notes |
 |--------|-----------------|------------------|-------|
 | `0x0003` | PublishConfirm  | `publisherId`    | Async confirm after Publish |
 | `0x0004` | PublishError    | `publisherId`    | Async error after Publish |
 | `0x0008` | Deliver         | `subscriptionId` | Message delivery to consumer |
+| `0x8009` | CreditResponse  | `subscriptionId` | Error-only response without correlation ID |
 | `0x0010` | MetadataUpdate  | stream name      | Stream topology changed |
+| `0x0016` | Close           | correlation ID   | Server-initiated close; client acknowledges then closes |
 | `0x0017` | Heartbeat       | —                | Must echo back immediately |
 | `0x001a` | ConsumerUpdate  | `subscriptionId` | Server asks client for offset; client must reply |
 
-**Rule:** `PublishConfirm` and `PublishError` use the **request key** (`0x0003`/`0x0004`), NOT the response key (`0x8003`/`0x8004`). Same for `Deliver` (`0x0008`), `MetadataUpdate` (`0x0010`), `Heartbeat` (`0x0017`), `ConsumerUpdate` (`0x001a`).
+**Rule:** `PublishConfirm` and `PublishError` use the **request key** (`0x0003`/`0x0004`), NOT the response key (`0x8003`/`0x8004`). Same for `Deliver` (`0x0008`), `MetadataUpdate` (`0x0010`), `Heartbeat` (`0x0017`), and `ConsumerUpdate` (`0x001a`). `CreditResponse` uses its response key (`0x8009`) but has no correlation ID; server-initiated `Close` uses `0x0016` and does carry a correlation ID.
 
 The `readLoop()` implementation is done — see `src/StreamConnection.php`.
 
 ### How readMessage() handles server-push frames
 
-`readMessage()` uses an internal loop with `socket_select()` to handle server-push frames transparently:
+`readMessage()` delegates to `readResponse()`, which repeatedly calls `readFrame()`. `readFrame()` waits for readability with `stream_select()` (using non-blocking PHP streams), then the response loop dispatches server-push frames transparently:
 
 ```
-readMessage():
-    while (true):
-        wait for data via socket_select()
-        frame = readFrame()
-        if frame.key is server-push (0x0003/0x0004/0x0008/0x0010/0x0017/0x001a):
-            dispatch(frame) → call registered callback, echo heartbeat, etc.
-            continue        → keep reading
-        else:
-            return frame    → give caller the response they were waiting for
+readMessage()/request():
+    readResponse():
+        while (true):
+            frame = readFrame()  # waits with stream_select(), reads one frame
+            if frame.key is server-push:
+                dispatch(frame) → callbacks, heartbeat echo, ConsumerUpdate reply, etc.
+                continue        → keep reading
+            else:
+                return matching response
 ```
 
-This mirrors how Go/Java clients work (dedicated goroutine/thread reading all frames), but in single-threaded PHP using `socket_select()` instead. Callers of `readMessage()` never see server-push frames — they are handled transparently inside the loop.
+`request()` additionally matches correlated responses by correlation ID and parks responses belonging to another in-flight request. Callers of `readMessage()` and `request()` do not receive server-push frames; they are handled transparently in the response loop.
 
 **Consequence:** existing tests do NOT need to change. `readMessage()` still returns the expected response type; it just silently handles any server-push frames that arrive before it.
 
@@ -352,7 +393,7 @@ $connection->sendMessage(new PublishRequestV1(...));
 $connection->readLoop(maxFrames: 1); // blocks until 1 server-push frame dispatched
 ```
 
-`readLoop()` also uses `socket_select()` internally and dispatches all frames to callbacks.
+`readLoop()` waits for readability with `stream_select()`, dispatches server-push frames to callbacks, and discards unexpected non-server-push frames. It can stop after a frame limit or timeout; if both are omitted, it runs until stopped or disconnected.
 
 ---
 

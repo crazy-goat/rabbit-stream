@@ -127,7 +127,7 @@ Thrown when the server returns an error response code. Contains the response cod
 > returned as a response value. The exception is `SASL_CHALLENGE`:
 > `SaslAuthenticateResponseV1` returns it as a response object for
 > challenge-response SASL mechanisms; see the
-> [authentication challenge flow](../protocol/connection-auth.md#challenge-response-data).
+> [authentication challenge flow](../protocol/connection-auth.md#3-saslauthenticate-0x0013).
 > For the correlated request/response methods whose reply carries a top-level
 > response code, that code is asserted **during deserialization** — by
 > `SimpleCorrelatedResponseV1::fromStreamBuffer()` for the shared response
