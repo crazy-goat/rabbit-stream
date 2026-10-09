@@ -1,4 +1,17 @@
-# Versioned tooling and dev-only paths are not shipped.
+# Development-only files are not shipped in Composer distribution archives.
+/AGENTS.md             export-ignore
+/.gitattributes        export-ignore
+/.gitignore            export-ignore
+/.github               export-ignore
 /bin                   export-ignore
 /bin/*                 export-ignore text eol=lf
+/docker-compose.yml    export-ignore
+/docs                  export-ignore
 /docs/helpers          export-ignore
+/examples              export-ignore
+/phpcs.xml.dist        export-ignore
+/phpstan.neon          export-ignore
+/phpunit.xml           export-ignore
+/rector.php            export-ignore
+/run-e2e.sh            export-ignore
+/tests                 export-ignore
