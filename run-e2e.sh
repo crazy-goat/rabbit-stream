@@ -22,6 +22,15 @@ export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT
 HEALTH_RETRIES="${E2E_HEALTH_RETRIES:-90}"
 HEALTH_INTERVAL="${E2E_HEALTH_INTERVAL:-2}"
 
+if ! [[ "$HEALTH_RETRIES" =~ ^[0-9]*[1-9][0-9]*$ ]]; then
+    echo "ERROR: E2E_HEALTH_RETRIES must be a positive integer, got '$HEALTH_RETRIES'." >&2
+    exit 1
+fi
+if ! [[ "$HEALTH_INTERVAL" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: E2E_HEALTH_INTERVAL must be a non-negative integer, got '$HEALTH_INTERVAL'." >&2
+    exit 1
+fi
+
 cleanup() {
     echo "Stopping RabbitMQ..."
     docker compose down
