@@ -19,6 +19,7 @@ use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -88,6 +89,8 @@ class Consumer implements ConsumerInterface
 
     /** Credit units (1 unit = 1 chunk) withheld because the buffer had no room when a chunk arrived. */
     private int $pendingCredits = 0;
+
+    private ?ProtocolException $creditError = null;
 
     /** Credit units (1 unit = 1 chunk) already sent to the server but not yet consumed by a delivered chunk. */
     private int $creditsInFlight = 0;
@@ -492,6 +495,24 @@ class Consumer implements ConsumerInterface
             );
         }
 
+        $this->connection->registerCreditErrorHandler(
+            $this->subscriptionId,
+            function (CreditResponseV1 $response): void {
+                $this->creditError = new ProtocolException(
+                    sprintf(
+                        'Credit rejected for subscription %d with response code 0x%04x',
+                        $response->getSubscriptionId(),
+                        $response->getResponseCode()
+                    ),
+                    responseCode: ResponseCodeEnum::tryFrom($response->getResponseCode())
+                );
+                // The server rejected the grant, so do not keep trying to replenish
+                // credit as messages are consumed from the local buffer.
+                $this->pendingCredits = 0;
+                $this->creditsInFlight = 0;
+            }
+        );
+
         $this->connection->registerSubscriber(
             $this->subscriptionId,
             function ($deliverResponse): void {
@@ -594,7 +615,9 @@ class Consumer implements ConsumerInterface
      */
     public function read(float $timeout = 5.0): array
     {
+        $this->throwCreditError();
         $this->waitForMessages($timeout);
+        $this->throwCreditError();
 
         return $this->drain();
     }
@@ -711,7 +734,9 @@ class Consumer implements ConsumerInterface
      */
     public function readOne(float $timeout = 5.0): ?Message
     {
+        $this->throwCreditError();
         $this->waitForMessages($timeout);
+        $this->throwCreditError();
 
         if ($this->unreadCount === 0) {
             return null;
@@ -907,9 +932,19 @@ class Consumer implements ConsumerInterface
      * buffer headroom (message units, checked as a threshold — see class docblock)
      * and the adaptive creditTarget cap on outstanding (in-flight) credit allow.
      */
+    private function throwCreditError(): void
+    {
+        if ($this->creditError instanceof ProtocolException) {
+            throw $this->creditError;
+        }
+    }
+
     private function sendPendingCredits(): void
     {
-        if ($this->pendingCredits <= 0) {
+        if (
+            $this->creditError instanceof ProtocolException
+            || $this->pendingCredits <= 0
+        ) {
             return;
         }
 

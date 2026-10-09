@@ -22,6 +22,7 @@ use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -846,6 +847,100 @@ class StreamConnectionTest extends TestCase
         $response = $connection->request(new CreateRequestV1('a'), 1.0);
         $this->assertInstanceOf(CreateResponseV1::class, $response);
         $this->assertSame(1, $response->getCorrelationId());
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadMessageDispatchesCreditErrorBeforeReturningCorrelatedReply(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+        $received = null;
+        $connection->registerCreditErrorHandler(3, function (CreditResponseV1 $response) use (&$received): void {
+            $received = $response;
+        });
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $connection->sendMessage(new CreateRequestV1('a'));
+        $response = $connection->readMessage(1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertInstanceOf(CreditResponseV1::class, $received);
+        $this->assertSame(3, $received->getSubscriptionId());
+        $this->assertSame(0x04, $received->getResponseCode());
+        $this->assertSame('Credit request rejected by server', $logger->warningMessages()[0]);
+        $this->assertSame(3, $logger->warningContexts()[0]['subscriptionId']);
+        $this->assertSame('0x0004', $logger->warningContexts()[0]['responseCode']);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testRequestDispatchesCreditErrorBeforeReturningCorrelatedReply(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $received = null;
+        $connection->registerCreditErrorHandler(3, function (CreditResponseV1 $response) use (&$received): void {
+            $received = $response;
+        });
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('a'), 1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertInstanceOf(CreditResponseV1::class, $received);
+        $this->assertSame(3, $received->getSubscriptionId());
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadLoopDispatchesCreditErrorToRegisteredSubscription(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+        $received = null;
+        $connection->registerCreditErrorHandler(7, function (CreditResponseV1 $response) use (&$received): void {
+            $received = $response;
+        });
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 7)));
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 1.0));
+
+        $this->assertInstanceOf(CreditResponseV1::class, $received);
+        $this->assertNotContains(
+            'readLoop() received unexpected non-server-push frame, discarding',
+            $logger->warningMessages()
+        );
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadLoopLogsCreditErrorWithoutRegisteredSubscription(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 7)));
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertSame('Credit request rejected for unregistered subscription', $logger->warningMessages()[0]);
+        $this->assertSame(7, $logger->warningContexts()[0]['subscriptionId']);
+        $this->assertSame('0x0004', $logger->warningContexts()[0]['responseCode']);
 
         fclose($serverSocket);
         fclose($clientSocket);

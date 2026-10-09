@@ -18,6 +18,7 @@ use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
@@ -60,20 +61,28 @@ class ConsumerTest extends TestCase
      *   [1] the Consumer,
      *   [2] the deliver callback (route Deliver chunks through the real
      *       deliver path: chunk parsing -> buffer accounting -> credits),
-     *   [3] the MetadataUpdate handler (lost subscription).
+     *   [3] the MetadataUpdate handler (lost subscription),
+     *   [4] the CreditResponse handler (rejected credit).
      *
      * @return array{
      *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
      *     1: Consumer,
      *     2: callable|null,
      *     3: callable|null,
+     *     4: callable|null,
      * }
      */
     private function makeConsumerWithHandlers(?int $committedOffset = null): array
     {
         $deliverCallback = null;
         $metadataHandler = null;
+        $creditErrorHandler = null;
         $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerCreditErrorHandler')
+            ->willReturnCallback(function (int $id, callable $handler) use (&$creditErrorHandler): void {
+                $creditErrorHandler = $handler;
+            });
         $connection->expects($this->any())
             ->method('registerSubscriber')
             ->willReturnCallback(function (int $id, callable $cb) use (&$deliverCallback): void {
@@ -98,7 +107,7 @@ class ConsumerTest extends TestCase
 
         $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
 
-        return [$connection, $consumer, $deliverCallback, $metadataHandler];
+        return [$connection, $consumer, $deliverCallback, $metadataHandler, $creditErrorHandler];
     }
 
     private function setPendingCredits(Consumer $consumer, int $value): void
@@ -115,6 +124,31 @@ class ConsumerTest extends TestCase
     {
         $value = (new \ReflectionProperty($consumer, 'pendingCredits'))->getValue($consumer);
         return is_int($value) ? $value : 0;
+    }
+
+    public function testCreditErrorIsSurfacedOnConsumerReadAndStopsCreditReplenishment(): void
+    {
+        [$connection, $consumer, , , $creditErrorHandler] = $this->makeConsumerWithHandlers();
+        $this->assertIsCallable($creditErrorHandler);
+        $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x04, 'subscriptionId' => 1]));
+
+        try {
+            $consumer->read(timeout: 0);
+            self::fail('Consumer::read() should surface a rejected credit grant');
+        } catch (ProtocolException $exception) {
+            $this->assertSame(ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST, $exception->getResponseCode());
+            $this->assertStringContainsString('subscription 1', $exception->getMessage());
+            $this->assertStringContainsString('0x0004', $exception->getMessage());
+        }
+
+        $this->setPendingCredits($consumer, 2);
+        try {
+            $consumer->readOne(timeout: 0);
+            self::fail('Consumer::readOne() should surface a rejected credit grant');
+        } catch (ProtocolException $exception) {
+            $this->assertSame(ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST, $exception->getResponseCode());
+        }
+        $this->assertSame(2, $this->getPendingCredits($consumer));
     }
 
     public function testResumeOffsetContinuesAfterLastProcessedMessageWithinCommittedChunk(): void
