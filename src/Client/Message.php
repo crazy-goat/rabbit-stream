@@ -16,8 +16,8 @@ class Message
      *
      * @param array<int|string, mixed>|string|int|float|bool|null $body
      * @param array<string, mixed> $properties
-     * @param array<string, mixed> $applicationProperties
-     * @param array<string, mixed> $messageAnnotations
+     * @param array<int|string, mixed> $applicationProperties
+     * @param array<int|string, mixed> $messageAnnotations
      * @param string|null $rawData When non-null, the message is constructed lazily: $body,
      *                             $properties, $applicationProperties and $messageAnnotations
      *                             are ignored and instead decoded from $rawData on first access.
@@ -299,14 +299,14 @@ class Message
         return $this->properties;
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<int|string, mixed> */
     public function getApplicationProperties(): array
     {
         $this->ensureDecoded();
         return $this->applicationProperties;
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<int|string, mixed> */
     public function getMessageAnnotations(): array
     {
         $this->ensureDecoded();

@@ -322,6 +322,18 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame(12345, $annotations['x-opt-sequence-number']);
     }
 
+    public function testDecodeMessagePreservesIntegerKeysInApplicationPropertiesAndAnnotations(): void
+    {
+        // AMQP map8 with a smalluint key (1) and a string value ("x").
+        $map = "\xc1\x06\x02\x52\x01\xa1\x01x";
+        $message = $this->buildSection(0x74, $map) . $this->buildSection(0x72, $map);
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame([1 => 'x'], $sections['applicationProperties']);
+        $this->assertSame([1 => 'x'], $sections['messageAnnotations']);
+    }
+
     public function testDecodeMessageWithMultipleDataSections(): void
     {
         // Message with multiple Data sections (should be concatenated)
