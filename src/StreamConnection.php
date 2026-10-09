@@ -52,6 +52,8 @@ class StreamConnection
     private function requireStream()
     {
         if ($this->stream === null || !is_resource($this->stream)) {
+            $this->connected = false;
+            $this->notifyConnectionLost('Connection stream is not available');
             throw new ConnectionException("Cannot read: socket is not connected");
         }
 
@@ -73,6 +75,8 @@ class StreamConnection
 
     /** @var array<int, array{onConfirm: callable, onError: callable}> */
     private array $publisherCallbacks = [];
+    /** @var array<int, callable(string): void> */
+    private array $connectionLostHandlers = [];
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
     /** @var array<int, callable> */
@@ -576,6 +580,7 @@ class StreamConnection
      */
     public function close(): void
     {
+        $wasConnected = $this->connected;
         if ($this->connected && $this->stream !== null && is_resource($this->stream)) {
             try {
                 fclose($this->stream);
@@ -585,6 +590,9 @@ class StreamConnection
             $this->stream = null;
         }
         $this->connected = false;
+        if ($wasConnected) {
+            $this->notifyConnectionLost('Connection was closed');
+        }
         // A closed connection cannot read a late reply, so the abandoned-id set
         // has no further use and must not be carried by a reused instance (R2-3).
         $this->abandonedCorrelationIds = [];
@@ -616,6 +624,7 @@ class StreamConnection
 
         if ($this->stream === null || !is_resource($this->stream)) {
             $this->connected = false;
+            $this->notifyConnectionLost('Connection stream is no longer available');
             return false;
         }
 
@@ -905,6 +914,37 @@ class StreamConnection
     }
 
     /**
+     * Register a handler notified when this connection can no longer carry frames.
+     *
+     * @param int $handlerId Unique handler id, typically a publisher id
+     * @param callable(string): void $handler Receives the reason the connection was lost
+     */
+    public function registerConnectionLostHandler(int $handlerId, callable $handler): void
+    {
+        $this->connectionLostHandlers[$handlerId] = $handler;
+    }
+
+    /** Remove a connection-loss handler registered for a producer. */
+    public function unregisterConnectionLostHandler(int $handlerId): void
+    {
+        unset($this->connectionLostHandlers[$handlerId]);
+    }
+
+    /** Notify every active producer once, before discarding the callbacks. */
+    private function notifyConnectionLost(string $reason): void
+    {
+        if ($this->connectionLostHandlers === []) {
+            return;
+        }
+
+        $handlers = $this->connectionLostHandlers;
+        $this->connectionLostHandlers = [];
+        foreach ($handlers as $handler) {
+            $handler($reason);
+        }
+    }
+
+    /**
      * Register a callback for metadata update notifications from the server.
      *
      * The global callback is invoked for every MetadataUpdate, after the
@@ -1079,6 +1119,8 @@ class StreamConnection
 
                 if ($ready === false) {
                     if (!$this->selectWasInterrupted()) {
+                        $this->connected = false;
+                        $this->notifyConnectionLost('stream_select failed while waiting for write readiness');
                         throw new ConnectionException("stream_select failed while waiting for write readiness");
                     }
 
@@ -1139,6 +1181,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while writing');
                 throw new ConnectionException('stream_select failed while writing');
             }
             if ($ready === 0) {
@@ -1151,6 +1195,7 @@ class StreamConnection
 
             if ($written === false || $written === 0) {
                 $this->connected = false;
+                $this->notifyConnectionLost('Failed to write to socket: peer closed the connection or write error');
                 throw new ConnectionException(
                     'Failed to write to socket: peer closed the connection or write error. ' .
                     'On an ssl:// transport a false/0 fwrite() can also indicate a temporary ' .
@@ -1433,6 +1478,8 @@ class StreamConnection
 
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed in readLoop');
                 throw new ConnectionException('stream_select failed in readLoop');
             }
 
@@ -1608,6 +1655,13 @@ class StreamConnection
                 $closingReason ?? ''
             ));
         }
+
+        $this->connected = false;
+        $this->notifyConnectionLost(sprintf(
+            'Server-initiated close (code=%d, reason=%s)',
+            $closingCode,
+            $closingReason ?? ''
+        ));
 
         $response = (new WriteBuffer())
             ->addUInt16(KeyEnum::CLOSE_RESPONSE->value)
@@ -1794,6 +1848,8 @@ class StreamConnection
 
             if ($ready === false) {
                 if (!$this->selectWasInterrupted()) {
+                    $this->connected = false;
+                    $this->notifyConnectionLost('stream_select failed while waiting for frame data');
                     throw new ConnectionException('stream_select failed while waiting for frame data');
                 }
 
@@ -2002,6 +2058,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while reading');
                 throw new ConnectionException('stream_select failed while reading');
             }
             if ($ready === 0 && $this->readTimeout($data, $length, $mustComplete)) {
@@ -2019,6 +2077,7 @@ class StreamConnection
                 $meta = stream_get_meta_data($stream);
                 if ($meta['eof']) {
                     $this->connected = false;
+                    $this->notifyConnectionLost('Failed to read from socket: connection closed by peer');
                     throw new ConnectionException("Failed to read from socket: connection closed by peer");
                 }
 
