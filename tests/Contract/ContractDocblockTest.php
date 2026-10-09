@@ -194,6 +194,18 @@ class ContractDocblockTest extends TestCase
             'InvalidArgumentException',
         ],
         'ConsumerInterface::hasUnread' => [],
+        'ConsumerInterface::isSubscriptionLost' => [],
+        'ConsumerInterface::getResubscribeCount' => [],
+        'ConsumerInterface::resubscribeIfLost' => [
+            'ProtocolException',
+            'UnexpectedResponseException',
+            'ConnectionException',
+            'DeserializationException',
+            'TimeoutException',
+            'InvalidArgumentException',
+        ],
+        'ConsumerInterface::isClosed' => [],
+        'ConsumerInterface::getCreditTarget' => [],
         'ConsumerInterface::drain' => [
             'ConnectionException',
             'TimeoutException',
@@ -265,6 +277,10 @@ class ContractDocblockTest extends TestCase
             'UnexpectedResponseException',
         ],
         'ProducerInterface::getPendingConfirms' => [],
+        'ProducerInterface::isStale' => [],
+        'ProducerInterface::getRedeclareCount' => [],
+        'ProducerInterface::isClosed' => [],
+        'ProducerInterface::getLostConfirmCount' => [],
 
         // SuperStreamConsumerInterface
         'SuperStreamConsumerInterface::read' => [
@@ -335,6 +351,17 @@ class ContractDocblockTest extends TestCase
         ],
         'SuperStreamProducerInterface::getPendingConfirms' => [],
         'SuperStreamProducerInterface::getPartitions' => [],
+        'SuperStreamProducerInterface::markPartitionsStale' => [],
+        'SuperStreamProducerInterface::isPartitionsStale' => [],
+        'SuperStreamProducerInterface::getRefreshCount' => [],
+        'SuperStreamProducerInterface::refreshPartitions' => [
+            'ConnectionException',
+            'DeserializationException',
+            'InvalidArgumentException',
+            'ProtocolException',
+            'TimeoutException',
+            'UnexpectedResponseException',
+        ],
         'SuperStreamProducerInterface::close' => [
             'ConnectionException',
             'DeserializationException',

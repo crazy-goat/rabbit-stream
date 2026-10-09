@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Contracts: expose producer and consumer recovery/status methods (#592)** — added the public recovery and lifecycle methods to the Producer, Consumer and SuperStreamProducer interfaces returned by Connection factories. A reflection-based contract test now verifies that every public non-internal client method is declared with a matching signature on its interface.
+
 ### Fixed
 - **Test: `AmqpMessageDecoderE2ETest::testDecodeMultipleMessages` waits for every publish ID confirm** — confirms may be split across frames, so the test now reads until the bounded deadline and compares the exact confirmed publishing-ID set against the IDs sent. Missing, duplicate, or unexpected confirms fail the test.
 - **Bug: failed Producer/Consumer construction cleans up registered handlers (#590)** — a failed named Producer now unregisters its callbacks and best-effort deletes a publisher declared before sequence lookup failed; a failed Consumer subscribe unregisters its subscription callbacks and handlers while preserving the original failure.
