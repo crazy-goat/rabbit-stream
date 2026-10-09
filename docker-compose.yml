@@ -1,6 +1,6 @@
 services:
   rabbitmq:
-    image: rabbitmq:4-management
+    image: public.ecr.aws/docker/library/rabbitmq:4-management
     ports:
       - "${RABBITMQ_PORT:-5552}:5552"
       - "${RABBITMQ_AMQP_PORT:-5672}:5672"

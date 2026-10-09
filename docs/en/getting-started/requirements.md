@@ -96,7 +96,7 @@ The project includes a `docker-compose.yml` file:
 ```yaml
 services:
   rabbitmq:
-    image: rabbitmq:4-management
+    image: public.ecr.aws/docker/library/rabbitmq:4-management
     ports:
       - "5552:5552"    # Stream protocol
       - "5672:5672"    # AMQP protocol
@@ -140,7 +140,7 @@ docker run -d \
   -p 15672:15672 \
   -e RABBITMQ_DEFAULT_USER=guest \
   -e RABBITMQ_DEFAULT_PASS=guest \
-  rabbitmq:4-management \
+  public.ecr.aws/docker/library/rabbitmq:4-management \
   sh -c "rabbitmq-plugins enable rabbitmq_stream && rabbitmq-server"
 ```
 
