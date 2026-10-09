@@ -26,6 +26,8 @@ $consumer = $connection->createConsumer(
 );
 
 $running = true;
+$smokeRun = getenv('RABBITMQ_SMOKE') === '1';
+$readTimeout = $smokeRun ? 1.0 : 5.0;
 pcntl_signal(SIGINT, function () use (&$running) {
     $running = false;
 });
@@ -33,12 +35,19 @@ pcntl_signal(SIGINT, function () use (&$running) {
 while ($running) {
     pcntl_signal_dispatch();
 
-    $message = $consumer->readOne(timeout: 5);
+    $message = $consumer->readOne(timeout: $readTimeout);
     if ($message === null) {
+        if ($smokeRun) {
+            break;
+        }
         continue;
     }
 
     echo "offset={$message->getOffset()} body={$message->getBody()}\n";
+
+    if ($smokeRun) {
+        break;
+    }
 }
 
 $consumer->close(); // stores final offset automatically

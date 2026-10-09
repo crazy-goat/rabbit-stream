@@ -213,7 +213,7 @@ class OffsetResumeExample
 
             // Simulate occasional failures (5% chance)
             // In production, this would be real error handling
-            if (rand(1, 100) <= 5) {
+            if (getenv('RABBITMQ_SMOKE') !== '1' && rand(1, 100) <= 5) {
                 echo "\n  ⚠ Simulated processing failure\n";
                 return false;
             }

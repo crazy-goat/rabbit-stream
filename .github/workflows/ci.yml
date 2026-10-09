@@ -127,6 +127,12 @@ jobs:
           RABBITMQ_PORT: 5552
         run: ./vendor/bin/phpunit --testsuite e2e --testdox
 
+      - name: Smoke-run examples
+        env:
+          RABBITMQ_HOST: 127.0.0.1
+          RABBITMQ_PORT: 5552
+        run: bin/run-examples.sh
+
   ci-ok:
     name: ci-ok
     needs: [changes, docs, lint, unit-tests, e2e-tests]
