@@ -167,8 +167,39 @@ class Producer implements ProducerInterface
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
         $this->logger = $logger ?? new NullLogger();
-        $this->declare();
-        $this->initializePublishingId();
+        $declared = false;
+        try {
+            $this->declare();
+            $declared = true;
+            $this->initializePublishingId();
+        } catch (\Throwable $e) {
+            try {
+                $this->connection->unregisterPublisher($this->publisherId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the construction failure.
+            }
+            try {
+                $this->connection->unregisterConnectionLostHandler($this->publisherId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the construction failure.
+            }
+            try {
+                $this->connection->unregisterMetadataUpdateHandler(
+                    $this->stream,
+                    "publisher-{$this->publisherId}"
+                );
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the construction failure.
+            }
+            if ($declared) {
+                try {
+                    $this->connection->request(new DeletePublisherRequestV1($this->publisherId));
+                } catch (\Throwable) {
+                    // The broker-side declaration may remain if it cannot be deleted.
+                }
+            }
+            throw $e;
+        }
     }
 
     /**
