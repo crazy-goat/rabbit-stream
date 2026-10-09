@@ -150,27 +150,27 @@ The `ResponseCodeEnum` is a backed enum (`int`) that defines all possible respon
 
 | Code | Name | Hex | Description |
 |------|------|-----|-------------|
-| 1 | `OK` | 0x01 | Operation completed successfully |
+| 1 | `OK` | 0x01 | OK |
 | 2 | `STREAM_NOT_EXIST` | 0x02 | Stream does not exist |
-| 3 | `SUBSCRIPTION_ID_ALREADY_EXISTS` | 0x03 | Subscription ID already in use |
+| 3 | `SUBSCRIPTION_ID_ALREADY_EXISTS` | 0x03 | Subscription ID already exists |
 | 4 | `SUBSCRIPTION_ID_NOT_EXIST` | 0x04 | Subscription ID does not exist |
 | 5 | `STREAM_ALREADY_EXISTS` | 0x05 | Stream already exists |
-| 6 | `STREAM_NOT_AVAILABLE` | 0x06 | Stream is not available |
+| 6 | `STREAM_NOT_AVAILABLE` | 0x06 | Stream not available |
 | 7 | `SASL_MECHANISM_NOT_SUPPORTED` | 0x07 | SASL mechanism not supported |
-| 8 | `AUTHENTICATION_FAILURE` | 0x08 | Authentication failed |
-| 9 | `SASL_ERROR` | 0x09 | Generic SASL error |
-| 10 | `SASL_CHALLENGE` | 0x0a | SASL challenge (multi-step auth) |
-| 11 | `SASL_AUTHENTICATION_FAILURE_LOOPBACK` | 0x0b | SASL loopback authentication failure |
-| 12 | `VIRTUAL_HOST_ACCESS_FAILURE` | 0x0c | Virtual host access denied |
-| 13 | `UNKNOWN_FRAME` | 0x0d | Unknown frame type received |
-| 14 | `FRAME_TOO_LARGE` | 0x0e | Frame exceeds maximum size |
-| 15 | `INTERNAL_ERROR` | 0x0f | Internal server error |
-| 16 | `ACCESS_REFUSED` | 0x10 | Access refused (permissions) |
+| 8 | `AUTHENTICATION_FAILURE` | 0x08 | Authentication failure |
+| 9 | `SASL_ERROR` | 0x09 | SASL error |
+| 10 | `SASL_CHALLENGE` | 0x0a | SASL challenge |
+| 11 | `SASL_AUTHENTICATION_FAILURE_LOOPBACK` | 0x0b | SASL authentication failure loopback |
+| 12 | `VIRTUAL_HOST_ACCESS_FAILURE` | 0x0c | Virtual host access failure |
+| 13 | `UNKNOWN_FRAME` | 0x0d | Unknown frame |
+| 14 | `FRAME_TOO_LARGE` | 0x0e | Frame too large |
+| 15 | `INTERNAL_ERROR` | 0x0f | Internal error |
+| 16 | `ACCESS_REFUSED` | 0x10 | Access refused |
 | 17 | `PRECONDITION_FAILED` | 0x11 | Precondition failed |
 | 18 | `PUBLISHER_NOT_EXIST` | 0x12 | Publisher does not exist |
-| 19 | `NO_OFFSET` | 0x13 | No offset stored yet (normal `QueryOffset` reply, not an error) |
-| 20 | `SASL_CANNOT_CHANGE_MECHANISM` | 0x14 | SASL mechanism cannot be changed on an authenticated connection |
-| 21 | `SASL_CANNOT_CHANGE_USERNAME` | 0x15 | SASL username cannot be changed on an authenticated connection |
+| 19 | `NO_OFFSET` | 0x13 | No offset |
+| 20 | `SASL_CANNOT_CHANGE_MECHANISM` | 0x14 | SASL cannot change mechanism |
+| 21 | `SASL_CANNOT_CHANGE_USERNAME` | 0x15 | SASL cannot change username |
 
 ### Methods
 
