@@ -82,21 +82,6 @@ jobs:
     needs: [changes, lint]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    services:
-      rabbitmq:
-        image: rabbitmq:4-management
-        env:
-          RABBITMQ_DEFAULT_USER: guest
-          RABBITMQ_DEFAULT_PASS: guest
-        ports:
-          - 5552:5552
-          - 15672:15672
-        options: >-
-          --health-cmd "rabbitmq-diagnostics check_port_connectivity"
-          --health-interval 5s
-          --health-timeout 10s
-          --health-retries 15
-          --health-start-period 30s
 
     steps:
       - uses: actions/checkout@v7
@@ -110,22 +95,8 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist
 
-      - name: Enable RabbitMQ Stream plugin
-        run: |
-          docker exec ${{ job.services.rabbitmq.id }} rabbitmq-plugins enable rabbitmq_stream
-          sleep 5
-
-      - name: Create test fixtures
-        run: |
-          curl -sf -u guest:guest -X PUT http://127.0.0.1:15672/api/queues/%2F/test-stream \
-            -H "Content-Type: application/json" \
-            -d '{"durable":true,"arguments":{"x-queue-type":"stream"}}'
-
       - name: Run E2E tests
-        env:
-          RABBITMQ_HOST: 127.0.0.1
-          RABBITMQ_PORT: 5552
-        run: ./vendor/bin/phpunit --testsuite e2e --testdox
+        run: ./run-e2e.sh
 
   ci-ok:
     name: ci-ok
