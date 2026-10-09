@@ -671,6 +671,27 @@ class ReadBufferTest extends TestCase
 
     // --- Window (offset/length) tests -------------------------------------------------
 
+    public function testWindowLengthLargerThanBackingStringThrowsWithoutWarning(): void
+    {
+        $warnings = [];
+        set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+            $warnings[] = $message;
+            return true;
+        });
+
+        try {
+            $buffer = new ReadBuffer(str_repeat('A', 16), 0, 100);
+            $buffer->getUint64Array(2);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $exception) {
+            $this->assertStringContainsString('Invalid buffer window length 100', $exception->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame([], $warnings, 'invalid windows must not reach unpack() and emit warnings');
+    }
+
     public function testWindowReadsAreRelativeToOffset(): void
     {
         $backing = 'PREFIX *SUFFIX';
