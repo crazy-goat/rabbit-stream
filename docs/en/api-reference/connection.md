@@ -939,6 +939,7 @@ public function createSuperStreamProducer(
     ?callable $onConfirm = null,
     int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
     float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
+    float $closeConfirmDrainTimeout = Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT,
 ): SuperStreamProducerInterface
 ```
 
@@ -952,6 +953,7 @@ public function createSuperStreamProducer(
 | `$onConfirm` | `?callable` | No | Confirmation callback, passed through to every partition's `Producer`. |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
 | `$redeclareTimeout` | `float` | No | Re-declare timeout after a `MetadataUpdate`, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_REDECLARE_TIMEOUT` (5.0 s). |
+| `$closeConfirmDrainTimeout` | `float` | No | Time each partition's `Producer::close()` waits for outstanding publish confirms before reporting them as lost. Default: `Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT` (2.0 s). |
 
 #### Return Value
 

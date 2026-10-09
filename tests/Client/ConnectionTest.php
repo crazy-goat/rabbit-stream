@@ -26,6 +26,7 @@ use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataResponseV1;
 use CrazyGoat\RabbitStream\Response\OpenResponseV1;
@@ -859,6 +860,34 @@ class ConnectionTest extends TestCase
 
         $timeout = new \ReflectionProperty(Producer::class, 'closeConfirmDrainTimeout');
         $this->assertSame(0.75, $timeout->getValue($producer));
+    }
+
+    public function testCreateSuperStreamProducerPassesCloseConfirmDrainTimeoutThrough(): void
+    {
+        $streamConnection = $this->createMockStreamConnection();
+        $streamConnection->method('registerPublisher');
+        $streamConnection->method('sendMessage');
+        $responses = [
+            new PartitionsResponseV1(['orders-0']),
+            new DeclarePublisherResponseV1(),
+        ];
+        $responseIndex = 0;
+        $streamConnection->method('readMessage')->willReturnCallback(
+            function () use (&$responseIndex, $responses): object {
+                return $responses[$responseIndex++];
+            }
+        );
+        $streamConnection->method('close');
+
+        $connection = $this->createConnectionWithMock($streamConnection);
+        $producer = $connection->createSuperStreamProducer(
+            'orders',
+            closeConfirmDrainTimeout: 0.75,
+        );
+        $producer->send('message', 'routing-key');
+
+        $timeout = new \ReflectionProperty(Producer::class, 'closeConfirmDrainTimeout');
+        $this->assertSame(0.75, $timeout->getValue($this->producersOf($connection)[0]));
     }
 
     public function testCreateProducerStoresProducerInArray(): void
