@@ -33,10 +33,10 @@ class ConsumerAutoCommitExample
         $this->createStream();
 
         // Step 3: Check for existing offset (resume scenario)
-        $this->checkExistingOffset();
+        $startOffset = $this->checkExistingOffset();
 
         // Step 4: Create consumer with auto-commit
-        $consumer = $this->createConsumer();
+        $consumer = $this->createConsumer($startOffset);
 
         // Step 5: Process messages
         $processed = $this->processMessages($consumer);
@@ -81,7 +81,7 @@ class ConsumerAutoCommitExample
         }
     }
 
-    private function checkExistingOffset(): void
+    private function checkExistingOffset(): ?int
     {
         echo "Step 3: Checking for existing offset...\n";
 
@@ -97,21 +97,24 @@ class ConsumerAutoCommitExample
         if ($lastOffset === null) {
             echo "  ℹ No stored offset found (first run)\n\n";
         } else {
-            echo "  ✓ Found stored offset: {$lastOffset}\n";
-            echo "  ℹ Will resume from offset " . $lastOffset . "\n\n";
+            echo "  ✓ Found stored offset {$lastOffset}; will resume from this offset\n\n";
         }
 
         $tempConsumer->close();
+
+        return $lastOffset;
     }
 
-    private function createConsumer(): \CrazyGoat\RabbitStream\Client\Consumer
+    private function createConsumer(?int $startOffset): \CrazyGoat\RabbitStream\Client\Consumer
     {
         echo "Step 4: Creating consumer with auto-commit...\n";
 
         // Create consumer with auto-commit every 10 messages
         $consumer = $this->connection->createConsumer(
             stream: 'example-stream',
-            offset: OffsetSpec::first(),
+            offset: $startOffset === null
+                ? OffsetSpec::first()
+                : OffsetSpec::offset($startOffset),
             name: $this->consumerName,
             autoCommit: 10,  // Store offset every 10 messages
             initialCredit: 20
@@ -129,7 +132,7 @@ class ConsumerAutoCommitExample
         echo "Step 5: Processing messages (max {$this->messagesToProcess})...\n";
 
         $processed = 0;
-        $lastStoredOffset = 0;
+        $lastStoredOffset = null;
 
         try {
             while ($processed < $this->messagesToProcess) {
@@ -168,7 +171,11 @@ class ConsumerAutoCommitExample
             echo "  ✗ Error: {$e->getMessage()}\n";
         }
 
-        echo "\n  ℹ Last auto-commit at offset: {$lastStoredOffset}\n";
+        if ($lastStoredOffset === null) {
+            echo "\n  ℹ No auto-commit yet\n";
+        } else {
+            echo "\n  ℹ Last auto-commit at offset: {$lastStoredOffset}\n";
+        }
         echo "  ℹ Final offset will be stored on close()\n\n";
 
         return $processed;

@@ -1,6 +1,6 @@
 # Consumer Auto-Commit Example
 
-This example demonstrates automatic offset management using the auto-commit feature. Auto-commit stores offsets at regular intervals, reducing the need for manual `storeOffset()` calls.
+This example demonstrates automatic offset management using the auto-commit feature. Auto-commit stores offsets at regular intervals, reducing the need for manual `storeOffset()` calls. It does not choose the initial subscription offset: query the stored offset and pass it to `OffsetSpec::offset()` when creating the consumer to resume after a restart.
 
 ## Overview
 
@@ -23,7 +23,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Consumer Auto-Commit Example
- * 
+ *
  * Demonstrates:
  * - Creating a named consumer with auto-commit enabled
  * - Automatic offset storage every N messages
@@ -35,56 +35,56 @@ class ConsumerAutoCommitExample
     private Connection $connection;
     private string $consumerName = 'auto-commit-demo';
     private int $messagesToProcess = 50;
-    
+
     public function run(): void
     {
         echo "=== Consumer Auto-Commit Example ===\n\n";
-        
+
         // Step 1: Create connection
         $this->createConnection();
-        
+
         // Step 2: Create the stream (if it doesn't exist)
         $this->createStream();
-        
+
         // Step 3: Check for existing offset (resume scenario)
-        $this->checkExistingOffset();
-        
+        $startOffset = $this->checkExistingOffset();
+
         // Step 4: Create consumer with auto-commit
-        $consumer = $this->createConsumer();
-        
+        $consumer = $this->createConsumer($startOffset);
+
         // Step 5: Process messages
         $processed = $this->processMessages($consumer);
-        
+
         // Step 6: Cleanup (triggers final offset storage)
         $this->cleanup($consumer);
-        
+
         echo "\n=== Example Complete ===\n";
         echo "Messages processed: {$processed}\n";
         echo "Consumer name: {$this->consumerName}\n";
         echo "\nRun this example again to see resume behavior!\n";
     }
-    
+
     private function createConnection(): void
     {
         echo "Step 1: Creating connection...\n";
-        
+
         $host = getenv('RABBITMQ_HOST') ?: '127.0.0.1';
         $port = (int)(getenv('RABBITMQ_PORT') ?: 5552);
-        
+
         $this->connection = Connection::create(
             host: $host,
             port: $port,
             user: 'guest',
             password: 'guest',
         );
-        
+
         echo "  ✓ Connected to {$host}:{$port}\n\n";
     }
-    
+
     private function createStream(): void
     {
         echo "Step 2: Creating stream 'example-stream'...\n";
-        
+
         try {
             $this->connection->createStream('example-stream', [
                 'max-length-bytes' => '1000000000',
@@ -94,74 +94,77 @@ class ConsumerAutoCommitExample
             echo "  ℹ Stream may already exist: {$e->getMessage()}\n\n";
         }
     }
-    
-    private function checkExistingOffset(): void
+
+    private function checkExistingOffset(): ?int
     {
         echo "Step 3: Checking for existing offset...\n";
-        
+
         // Create temporary consumer to query offset
         $tempConsumer = $this->connection->createConsumer(
             stream: 'example-stream',
             offset: OffsetSpec::first(),
             name: $this->consumerName
         );
-        
+
         $lastOffset = $tempConsumer->queryOffset();
 
         if ($lastOffset === null) {
             echo "  ℹ No stored offset found (first run)\n\n";
         } else {
-            echo "  ✓ Found stored offset: {$lastOffset}\n";
-            echo "  ℹ Will resume from offset " . $lastOffset . "\n\n";
+            echo "  ✓ Found stored offset {$lastOffset}; will resume from this offset\n\n";
         }
 
         $tempConsumer->close();
+
+        return $lastOffset;
     }
-    
-    private function createConsumer(): \CrazyGoat\RabbitStream\Client\Consumer
+
+    private function createConsumer(?int $startOffset): \CrazyGoat\RabbitStream\Client\Consumer
     {
         echo "Step 4: Creating consumer with auto-commit...\n";
-        
+
         // Create consumer with auto-commit every 10 messages
         $consumer = $this->connection->createConsumer(
             stream: 'example-stream',
-            offset: OffsetSpec::first(),
+            offset: $startOffset === null
+                ? OffsetSpec::first()
+                : OffsetSpec::offset($startOffset),
             name: $this->consumerName,
             autoCommit: 10,  // Store offset every 10 messages
             initialCredit: 20
         );
-        
+
         echo "  ✓ Consumer created\n";
         echo "  ℹ Auto-commit interval: 10 messages\n";
         echo "  ℹ Consumer name: {$this->consumerName}\n\n";
-        
+
         return $consumer;
     }
-    
+
     private function processMessages(\CrazyGoat\RabbitStream\Client\Consumer $consumer): int
     {
         echo "Step 5: Processing messages (max {$this->messagesToProcess})...\n";
-        
+
         $processed = 0;
-        $lastStoredOffset = 0;
-        
+        $lastStoredOffset = null;
+
         try {
             while ($processed < $this->messagesToProcess) {
                 // Read messages with 5-second timeout
                 $messages = $consumer->read(timeout: 5.0);
-                
+
                 if (empty($messages)) {
                     echo "  ℹ No more messages, stopping\n";
                     break;
                 }
-                
+
                 foreach ($messages as $message) {
                     $processed++;
                     $currentOffset = $message->getOffset();
-                    
+
                     // Simulate message processing
                     $this->simulateProcessing($message);
-                    
+
                     // Auto-commit happens automatically every 10 messages
                     // We can track when it happens by checking the offset
                     if ($processed % 10 === 0) {
@@ -171,7 +174,7 @@ class ConsumerAutoCommitExample
                     } else {
                         echo "  ✓ [{$currentOffset}] Processed message {$processed}\n";
                     }
-                    
+
                     if ($processed >= $this->messagesToProcess) {
                         echo "  ℹ Reached message limit ({$this->messagesToProcess})\n";
                         break 2;
@@ -181,37 +184,41 @@ class ConsumerAutoCommitExample
         } catch (\Exception $e) {
             echo "  ✗ Error: {$e->getMessage()}\n";
         }
-        
-        echo "\n  ℹ Last auto-commit at offset: {$lastStoredOffset}\n";
+
+        if ($lastStoredOffset === null) {
+            echo "\n  ℹ No auto-commit yet\n";
+        } else {
+            echo "\n  ℹ Last auto-commit at offset: {$lastStoredOffset}\n";
+        }
         echo "  ℹ Final offset will be stored on close()\n\n";
-        
+
         return $processed;
     }
-    
+
     private function simulateProcessing(\CrazyGoat\RabbitStream\Client\Message $message): void
     {
         // Simulate some processing work
         $body = $message->getBody();
-        
+
         // In a real application, you would:
         // - Parse the message
         // - Validate the data
         // - Update a database
         // - Send notifications
         // - etc.
-        
+
         // Small delay to simulate work
         usleep(1000); // 1ms
     }
-    
+
     private function cleanup(\CrazyGoat\RabbitStream\Client\Consumer $consumer): void
     {
         echo "Step 6: Cleaning up...\n";
-        
+
         // close() automatically stores the final offset
         $consumer->close();
         echo "  ✓ Consumer closed (final offset stored)\n";
-        
+
         $this->connection->close();
         echo "  ✓ Connection closed\n";
     }
@@ -304,7 +311,7 @@ $consumer = $connection->createConsumer(
 
 ### Recovery After Restart
 
-A consumer can resume from the last stored offset by querying it and passing it to `OffsetSpec::offset()` (as shown here). Auto-commit stores offsets but does not select the initial subscription offset; the executable example's alignment with this recipe is tracked in [issue #619](https://github.com/crazy-goat/rabbit-stream/issues/619).
+A consumer can resume from the last stored offset by querying it and passing it to `OffsetSpec::offset()` (as shown here). Auto-commit stores offsets but does not select the initial subscription offset on the first Subscribe; query the stored offset and pass it explicitly when creating the consumer.
 
 ```php
 // Check for existing offset
@@ -371,6 +378,9 @@ php examples/consumer_auto_commit_full.php
 ## Expected Output
 
 **First Run:**
+
+The output below is illustrative; it assumes six messages are available. With fewer than ten messages, no periodic auto-commit occurs, but the consumer stores the final next offset on `close()`.
+
 ```
 === Consumer Auto-Commit Example ===
 
@@ -397,7 +407,7 @@ Step 5: Processing messages (max 50)...
   ✓ [5] Processed message 6
   ℹ No more messages, stopping
 
-  ℹ Last auto-commit at offset: 0
+  ℹ No auto-commit yet
   ℹ Final offset will be stored on close()
 
 Step 6: Cleaning up...
@@ -413,7 +423,7 @@ Run this example again to see resume behavior!
 
 **Second Run (Resume):**
 
-The output below is illustrative: it assumes the first run processed 50 messages (publish more than 50 first).
+The output below is illustrative: it assumes the first run processed 50 messages and that more messages are available (publish more than 50 first). The stored offset is already the next offset to consume, so it is used directly for the initial Subscribe.
 
 ```
 === Consumer Auto-Commit Example ===
@@ -425,8 +435,7 @@ Step 2: Creating stream 'example-stream'...
   ℹ Stream may already exist: Stream already exists
 
 Step 3: Checking for existing offset...
-  ✓ Found stored offset: 49
-  ℹ Will resume from offset 50
+  ✓ Found stored offset 50; will resume from this offset
 
 Step 4: Creating consumer with auto-commit...
   ✓ Consumer created
