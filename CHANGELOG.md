@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Test: `AmqpMessageDecoderE2ETest::testDecodeMultipleMessages` waits for every publish ID confirm** — confirms may be split across frames, so the test now reads until the bounded deadline and compares the exact confirmed publishing-ID set against the IDs sent. Missing, duplicate, or unexpected confirms fail the test.
 - **Bug: failed Producer/Consumer construction cleans up registered handlers (#590)** — a failed named Producer now unregisters its callbacks and best-effort deletes a publisher declared before sequence lookup failed; a failed Consumer subscribe unregisters its subscription callbacks and handlers while preserving the original failure.
 - **Consumer: discard partial deliveries and return credit after chunk parse failures (#591)** — messages from a Deliver chunk are buffered only after the entire chunk parses, and the consumed chunk credit is accounted for even when deserialization fails.
 - **Bug: nested `StreamConnection::readLoop()` calls no longer stop the outer loop (#589)** — a nested loop now restores the caller's running state on return or exception, while `stop()` still propagates across active loops. Added socket-pair regression tests for frame processing, stop propagation, and exceptions.
