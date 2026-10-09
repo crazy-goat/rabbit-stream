@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **CI: documentation links with anchors are now validated (#593)** — the docs link checker now checks linked file existence and GitHub-style heading slugs (including same-file links) instead of skipping anchored links. Added fixture tests for valid links, missing files, and missing anchors, and corrected broken documentation anchors detected by the new check.
 - **Bug: `createSuperStreamProducer()` now passes `closeConfirmDrainTimeout` through to each partition Producer (#561)** — a configured close-confirm drain duration now applies to every lazily created partition Producer, matching `createProducer()`.
 - **Bug: `Message` map getter types now include preserved integer keys (#672)** — ApplicationProperties and MessageAnnotations maps can contain integer keys in the decoded PHP array, so the `Message` constructor/getter PHPDoc and API reference now declare `array<int|string, mixed>` instead of the inaccurate string-only key type. Added decoder regression coverage for both sections; decoding behaviour is unchanged.
 - **Bug: AMQP Properties sections reject extra fields** — a Properties list longer than the 13 fields defined by AMQP 1.0 now raises `DeserializationException` instead of silently dropping its trailing values.

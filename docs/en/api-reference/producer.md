@@ -714,7 +714,7 @@ $producer->waitForConfirms(timeout: 5.0);
 > The broker also drops a publish whose ID is ≤ the stored sequence, but the
 > high-level API assigns IDs internally and cannot re-send an old one, so that
 > rule is not an application-level "resend and it will be deduplicated"
-> feature. See [Publishing → Named Producers & Deduplication](../guide/publishing.md#3-named-producers--deduplication).
+> feature. See [Publishing → Named Producers & Deduplication](../guide/publishing.md#3-named-producers-deduplication).
 
 ## Performance Considerations
 

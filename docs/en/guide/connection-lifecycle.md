@@ -447,7 +447,7 @@ except for Deliver frames (key `0x0008`), which the broker does not bound by
 `frame_max` at all (a stream chunk is sent whole) and which are therefore
 checked against the separate, larger `maxDeliverFrameSize` instead of
 `maxFrameSize`. See
-[Performance Tuning → Deliver frames need their own cap](../advanced/performance-tuning.md#setmaxdeliverframesize--deliver-frames-need-a-separate-larger-cap).
+[Performance Tuning → Deliver frames need their own cap](../advanced/performance-tuning.md#setmaxdeliverframesize-deliver-frames-need-a-separate-larger-cap).
 
 #### Client-side: oversized outgoing frame
 
