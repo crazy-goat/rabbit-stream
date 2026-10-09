@@ -163,16 +163,22 @@ class CreditFlowControlTest extends E2ETestCase
         // Send credit for non-existent subscription (valid uint8, but no such sub)
         $connection->sendMessage(new CreditRequestV1(200, 10));
 
-        // Should get a CreditResponse (error response)
-        $response = $connection->readMessage();
+        // A rejected Credit is an unsolicited server-push frame, not the reply
+        // to a request. Observe it through the subscription error handler.
+        $creditError = null;
+        $connection->registerCreditErrorHandler(200, function (CreditResponseV1 $response) use (&$creditError): void {
+            $creditError = $response;
+        });
+
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0));
         $this->assertInstanceOf(
             CreditResponseV1::class,
-            $response,
-            'Credit for invalid subscription should return a CreditResponse'
+            $creditError,
+            'Credit for invalid subscription should dispatch a CreditResponse'
         );
         $this->assertNotSame(
             ResponseCodeEnum::OK->value,
-            $response->getResponseCode(),
+            $creditError->getResponseCode(),
             'Credit for invalid subscription should return non-OK response code'
         );
     }

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Consumer: dispatch rejected credit responses to the owning subscription (#605)** — unsolicited `CreditResponse` frames are now handled as server pushes, logged with their subscription and response code, and surfaced as a `ProtocolException` by the owning Consumer's next `read()`/`readOne()` call instead of being mistaken for another request's reply.
 - **Bug: `StreamConnection` routed protocol-error replies to the caller reading instead of the request owner (#588)** — response correlation IDs are now extracted before deserialization, so late errors for abandoned requests are logged and discarded, while errors read during a nested request are parked and thrown only when their owning request reads them. Added socket-pair regression tests for both cases.
 - **Connection: maintain negotiated heartbeats and detect silent peers** — idle library I/O calls now send correlation-free heartbeat frames after one negotiated interval and close connections after two intervals without inbound frames. Heartbeats are active only while the application is inside a library call; interval zero disables them.
 - **Producer: report in-flight publishing IDs as failed when the connection is lost** — outstanding IDs are now delivered once through `onConfirm` with the client-side `Producer::CONNECTION_LOST_ERROR_CODE`, counted by `getLostConfirmCount()`, and logged with a bounded ID prefix.
