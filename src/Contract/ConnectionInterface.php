@@ -412,13 +412,15 @@ interface ConnectionInterface
      *                                 partition's Producer.
      * @param float $redeclareTimeout Re-declare timeout, passed through to every
      *                                 partition's Producer.
+     * @param float $closeConfirmDrainTimeout Close-confirm drain timeout, passed
+     *                                 through to every partition's Producer.
      * @return SuperStreamProducerInterface A producer that resolves partitions up front
      *                                 and opens one underlying Producer per partition lazily.
      * @throws ProtocolException If the super stream does not exist or has zero partitions,
      *                                 or a response has an unexpected command or version.
      * @throws UnexpectedResponseException If a partitions() response has an unexpected type.
-     * @throws InvalidArgumentException If a partitions() request exceeds the negotiated
-     *                                 outgoing frame size.
+     * @throws InvalidArgumentException If $closeConfirmDrainTimeout is negative, or a
+     *                                 partitions() request exceeds the negotiated outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If a response frame cannot be deserialized.
      * @throws TimeoutException If a response does not arrive in time.
@@ -430,6 +432,7 @@ interface ConnectionInterface
         ?callable $onConfirm = null,
         int $maxPendingConfirms = Producer::DEFAULT_MAX_PENDING_CONFIRMS,
         float $redeclareTimeout = Producer::DEFAULT_REDECLARE_TIMEOUT,
+        float $closeConfirmDrainTimeout = Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT,
     ): SuperStreamProducerInterface;
 
     /**
