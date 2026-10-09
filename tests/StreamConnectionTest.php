@@ -1065,6 +1065,139 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    public function testNestedReadLoopDoesNotEndOuterReadLoop(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $receivedIds = [];
+        $nested = false;
+        $connection->registerPublisher(
+            1,
+            function (array $ids) use (&$receivedIds, &$nested, $connection): void {
+                $receivedIds[] = $ids[0];
+                if (!$nested) {
+                    $nested = true;
+                    $connection->readLoop(maxFrames: 1, timeout: 1.0);
+                }
+            },
+            function (): void {
+            }
+        );
+
+        foreach ([1, 2, 3] as $publishingId) {
+            fwrite(
+                $serverSocket,
+                $this->buildFrame(
+                    KeyEnum::PUBLISH_CONFIRM->value,
+                    1,
+                    pack('C', 1) . pack('N', 1) . pack('J', $publishingId)
+                )
+            );
+        }
+
+        $connection->readLoop(timeout: 2.0);
+
+        self::assertSame([1, 2, 3], $receivedIds);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testStopInsideNestedReadLoopStopsOuterReadLoop(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $receivedIds = [];
+        $nested = false;
+        $connection->registerPublisher(
+            1,
+            function (array $ids) use (&$receivedIds, &$nested, $connection): void {
+                $receivedIds[] = $ids[0];
+                if (!$nested) {
+                    $nested = true;
+                    $connection->readLoop(maxFrames: 1, timeout: 1.0);
+                    return;
+                }
+
+                $connection->stop();
+            },
+            function (): void {
+            }
+        );
+
+        foreach ([1, 2, 3] as $publishingId) {
+            fwrite(
+                $serverSocket,
+                $this->buildFrame(
+                    KeyEnum::PUBLISH_CONFIRM->value,
+                    1,
+                    pack('C', 1) . pack('N', 1) . pack('J', $publishingId)
+                )
+            );
+        }
+
+        $connection->readLoop(timeout: 2.0);
+
+        self::assertSame([1, 2], $receivedIds);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testNestedReadLoopRestoresRunningStateWhenCallbackThrows(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $nestedException = null;
+        $runningAfterNestedException = null;
+        $connection->registerPublisher(
+            1,
+            function (array $ids) use ($connection, &$nestedException, &$runningAfterNestedException): void {
+                if ($ids[0] === 1) {
+                    try {
+                        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+                    } catch (RuntimeException $exception) {
+                        $nestedException = $exception;
+                        $runningAfterNestedException = (new \ReflectionProperty($connection, 'running'))
+                            ->getValue($connection);
+                        $connection->stop();
+                    }
+
+                    return;
+                }
+
+                throw new RuntimeException('confirm callback failed');
+            },
+            function (): void {
+            }
+        );
+
+        foreach ([1, 2] as $publishingId) {
+            fwrite(
+                $serverSocket,
+                $this->buildFrame(
+                    KeyEnum::PUBLISH_CONFIRM->value,
+                    1,
+                    pack('C', 1) . pack('N', 1) . pack('J', $publishingId)
+                )
+            );
+        }
+
+        $connection->readLoop(timeout: 2.0);
+
+        self::assertInstanceOf(RuntimeException::class, $nestedException);
+        self::assertTrue($runningAfterNestedException);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
     public function testDispatchPublishConfirmIgnoresUnregisteredPublisher(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
