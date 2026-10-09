@@ -75,3 +75,7 @@ echo "RabbitMQ is ready."
 
 echo "Running E2E tests..."
 ./vendor/bin/phpunit --testsuite e2e --testdox
+
+# Keep the broker running while every example is smoke-tested.
+echo "Running example smoke tests..."
+bin/run-examples.sh
