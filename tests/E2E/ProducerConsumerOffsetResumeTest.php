@@ -49,35 +49,28 @@ class ProducerConsumerOffsetResumeTest extends E2ETestCase
             $this->streamName,
             OffsetSpec::first(),
             name: $consumerName,
+            autoCommit: 5,
         );
 
         $received1 = [];
         $deadline = time() + 10;
         while (count($received1) < 5 && time() < $deadline) {
-            $msgs = $consumer1->read(timeout: 0.5);
-            foreach ($msgs as $msg) {
-                $received1[] = $msg;
-                if (count($received1) >= 5) {
-                    break;
-                }
+            $message = $consumer1->readOne(timeout: 0.5);
+            if ($message instanceof Message) {
+                $received1[] = $message;
             }
         }
 
         $this->assertCount(5, $received1, 'First consumer should receive exactly 5 messages');
-
-        $fifthMessage = $received1[4];
-        $this->assertInstanceOf(Message::class, $fifthMessage);
-        $storedOffset = $fifthMessage->getOffset();
-        $consumer1->storeOffset($storedOffset);
         $consumer1->close();
 
+        $targetOffset = $received1[4]->getOffset() + 1;
         $queriedOffset = $this->connection->queryOffset($consumerName, $this->streamName);
-        $this->assertSame($storedOffset, $queriedOffset, 'Queried offset should match stored offset');
+        $this->assertSame($targetOffset, $queriedOffset, 'Auto-commit stores the next offset to consume');
 
-        $targetOffset = $storedOffset + 1;
         $consumer2 = $this->connection->createConsumer(
             $this->streamName,
-            OffsetSpec::first(),
+            OffsetSpec::offset($queriedOffset),
             name: $consumerName,
         );
 
@@ -85,18 +78,18 @@ class ProducerConsumerOffsetResumeTest extends E2ETestCase
         $deadline = time() + 10;
 
         while (count($received2) < 5 && time() < $deadline) {
-            $msgs = $consumer2->read(timeout: 0.5);
-            foreach ($msgs as $msg) {
-                if ($msg->getOffset() >= $targetOffset) {
-                    $received2[] = $msg;
-                    if (count($received2) >= 5) {
-                        break;
-                    }
-                }
+            $message = $consumer2->readOne(timeout: 0.5);
+            if ($message instanceof Message) {
+                $received2[] = $message;
             }
         }
 
         $this->assertCount(5, $received2, 'Second consumer should receive exactly 5 messages');
+        $this->assertSame(
+            $targetOffset,
+            $received2[0]->getOffset(),
+            'Restarted consumer must not redeliver any message below the committed next offset'
+        );
 
         $allReceived = array_merge($received1, $received2);
         $this->assertCount(10, $allReceived, 'Total messages received should be 10');
@@ -112,12 +105,6 @@ class ProducerConsumerOffsetResumeTest extends E2ETestCase
             $nextOffset = $allReceived[$i + 1]->getOffset();
             $this->assertGreaterThan($currentOffset, $nextOffset, 'Offsets should be sequential');
         }
-
-        $this->assertSame(
-            $targetOffset,
-            $received2[0]->getOffset(),
-            'Second consumer should start from offset ' . $targetOffset
-        );
 
         $consumer2->close();
     }

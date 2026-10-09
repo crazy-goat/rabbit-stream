@@ -19,6 +19,7 @@ use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -84,10 +85,13 @@ class Consumer implements ConsumerInterface
     private int $unreadCount = 0;
     private int $messagesProcessed = 0;
     private int $lastOffset = 0;
+    private ?int $deliveryOffsetFilter = null;
     private bool $hasProcessedMessage = false;
 
     /** Credit units (1 unit = 1 chunk) withheld because the buffer had no room when a chunk arrived. */
     private int $pendingCredits = 0;
+
+    private ?ProtocolException $creditError = null;
 
     /** Credit units (1 unit = 1 chunk) already sent to the server but not yet consumed by a delivered chunk. */
     private int $creditsInFlight = 0;
@@ -321,6 +325,12 @@ class Consumer implements ConsumerInterface
         // with it every outstanding credit.
         $this->creditsInFlight = 0;
         $this->pendingCredits = 0;
+        // Reset unread messages as well: the broker resumes from lastOffset + 1
+        // (or the initial OffsetSpec when nothing was processed), so retaining
+        // them would append duplicates after re-subscription.
+        $this->buffer = [];
+        $this->bufferHead = 0;
+        $this->unreadCount = 0;
         $this->active = !$this->singleActiveConsumer;
         $this->resubscribeBackoff = self::RESUBSCRIBE_INITIAL_BACKOFF;
         $this->nextResubscribeAt = microtime(true);
@@ -456,7 +466,9 @@ class Consumer implements ConsumerInterface
         $this->active = $query->isActive();
 
         if ($this->consumerUpdateCallback instanceof \Closure) {
-            return ($this->consumerUpdateCallback)($this->active, $this);
+            $offset = ($this->consumerUpdateCallback)($this->active, $this);
+            $this->setDeliveryOffsetFilter($offset);
+            return $offset;
         }
 
         if (!$this->active) {
@@ -472,7 +484,16 @@ class Consumer implements ConsumerInterface
         // OffsetSpec instead.
         $offset = $this->queryOffset();
 
-        return $offset === null ? $this->offset : OffsetSpec::offset($offset);
+        $resume = $offset === null ? $this->offset : OffsetSpec::offset($offset);
+        $this->setDeliveryOffsetFilter($resume);
+        return $resume;
+    }
+
+    private function setDeliveryOffsetFilter(?OffsetSpec $offset): void
+    {
+        $this->deliveryOffsetFilter = $offset?->getType() === OffsetSpec::TYPE_OFFSET
+            ? $offset->getValue()
+            : null;
     }
 
     private function subscribe(): void
@@ -485,6 +506,24 @@ class Consumer implements ConsumerInterface
                 fn(ConsumerUpdateResponseV1 $query): ?OffsetSpec => $this->defaultConsumerUpdateHandler($query)
             );
         }
+
+        $this->connection->registerCreditErrorHandler(
+            $this->subscriptionId,
+            function (CreditResponseV1 $response): void {
+                $this->creditError = new ProtocolException(
+                    sprintf(
+                        'Credit rejected for subscription %d with response code 0x%04x',
+                        $response->getSubscriptionId(),
+                        $response->getResponseCode()
+                    ),
+                    responseCode: ResponseCodeEnum::tryFrom($response->getResponseCode())
+                );
+                // The server rejected the grant, so do not keep trying to replenish
+                // credit as messages are consumed from the local buffer.
+                $this->pendingCredits = 0;
+                $this->creditsInFlight = 0;
+            }
+        );
 
         $this->connection->registerSubscriber(
             $this->subscriptionId,
@@ -507,6 +546,12 @@ class Consumer implements ConsumerInterface
                     verifyCrc: $this->verifyCrc,
                 );
                 foreach ($messages as $message) {
+                    if ($this->deliveryOffsetFilter !== null) {
+                        if ($message->getOffset() < $this->deliveryOffsetFilter) {
+                            continue;
+                        }
+                        $this->deliveryOffsetFilter = null;
+                    }
                     $this->buffer[] = $message;
                     $this->unreadCount++;
                 }
@@ -533,6 +578,8 @@ class Consumer implements ConsumerInterface
 
     private function sendSubscribe(OffsetSpec $offset): void
     {
+        $this->setDeliveryOffsetFilter($offset);
+
         // Set before sending the subscribe request: a Deliver frame (and thus the
         // deliver callback, which decrements creditsInFlight) can arrive while we
         // are still waiting for the SubscribeResponse below.
@@ -588,7 +635,9 @@ class Consumer implements ConsumerInterface
      */
     public function read(float $timeout = 5.0): array
     {
+        $this->throwCreditError();
         $this->waitForMessages($timeout);
+        $this->throwCreditError();
 
         return $this->drain();
     }
@@ -705,7 +754,9 @@ class Consumer implements ConsumerInterface
      */
     public function readOne(float $timeout = 5.0): ?Message
     {
+        $this->throwCreditError();
         $this->waitForMessages($timeout);
+        $this->throwCreditError();
 
         if ($this->unreadCount === 0) {
             return null;
@@ -901,9 +952,19 @@ class Consumer implements ConsumerInterface
      * buffer headroom (message units, checked as a threshold — see class docblock)
      * and the adaptive creditTarget cap on outstanding (in-flight) credit allow.
      */
+    private function throwCreditError(): void
+    {
+        if ($this->creditError instanceof ProtocolException) {
+            throw $this->creditError;
+        }
+    }
+
     private function sendPendingCredits(): void
     {
-        if ($this->pendingCredits <= 0) {
+        if (
+            $this->creditError instanceof ProtocolException
+            || $this->pendingCredits <= 0
+        ) {
             return;
         }
 
