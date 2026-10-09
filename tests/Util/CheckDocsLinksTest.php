@@ -28,8 +28,9 @@ class CheckDocsLinksTest extends TestCase
     public function testAcceptsExistingFilesAndHeadingAnchors(): void
     {
         $docs = $this->makeDocs([
-            'guide.md' => "# Existing Heading\n\n"
-                . "See [another page](pages/target.md#target-heading) and [this page](#existing-heading).\n",
+            'guide.md' => "# Existing Heading\n# frame_max negotiation\n# Alpha & Beta\n\n"
+                . "See [another page](pages/target.md#target-heading) and [this page](#existing-heading).\n"
+                . "See [underscore](#frame_max-negotiation) and [punctuation](#alpha--beta).\n",
             'pages/target.md' => "# Target Heading\n",
         ]);
 

@@ -49,10 +49,10 @@ $headingSlugs = static function (string $content): array {
             $heading = html_entity_decode($heading, ENT_QUOTES | ENT_HTML5);
             $heading = preg_replace('/!?\\[([^\\]]+)\\]\\([^)]+\\)/u', '$1', $heading) ?? $heading;
             $heading = strip_tags($heading);
-            $heading = preg_replace('/[`*_~]/u', '', $heading) ?? $heading;
+            $heading = preg_replace('/[`*~]/u', '', $heading) ?? $heading;
             $slug = mb_strtolower($heading, 'UTF-8');
             $slug = preg_replace('/[^\\p{L}\\p{N}\\p{M}_\\- ]/u', '', $slug) ?? $slug;
-            $slug = preg_replace('/\\s+/u', '-', trim($slug)) ?? $slug;
+            $slug = preg_replace('/ /u', '-', trim($slug)) ?? $slug;
             $count = $counts[$slug] ?? 0;
             $counts[$slug] = $count + 1;
             $slugs[] = $count === 0 ? $slug : $slug . '-' . $count;
