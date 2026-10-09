@@ -73,10 +73,5 @@ fi
 echo ""
 echo "RabbitMQ is ready."
 
-echo "Creating test stream..."
-curl -sf -u guest:guest -X PUT "http://${RABBITMQ_HOST}:${RABBITMQ_MANAGEMENT_PORT}/api/queues/%2F/test-stream" \
-  -H "Content-Type: application/json" \
-  -d '{"durable":true,"arguments":{"x-queue-type":"stream"}}' || true
-
 echo "Running E2E tests..."
 ./vendor/bin/phpunit --testsuite e2e --testdox

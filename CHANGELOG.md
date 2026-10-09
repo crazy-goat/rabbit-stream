@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **E2E: publisher and publish tests now create their own streams (#659)** — the tests no longer depend on `run-e2e.sh` provisioning a shared `test-stream`; each creates and removes an isolated stream, so they can run directly against an existing broker.
+
 ### Changed
 - **Chore: exclude development files from Composer archives (#594)** — Composer distribution archives now omit tests, documentation, examples, CI configuration and development-only files, reducing the package size while retaining the files needed by library users.
 - **Docs: fix stored-offset resume examples (#619)** — the auto-commit example now queries the named consumer's stored next offset and explicitly subscribes at it (auto-commit alone does not select the first Subscribe offset); the manual resume example reports the next offset actually stored and handles runs with no newly processed messages.
