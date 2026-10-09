@@ -29,7 +29,7 @@ subagents *propose* candidate entries in their report — they never append
 ### E2E tests need the RabbitMQ Stream plugin on port 5552
 <!-- id=FAQ-001 date=2025-05-20 tags=e2e trigger="when touching tests/E2E or running run-e2e.sh" hits=1 status=active -->
 
-`./run-e2e.sh` boots `rabbitmq:4-management` via `docker compose` and binds
+`./run-e2e.sh` boots `public.ecr.aws/docker/library/rabbitmq:4-management` via `docker compose` and binds
 port **5552** (the stream protocol port, not 5672 AMQP) plus 15672
 (management API). The stream plugin is enabled by the image but the broker
 must report `healthy` before the suite runs — the script waits for that. If
