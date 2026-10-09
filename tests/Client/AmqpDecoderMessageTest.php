@@ -267,6 +267,35 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame(1, $appProps['version']);
     }
 
+    public function testDecodeDocumentedCompleteMessageExample(): void
+    {
+        // Byte-for-byte fixture from docs/en/advanced/amqp-message-decoding.md.
+        $message = "\x00\x53\x70\xc0\x02\x01\x42"
+            . "\x00\x53\x73\xc0\x24\x08"
+            . "\xa1\x09message-1"
+            . "\x40\x40\x40\x40\x40"
+            . "\xa1\x0atext/plain"
+            . "\xa1\x05utf-8"
+            . "\x00\x53\x74\xc1\x1e\x04"
+            . "\xa1\x07country\xa1\x02US"
+            . "\xa1\x04city\xa1\x08New York"
+            . "\x00\x53\x75\xa0\x0dHello, World!";
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame([false], $sections['header']);
+        $this->assertSame([
+            'message-id' => 'message-1',
+            'content-type' => 'text/plain',
+            'content-encoding' => 'utf-8',
+        ], $sections['properties']);
+        $this->assertSame([
+            'country' => 'US',
+            'city' => 'New York',
+        ], $sections['applicationProperties']);
+        $this->assertSame('Hello, World!', $sections['body']);
+    }
+
     public function testDecodeMessageWithAmqpValueBody(): void
     {
         // Message with AmqpValue instead of Data
