@@ -217,14 +217,16 @@ foreach ($sourceFiles as $sourceFile) {
             if ($segment !== []) {
                 $segments[] = $segment;
             }
+            $parameterNames = [];
             foreach ($segments as $segment) {
                 foreach ($segment as $part) {
                     if (is_array($part) && $part[0] === T_VARIABLE) {
-                        $classNames[$className]['parameters'][] = substr($part[1], 1);
+                        $parameterNames[] = substr($part[1], 1);
                         break;
                     }
                 }
             }
+            $classNames[$className]['parameters'] = $parameterNames;
             break;
         }
     }

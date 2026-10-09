@@ -137,9 +137,10 @@ foreach ($docsFiles as $docsFile) {
                 $insideCommandKeyTable = false;
             }
         } elseif (!$isTableSeparator) {
+            // A line without a pipe is never a table row, so the table ends here.
             $insideCommandKeyTable = false;
         }
-        $isCommandKeyTableRow = $insideCommandKeyTable && $isTableLine;
+        $isCommandKeyTableRow = $insideCommandKeyTable;
         $ignoredKeys = [];
         $isIgnoredLine = preg_match(
             '/<!--\s*docs-frame-keys:\s*ignore(?:\s+(0x[0-9a-fA-F]{4}))?\s*-->/',
