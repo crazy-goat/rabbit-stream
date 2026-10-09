@@ -140,8 +140,13 @@ class MetadataUpdateRecoveryE2ETest extends E2ETestCase
 
         // read() re-subscribes on its own; the recreated stream restarts its
         // offsets, so the consumer falls back to its initial OffsetSpec (FIRST)
-        // instead of waiting past an offset that no longer exists.
-        $bodies = $this->bodiesOf($consumer->read(timeout: 5.0));
+        // instead of waiting past an offset that no longer exists. Retry if the
+        // first read races the broker's delivery after re-subscribing.
+        $bodies = [];
+        $deadline = microtime(true) + 5.0;
+        while ($bodies === [] && microtime(true) < $deadline) {
+            $bodies = $this->bodiesOf($consumer->read(timeout: min(0.5, $deadline - microtime(true))));
+        }
         $consumer->close();
 
         $this->assertSame(['c'], $bodies);
