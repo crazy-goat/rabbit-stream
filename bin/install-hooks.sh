@@ -14,7 +14,7 @@ root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
     exit 1
 }
 src="$root/bin/hooks"
-dst="$root/.git/hooks"
+dst="$(git -C "$root" rev-parse --git-path hooks)"
 
 if [ ! -d "$src" ]; then
     echo "install-hooks: no $src directory — nothing to install." >&2
