@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
 use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\Contract\CorrelationInterface;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
@@ -39,6 +38,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateThrowsOnUnexpectedPeerPropertiesResponse(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturn(new SaslAuthenticateResponseV1());
 
@@ -51,6 +55,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateThrowsWhenPlainMechanismNotSupported(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -66,6 +75,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateThrowsOnUnexpectedSaslHandshakeResponse(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -81,6 +95,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateThrowsOnUnexpectedSaslAuthenticateResponse(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -97,6 +116,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateThrowsOnUnexpectedTuneRequest(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -114,6 +138,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateThrowsOnUnexpectedOpenResponse(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -132,6 +161,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateNegotiatesTuneValuesCorrectly(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -172,6 +206,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateUsesServerTuneValuesWhenNoClientPreference(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -208,6 +247,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateDoesNotSetMaxFrameSizeWhenZero(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -237,6 +281,11 @@ class ConnectionHandshakeTest extends TestCase
         // control-frame cap open just because the caller didn't request a specific
         // frame_max — negotiation may only ever LOWER the cap from its default.
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -281,6 +330,11 @@ class ConnectionHandshakeTest extends TestCase
         $explicitFrameMax = 20 * 1024 * 1024;
 
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -310,6 +364,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateSetsDefaultMaxDeliverFrameSize(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -336,6 +395,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreatePassesThroughCustomMaxDeliverFrameSize(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -365,6 +429,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateThrowsOnNegativeMaxDeliverFrameSize(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('maxDeliverFrameSize must not be negative');
@@ -400,6 +469,11 @@ class ConnectionHandshakeTest extends TestCase
         string $expectedMessage
     ): void {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
 
         try {
             match ($argument) {
@@ -436,6 +510,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateSetsOutgoingMaxFrameSizeToNegotiatedValue(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -471,6 +550,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateSeedsInitialFrameCeilingBeforeAnyHandshakeMessage(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
 
         /** @var list<object> $queue */
         $queue = [
@@ -537,6 +621,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateUsesConfiguredInitialFrameMaxForPreOpenCeiling(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -575,6 +664,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreatePassesVhostToOpenRequest(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -617,6 +711,11 @@ class ConnectionHandshakeTest extends TestCase
         $logger = $this->createMock(LoggerInterface::class);
 
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -645,6 +744,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateSuccessfulHandshake(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -681,6 +785,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateExchangesCommandVersionsAndStoresThem(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -744,6 +853,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testSupportsCommandVersionDelegatesToTheStreamConnection(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -798,6 +912,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateFallsBackToV1WhenCommandVersionExchangeFails(\Throwable $failure): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnCallback(function () use ($failure): object {
                 static $call = 0;
@@ -833,6 +952,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateFallsBackToV1WhenCommandVersionExchangeRepliesWithAnotherCommand(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -913,6 +1037,11 @@ class ConnectionHandshakeTest extends TestCase
         bool $expectExchange
     ): void {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
 
         $responses = [
             $this->peerPropertiesResponse($version),
@@ -959,9 +1088,13 @@ class ConnectionHandshakeTest extends TestCase
         unset($connection);
     }
 
-    public function testCreateAbandonsTheExchangeCorrelationIdWhenItTimesOut(): void
+    public function testCreateFallsBackWhenTheExchangeRequestTimesOut(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request): object {
+                throw new TimeoutException('Read timeout');
+            });
         $streamConnection->method('readMessage')
             ->willReturnCallback(function (): object {
                 static $call = 0;
@@ -979,21 +1112,9 @@ class ConnectionHandshakeTest extends TestCase
                     default => throw new \RuntimeException('readMessage() called more times than expected'),
                 };
             });
-        // sendMessage is mocked, but it assigns a real correlation id to the
-        // request exactly as StreamConnection::sendMessage() would, so the test
-        // pins that the abandoned id is the one on the wire (R2-4), not the
-        // default 0. Ids are assigned before the read, so a regression passing
-        // the wrong id to abandonCorrelation() fails here.
-        $streamConnection->method('sendMessage')
-            ->willReturnCallback(function (object $request): void {
-                if ($request instanceof CorrelationInterface) {
-                    $request->withCorrelationId(42);
-                }
-            });
         $streamConnection->method('setMaxFrameSize');
         $streamConnection->method('close');
         $streamConnection->expects($this->once())->method('setCommandVersions')->with([]);
-        $streamConnection->expects($this->once())->method('abandonCorrelation')->with(42);
 
         $connection = Connection::create(streamConnection: $streamConnection);
 
@@ -1002,9 +1123,13 @@ class ConnectionHandshakeTest extends TestCase
         unset($connection);
     }
 
-    public function testCreateDoesNotAbandonWhenTheExchangeWriteTimesOut(): void
+    public function testCreateFallsBackWhenTheExchangeWriteTimesOut(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (): object {
+                throw new TimeoutException('Write timeout');
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -1014,17 +1139,9 @@ class ConnectionHandshakeTest extends TestCase
                 new OpenResponseV1(),
             );
         // The write itself never completes, so no reply can ever arrive.
-        $streamConnection->method('sendMessage')
-            ->willReturnCallback(function (object $request): void {
-                if ($request instanceof ExchangeCommandVersionsRequestV1) {
-                    throw new TimeoutException('Write timeout');
-                }
-            });
         $streamConnection->method('setMaxFrameSize');
         $streamConnection->method('close');
         $streamConnection->expects($this->once())->method('setCommandVersions')->with([]);
-        // Recording the id would leak an entry nothing can clear (R2-3).
-        $streamConnection->expects($this->never())->method('abandonCorrelation');
 
         $connection = Connection::create(streamConnection: $streamConnection);
 
@@ -1036,6 +1153,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateStoresEmptyMapWhenTheBrokerRepliesWithNoCommands(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
@@ -1062,6 +1184,11 @@ class ConnectionHandshakeTest extends TestCase
     public function testCreateStoresLastRangeWhenTheReplyRepeatsACommandKey(): void
     {
         $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('request')
+            ->willReturnCallback(function (object $request) use ($streamConnection): object {
+                $streamConnection->sendMessage($request);
+                return $streamConnection->readMessage();
+            });
         $streamConnection->method('readMessage')
             ->willReturnOnConsecutiveCalls(
                 $this->peerPropertiesResponse(),
