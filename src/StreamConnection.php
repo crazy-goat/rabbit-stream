@@ -29,6 +29,7 @@ use CrazyGoat\RabbitStream\VO\PublishingError;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Throwable;
 
 class StreamConnection
 {
@@ -878,6 +879,9 @@ class StreamConnection
      * @param int      $subscriptionId Subscription ID as declared with the server
      * @param callable $handler        Called with (ConsumerUpdateResponseV1 $update): ?OffsetSpec.
      *                                 Returning null means "none" (offsetType 0).
+     *
+     * If the handler throws or returns an invalid value, StreamConnection logs the
+     * failure, sends a "none" reply for the query, then rethrows to the readLoop() caller.
      */
     public function registerConsumerUpdateHandler(int $subscriptionId, callable $handler): void
     {
@@ -965,6 +969,9 @@ class StreamConnection
      *                           A return value that is not a two-element list of ints is
      *                           rejected with an InvalidArgumentException when the frame is
      *                           dispatched, not silently coerced.
+     *
+     * If the callback throws or returns an invalid reply, StreamConnection logs the
+     * failure, sends a "none" reply for the query, then rethrows to the readLoop() caller.
      */
     public function onConsumerUpdate(callable $callback): void
     {
@@ -1644,32 +1651,62 @@ class StreamConnection
         if (!$query instanceof ConsumerUpdateResponseV1) {
             throw new DeserializationException('Failed to deserialize ConsumerUpdate frame');
         }
-        $offsetType = OffsetSpec::TYPE_NONE;
-        $offset = 0;
 
-        $subscriptionHandler = $this->consumerUpdateHandlers[$query->getSubscriptionId()] ?? null;
-        if ($subscriptionHandler !== null) {
-            $offsetSpec = $subscriptionHandler($query);
-            if ($offsetSpec !== null) {
-                [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
+        try {
+            $offsetType = OffsetSpec::TYPE_NONE;
+            $offset = 0;
+
+            $subscriptionHandler = $this->consumerUpdateHandlers[$query->getSubscriptionId()] ?? null;
+            if ($subscriptionHandler !== null) {
+                $offsetSpec = $subscriptionHandler($query);
+                if ($offsetSpec !== null && !$offsetSpec instanceof OffsetSpec) {
+                    throw new InvalidArgumentException(
+                        'The per-subscription ConsumerUpdate handler must return OffsetSpec|null, got '
+                        . get_debug_type($offsetSpec)
+                    );
+                }
+                if ($offsetSpec instanceof OffsetSpec) {
+                    [$offsetType, $offset] = [$offsetSpec->getType(), $offsetSpec->getValue() ?? 0];
+                }
+            } elseif ($this->consumerUpdateCallback instanceof \Closure) {
+                [$offsetType, $offset] = $this->resolveGlobalConsumerUpdateReply(
+                    ($this->consumerUpdateCallback)($query)
+                );
             }
-        } elseif ($this->consumerUpdateCallback instanceof \Closure) {
-            [$offsetType, $offset] = $this->resolveGlobalConsumerUpdateReply(
-                ($this->consumerUpdateCallback)($query)
+
+            if ($offsetType < 0 || $offsetType > 5) {
+                throw new InvalidArgumentException(
+                    "Invalid ConsumerUpdate reply offset type: {$offsetType} (must be 0-5)"
+                );
+            }
+
+            $reply = new ConsumerUpdateReplyV1(
+                responseCode: 0x0001,
+                offsetType: $offsetType,
+                offset: $offset,
             );
+        } catch (Throwable $exception) {
+            $this->logger->error(
+                'ConsumerUpdate handler failed; sending a none reply before rethrowing',
+                [
+                    'correlationId' => $query->getCorrelationId(),
+                    'subscriptionId' => $query->getSubscriptionId(),
+                    'exception' => $exception,
+                ]
+            );
+
+            $reply = new ConsumerUpdateReplyV1(
+                responseCode: 0x0001,
+                offsetType: OffsetSpec::TYPE_NONE,
+                offset: 0,
+            );
+            $reply->withCorrelationId($query->getCorrelationId());
+            $content = $this->serializer->serialize($reply);
+            $this->sendFrame($this->wrapFrame($content));
+
+            throw $exception;
         }
 
-        if ($offsetType < 0 || $offsetType > 5) {
-            throw new InvalidArgumentException(
-                "Invalid ConsumerUpdate reply offset type: {$offsetType} (must be 0-5)"
-            );
-        }
-
-        $reply = new ConsumerUpdateReplyV1(
-            responseCode: 0x0001,
-            offsetType: $offsetType,
-            offset: $offset,
-        );
         $reply->withCorrelationId($query->getCorrelationId());
         $content = $this->serializer->serialize($reply);
         $this->sendFrame($this->wrapFrame($content));
