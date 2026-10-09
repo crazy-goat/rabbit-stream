@@ -77,6 +77,8 @@ class StreamConnection
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
     /** @var array<int, callable> */
+    private array $creditErrorHandlers = [];
+    /** @var array<int, callable> */
     private array $consumerUpdateHandlers = [];
     /**
      * Per-stream MetadataUpdate handlers: stream name => handler id => handler.
@@ -100,6 +102,7 @@ class StreamConnection
         0x0003 => true, // PublishConfirm
         0x0004 => true, // PublishError
         0x0008 => true, // Deliver
+        0x8009 => true, // CreditResponse (error-only, no correlation id)
         0x0010 => true, // MetadataUpdate
         0x0016 => true, // Close (server-initiated)
         0x0017 => true, // Heartbeat
@@ -864,7 +867,19 @@ class StreamConnection
     public function unregisterSubscriber(int $subscriptionId): void
     {
         unset($this->subscriberCallbacks[$subscriptionId]);
+        unset($this->creditErrorHandlers[$subscriptionId]);
         unset($this->consumerUpdateHandlers[$subscriptionId]);
+    }
+
+    /**
+     * Register a handler for a rejected Credit request on a subscription.
+     *
+     * @param int $subscriptionId Subscription ID as declared with the server
+     * @param callable $handler Called with (CreditResponseV1 $response)
+     */
+    public function registerCreditErrorHandler(int $subscriptionId, callable $handler): void
+    {
+        $this->creditErrorHandlers[$subscriptionId] = $handler;
     }
 
     /**
@@ -1495,6 +1510,7 @@ class StreamConnection
             KeyEnum::PUBLISH_CONFIRM->value => $this->handlePublishConfirm($frame),
             KeyEnum::PUBLISH_ERROR->value => $this->handlePublishError($frame),
             KeyEnum::DELIVER->value => $this->handleDeliver($frame),
+            KeyEnum::CREDIT_RESPONSE->value => $this->handleCreditResponse($frame),
             KeyEnum::CLOSE->value => $this->handleServerClose($frame),
             KeyEnum::METADATA_UPDATE->value => $this->handleMetadataUpdate($frame),
             KeyEnum::CONSUMER_UPDATE->value => $this->handleConsumerUpdate($frame),
@@ -1599,6 +1615,27 @@ class StreamConnection
         if (isset($this->subscriberCallbacks[$subscriptionId])) {
             ($this->subscriberCallbacks[$subscriptionId])($deliver);
         }
+    }
+
+    private function handleCreditResponse(ReadBuffer $frame): void
+    {
+        $response = CreditResponseV1::fromStreamBuffer($frame);
+        if (!$response instanceof CreditResponseV1) {
+            throw new DeserializationException('Failed to deserialize CreditResponse frame');
+        }
+
+        $subscriptionId = $response->getSubscriptionId();
+        $context = [
+            'subscriptionId' => $subscriptionId,
+            'responseCode' => sprintf('0x%04x', $response->getResponseCode()),
+        ];
+        if (isset($this->creditErrorHandlers[$subscriptionId])) {
+            $this->logger->warning('Credit request rejected by server', $context);
+            ($this->creditErrorHandlers[$subscriptionId])($response);
+            return;
+        }
+
+        $this->logger->warning('Credit request rejected for unregistered subscription', $context);
     }
 
     private function handleServerClose(ReadBuffer $frame): void
