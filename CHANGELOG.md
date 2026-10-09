@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Bug: `ReadBuffer` rejects windows outside the backing string (#655)** — explicitly requested window lengths larger than the bytes available from the offset (or negative lengths/invalid offsets) now raise `DeserializationException` during construction, before a read can invoke `unpack()` with insufficient input. Valid window behavior is unchanged.
 - **Consumer: filter messages before the requested absolute subscribe offset (#585)** — initial, SAC resume, and re-subscribe deliveries now discard earlier entries from the broker's containing chunk.
 - **Security: frame debug logs no longer expose application payloads** — `StreamConnection` logs bounded command/version/size metadata instead of hex-dumping full Publish, Deliver, and other frame contents. `SASL_AUTHENTICATE` remains explicitly redacted.
 - **Bug: `Consumer` could redeliver unread buffered messages after a lost subscription (#586)** — unread messages are now discarded when a MetadataUpdate drops the subscription, so re-subscription from the last processed offset (or the initial OffsetSpec) does not append duplicate copies. Added callback-driven regression coverage for losses before and after draining a message.
