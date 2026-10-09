@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Consumer: discard partial deliveries and return credit after chunk parse failures (#591)** — messages from a Deliver chunk are buffered only after the entire chunk parses, and the consumed chunk credit is accounted for even when deserialization fails.
 - **Connection: correlate every command and discard replies that arrive after a timeout (#587)** — moved stream, producer and close exchanges from uncorrelated `sendMessage()`/`readMessage()` reads to `request()`. Timed-out requests now abandon their IDs, so late replies cannot desynchronize later commands; nested server-push requests also preserve the parked outer reply.
 - **Bug: `ReadBuffer` array count checks could overflow (#656)** — `getUint64Array()` now rejects counts whose byte-size multiplication would overflow before checking buffer availability, and both uint64/string array bounds checks avoid overflow-prone multiplication. Regression tests cover maximum counts.
 - **Bug: `ReadBuffer` rejects windows outside the backing string (#655)** — explicitly requested window lengths larger than the bytes available from the offset (or negative lengths/invalid offsets) now raise `DeserializationException` during construction, before a read can invoke `unpack()` with insufficient input. Valid window behavior is unchanged.
