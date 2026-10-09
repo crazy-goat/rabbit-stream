@@ -389,25 +389,9 @@ class Connection implements ConnectionInterface
     ): array {
         $request = new ExchangeCommandVersionsRequestV1(self::clientCommandVersions());
 
-        $sent = false;
         try {
-            $streamConnection->sendMessage($request);
-            $sent = true;
-            $response = $streamConnection->readMessage(self::COMMAND_VERSION_EXCHANGE_TIMEOUT);
+            $response = $streamConnection->request($request, self::COMMAND_VERSION_EXCHANGE_TIMEOUT);
         } catch (ProtocolException | DeserializationException | TimeoutException $e) {
-            if ($sent && $e instanceof TimeoutException) {
-                // The broker may still answer after the timeout. Mark the
-                // request's correlation id abandoned so that late frame is
-                // discarded by the next read instead of being handed to an
-                // unrelated caller as if it were their response (R1-2).
-                //
-                // Only a read-side timeout may leave a reply in flight: when
-                // sendMessage() itself times out the frame was never (fully)
-                // written, so no reply can ever arrive and abandoning would leak
-                // an entry that nothing can clear (R2-3).
-                $streamConnection->abandonCorrelation($request->getCorrelationId());
-            }
-
             $logger->warning(
                 'ExchangeCommandVersions failed; assuming protocol version 1 for every command',
                 ['exception' => $e]
@@ -495,8 +479,7 @@ class Connection implements ConnectionInterface
      */
     public function createStream(string $name, array $arguments = []): void
     {
-        $this->streamConnection->sendMessage(new CreateRequestV1($name, $arguments));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new CreateRequestV1($name, $arguments));
         if (!$response instanceof CreateResponseV1) {
             throw UnexpectedResponseException::create(CreateResponseV1::class, $response);
         }
@@ -523,8 +506,7 @@ class Connection implements ConnectionInterface
      */
     public function deleteStream(string $name): void
     {
-        $this->streamConnection->sendMessage(new DeleteStreamRequestV1($name));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new DeleteStreamRequestV1($name));
         if (!$response instanceof DeleteStreamResponseV1) {
             throw UnexpectedResponseException::create(DeleteStreamResponseV1::class, $response);
         }
@@ -560,13 +542,12 @@ class Connection implements ConnectionInterface
         array $bindingKeys = [],
         array $arguments = []
     ): void {
-        $this->streamConnection->sendMessage(new CreateSuperStreamRequestV1(
+        $response = $this->streamConnection->request(new CreateSuperStreamRequestV1(
             $name,
             $partitions,
             $bindingKeys,
             $arguments
         ));
-        $response = $this->streamConnection->readMessage();
         if (!$response instanceof CreateSuperStreamResponseV1) {
             throw UnexpectedResponseException::create(CreateSuperStreamResponseV1::class, $response);
         }
@@ -593,8 +574,7 @@ class Connection implements ConnectionInterface
      */
     public function deleteSuperStream(string $name): void
     {
-        $this->streamConnection->sendMessage(new DeleteSuperStreamRequestV1($name));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new DeleteSuperStreamRequestV1($name));
         if (!$response instanceof DeleteSuperStreamResponseV1) {
             throw UnexpectedResponseException::create(DeleteSuperStreamResponseV1::class, $response);
         }
@@ -623,8 +603,7 @@ class Connection implements ConnectionInterface
      */
     public function route(string $routingKey, string $superStream): array
     {
-        $this->streamConnection->sendMessage(new RouteRequestV1($routingKey, $superStream));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new RouteRequestV1($routingKey, $superStream));
         if (!$response instanceof RouteResponseV1) {
             throw UnexpectedResponseException::create(RouteResponseV1::class, $response);
         }
@@ -651,8 +630,7 @@ class Connection implements ConnectionInterface
      */
     public function partitions(string $superStream): array
     {
-        $this->streamConnection->sendMessage(new PartitionsRequestV1($superStream));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new PartitionsRequestV1($superStream));
         if (!$response instanceof PartitionsResponseV1) {
             throw UnexpectedResponseException::create(PartitionsResponseV1::class, $response);
         }
@@ -683,8 +661,7 @@ class Connection implements ConnectionInterface
      */
     public function streamExists(string $name): bool
     {
-        $this->streamConnection->sendMessage(new MetadataRequestV1([$name]));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new MetadataRequestV1([$name]));
         if (!$response instanceof MetadataResponseV1) {
             throw UnexpectedResponseException::create(MetadataResponseV1::class, $response);
         }
@@ -715,8 +692,7 @@ class Connection implements ConnectionInterface
      */
     public function getStreamStats(string $name): array
     {
-        $this->streamConnection->sendMessage(new StreamStatsRequestV1($name));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new StreamStatsRequestV1($name));
         if (!$response instanceof StreamStatsResponseV1) {
             throw UnexpectedResponseException::create(StreamStatsResponseV1::class, $response);
         }
@@ -747,8 +723,7 @@ class Connection implements ConnectionInterface
      */
     public function getMetadata(array $streams): MetadataResponseV1
     {
-        $this->streamConnection->sendMessage(new MetadataRequestV1($streams));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new MetadataRequestV1($streams));
         if (!$response instanceof MetadataResponseV1) {
             throw UnexpectedResponseException::create(MetadataResponseV1::class, $response);
         }
@@ -780,8 +755,7 @@ class Connection implements ConnectionInterface
      */
     public function queryOffset(string $reference, string $stream): ?int
     {
-        $this->streamConnection->sendMessage(new QueryOffsetRequestV1($reference, $stream));
-        $response = $this->streamConnection->readMessage();
+        $response = $this->streamConnection->request(new QueryOffsetRequestV1($reference, $stream));
         if (!$response instanceof QueryOffsetResponseV1) {
             throw UnexpectedResponseException::create(QueryOffsetResponseV1::class, $response);
         }
@@ -838,8 +812,7 @@ class Connection implements ConnectionInterface
         $this->producers = [];
 
         try {
-            $this->streamConnection->sendMessage(new CloseRequestV1(0, 'OK'));
-            $response = $this->streamConnection->readMessage();
+            $response = $this->streamConnection->request(new CloseRequestV1(0, 'OK'));
             if (!$response instanceof CloseResponseV1) {
                 throw UnexpectedResponseException::create(CloseResponseV1::class, $response);
             }

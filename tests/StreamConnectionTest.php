@@ -821,8 +821,15 @@ class StreamConnectionTest extends TestCase
         $this->assertInstanceOf(CreateResponseV1::class, $response);
         $this->assertSame(1, $response->getCorrelationId());
 
-        // The parked correlation-2 response is handed to the next plain readMessage().
-        $parked = $connection->readMessage(1.0);
+        // A readMessage() caller cannot consume a response parked for correlation 2.
+        try {
+            $connection->readMessage(0.05);
+            $this->fail('Expected readMessage() to ignore the parked correlated response.');
+        } catch (TimeoutException) {
+            // Expected: only request() may consume the parked response.
+        }
+
+        $parked = $connection->request(new CreateRequestV1('b'), 1.0);
         $this->assertInstanceOf(CreateResponseV1::class, $parked);
         $this->assertSame(2, $parked->getCorrelationId());
 

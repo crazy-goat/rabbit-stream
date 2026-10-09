@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Connection: correlate every command and discard replies that arrive after a timeout (#587)** — moved stream, producer and close exchanges from uncorrelated `sendMessage()`/`readMessage()` reads to `request()`. Timed-out requests now abandon their IDs, so late replies cannot desynchronize later commands; nested server-push requests also preserve the parked outer reply.
 - **Connection: maintain negotiated heartbeats and detect silent peers** — idle library I/O calls now send correlation-free heartbeat frames after one negotiated interval and close connections after two intervals without inbound frames. Heartbeats are active only while the application is inside a library call; interval zero disables them.
 - **Producer: report in-flight publishing IDs as failed when the connection is lost** — outstanding IDs are now delivered once through `onConfirm` with the client-side `Producer::CONNECTION_LOST_ERROR_CODE`, counted by `getLostConfirmCount()`, and logged with a bounded ID prefix.
 - **Connection: close and reject I/O on dead streams** — EOF and failed writes now close the stream, and all I/O entry points reject a connection marked disconnected instead of treating it as a timeout or silently writing to a dead peer (#601).

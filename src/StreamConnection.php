@@ -69,8 +69,8 @@ class StreamConnection
     /**
      * Correlated responses read by request() while it was waiting for a different
      * correlation ID (e.g. a nested request() issued from a server-push handler
-     * such as a ConsumerUpdate query). Consumed FIFO by readMessage() and by
-     * correlation ID by request().
+     * such as a ConsumerUpdate query). Consumed only by the matching
+     * correlation ID in request().
      *
      * @var list<object>
      */
@@ -1276,7 +1276,10 @@ class StreamConnection
     /**
      * Read and deserialize the next non-server-push response frame.
      * Server-push frames (heartbeat, publish confirm, deliver, etc.) are dispatched
-     * transparently to registered callbacks before returning.
+     * transparently to registered callbacks before returning. This uncorrelated read
+     * is intended for handshake frames that have no correlation ID; use request() for
+     * correlated exchanges so replies cannot be attributed to the wrong caller. It
+     * never returns responses parked for another request.
      *
      * @param float $timeout Seconds to wait before throwing TimeoutException.
      *                       0.0 means non-blocking (throws TimeoutException immediately if no data).
@@ -1288,22 +1291,17 @@ class StreamConnection
      */
     public function readMessage(float $timeout = 30.0): object
     {
-        if ($this->pendingResponses !== []) {
-            return array_shift($this->pendingResponses);
-        }
-
         return $this->readResponse($timeout, null);
     }
 
     /**
      * Send a correlated request and return its matching response.
      *
-     * Unlike sendMessage()+readMessage(), this matches the reply by correlation
-     * ID, so it is safe to call re-entrantly from a server-push handler (for
-     * example a ConsumerUpdate handler querying the stored offset while an outer
-     * request() is still waiting for its own SubscribeResponse). Responses that
-     * belong to another in-flight request are parked and handed to that
-     * request (or to the next readMessage()) instead of being misattributed.
+     * This matches the reply by correlation ID, so it is safe to call
+     * re-entrantly from a server-push handler (for example a ConsumerUpdate
+     * handler querying the stored offset while an outer request() is still
+     * waiting for its own SubscribeResponse). Responses that belong to another
+     * in-flight request are parked for the matching request.
      *
      * @param object $request Request object implementing ToStreamBufferInterface and CorrelationInterface
      * @param float  $timeout Seconds to wait for the response
@@ -1317,7 +1315,16 @@ class StreamConnection
         }
         $this->sendMessage($request, $timeout);
 
-        return $this->readResponse($timeout, $request->getCorrelationId());
+        try {
+            return $this->readResponse($timeout, $request->getCorrelationId());
+        } catch (TimeoutException $exception) {
+            // sendMessage() runs outside this try, so a write timeout is not
+            // abandoned: the request did not reach the broker. A read timeout
+            // can still leave a reply in flight, which must be discarded.
+            $this->abandonCorrelation($request->getCorrelationId());
+
+            throw $exception;
+        }
     }
 
     private function maintainHeartbeat(): void
