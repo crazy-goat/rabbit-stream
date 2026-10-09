@@ -1,6 +1,6 @@
 # Offset Resume Example
 
-This example demonstrates the complete pattern for resuming message consumption from a stored offset. This is essential for building fault-tolerant consumers that can recover from restarts without losing or reprocessing messages.
+This example demonstrates the complete pattern for resuming message consumption from a stored offset. The stored value is the next offset to consume, so it is passed directly to `OffsetSpec::offset()`.
 
 ## Overview
 
@@ -35,6 +35,7 @@ class OffsetResumeExample
 {
     private Connection $connection;
     private string $consumerName = 'offset-resume-demo';
+    private ?int $startOffset = null;
     private int $messagesToProcess = 30;
     
     public function run(): void
@@ -114,10 +115,12 @@ class OffsetResumeExample
         $tempConsumer->close();
 
         if ($lastOffset === null) {
+            $this->startOffset = null;
             echo "  ℹ No stored offset found (first run or offset expired)\n";
             echo "  ℹ {$resumeInfo}\n";
         } else {
             // The stored value already is the next offset to consume
+            $this->startOffset = $lastOffset;
             $startOffset = OffsetSpec::offset($lastOffset);
             $resumeInfo = "Resuming from offset {$lastOffset}";
 
@@ -147,7 +150,8 @@ class OffsetResumeExample
         echo "Step 4: Processing messages (max {$this->messagesToProcess})...\n";
         
         $processed = 0;
-        $lastStoredOffset = -1;
+        $lastStoredOffset = null;
+        $nextOffset = $this->startOffset;
         
         try {
             while ($processed < $this->messagesToProcess) {
@@ -167,8 +171,9 @@ class OffsetResumeExample
                     
                     if ($success) {
                         // Store offset ONLY after successful processing
-                        $consumer->storeOffset($currentOffset + 1);
-                        $lastStoredOffset = $currentOffset;
+                        $nextOffset = $currentOffset + 1;
+                        $consumer->storeOffset($nextOffset);
+                        $lastStoredOffset = $nextOffset;
                         
                         $processed++;
                         
@@ -190,8 +195,13 @@ class OffsetResumeExample
             echo "  ✗ Error: {$e->getMessage()}\n";
         }
         
-        echo "\n  ℹ Last stored offset: {$lastStoredOffset}\n";
-        echo "  ℹ On next run, will resume from offset {$lastStoredOffset}\n\n";
+        if ($lastStoredOffset === null) {
+            echo "\n  ℹ No new offset stored; next run will resume from offset ";
+            echo $nextOffset === null ? "the first available offset\n\n" : "{$nextOffset}\n\n";
+        } else {
+            echo "\n  ℹ Last stored offset: {$lastStoredOffset}\n";
+            echo "  ℹ On next run, will resume from offset {$lastStoredOffset}\n\n";
+        }
         
         return $processed;
     }
@@ -505,8 +515,8 @@ Step 4: Processing messages (max 30)...
   ✓ [5] Processed message 6 (offset stored)
   ℹ No more messages, stopping
 
-  ℹ Last stored offset: 5
-  ℹ On next run, will resume from offset 5
+  ℹ Last stored offset: 6
+  ℹ On next run, will resume from offset 6
 
 Step 5: Cleaning up...
   ✓ Consumer closed
@@ -521,7 +531,7 @@ Run this example again to see resume behavior!
 
 **Second Run (Resume):**
 
-The output below is illustrative: it assumes the first run processed 30 messages (publish more than 30 first).
+The output below is illustrative: it assumes the first run processed 30 messages and that more messages are available (publish more than 30 first).
 
 ```
 === Offset Resume Example ===
@@ -533,7 +543,7 @@ Step 2: Creating stream 'example-stream'...
   ℹ Stream may already exist: Stream already exists
 
 Step 3: Creating resuming consumer...
-  ✓ Found stored offset: 29
+  ✓ Found stored offset: 30
   ✓ Resuming from offset 30
   ✓ Consumer created
   ℹ Consumer name: offset-resume-demo
