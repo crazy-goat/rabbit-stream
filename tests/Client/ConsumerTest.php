@@ -72,7 +72,7 @@ class ConsumerTest extends TestCase
      *     4: callable|null,
      * }
      */
-    private function makeConsumerWithHandlers(?OffsetSpec $offset = null): array
+    private function makeConsumerWithHandlers(?OffsetSpec $offset = null, ?int $committedOffset = null): array
     {
         $deliverCallback = null;
         $metadataHandler = null;
@@ -95,7 +95,14 @@ class ConsumerTest extends TestCase
                     $metadataHandler = $handler;
                 }
             );
-        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturnCallback(
+            static function (object $request) use ($committedOffset): object {
+                if ($request instanceof StreamStatsRequestV1 && $committedOffset !== null) {
+                    return new StreamStatsResponseV1([new Statistic('committed_offset', $committedOffset)]);
+                }
+                return new \stdClass();
+            }
+        );
         $connection->expects($this->any())->method('sendMessage');
 
         $consumer = new Consumer(
@@ -1745,6 +1752,57 @@ class ConsumerTest extends TestCase
                 return new \stdClass();
             });
         return [$connection, $handlers, $requests];
+    }
+
+    public function testMetadataUpdateClearsUnreadBufferBeforeResubscribe(): void
+    {
+        [$connection, $consumer, $deliver, $metadataHandler] = $this->makeConsumerWithHandlers();
+        $this->assertIsCallable($deliver);
+        $this->assertIsCallable($metadataHandler);
+        $connection->expects($this->any())->method('readLoop')->willReturn(0);
+
+        $deliver($this->deliverOf($this->buildOneEntryChunk('first', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('second', 11)));
+        $this->assertTrue($consumer->hasUnread());
+
+        $metadataHandler();
+        $this->assertTrue($consumer->isSubscriptionLost());
+        $this->assertFalse($consumer->hasUnread());
+
+        // With nothing drained, re-subscription uses the initial OffsetSpec;
+        // any buffered copy must therefore be discarded before redelivery.
+        $this->assertTrue($consumer->resubscribeIfLost());
+        $deliver($this->deliverOf($this->buildOneEntryChunk('first', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('second', 11)));
+
+        $messages = $consumer->read(timeout: 0);
+        $this->assertSame([10, 11], array_map(static fn(Message $message): int => $message->getOffset(), $messages));
+    }
+
+    public function testMetadataUpdateClearsUnreadBufferAfterProcessedMessage(): void
+    {
+        [$connection, $consumer, $deliver, $metadataHandler] = $this->makeConsumerWithHandlers(committedOffset: 11);
+        $this->assertIsCallable($deliver);
+        $this->assertIsCallable($metadataHandler);
+        $connection->expects($this->any())->method('readLoop')->willReturn(0);
+
+        $deliver($this->deliverOf($this->buildOneEntryChunk('processed', 9)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 11)));
+        $processed = $consumer->readOne(timeout: 0);
+        $this->assertNotNull($processed);
+        $this->assertSame(9, $processed->getOffset());
+
+        $metadataHandler();
+        $this->assertFalse($consumer->hasUnread());
+        $this->assertTrue($consumer->resubscribeIfLost());
+
+        // The existing resume position is lastOffset + 1 (10). Simulate broker
+        // redelivery through the actual callback and ensure there are no old copies.
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 11)));
+        $messages = $consumer->read(timeout: 0);
+        $this->assertSame([10, 11], array_map(static fn(Message $message): int => $message->getOffset(), $messages));
     }
 
     public function testMetadataUpdateMarksSubscriptionLostAndReadResubscribes(): void

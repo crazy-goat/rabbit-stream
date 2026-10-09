@@ -309,8 +309,8 @@ class StreamConnection
         private readonly ?TlsConfig $tls = null,
     ) {
         $this->setSocketTimeout($socketTimeout);
-        // Resolve once at construction: avoids paying bin2hex() cost on every
-        // frame when the logger won't emit debug records (NullLogger default).
+        // Resolve once at construction so the frame metadata path is skipped
+        // entirely when the logger won't emit debug records (NullLogger default).
         $this->debugLogging = !$logger instanceof NullLogger;
     }
 
@@ -2138,12 +2138,9 @@ class StreamConnection
     }
 
     /**
-     * Log a raw frame at debug level, redacting SASL_AUTHENTICATE frames that
-     * contain plaintext credentials ("\0username\0password").
-     *
-     * Both bin2hex() and the logger call are skipped entirely when debug
-     * logging is disabled ($debugLogging is false), so the hot path pays zero
-     * cost with NullLogger or a logger filtering out debug records.
+     * Log frame metadata only. Frame bodies can contain application data and
+     * may be tens of megabytes, so they must never be copied into debug logs.
+     * SASL_AUTHENTICATE frames retain an explicit redaction marker.
      *
      * @param string $prefix    Log message prefix ("Socket -> " or "Socket <-")
      * @param string $frame     Raw frame bytes; in sendFrame this includes the
@@ -2156,27 +2153,38 @@ class StreamConnection
             return;
         }
 
-        // Extract the 2-byte big-endian command key at the given offset.
+        $frameSize = strlen($frame) + ($keyOffset === 0 ? 4 : 0);
         if (strlen($frame) < $keyOffset + 2) {
-            // Frame too short to contain a key — log raw as before.
-            $this->logger->debug($prefix . bin2hex($frame));
+            $this->logger->debug(sprintf('%s <unknown command, %d bytes>', $prefix, $frameSize));
             return;
         }
 
         $keyUnpacked = unpack('n', substr($frame, $keyOffset, 2));
         $key = $keyUnpacked !== false ? $keyUnpacked[1] : null;
-
         if ($key === KeyEnum::SASL_AUTHENTICATE->value) {
-            // Never hex-encode: the body contains "\0username\0password".
             $this->logger->debug(sprintf(
                 '%s <redacted: SASL_AUTHENTICATE, %d bytes>',
                 $prefix,
-                strlen($frame)
+                $frameSize
             ));
             return;
         }
 
-        $this->logger->debug($prefix . bin2hex($frame));
+        $versionOffset = $keyOffset + 2;
+        $versionUnpacked = strlen($frame) >= $versionOffset + 2
+            ? unpack('n', substr($frame, $versionOffset, 2))
+            : false;
+        $version = $versionUnpacked !== false ? (string) $versionUnpacked[1] : 'unknown';
+        $command = $key !== null ? KeyEnum::tryFrom($key)?->name : null;
+        $command ??= sprintf('UNKNOWN_0x%04X', $key ?? 0);
+
+        $this->logger->debug(sprintf(
+            '%s %s v%s, %d bytes',
+            rtrim($prefix),
+            $command,
+            $version,
+            $frameSize
+        ));
     }
 
     /**
