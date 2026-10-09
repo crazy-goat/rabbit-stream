@@ -13,8 +13,8 @@ class Message
     /**
      * @param array<int|string, mixed>|string|int|float|bool|null $body
      * @param array<string, mixed> $properties
-     * @param array<string, mixed> $applicationProperties
-     * @param array<string, mixed> $messageAnnotations
+     * @param array<int|string, mixed> $applicationProperties
+     * @param array<int|string, mixed> $messageAnnotations
      */
     public function __construct(
         int $offset,
@@ -35,9 +35,9 @@ class Message
     // AMQP properties
     /** @return array<string, mixed> */
     public function getProperties(): array;
-    /** @return array<string, mixed> */
+    /** @return array<int|string, mixed> */
     public function getApplicationProperties(): array;
-    /** @return array<string, mixed> */
+    /** @return array<int|string, mixed> */
     public function getMessageAnnotations(): array;
     
     // Common property getters
@@ -58,8 +58,8 @@ The `Message` class is instantiated internally by the AMQP message decoder. You 
 /**
  * @param array<int|string, mixed>|string|int|float|bool|null $body
  * @param array<string, mixed> $properties
- * @param array<string, mixed> $applicationProperties
- * @param array<string, mixed> $messageAnnotations
+ * @param array<int|string, mixed> $applicationProperties
+ * @param array<int|string, mixed> $messageAnnotations
  */
 public function __construct(
     private readonly int $offset,
@@ -79,8 +79,8 @@ public function __construct(
 | `$timestamp` | `int` | Timestamp of the **chunk** the message was delivered in, in milliseconds since epoch (shared by every message in that chunk) |
 | `$body` | `string\|int\|float\|bool\|array\|null` | The message body content (decoded from AMQP) |
 | `$properties` | `array<string, mixed>` | Standard AMQP 1.0 message properties |
-| `$applicationProperties` | `array<string, mixed>` | Custom application-specific headers |
-| `$messageAnnotations` | `array<string, mixed>` | AMQP message annotations |
+| `$applicationProperties` | `array<int|string, mixed>` | Custom application-specific headers |
+| `$messageAnnotations` | `array<int|string, mixed>` | AMQP message annotations |
 
 ### Notes
 
@@ -301,14 +301,14 @@ Get custom application-specific headers.
 
 ```php
 /**
- * @return array<string, mixed>
+ * @return array<int|string, mixed>
  */
 public function getApplicationProperties(): array
 ```
 
 #### Return Value
 
-`array<string, mixed>` - Associative array of custom headers set by the producer
+`array<int|string, mixed>` - Associative array of custom headers set by the producer
 
 #### Example
 
@@ -350,14 +350,14 @@ Get AMQP message annotations.
 
 ```php
 /**
- * @return array<string, mixed>
+ * @return array<int|string, mixed>
  */
 public function getMessageAnnotations(): array
 ```
 
 #### Return Value
 
-`array<string, mixed>` - Associative array of message annotations
+`array<int|string, mixed>` - Associative array of message annotations
 
 #### Example
 

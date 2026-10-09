@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Bug: `Message` map getter types now include preserved integer keys (#672)** — ApplicationProperties and MessageAnnotations maps can contain integer keys in the decoded PHP array, so the `Message` constructor/getter PHPDoc and API reference now declare `array<int|string, mixed>` instead of the inaccurate string-only key type. Added decoder regression coverage for both sections; decoding behaviour is unchanged.
+
 ## [1.9.0] - 2026-10-09
 
 ### Added
