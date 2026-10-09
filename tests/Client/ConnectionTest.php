@@ -66,7 +66,7 @@ class ConnectionTest extends TestCase
             new CloseResponseV1(),
         ];
         $responseIndex = 0;
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(function () use (&$responseIndex, $responses): object {
                 return $responses[$responseIndex++];
@@ -88,7 +88,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateStreamSendsCorrectRequest(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -122,7 +122,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseSendsCloseRequestBeforeClosingSocket(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -151,7 +151,7 @@ class ConnectionTest extends TestCase
 
     public function testStreamExistsReturnsTrueWhenStreamExists(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -189,7 +189,7 @@ class ConnectionTest extends TestCase
 
     public function testStreamExistsReturnsFalseWhenStreamDoesNotExist(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -227,7 +227,7 @@ class ConnectionTest extends TestCase
 
     public function testDeleteStreamSendsCorrectRequest(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -260,7 +260,7 @@ class ConnectionTest extends TestCase
 
     public function testDestructorCallsCloseWhenNotAlreadyClosed(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $closeCalled = false;
         $streamConnection->method('sendMessage')
@@ -286,7 +286,7 @@ class ConnectionTest extends TestCase
 
     public function testDestructorIsSafeWhenSocketIsBroken(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $streamConnection->method('sendMessage')
             ->willReturnCallback(function (): void {
@@ -311,7 +311,7 @@ class ConnectionTest extends TestCase
 
     public function testDestructorIsIdempotentWhenCloseAlreadyCalled(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $sendMessageCallCount = 0;
         $streamConnection->method('sendMessage')
@@ -343,7 +343,7 @@ class ConnectionTest extends TestCase
 
     public function testDestructorLogsErrorWhenCloseFails(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         // Mock logger that expects error() to be called
         $logger = $this->createMock(LoggerInterface::class);
@@ -414,7 +414,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseClosesAllTrackedProducers(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -433,7 +433,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseClosesAllTrackedConsumers(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -452,7 +452,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseClosesConsumersBeforeProducers(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -482,7 +482,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseContinuesWhenProducerCloseThrows(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -502,7 +502,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseContinuesWhenConsumerCloseThrows(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -522,7 +522,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseLogsWarningWhenProducerCloseThrows(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -549,7 +549,7 @@ class ConnectionTest extends TestCase
 
     public function testCloseLogsWarningWhenConsumerCloseThrows(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -576,7 +576,7 @@ class ConnectionTest extends TestCase
 
     public function testMultipleCloseCallsAreIdempotent(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('readMessage')
             ->willReturnCallback(fn(): CloseResponseV1 => new CloseResponseV1());
         $streamConnection->method('close');
@@ -597,7 +597,7 @@ class ConnectionTest extends TestCase
 
     public function testGetStreamStatsReturnsKeyValueArray(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -635,7 +635,7 @@ class ConnectionTest extends TestCase
 
     public function testGetStreamStatsThrowsOnWrongResponseType(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage')
@@ -653,7 +653,7 @@ class ConnectionTest extends TestCase
 
     public function testGetMetadataReturnsMetadataResponse(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -688,7 +688,7 @@ class ConnectionTest extends TestCase
 
     public function testGetMetadataThrowsOnWrongResponseType(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage')
@@ -706,7 +706,7 @@ class ConnectionTest extends TestCase
 
     public function testQueryOffsetReturnsOffsetInteger(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -744,7 +744,7 @@ class ConnectionTest extends TestCase
 
     public function testQueryOffsetReturnsNullForNoOffset(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $streamConnection->method('sendMessage');
 
@@ -762,7 +762,7 @@ class ConnectionTest extends TestCase
 
     public function testQueryOffsetThrowsOnWrongResponseType(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage')
@@ -780,7 +780,7 @@ class ConnectionTest extends TestCase
 
     public function testStoreOffsetSendsCorrectRequest(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedRequests = [];
         $streamConnection->method('sendMessage')
@@ -810,7 +810,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateProducerIncrementsPublisherId(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerPublisher');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -829,7 +829,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateProducerPassesCorrectParameters(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerPublisher');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -847,7 +847,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateProducerPassesCloseConfirmDrainTimeout(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerPublisher');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -863,7 +863,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateProducerStoresProducerInArray(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerPublisher');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -883,7 +883,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateConsumerIncrementsSubscriptionId(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerSubscriber');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -902,7 +902,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateConsumerPassesCorrectParameters(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerSubscriber');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -938,7 +938,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateSuperStreamConsumerPassesMaxBufferSizeThrough(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerSubscriber');
         $streamConnection->method('sendMessage');
         $streamConnection->method('request');
@@ -961,7 +961,7 @@ class ConnectionTest extends TestCase
 
     public function testCreateConsumerStoresConsumerInArray(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerSubscriber');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -981,7 +981,7 @@ class ConnectionTest extends TestCase
 
     public function testReadLoopDelegatesToStreamConnection(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedArgs = [];
         $streamConnection->method('readLoop')
@@ -1001,7 +1001,7 @@ class ConnectionTest extends TestCase
 
     public function testReadLoopWithNullParameters(): void
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
 
         $capturedArgs = [];
         $streamConnection->method('readLoop')
@@ -1149,7 +1149,7 @@ class ConnectionTest extends TestCase
         $deletes = 0;
         $closes = 0;
 
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerPublisher');
         $streamConnection->method('registerMetadataUpdateHandler');
         $streamConnection->method('unregisterPublisher');
@@ -1203,7 +1203,7 @@ class ConnectionTest extends TestCase
         $unsubscribes = 0;
         $closes = 0;
 
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerSubscriber');
         $streamConnection->method('registerMetadataUpdateHandler');
         $streamConnection->method('unregisterSubscriber');
@@ -1257,7 +1257,7 @@ class ConnectionTest extends TestCase
 
     private function mockForProducers(): StreamConnection
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerPublisher');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -1268,7 +1268,7 @@ class ConnectionTest extends TestCase
 
     private function mockForConsumers(): StreamConnection
     {
-        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection = $this->createMockStreamConnection();
         $streamConnection->method('registerSubscriber');
         $streamConnection->method('sendMessage');
         $streamConnection->method('readMessage');
@@ -1318,6 +1318,19 @@ class ConnectionTest extends TestCase
             throw new \RuntimeException('Expected int from negotiatedMaxValue');
         }
         return $result;
+    }
+
+    /** @return StreamConnection&\PHPUnit\Framework\MockObject\MockObject */
+    private function createMockStreamConnection(): StreamConnection
+    {
+        $mock = $this->createMock(StreamConnection::class);
+        $mock->method('request')
+            ->willReturnCallback(function (object $request) use ($mock): object {
+                $mock->sendMessage($request);
+                return $mock->readMessage();
+            });
+
+        return $mock;
     }
 
     private function createConnectionWithMock(StreamConnection $mock, ?LoggerInterface $logger = null): Connection

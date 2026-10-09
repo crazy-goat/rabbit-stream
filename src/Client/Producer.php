@@ -378,12 +378,11 @@ class Producer implements ProducerInterface
             }
         );
 
-        $this->connection->sendMessage(new DeclarePublisherRequestV1(
+        $this->connection->request(new DeclarePublisherRequestV1(
             $this->publisherId,
             $this->name,
             $this->stream
         ));
-        $this->connection->readMessage();
     }
 
     /**
@@ -608,13 +607,12 @@ class Producer implements ProducerInterface
             if (!$this->stale) {
                 // A stale publisher is already gone on the broker;
                 // DeletePublisher would only earn a PUBLISHER_NOT_EXIST error.
-                $this->connection->sendMessage(new DeletePublisherRequestV1($this->publisherId));
                 // The confirm callback must stay registered until the
                 // DeletePublisher response has been read: PublishConfirm /
                 // PublishError frames for messages still in flight may arrive
                 // on the socket while we wait, and dropping them would leave
                 // pendingConfirms raised forever (GitHub #474).
-                $this->connection->readMessage();
+                $this->connection->request(new DeletePublisherRequestV1($this->publisherId));
                 $this->drainPendingConfirms();
             }
         } finally {
@@ -832,10 +830,9 @@ class Producer implements ProducerInterface
         if ($this->name === null || $this->name === '') {
             throw new InvalidArgumentException('Cannot query sequence for unnamed producer');
         }
-        $this->connection->sendMessage(
+        $response = $this->connection->request(
             new QueryPublisherSequenceRequestV1($this->name, $this->stream)
         );
-        $response = $this->connection->readMessage();
         if (!$response instanceof QueryPublisherSequenceResponseV1) {
             throw UnexpectedResponseException::create(QueryPublisherSequenceResponseV1::class, $response);
         }

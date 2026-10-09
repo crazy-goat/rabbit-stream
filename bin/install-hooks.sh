@@ -6,7 +6,7 @@
 # bin/hooks/ into .git/hooks/<name>, making it executable. Re-run after a
 # fresh clone or whenever a hook is added/renamed.
 #
-# Usage: php bin/install-hooks.sh   (or: bash bin/install-hooks.sh)
+# Usage: bash bin/install-hooks.sh
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
