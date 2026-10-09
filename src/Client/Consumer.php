@@ -24,6 +24,7 @@ use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use Throwable;
 
 /**
  * Consumes messages from a stream subscription.
@@ -537,31 +538,55 @@ class Consumer implements ConsumerInterface
                 // the frame with no full-chunk copy anywhere on this path
                 // (#412, #484).
                 [$frameBuffer, $chunkOffset, $chunkLength] = $deliverResponse->getChunkView();
-                $messages = OsirisChunkParser::parseMessages(
-                    $frameBuffer,
-                    offset: $chunkOffset,
-                    length: $chunkLength,
-                    stream: $this->stream,
-                    maxDepth: $this->maxDecodeDepth,
-                    verifyCrc: $this->verifyCrc,
-                );
-                foreach ($messages as $message) {
-                    if ($this->deliveryOffsetFilter !== null) {
-                        if ($message->getOffset() < $this->deliveryOffsetFilter) {
-                            continue;
+                $messagesToBuffer = [];
+                $deliveryOffsetFilter = $this->deliveryOffsetFilter;
+                $parseException = null;
+                try {
+                    $messages = OsirisChunkParser::parseMessages(
+                        $frameBuffer,
+                        offset: $chunkOffset,
+                        length: $chunkLength,
+                        stream: $this->stream,
+                        maxDepth: $this->maxDecodeDepth,
+                        verifyCrc: $this->verifyCrc,
+                    );
+                    foreach ($messages as $message) {
+                        if ($deliveryOffsetFilter !== null) {
+                            if ($message->getOffset() < $deliveryOffsetFilter) {
+                                continue;
+                            }
+                            $deliveryOffsetFilter = null;
                         }
-                        $this->deliveryOffsetFilter = null;
+                        $messagesToBuffer[] = $message;
                     }
-                    $this->buffer[] = $message;
-                    $this->unreadCount++;
-                }
 
-                $this->creditsInFlight--;
-                if ($this->pendingCredits < self::MAX_CREDIT) {
-                    $this->pendingCredits++;
+                    // A chunk is committed to the consumer buffer only after every
+                    // entry has parsed successfully. A malformed tail must not make
+                    // already-yielded messages visible as a partial chunk.
+                    $this->deliveryOffsetFilter = $deliveryOffsetFilter;
+                    foreach ($messagesToBuffer as $message) {
+                        $this->buffer[] = $message;
+                        $this->unreadCount++;
+                    }
+                    $this->observeChunkSize($chunkLength);
+                } catch (Throwable $exception) {
+                    $parseException = $exception;
+                    throw $exception;
+                } finally {
+                    // The broker has spent this credit by delivering the chunk even
+                    // when parsing fails, so always replenish the credit window.
+                    $this->creditsInFlight--;
+                    if ($this->pendingCredits < self::MAX_CREDIT) {
+                        $this->pendingCredits++;
+                    }
+                    try {
+                        $this->sendPendingCredits();
+                    } catch (Throwable $creditException) {
+                        if (!$parseException instanceof Throwable) {
+                            throw $creditException;
+                        }
+                    }
                 }
-                $this->observeChunkSize($chunkLength);
-                $this->sendPendingCredits();
             },
         );
 
@@ -573,7 +598,29 @@ class Consumer implements ConsumerInterface
             }
         );
 
-        $this->sendSubscribe($this->offset);
+        try {
+            $this->sendSubscribe($this->offset);
+        } catch (\Throwable $e) {
+            try {
+                $this->connection->unregisterSubscriber($this->subscriptionId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the subscription failure.
+            }
+            try {
+                $this->connection->unregisterConsumerUpdateHandler($this->subscriptionId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the subscription failure.
+            }
+            try {
+                $this->connection->unregisterMetadataUpdateHandler(
+                    $this->stream,
+                    "subscription-{$this->subscriptionId}"
+                );
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the subscription failure.
+            }
+            throw $e;
+        }
     }
 
     private function sendSubscribe(OffsetSpec $offset): void
