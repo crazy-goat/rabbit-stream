@@ -389,24 +389,31 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         }
         $connection->sendMessage(new PublishRequestV1(1, ...$publishedMessages));
 
-        // Wait for all publish confirms
-        $confirmedCount = 0;
+        // Confirms may be split across frames. Keep reading until every published ID
+        // is confirmed or the deadline expires.
+        $confirmedIds = [];
         $connection->registerPublisher(
             1,
-            function (array $ids) use (&$confirmedCount): void {
-                $confirmedCount += count($ids);
+            function (array $ids) use (&$confirmedIds): void {
+                array_push($confirmedIds, ...$ids);
             },
             function (): void {
             }
         );
+        $expectedIds = array_map(
+            static fn (PublishedMessage $message): int => $message->getPublishingId(),
+            $publishedMessages
+        );
         $confirmDeadline = microtime(true) + 5.0;
-        while ($confirmedCount < count($publishedMessages) && microtime(true) < $confirmDeadline) {
+        while (count(array_unique($confirmedIds)) < count($expectedIds) && microtime(true) < $confirmDeadline) {
             $connection->readLoop(maxFrames: 1, timeout: $confirmDeadline - microtime(true));
         }
+        sort($confirmedIds);
+        sort($expectedIds);
         $this->assertSame(
-            count($publishedMessages),
-            $confirmedCount,
-            'Should receive confirms for all published messages'
+            $expectedIds,
+            $confirmedIds,
+            'Should receive exactly one confirm for every published message before the deadline'
         );
 
         // Subscribe and receive all messages
@@ -422,10 +429,17 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         $connection->readMessage();
 
         $connection->sendMessage(new CreditRequestV1(1, 10));
-        $connection->readLoop(maxFrames: 1);
+        $deliveryDeadline = microtime(true) + 5.0;
+        while (count($receivedMessages) < count($messages) && microtime(true) < $deliveryDeadline) {
+            $connection->readLoop(maxFrames: 1, timeout: $deliveryDeadline - microtime(true));
+        }
 
         // Verify all messages (they may arrive in one or multiple chunks)
-        $this->assertGreaterThanOrEqual(3, count($receivedMessages), 'Should receive at least 3 messages');
+        $this->assertGreaterThanOrEqual(
+            count($messages),
+            count($receivedMessages),
+            'Should receive all published messages before the deadline'
+        );
 
         // Verify message IDs are present (order may vary)
         $receivedIds = array_map(fn(Message $m): mixed => $m->getMessageId(), $receivedMessages);
