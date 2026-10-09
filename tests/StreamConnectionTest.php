@@ -2982,33 +2982,22 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
 
-        // TuneRequestV1 is not SASL_AUTHENTICATE, so we expect normal hex logging.
+        // TuneRequestV1 is not SASL_AUTHENTICATE, so metadata is logged normally.
         $connection->sendMessage(new TuneRequestV1(1024, 100));
 
         $debugMessages = $logger->debugMessages();
         $this->assertCount(1, $debugMessages);
-        $this->assertStringStartsWith('Socket -> ', $debugMessages[0]);
-        // Must contain hex digits (bin2hex output), not a redaction marker.
-        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
-        $this->assertMatchesRegularExpression('/^Socket -> [0-9a-f]+$/', $debugMessages[0]);
+        $this->assertSame('Socket -> TUNE v1, 16 bytes', $debugMessages[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);
     }
 
     /**
-     * Synthetic test: drive debugFrame()'s key-match branch through the
-     * readFrame() entry point using a frame whose command key is the
-     * SASL_AUTHENTICATE REQUEST key (0x0013).
-     *
-     * This is NOT a real wire scenario — a server never sends 0x0013 on the
-     * read path; the SASL_AUTHENTICATE *response* uses 0x8013
-     * (KeyEnum::SASL_AUTHENTICATE_RESPONSE), which debugFrame() does NOT
-     * redact (and does not need to: the response carries no client
-     * credentials — the leak is solely in the request, see
-     * testSaslAuthenticateFrameIsRedactedWhenDebugLoggingEnabled). This test
-     * only exercises the redaction branch of debugFrame() via readFrame() to
-     * confirm the helper behaves identically on both entry points.
+     * Synthetic test: drive debugFrame()'s redaction branch through readFrame()
+     * with the SASL_AUTHENTICATE request key. The server never sends this request
+     * key on the read path; this only proves that debugFrame() redacts it on both
+     * entry points.
      */
     public function testDebugFrameRedactsFrameWithSaslAuthenticateRequestKeyOnReadPath(): void
     {
@@ -3048,11 +3037,9 @@ class StreamConnectionTest extends TestCase
 
     /**
      * A real SASL_AUTHENTICATE *response* (key 0x8013) carries no client
-     * credentials, so debugFrame() must log it as normal hex. This documents
-     * the intended behaviour and guards against someone over-redacting on the
-     * read path.
+     * credentials, so it is logged as metadata without a redaction marker.
      */
-    public function testSaslAuthenticateResponseReadFrameIsLoggedAsNormalHex(): void
+    public function testSaslAuthenticateResponseReadFrameLogsMetadata(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
@@ -3069,15 +3056,13 @@ class StreamConnectionTest extends TestCase
 
         $debugMessages = $logger->debugMessages();
         $this->assertCount(1, $debugMessages);
-        $this->assertStringStartsWith('Socket <-', $debugMessages[0]);
-        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
-        $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
+        $this->assertSame('Socket <- SASL_AUTHENTICATE_RESPONSE v1, 14 bytes', $debugMessages[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);
     }
 
-    public function testNonSaslReadFrameProducesNormalHexDebugLineWhenDebugLoggingEnabled(): void
+    public function testNonSaslReadFrameLogsMetadataWhenDebugLoggingEnabled(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
@@ -3092,14 +3077,60 @@ class StreamConnectionTest extends TestCase
 
         $debugMessages = $logger->debugMessages();
         $this->assertCount(1, $debugMessages);
-        $this->assertStringStartsWith('Socket <-', $debugMessages[0]);
-        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
-        $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
+        $this->assertSame('Socket <- TUNE v1, 14 bytes', $debugMessages[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);
     }
 
+
+    public function testLargePublishFrameLogsOnlyBoundedMetadata(): void
+    {
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $sink = tmpfile();
+        self::assertIsResource($sink);
+        $this->injectSocket($connection, $sink);
+        (new \ReflectionProperty($connection, 'preOpenMaxFrameSize'))->setValue($connection, 0);
+
+        $secret = 'CARD-4111111111111111-';
+        $payload = $secret . str_repeat('A', 4 * 1024 * 1024 - strlen($secret));
+        $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(1, $payload)));
+
+        $debugMessages = $logger->debugMessages();
+        self::assertCount(1, $debugMessages);
+        self::assertLessThanOrEqual(4096, strlen($debugMessages[0]));
+        self::assertStringContainsString('PUBLISH v1', $debugMessages[0]);
+        self::assertStringNotContainsString(bin2hex($secret), $debugMessages[0]);
+
+        fclose($sink);
+    }
+
+    public function testLargeDeliverFrameLogsOnlyBoundedMetadata(): void
+    {
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $secret = 'PII-jane.doe@example.com-';
+        $body = $secret . str_repeat('B', 4 * 1024 * 1024 - strlen($secret));
+        $content = pack('nn', KeyEnum::DELIVER->value, 1) . pack('C', 1) . $body;
+        $frame = pack('N', strlen($content)) . $content;
+
+        $source = tmpfile();
+        self::assertIsResource($source);
+        fwrite($source, $frame);
+        rewind($source);
+        $this->injectSocket($connection, $source);
+
+        $connection->readFrame();
+
+        $debugMessages = $logger->debugMessages();
+        self::assertCount(1, $debugMessages);
+        self::assertLessThanOrEqual(4096, strlen($debugMessages[0]));
+        self::assertStringContainsString('DELIVER v1', $debugMessages[0]);
+        self::assertStringNotContainsString(bin2hex($secret), $debugMessages[0]);
+
+        fclose($source);
+    }
 
     public function testDispatchMetadataUpdateInvokesPerStreamHandlersThenGlobalCallback(): void
     {
