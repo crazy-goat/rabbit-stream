@@ -85,6 +85,7 @@ class Consumer implements ConsumerInterface
     private int $unreadCount = 0;
     private int $messagesProcessed = 0;
     private int $lastOffset = 0;
+    private ?int $deliveryOffsetFilter = null;
     private bool $hasProcessedMessage = false;
 
     /** Credit units (1 unit = 1 chunk) withheld because the buffer had no room when a chunk arrived. */
@@ -465,7 +466,9 @@ class Consumer implements ConsumerInterface
         $this->active = $query->isActive();
 
         if ($this->consumerUpdateCallback instanceof \Closure) {
-            return ($this->consumerUpdateCallback)($this->active, $this);
+            $offset = ($this->consumerUpdateCallback)($this->active, $this);
+            $this->setDeliveryOffsetFilter($offset);
+            return $offset;
         }
 
         if (!$this->active) {
@@ -481,7 +484,16 @@ class Consumer implements ConsumerInterface
         // OffsetSpec instead.
         $offset = $this->queryOffset();
 
-        return $offset === null ? $this->offset : OffsetSpec::offset($offset);
+        $resume = $offset === null ? $this->offset : OffsetSpec::offset($offset);
+        $this->setDeliveryOffsetFilter($resume);
+        return $resume;
+    }
+
+    private function setDeliveryOffsetFilter(?OffsetSpec $offset): void
+    {
+        $this->deliveryOffsetFilter = $offset?->getType() === OffsetSpec::TYPE_OFFSET
+            ? $offset->getValue()
+            : null;
     }
 
     private function subscribe(): void
@@ -534,6 +546,12 @@ class Consumer implements ConsumerInterface
                     verifyCrc: $this->verifyCrc,
                 );
                 foreach ($messages as $message) {
+                    if ($this->deliveryOffsetFilter !== null) {
+                        if ($message->getOffset() < $this->deliveryOffsetFilter) {
+                            continue;
+                        }
+                        $this->deliveryOffsetFilter = null;
+                    }
                     $this->buffer[] = $message;
                     $this->unreadCount++;
                 }
@@ -560,6 +578,8 @@ class Consumer implements ConsumerInterface
 
     private function sendSubscribe(OffsetSpec $offset): void
     {
+        $this->setDeliveryOffsetFilter($offset);
+
         // Set before sending the subscribe request: a Deliver frame (and thus the
         // deliver callback, which decrements creditsInFlight) can arrive while we
         // are still waiting for the SubscribeResponse below.
