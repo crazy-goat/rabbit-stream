@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **Docs: complete Consumer read-method exception references (#613)** — the `Consumer::read()`, `readOne()` and `drain()` PHPDoc now lists timeout and connection failures from credit and auto-commit `StoreOffset` writes; the blocking read methods also name heartbeat echoes, server-close acknowledgements, ConsumerUpdate replies and re-subscribe request timeouts. No behavior change.
 - **Docs: use one authoritative response-code table (#663)** — the error-handling guide now links to the `ResponseCodeEnum` API table instead of duplicating it, and both SASL response-code tables in `connection-auth.md` include `0x14` and `0x15`. No behavior change.
 
 ### Fixed

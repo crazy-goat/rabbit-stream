@@ -671,12 +671,17 @@ class Consumer implements ConsumerInterface
      *                            non-retryable broker error.
      * @throws UnexpectedResponseException If the StreamStats reply used while
      *                            re-subscribing is not a StreamStats response.
-     * @throws ConnectionException If the socket is not connected or a read/write fails.
+     * @throws ConnectionException If the socket is not connected or a read/write fails while
+     *                            sending credit, auto-commit StoreOffset, heartbeat echo,
+     *                            server-close acknowledgement, ConsumerUpdate reply or a
+     *                            re-subscribe request.
      * @throws DeserializationException If a delivered chunk or server-push frame cannot
      *                            be deserialized.
-     * @throws TimeoutException If a credit or heartbeat frame cannot be written within
-     *                            the socket timeout, or a re-subscribe Subscribe/StreamStats
-     *                            request does not get a reply in time.
+     * @throws TimeoutException If a write it must make (credit, heartbeat echo,
+     *                            server-close acknowledgement, ConsumerUpdate reply or
+     *                            auto-commit StoreOffset) does not start within the socket
+     *                            timeout, or a re-subscribe Subscribe/StreamStats request
+     *                            does not get a reply in time.
      * @throws InvalidArgumentException If re-establishing a lost subscription builds a
      *                            Subscribe frame that exceeds the negotiated outgoing frame size.
      */
@@ -741,9 +746,10 @@ class Consumer implements ConsumerInterface
      *
      * @return Message[] Every buffered unread message, oldest first; an empty array
      *                            when the buffer is empty.
-     * @throws ConnectionException If a withheld credit frame cannot be written.
-     * @throws TimeoutException If a withheld credit frame cannot be written within
-     *                            the socket timeout.
+     * @throws ConnectionException If the socket is not connected or a write fails while
+     *                            sending withheld credit or auto-commit StoreOffset.
+     * @throws TimeoutException If a withheld credit or auto-commit StoreOffset write does
+     *                            not start within the socket timeout.
      */
     public function drain(): array
     {
@@ -790,12 +796,17 @@ class Consumer implements ConsumerInterface
      *                            non-retryable broker error.
      * @throws UnexpectedResponseException If the StreamStats reply used while
      *                            re-subscribing is not a StreamStats response.
-     * @throws ConnectionException If the socket is not connected or a read/write fails.
+     * @throws ConnectionException If the socket is not connected or a read/write fails while
+     *                            sending credit, auto-commit StoreOffset, heartbeat echo,
+     *                            server-close acknowledgement, ConsumerUpdate reply or a
+     *                            re-subscribe request.
      * @throws DeserializationException If a delivered chunk or server-push frame cannot
      *                            be deserialized.
-     * @throws TimeoutException If a credit or heartbeat frame cannot be written within
-     *                            the socket timeout, or a re-subscribe Subscribe/StreamStats
-     *                            request does not get a reply in time.
+     * @throws TimeoutException If a write it must make (credit, heartbeat echo,
+     *                            server-close acknowledgement, ConsumerUpdate reply or
+     *                            auto-commit StoreOffset) does not start within the socket
+     *                            timeout, or a re-subscribe Subscribe/StreamStats request
+     *                            does not get a reply in time.
      * @throws InvalidArgumentException If re-establishing a lost subscription builds a
      *                            Subscribe frame that exceeds the negotiated outgoing frame size.
      */
