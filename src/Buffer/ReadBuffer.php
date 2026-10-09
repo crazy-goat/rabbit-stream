@@ -123,7 +123,14 @@ class ReadBuffer
             return [];
         }
 
-        $this->ensureAvailable($count * 8);
+        if ($count > intdiv(PHP_INT_MAX, 8)) {
+            throw new DeserializationException(
+                sprintf('Invalid uint64 array count %d at position %d', $count, $this->position)
+            );
+        }
+
+        $byteCount = $count * 8;
+        $this->ensureAvailable($byteCount);
 
         // An explicit repeat count, not 'J*': unpack() reads from the offset to
         // the end of the *backing string*, so 'J*' would swallow trailing bytes
@@ -151,7 +158,7 @@ class ReadBuffer
             }
         }
 
-        $this->position += $count * 8;
+        $this->position += $byteCount;
         return $values;
     }
 
@@ -280,7 +287,7 @@ class ReadBuffer
         $arrayLength = $this->getUint32();
 
         $remaining = $this->windowLength - $this->position;
-        if ($arrayLength * 2 > $remaining) {
+        if ($arrayLength > intdiv($remaining, 2)) {
             throw new DeserializationException(
                 sprintf(
                     'Invalid string array count %d at position %d: need at least %d bytes, but only %d available',
