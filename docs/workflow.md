@@ -202,6 +202,15 @@ tracked issues, without duplicates.
 5. If an automated check could have caught the defect, prefer adding the check (test,
    linter rule) over only writing an issue.
 
+### Vendored issue-to-merge workflow
+
+This repository vendors its customized `issue-to-merge` workflow in
+[`.tyci/workflows/issue-to-merge/`](../.tyci/workflows/issue-to-merge/). It pauses for explicit
+human approval before merging a PR that changes protected paths (`.github/`, `.tyci/`, or
+`internal/flow/checks/`), while retaining the normal CI, head-match, and squash-merge safeguards.
+When upgrading tyci, re-sync the vendored copy against the new builtin template and re-apply
+these customizations; otherwise the committed workflow can silently drift from upstream.
+
 ## 8. Clean up
 
 ```bash
