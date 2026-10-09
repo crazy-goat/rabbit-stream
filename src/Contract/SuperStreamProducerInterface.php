@@ -22,6 +22,37 @@ use CrazyGoat\RabbitStream\Exception\UnexpectedResponseException;
 interface SuperStreamProducerInterface
 {
     /**
+     * Mark the current partition list stale after a MetadataUpdate.
+     */
+    public function markPartitionsStale(): void;
+
+    /**
+     * Whether the partition list needs to be refreshed before the next publish.
+     *
+     * @return bool True when a topology refresh is pending.
+     */
+    public function isPartitionsStale(): bool;
+
+    /**
+     * Number of completed partition refreshes after a MetadataUpdate.
+     *
+     * @return int Number of refreshes completed.
+     */
+    public function getRefreshCount(): int;
+
+    /**
+     * Re-resolve the partition list now (normally done lazily on the next publish).
+     *
+     * @throws ProtocolException If the super stream is unavailable or a producer close fails.
+     * @throws UnexpectedResponseException If the partitions resolver receives an unexpected response.
+     * @throws InvalidArgumentException If the partitions request exceeds the outgoing frame size.
+     * @throws ConnectionException If the resolver or producer close encounters a socket failure.
+     * @throws DeserializationException If the partitions or producer close response cannot be deserialized.
+     * @throws TimeoutException If a response does not arrive in time.
+     */
+    public function refreshPartitions(): void;
+
+    /**
      * Publish a single message, routed to a partition by the configured
      * {@see \CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy}.
      *

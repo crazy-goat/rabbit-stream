@@ -35,6 +35,9 @@ class StreamConnection
 {
     private bool $connected = false;
     private ?string $lastSelectErrorMessage = null;
+    private int $heartbeatInterval = 0;
+    private float $lastReadAt = 0.0;
+    private float $lastWriteAt = 0.0;
     /**
      * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
      * used for BOTH transports because TLS in PHP is only available through
@@ -53,6 +56,10 @@ class StreamConnection
     private function requireStream()
     {
         if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            if ($this->connected) {
+                $this->connected = false;
+                $this->notifyConnectionLost('Connection stream is not available');
+            }
             throw new ConnectionException('Cannot use socket: socket is not connected');
         }
 
@@ -62,10 +69,10 @@ class StreamConnection
     /**
      * Correlated responses read by request() while it was waiting for a different
      * correlation ID (e.g. a nested request() issued from a server-push handler
-     * such as a ConsumerUpdate query). Consumed FIFO by readMessage() and by
-     * correlation ID by request().
+     * such as a ConsumerUpdate query). Consumed only by the matching
+     * correlation ID in request().
      *
-     * @var list<object>
+     * @var list<array{correlationId: int, result: object|ProtocolException}>
      */
     private array $pendingResponses = [];
     private bool $running = false;
@@ -74,8 +81,12 @@ class StreamConnection
 
     /** @var array<int, array{onConfirm: callable, onError: callable}> */
     private array $publisherCallbacks = [];
+    /** @var array<int, callable(string): void> */
+    private array $connectionLostHandlers = [];
     /** @var array<int, callable> */
     private array $subscriberCallbacks = [];
+    /** @var array<int, callable> */
+    private array $creditErrorHandlers = [];
     /** @var array<int, callable> */
     private array $consumerUpdateHandlers = [];
     /**
@@ -100,6 +111,7 @@ class StreamConnection
         0x0003 => true, // PublishConfirm
         0x0004 => true, // PublishError
         0x0008 => true, // Deliver
+        0x8009 => true, // CreditResponse (error-only, no correlation id)
         0x0010 => true, // MetadataUpdate
         0x0016 => true, // Close (server-initiated)
         0x0017 => true, // Heartbeat
@@ -297,8 +309,8 @@ class StreamConnection
         private readonly ?TlsConfig $tls = null,
     ) {
         $this->setSocketTimeout($socketTimeout);
-        // Resolve once at construction: avoids paying bin2hex() cost on every
-        // frame when the logger won't emit debug records (NullLogger default).
+        // Resolve once at construction so the frame metadata path is skipped
+        // entirely when the logger won't emit debug records (NullLogger default).
         $this->debugLogging = !$logger instanceof NullLogger;
     }
 
@@ -349,6 +361,8 @@ class StreamConnection
 
         $this->connected = true;
         $this->stream = $stream;
+        $this->lastReadAt = microtime(true);
+        $this->lastWriteAt = $this->lastReadAt;
     }
 
     /**
@@ -572,11 +586,35 @@ class StreamConnection
     }
 
     /**
+     * Set the negotiated heartbeat interval. A value of zero disables heartbeat
+     * sending and missed-heartbeat detection.
+     *
+     * Heartbeats are maintained while the application is inside a library I/O
+     * call; time spent outside the library cannot be monitored by this client.
+     */
+    public function setHeartbeatInterval(int $seconds): void
+    {
+        if ($seconds < 0) {
+            throw new InvalidArgumentException('heartbeatInterval must not be negative');
+        }
+
+        $this->heartbeatInterval = $seconds;
+        $this->lastReadAt = microtime(true);
+        $this->lastWriteAt = $this->lastReadAt;
+    }
+
+    public function getHeartbeatInterval(): int
+    {
+        return $this->heartbeatInterval;
+    }
+
+    /**
      * Close the TCP socket connection.
      * Safe to call multiple times — subsequent calls are no-ops.
      */
     public function close(): void
     {
+        $wasConnected = $this->connected;
         if ($this->stream !== null && is_resource($this->stream)) {
             try {
                 fclose($this->stream);
@@ -586,6 +624,9 @@ class StreamConnection
         }
         $this->stream = null;
         $this->connected = false;
+        if ($wasConnected) {
+            $this->notifyConnectionLost('Connection was closed');
+        }
         // A closed connection cannot read a late reply, so the abandoned-id set
         // has no further use and must not be carried by a reused instance (R2-3).
         $this->abandonedCorrelationIds = [];
@@ -617,6 +658,7 @@ class StreamConnection
 
         if ($this->stream === null || !is_resource($this->stream)) {
             $this->connected = false;
+            $this->notifyConnectionLost('Connection stream is no longer available');
             return false;
         }
 
@@ -864,7 +906,19 @@ class StreamConnection
     public function unregisterSubscriber(int $subscriptionId): void
     {
         unset($this->subscriberCallbacks[$subscriptionId]);
+        unset($this->creditErrorHandlers[$subscriptionId]);
         unset($this->consumerUpdateHandlers[$subscriptionId]);
+    }
+
+    /**
+     * Register a handler for a rejected Credit request on a subscription.
+     *
+     * @param int $subscriptionId Subscription ID as declared with the server
+     * @param callable $handler Called with (CreditResponseV1 $response)
+     */
+    public function registerCreditErrorHandler(int $subscriptionId, callable $handler): void
+    {
+        $this->creditErrorHandlers[$subscriptionId] = $handler;
     }
 
     /**
@@ -906,6 +960,37 @@ class StreamConnection
     public function unregisterPublisher(int $publisherId): void
     {
         unset($this->publisherCallbacks[$publisherId]);
+    }
+
+    /**
+     * Register a handler notified when this connection can no longer carry frames.
+     *
+     * @param int $handlerId Unique handler id, typically a publisher id
+     * @param callable(string): void $handler Receives the reason the connection was lost
+     */
+    public function registerConnectionLostHandler(int $handlerId, callable $handler): void
+    {
+        $this->connectionLostHandlers[$handlerId] = $handler;
+    }
+
+    /** Remove a connection-loss handler registered for a producer. */
+    public function unregisterConnectionLostHandler(int $handlerId): void
+    {
+        unset($this->connectionLostHandlers[$handlerId]);
+    }
+
+    /** Notify every active producer once, before discarding the callbacks. */
+    private function notifyConnectionLost(string $reason): void
+    {
+        if ($this->connectionLostHandlers === []) {
+            return;
+        }
+
+        $handlers = $this->connectionLostHandlers;
+        $this->connectionLostHandlers = [];
+        foreach ($handlers as $handler) {
+            $handler($reason);
+        }
     }
 
     /**
@@ -1086,6 +1171,8 @@ class StreamConnection
 
                 if ($ready === false) {
                     if (!$this->selectWasInterrupted()) {
+                        $this->connected = false;
+                        $this->notifyConnectionLost('stream_select failed while waiting for write readiness');
                         throw new ConnectionException("stream_select failed while waiting for write readiness");
                     }
 
@@ -1100,7 +1187,10 @@ class StreamConnection
             }
         }
 
-        return $this->writeAll($frame);
+        $written = $this->writeAll($frame);
+        $this->lastWriteAt = microtime(true);
+
+        return $written;
     }
 
     /**
@@ -1146,6 +1236,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while writing');
                 throw new ConnectionException('stream_select failed while writing');
             }
             if ($ready === 0) {
@@ -1199,7 +1291,10 @@ class StreamConnection
     /**
      * Read and deserialize the next non-server-push response frame.
      * Server-push frames (heartbeat, publish confirm, deliver, etc.) are dispatched
-     * transparently to registered callbacks before returning.
+     * transparently to registered callbacks before returning. This uncorrelated read
+     * is intended for handshake frames that have no correlation ID; use request() for
+     * correlated exchanges so replies cannot be attributed to the wrong caller. It
+     * never returns responses parked for another request.
      *
      * @param float $timeout Seconds to wait before throwing TimeoutException.
      *                       0.0 means non-blocking (throws TimeoutException immediately if no data).
@@ -1211,22 +1306,17 @@ class StreamConnection
      */
     public function readMessage(float $timeout = 30.0): object
     {
-        if ($this->pendingResponses !== []) {
-            return array_shift($this->pendingResponses);
-        }
-
         return $this->readResponse($timeout, null);
     }
 
     /**
      * Send a correlated request and return its matching response.
      *
-     * Unlike sendMessage()+readMessage(), this matches the reply by correlation
-     * ID, so it is safe to call re-entrantly from a server-push handler (for
-     * example a ConsumerUpdate handler querying the stored offset while an outer
-     * request() is still waiting for its own SubscribeResponse). Responses that
-     * belong to another in-flight request are parked and handed to that
-     * request (or to the next readMessage()) instead of being misattributed.
+     * This matches the reply by correlation ID, so it is safe to call
+     * re-entrantly from a server-push handler (for example a ConsumerUpdate
+     * handler querying the stored offset while an outer request() is still
+     * waiting for its own SubscribeResponse). Responses that belong to another
+     * in-flight request are parked for the matching request.
      *
      * @param object $request Request object implementing ToStreamBufferInterface and CorrelationInterface
      * @param float  $timeout Seconds to wait for the response
@@ -1240,7 +1330,53 @@ class StreamConnection
         }
         $this->sendMessage($request, $timeout);
 
-        return $this->readResponse($timeout, $request->getCorrelationId());
+        try {
+            return $this->readResponse($timeout, $request->getCorrelationId());
+        } catch (TimeoutException $exception) {
+            // sendMessage() runs outside this try, so a write timeout is not
+            // abandoned: the request did not reach the broker. A read timeout
+            // can still leave a reply in flight, which must be discarded.
+            $this->abandonCorrelation($request->getCorrelationId());
+
+            throw $exception;
+        }
+    }
+
+    private function maintainHeartbeat(): void
+    {
+        if ($this->heartbeatInterval === 0 || !$this->connected) {
+            return;
+        }
+
+        $now = microtime(true);
+        if ($now - $this->lastReadAt >= 2 * $this->heartbeatInterval) {
+            $this->close();
+            throw new ConnectionException(sprintf(
+                'Connection closed after missing inbound frames for %.1f seconds (heartbeat interval: %d seconds)',
+                $now - $this->lastReadAt,
+                $this->heartbeatInterval
+            ));
+        }
+
+        if ($now - $this->lastWriteAt >= $this->heartbeatInterval) {
+            // HeartbeatRequestV1 is deliberately sent as a raw frame: sendMessage()
+            // assigns correlation IDs to correlated request objects, and protocol
+            // heartbeats have no correlation ID.
+            $content = $this->serializer->serialize(new HeartbeatRequestV1());
+            $this->sendFrame($this->wrapFrame($content));
+        }
+    }
+
+    private function heartbeatWaitTimeout(float $timeout): float
+    {
+        if ($this->heartbeatInterval === 0) {
+            return $timeout;
+        }
+
+        $untilWrite = $this->lastWriteAt + $this->heartbeatInterval - microtime(true);
+        $untilDead = $this->lastReadAt + 2 * $this->heartbeatInterval - microtime(true);
+
+        return min($timeout, max(0.0, min($untilWrite, $untilDead)));
     }
 
     private function readResponse(float $timeout, ?int $expectedCorrelationId): object
@@ -1257,7 +1393,7 @@ class StreamConnection
             if ($expectedCorrelationId !== null) {
                 $parked = $this->takePendingResponse($expectedCorrelationId);
                 if ($parked !== null) {
-                    return $parked;
+                    return $this->unwrapPendingResponse($parked['result']);
                 }
             }
 
@@ -1269,9 +1405,13 @@ class StreamConnection
                 }
             }
 
-            $frame = $this->readFrame($remainingTimeout);
+            $frame = $this->readFrame($this->heartbeatWaitTimeout($remainingTimeout));
             if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
-                throw new TimeoutException("Read timeout");
+                $this->maintainHeartbeat();
+                if ($timeout <= 0 || ($deadline !== null && microtime(true) >= $deadline)) {
+                    throw new TimeoutException("Read timeout");
+                }
+                continue;
             }
 
             $key = $frame->peekUint16();
@@ -1287,61 +1427,99 @@ class StreamConnection
                 continue;
             }
 
-            $response = $this->serializer->deserialize($frame->getRemainingBytes());
+            $payload = $frame->getRemainingBytes();
+            $correlationId = $this->readCorrelationId($key, $payload);
+            try {
+                $result = $this->serializer->deserialize($payload);
+            } catch (ProtocolException $exception) {
+                if ($correlationId === null) {
+                    throw $exception;
+                }
+                $result = $exception;
+            }
 
-            if (
-                $response instanceof CorrelationInterface
-                && isset($this->abandonedCorrelationIds[$response->getCorrelationId()])
-            ) {
+            if ($correlationId !== null && isset($this->abandonedCorrelationIds[$correlationId])) {
                 // Reply to a request that already timed out (see
                 // abandonCorrelation()): dropping it keeps the next caller from
-                // misattributing it as their own response.
-                unset($this->abandonedCorrelationIds[$response->getCorrelationId()]);
+                // misattributing it as their own response, including error replies.
+                unset($this->abandonedCorrelationIds[$correlationId]);
                 $this->logger->warning(
                     'Discarding a late reply for a request that already timed out',
                     [
-                        'correlationId' => $response->getCorrelationId(),
-                        'response' => $response::class,
+                        'correlationId' => $correlationId,
+                        'response' => $result instanceof ProtocolException ? 'error' : $result::class,
                     ]
                 );
                 continue;
             }
 
             if ($expectedCorrelationId === null) {
-                return $response;
+                return $this->unwrapPendingResponse($result);
             }
 
-            if (!$response instanceof CorrelationInterface) {
+            if ($correlationId === null) {
                 // A response frame without a correlation ID (in practice a Credit
                 // error, which the broker only sends for a rejected Credit request,
                 // e.g. after a single-active-consumer handover) cannot be the reply
                 // we are waiting for. Log and keep reading.
                 $this->logger->warning('Unsolicited response received while awaiting correlated reply', [
-                    'response' => $response::class,
-                    'details' => $response instanceof CreditResponseV1
+                    'response' => $result instanceof ProtocolException ? 'error' : $result::class,
+                    'details' => $result instanceof CreditResponseV1
                         ? [
-                            'subscriptionId' => $response->getSubscriptionId(),
-                            'responseCode' => $response->getResponseCode(),
+                            'subscriptionId' => $result->getSubscriptionId(),
+                            'responseCode' => $result->getResponseCode(),
                         ]
                         : [],
                 ]);
                 continue;
             }
 
-            if ($response->getCorrelationId() !== $expectedCorrelationId) {
+            if ($correlationId !== $expectedCorrelationId) {
                 // Belongs to another in-flight request (outer or nested) — park it.
-                $this->pendingResponses[] = $response;
+                $this->pendingResponses[] = ['correlationId' => $correlationId, 'result' => $result];
                 continue;
             }
 
-            return $response;
+            return $this->unwrapPendingResponse($result);
         }
     }
 
-    private function takePendingResponse(int $correlationId): ?object
+    /**
+     * Read the correlation id from a correlated response frame without consuming
+     * the payload used by the configured serializer.
+     *
+     * @param string $payload Frame payload beginning with key and version.
+     */
+    private function readCorrelationId(int $key, string $payload): ?int
+    {
+        // Credit errors and server-push frames have no correlation ID. Those are
+        // handled separately, but the key guard also protects custom serializers.
+        if ($key === KeyEnum::CREDIT_RESPONSE->value || strlen($payload) < 8) {
+            return null;
+        }
+
+        $correlation = unpack('N', $payload, 4);
+        return $correlation === false ? null : $correlation[1];
+    }
+
+    /**
+     * Return a parked response or throw the protocol error it represents.
+     */
+    private function unwrapPendingResponse(object $result): object
+    {
+        if ($result instanceof ProtocolException) {
+            throw $result;
+        }
+        return $result;
+    }
+
+    /**
+     * @return array{correlationId: int, result: object|ProtocolException}|null
+     */
+    private function takePendingResponse(int $correlationId): ?array
     {
         foreach ($this->pendingResponses as $index => $pending) {
-            if ($pending instanceof CorrelationInterface && $pending->getCorrelationId() === $correlationId) {
+            if ($pending['correlationId'] === $correlationId) {
                 array_splice($this->pendingResponses, $index, 1);
                 return $pending;
             }
@@ -1384,106 +1562,118 @@ class StreamConnection
     {
         $stream = $this->requireStream();
 
+        $wasRunning = $this->running;
         $this->running = true;
         $dispatched = 0;
         $interruptions = 0;
         $deadline = $timeout !== null ? microtime(true) + $timeout : null;
 
-        while ($this->running && $this->connected) {
-            // Check if timeout has expired
-            if ($deadline !== null && microtime(true) >= $deadline) {
-                break;
-            }
+        try {
+            while ($this->running && $this->connected) {
+                $this->maintainHeartbeat();
 
-            $read = [$stream];
-            $write = null;
-            $except = null;
-
-            // Calculate remaining timeout for stream_select.
-            // Cap $remaining BEFORE the split and hand the capped value to the
-            // helper: select(2) rejects tv_usec >= 1_000_000 with EINVAL (e.g.
-            // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
-            // polling at most once per second keeps stop()/deadline checks
-            // responsive.
-            $selectTimeoutSec = 1;
-            $selectTimeoutUsec = 0;
-            if ($deadline !== null) {
-                $remaining = $deadline - microtime(true);
-                if ($remaining <= 0) {
+                // Check if timeout has expired
+                if ($deadline !== null && microtime(true) >= $deadline) {
                     break;
                 }
-                [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout(min($remaining, 1));
-            }
 
-            $ready = $this->selectStreams($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
+                $read = [$stream];
+                $write = null;
+                $except = null;
 
-            if ($ready === false) {
-                // A signal that lands inside select(2) fails it with EINTR, not
-                // with a broken socket (GitHub #602). Retry as a spurious
-                // wakeup: the loop head re-checks running/connected and
-                // recomputes the remaining budget, so a handler that calls
-                // stop() ends the loop cleanly and a deadline still holds.
-                if ($this->selectWasInterrupted()) {
-                    $interruptions++;
-
-                    // readLoop(null, null) has no deadline, so nothing else stops
-                    // a retry here. Bound the unbroken run explicitly and fail
-                    // loudly rather than spin: a misfiring predicate would
-                    // otherwise burn a core forever without marking the
-                    // connection dead.
-                    if ($interruptions > self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS) {
-                        throw new ConnectionException(sprintf(
-                            'stream_select failed in readLoop: %d consecutive signal interruptions',
-                            $interruptions
-                        ));
+                // Calculate remaining timeout for stream_select().
+                // Cap $remaining BEFORE the split and hand the capped value to the
+                // helper: select(2) rejects tv_usec >= 1_000_000 with EINVAL (e.g.
+                // 2.5s would produce sec = 1, usec = 1_500_000 without the cap), and
+                // polling at most once per second keeps stop()/deadline checks
+                // responsive.
+                $selectTimeout = 1.0;
+                if ($deadline !== null) {
+                    $remaining = $deadline - microtime(true);
+                    if ($remaining <= 0) {
+                        break;
                     }
+                    $selectTimeout = min($selectTimeout, $remaining);
+                }
+                $selectTimeout = $this->heartbeatWaitTimeout($selectTimeout);
+                [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout($selectTimeout);
 
+                $ready = $this->selectStreams($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
+
+                if ($ready === false) {
+                    // A signal that lands inside select(2) fails it with EINTR, not
+                    // with a broken socket (GitHub #602). Retry as a spurious
+                    // wakeup: the loop head re-checks running/connected and
+                    // recomputes the remaining budget, so a handler that calls
+                    // stop() ends the loop cleanly and a deadline still holds.
+                    if ($this->selectWasInterrupted()) {
+                        $interruptions++;
+
+                        // readLoop(null, null) has no deadline, so nothing else stops
+                        // a retry here. Bound the unbroken run explicitly and fail
+                        // loudly rather than spin: a misfiring predicate would
+                        // otherwise burn a core forever without marking the
+                        // connection dead.
+                        if ($interruptions > self::MAX_CONSECUTIVE_SELECT_INTERRUPTIONS) {
+                            throw new ConnectionException(sprintf(
+                                'stream_select failed in readLoop: %d consecutive signal interruptions',
+                                $interruptions
+                            ));
+                        }
+
+                        continue;
+                    }
+                    $this->connected = false;
+                    $this->notifyConnectionLost('stream_select failed in readLoop');
+                    throw new ConnectionException('stream_select failed in readLoop');
+                }
+
+                // The select itself completed (with data or on timeout), so any
+                // earlier run of interruptions was a transient signal burst.
+                $interruptions = 0;
+
+                if ($ready === 0) {
+                    $this->maintainHeartbeat();
                     continue;
                 }
-                throw new ConnectionException('stream_select failed in readLoop');
-            }
 
-            // The select itself completed (with data or on timeout), so any
-            // earlier run of interruptions was a transient signal burst.
-            $interruptions = 0;
+                // stream_select() already confirmed the stream is readable above;
+                // avoid a second, redundant select per frame (see readFrameNoWait()).
+                $frame = $this->readFrameNoWait();
+                if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
+                    continue;
+                }
 
-            if ($ready === 0) {
-                continue;
-            }
+                $key = $frame->peekUint16();
 
-            // stream_select() already confirmed the stream is readable above;
-            // avoid a second, redundant select per frame (see readFrameNoWait()).
-            $frame = $this->readFrameNoWait();
-            if (!$frame instanceof \CrazyGoat\RabbitStream\Buffer\ReadBuffer) {
-                continue;
-            }
+                if (isset(self::SERVER_PUSH_KEYS[$key])) {
+                    $this->dispatchServerPush($frame);
+                    $dispatched++;
 
-            $key = $frame->peekUint16();
+                    // Connection may have been closed by server-initiated close
+                    if (!$this->connected) {
+                        break;
+                    }
+                } else {
+                    $dispatched++;
+                    $this->logger->warning(
+                        'readLoop() received unexpected non-server-push frame, discarding',
+                        ['key' => sprintf('0x%04x', $key)]
+                    );
+                }
 
-            if (isset(self::SERVER_PUSH_KEYS[$key])) {
-                $this->dispatchServerPush($frame);
-                $dispatched++;
-
-                // Connection may have been closed by server-initiated close
-                if (!$this->connected) {
+                if ($maxFrames !== null && $dispatched >= $maxFrames) {
                     break;
                 }
-            } else {
-                $dispatched++;
-                $this->logger->warning(
-                    'readLoop() received unexpected non-server-push frame, discarding',
-                    ['key' => sprintf('0x%04x', $key)]
-                );
             }
 
-            if ($maxFrames !== null && $dispatched >= $maxFrames) {
-                break;
-            }
+            return $dispatched;
+        } finally {
+            // A nested loop must not stop its caller, but an explicit stop() must
+            // remain visible to every active loop. This also restores state if a
+            // callback or the loop itself throws.
+            $this->running = $wasRunning && $this->running;
         }
-
-        $this->running = false;
-
-        return $dispatched;
     }
 
     private function dispatchServerPush(ReadBuffer $frame): void
@@ -1495,6 +1685,7 @@ class StreamConnection
             KeyEnum::PUBLISH_CONFIRM->value => $this->handlePublishConfirm($frame),
             KeyEnum::PUBLISH_ERROR->value => $this->handlePublishError($frame),
             KeyEnum::DELIVER->value => $this->handleDeliver($frame),
+            KeyEnum::CREDIT_RESPONSE->value => $this->handleCreditResponse($frame),
             KeyEnum::CLOSE->value => $this->handleServerClose($frame),
             KeyEnum::METADATA_UPDATE->value => $this->handleMetadataUpdate($frame),
             KeyEnum::CONSUMER_UPDATE->value => $this->handleConsumerUpdate($frame),
@@ -1599,6 +1790,27 @@ class StreamConnection
         if (isset($this->subscriberCallbacks[$subscriptionId])) {
             ($this->subscriberCallbacks[$subscriptionId])($deliver);
         }
+    }
+
+    private function handleCreditResponse(ReadBuffer $frame): void
+    {
+        $response = CreditResponseV1::fromStreamBuffer($frame);
+        if (!$response instanceof CreditResponseV1) {
+            throw new DeserializationException('Failed to deserialize CreditResponse frame');
+        }
+
+        $subscriptionId = $response->getSubscriptionId();
+        $context = [
+            'subscriptionId' => $subscriptionId,
+            'responseCode' => sprintf('0x%04x', $response->getResponseCode()),
+        ];
+        if (isset($this->creditErrorHandlers[$subscriptionId])) {
+            $this->logger->warning('Credit request rejected by server', $context);
+            ($this->creditErrorHandlers[$subscriptionId])($response);
+            return;
+        }
+
+        $this->logger->warning('Credit request rejected for unregistered subscription', $context);
     }
 
     private function handleServerClose(ReadBuffer $frame): void
@@ -1831,6 +2043,8 @@ class StreamConnection
 
             if ($ready === false) {
                 if (!$this->selectWasInterrupted()) {
+                    $this->connected = false;
+                    $this->notifyConnectionLost('stream_select failed while waiting for frame data');
                     throw new ConnectionException('stream_select failed while waiting for frame data');
                 }
 
@@ -1931,17 +2145,15 @@ class StreamConnection
         }
 
         $this->debugFrame('Socket <-', $frameData, keyOffset: 0);
+        $this->lastReadAt = microtime(true);
 
         return new ReadBuffer($frameData);
     }
 
     /**
-     * Log a raw frame at debug level, redacting SASL_AUTHENTICATE frames that
-     * contain plaintext credentials ("\0username\0password").
-     *
-     * Both bin2hex() and the logger call are skipped entirely when debug
-     * logging is disabled ($debugLogging is false), so the hot path pays zero
-     * cost with NullLogger or a logger filtering out debug records.
+     * Log frame metadata only. Frame bodies can contain application data and
+     * may be tens of megabytes, so they must never be copied into debug logs.
+     * SASL_AUTHENTICATE frames retain an explicit redaction marker.
      *
      * @param string $prefix    Log message prefix ("Socket -> " or "Socket <-")
      * @param string $frame     Raw frame bytes; in sendFrame this includes the
@@ -1954,27 +2166,38 @@ class StreamConnection
             return;
         }
 
-        // Extract the 2-byte big-endian command key at the given offset.
+        $frameSize = strlen($frame) + ($keyOffset === 0 ? 4 : 0);
         if (strlen($frame) < $keyOffset + 2) {
-            // Frame too short to contain a key — log raw as before.
-            $this->logger->debug($prefix . bin2hex($frame));
+            $this->logger->debug(sprintf('%s <unknown command, %d bytes>', $prefix, $frameSize));
             return;
         }
 
         $keyUnpacked = unpack('n', substr($frame, $keyOffset, 2));
         $key = $keyUnpacked !== false ? $keyUnpacked[1] : null;
-
         if ($key === KeyEnum::SASL_AUTHENTICATE->value) {
-            // Never hex-encode: the body contains "\0username\0password".
             $this->logger->debug(sprintf(
                 '%s <redacted: SASL_AUTHENTICATE, %d bytes>',
                 $prefix,
-                strlen($frame)
+                $frameSize
             ));
             return;
         }
 
-        $this->logger->debug($prefix . bin2hex($frame));
+        $versionOffset = $keyOffset + 2;
+        $versionUnpacked = strlen($frame) >= $versionOffset + 2
+            ? unpack('n', substr($frame, $versionOffset, 2))
+            : false;
+        $version = $versionUnpacked !== false ? (string) $versionUnpacked[1] : 'unknown';
+        $command = $key !== null ? KeyEnum::tryFrom($key)?->name : null;
+        $command ??= sprintf('UNKNOWN_0x%04X', $key ?? 0);
+
+        $this->logger->debug(sprintf(
+            '%s %s v%s, %d bytes',
+            rtrim($prefix),
+            $command,
+            $version,
+            $frameSize
+        ));
     }
 
     /**
@@ -2039,6 +2262,8 @@ class StreamConnection
                 if ($this->selectWasInterrupted()) {
                     continue;
                 }
+                $this->connected = false;
+                $this->notifyConnectionLost('stream_select failed while reading');
                 throw new ConnectionException('stream_select failed while reading');
             }
             if ($ready === 0 && $this->readTimeout($data, $length, $mustComplete)) {

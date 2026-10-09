@@ -161,6 +161,47 @@ interface ConsumerInterface
     public function isActive(): bool;
 
     /**
+     * Whether the broker dropped this subscription and it has not been re-established.
+     *
+     * @return bool True while the subscription is lost.
+     */
+    public function isSubscriptionLost(): bool;
+
+    /**
+     * Number of successful re-subscriptions after a MetadataUpdate.
+     *
+     * @return int Count of successful re-subscriptions since construction.
+     */
+    public function getResubscribeCount(): int;
+
+    /**
+     * Try once to re-establish a lost subscription.
+     *
+     * @return bool True when live (or never lost), false when unavailable and a retry is scheduled.
+     * @throws ProtocolException If the broker rejects re-subscription with a non-retryable error.
+     * @throws UnexpectedResponseException If the StreamStats reply is not a StreamStats response.
+     * @throws ConnectionException If the socket is not connected or the request fails.
+     * @throws DeserializationException If the response cannot be deserialized.
+     * @throws TimeoutException If the re-subscribe response does not arrive in time.
+     * @throws InvalidArgumentException If the Subscribe frame exceeds the negotiated outgoing frame size.
+     */
+    public function resubscribeIfLost(): bool;
+
+    /**
+     * Whether close() has already run.
+     *
+     * @return bool True once close() has released the subscription.
+     */
+    public function isClosed(): bool;
+
+    /**
+     * Current in-flight chunk target of the adaptive credit window.
+     *
+     * @return int Number of chunks currently wanted in flight.
+     */
+    public function getCreditTarget(): int;
+
+    /**
      * Override the default single-active-consumer resume logic.
      *
      * @param callable $callback Called with (bool $active, ConsumerInterface $this): ?OffsetSpec.

@@ -18,6 +18,7 @@ use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
@@ -60,20 +61,28 @@ class ConsumerTest extends TestCase
      *   [1] the Consumer,
      *   [2] the deliver callback (route Deliver chunks through the real
      *       deliver path: chunk parsing -> buffer accounting -> credits),
-     *   [3] the MetadataUpdate handler (lost subscription).
+     *   [3] the MetadataUpdate handler (lost subscription),
+     *   [4] the CreditResponse handler (rejected credit).
      *
      * @return array{
      *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
      *     1: Consumer,
      *     2: callable|null,
      *     3: callable|null,
+     *     4: callable|null,
      * }
      */
-    private function makeConsumerWithHandlers(): array
+    private function makeConsumerWithHandlers(?OffsetSpec $offset = null, ?int $committedOffset = null): array
     {
         $deliverCallback = null;
         $metadataHandler = null;
+        $creditErrorHandler = null;
         $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerCreditErrorHandler')
+            ->willReturnCallback(function (int $id, callable $handler) use (&$creditErrorHandler): void {
+                $creditErrorHandler = $handler;
+            });
         $connection->expects($this->any())
             ->method('registerSubscriber')
             ->willReturnCallback(function (int $id, callable $cb) use (&$deliverCallback): void {
@@ -86,12 +95,24 @@ class ConsumerTest extends TestCase
                     $metadataHandler = $handler;
                 }
             );
-        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturnCallback(
+            static function (object $request) use ($committedOffset): object {
+                if ($request instanceof StreamStatsRequestV1 && $committedOffset !== null) {
+                    return new StreamStatsResponseV1([new Statistic('committed_offset', $committedOffset)]);
+                }
+                return new \stdClass();
+            }
+        );
         $connection->expects($this->any())->method('sendMessage');
 
-        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            $offset ?? OffsetSpec::first()
+        );
 
-        return [$connection, $consumer, $deliverCallback, $metadataHandler];
+        return [$connection, $consumer, $deliverCallback, $metadataHandler, $creditErrorHandler];
     }
 
     private function setPendingCredits(Consumer $consumer, int $value): void
@@ -110,6 +131,63 @@ class ConsumerTest extends TestCase
         return is_int($value) ? $value : 0;
     }
 
+    public function testOffsetSubscribeFiltersEarlierMessagesWithinDeliveredChunkWithoutChangingChunkCredits(): void
+    {
+        [$consumer, $deliverCallback, $credits] = $this->consumerWithCapturedCredits(
+            initialCredit: 1,
+            creditWindowBytes: 0,
+            offset: OffsetSpec::offset(105)
+        );
+        $deliverCallback($this->deliverOf($this->buildChunk(
+            ['m100', 'm101', 'm102', 'm103', 'm104', 'm105', 'm106'],
+            100
+        )));
+
+        $this->assertSame([1], $credits->getArrayCopy());
+        $this->assertSame([105, 106], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->read(timeout: 0.0)
+        ));
+    }
+
+    public function testNonAbsoluteOffsetSubscribeDoesNotFilterDeliveredMessages(): void
+    {
+        [, $consumer, $deliverCallback] = $this->makeConsumerWithHandlers(OffsetSpec::first());
+        $this->assertIsCallable($deliverCallback);
+
+        $deliverCallback($this->deliverOf($this->buildChunk(['m100', 'm101'], 100)));
+
+        $this->assertSame([100, 101], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->drain()
+        ));
+    }
+
+    public function testCreditErrorIsSurfacedOnConsumerReadAndStopsCreditReplenishment(): void
+    {
+        [$connection, $consumer, , , $creditErrorHandler] = $this->makeConsumerWithHandlers();
+        $this->assertIsCallable($creditErrorHandler);
+        $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x04, 'subscriptionId' => 1]));
+
+        try {
+            $consumer->read(timeout: 0);
+            self::fail('Consumer::read() should surface a rejected credit grant');
+        } catch (ProtocolException $exception) {
+            $this->assertSame(ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST, $exception->getResponseCode());
+            $this->assertStringContainsString('subscription 1', $exception->getMessage());
+            $this->assertStringContainsString('0x0004', $exception->getMessage());
+        }
+
+        $this->setPendingCredits($consumer, 2);
+        try {
+            $consumer->readOne(timeout: 0);
+            self::fail('Consumer::readOne() should surface a rejected credit grant');
+        } catch (ProtocolException $exception) {
+            $this->assertSame(ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST, $exception->getResponseCode());
+        }
+        $this->assertSame(2, $this->getPendingCredits($consumer));
+    }
+
     public function testResumeOffsetContinuesAfterLastProcessedMessageWithinCommittedChunk(): void
     {
         $this->assertResumeOffset(105, 100, 109, OffsetSpec::offset(106));
@@ -118,6 +196,58 @@ class ConsumerTest extends TestCase
     public function testResumeOffsetFallsBackWhenStreamWasRecreatedWithLowerCommittedOffset(): void
     {
         $this->assertResumeOffset(105, 0, 4, OffsetSpec::first());
+    }
+
+    public function testResubscribeFiltersEarlierMessagesInTheContainingChunk(): void
+    {
+        $deliverCallback = null;
+        $metadataHandler = null;
+        $subscribes = [];
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $callback) use (&$deliverCallback): void {
+                $deliverCallback = $callback;
+            });
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(
+                function (string $stream, string $handlerId, callable $callback) use (&$metadataHandler): void {
+                    $metadataHandler = $callback;
+                }
+            );
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('request')
+            ->willReturnCallback(function (object $request) use (&$subscribes): object {
+                if ($request instanceof SubscribeRequestV1) {
+                    $subscribes[] = $request;
+                }
+                if ($request instanceof StreamStatsRequestV1) {
+                    return new StreamStatsResponseV1([
+                        new Statistic('committed_offset', 109),
+                    ]);
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        (new \ReflectionProperty($consumer, 'lastOffset'))->setValue($consumer, 104);
+        (new \ReflectionProperty($consumer, 'hasProcessedMessage'))->setValue($consumer, true);
+        $this->assertIsCallable($metadataHandler);
+        $metadataHandler();
+        $this->assertTrue($consumer->resubscribeIfLost());
+        $this->assertCount(2, $subscribes);
+
+        $this->assertIsCallable($deliverCallback);
+        $deliverCallback($this->deliverOf($this->buildChunk(
+            ['m100', 'm101', 'm102', 'm103', 'm104', 'm105', 'm106'],
+            100
+        )));
+
+        $this->assertSame([105, 106], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->drain()
+        ));
     }
 
     private function assertResumeOffset(
@@ -751,6 +881,45 @@ class ConsumerTest extends TestCase
         new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), maxBufferSize: -1);
     }
 
+    public function testFailedChunkIsAtomicAndStillReturnsCredit(): void
+    {
+        [$consumer, $deliver, $credits] = $this->consumerWithCapturedCredits(2, 0);
+        $chunk = $this->buildOneEntryChunk('first');
+        $data = substr($chunk, 48);
+        $inner = pack('N', 4) . 'test';
+        $data .= pack('C', 0x80 | (1 << 4)); // gzip-compressed sub-batch
+        $data .= pack('n', 1);
+        $data .= pack('N', strlen($inner));
+        $data .= pack('N', strlen($inner));
+        $data .= $inner;
+        $chunk = substr($chunk, 0, 32)
+            . pack('N', crc32($data))
+            . pack('N', strlen($data))
+            . substr($chunk, 40, 8)
+            . $data;
+        // The test chunk header declares two entries and records: the valid plain
+        // entry above followed by the compressed sub-batch.
+        $chunk[2] = "\x00";
+        $chunk[3] = "\x02";
+        $chunk[4] = "\x00";
+        $chunk[5] = "\x00";
+        $chunk[6] = "\x00";
+        $chunk[7] = "\x02";
+
+        try {
+            $deliver($this->deliverOf($chunk));
+            self::fail('Expected a compressed sub-batch to be rejected');
+        } catch (DeserializationException $exception) {
+            $this->assertStringContainsString('Compressed sub-batches not supported', $exception->getMessage());
+        }
+
+        $this->assertFalse($consumer->hasUnread(), 'A failed chunk must not expose its successfully parsed prefix');
+        $this->assertSame([], $consumer->read(0));
+        $this->assertSame(2, (new \ReflectionProperty($consumer, 'creditsInFlight'))->getValue($consumer));
+        $this->assertSame(0, (new \ReflectionProperty($consumer, 'pendingCredits'))->getValue($consumer));
+        $this->assertSame([1], $credits->getArrayCopy(), 'The failed chunk credit must be granted back');
+    }
+
     public function testDeliverCallbackNeverDropsMessagesEvenPastMaxBufferSize(): void
     {
         // #485: a whole chunk is always accepted into the buffer, even when it
@@ -800,8 +969,11 @@ class ConsumerTest extends TestCase
     /**
      * @return array{0: Consumer, 1: callable, 2: \ArrayObject<int, int>} consumer, deliver callback, credits sent
      */
-    private function consumerWithCapturedCredits(int $initialCredit, int $creditWindowBytes): array
-    {
+    private function consumerWithCapturedCredits(
+        int $initialCredit,
+        int $creditWindowBytes,
+        ?OffsetSpec $offset = null
+    ): array {
         $registeredCallback = null;
         /** @var \ArrayObject<int, int> $credits */
         $credits = new \ArrayObject();
@@ -824,7 +996,7 @@ class ConsumerTest extends TestCase
             $connection,
             'test-stream',
             1,
-            OffsetSpec::first(),
+            $offset ?? OffsetSpec::first(),
             initialCredit: $initialCredit,
             maxBufferSize: 1_000_000,
             creditWindowBytes: $creditWindowBytes,
@@ -912,13 +1084,23 @@ class ConsumerTest extends TestCase
      */
     private function buildOneEntryChunk(string $entryData, int $firstOffset = 0): string
     {
-        $dataSection = pack('N', strlen($entryData)) . $entryData;
+        return $this->buildChunk([$entryData], $firstOffset);
+    }
+
+    /** @param list<string> $entries */
+    private function buildChunk(array $entries, int $firstOffset): string
+    {
+        $dataSection = '';
+        foreach ($entries as $entry) {
+            $dataSection .= pack('N', strlen($entry)) . $entry;
+        }
+        $entryCount = count($entries);
         $dataLength = strlen($dataSection);
 
         $header = pack('C', 0x50); // magic=5, version=0
         $header .= pack('C', 0x00); // chunkType: user data
-        $header .= pack('n', 1); // numEntries
-        $header .= pack('N', 1); // numRecords
+        $header .= pack('n', $entryCount); // numEntries
+        $header .= pack('N', $entryCount); // numRecords
         $header .= pack('J', 1000); // timestamp
         $header .= pack('J', 1); // epoch
         $header .= pack('J', $firstOffset); // chunkFirstOffset
@@ -1411,6 +1593,48 @@ class ConsumerTest extends TestCase
         $this->assertSame(OffsetSpec::TYPE_LAST, $resume->getType());
     }
 
+    public function testSingleActiveConsumerResumeFiltersEarlierMessagesFromDeliveredChunk(): void
+    {
+        $deliverCallback = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $callback) use (&$deliverCallback): void {
+                $deliverCallback = $callback;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('request')
+            ->willReturnCallback(static function (object $request): object {
+                if ($request instanceof QueryOffsetRequestV1) {
+                    return QueryOffsetResponseV1::fromArray(['correlationId' => 1, 'offset' => 105]);
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            singleActiveConsumer: true,
+        );
+        $resume = $this->invokeConsumerUpdate($consumer, true);
+        $this->assertInstanceOf(OffsetSpec::class, $resume);
+        $this->assertSame(105, $resume->getValue());
+        $this->assertIsCallable($deliverCallback);
+
+        $deliverCallback($this->deliverOf($this->buildChunk(
+            ['m100', 'm101', 'm102', 'm103', 'm104', 'm105', 'm106'],
+            100
+        )));
+
+        $this->assertSame([105, 106], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->read(timeout: 0.0)
+        ));
+    }
+
     public function testSingleActiveConsumerResumesAtTheStoredOffsetWithoutSkipping(): void
     {
         $requests = new CapturedObjects();
@@ -1567,6 +1791,57 @@ class ConsumerTest extends TestCase
                 return new \stdClass();
             });
         return [$connection, $handlers, $requests];
+    }
+
+    public function testMetadataUpdateClearsUnreadBufferBeforeResubscribe(): void
+    {
+        [$connection, $consumer, $deliver, $metadataHandler] = $this->makeConsumerWithHandlers();
+        $this->assertIsCallable($deliver);
+        $this->assertIsCallable($metadataHandler);
+        $connection->expects($this->any())->method('readLoop')->willReturn(0);
+
+        $deliver($this->deliverOf($this->buildOneEntryChunk('first', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('second', 11)));
+        $this->assertTrue($consumer->hasUnread());
+
+        $metadataHandler();
+        $this->assertTrue($consumer->isSubscriptionLost());
+        $this->assertFalse($consumer->hasUnread());
+
+        // With nothing drained, re-subscription uses the initial OffsetSpec;
+        // any buffered copy must therefore be discarded before redelivery.
+        $this->assertTrue($consumer->resubscribeIfLost());
+        $deliver($this->deliverOf($this->buildOneEntryChunk('first', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('second', 11)));
+
+        $messages = $consumer->read(timeout: 0);
+        $this->assertSame([10, 11], array_map(static fn(Message $message): int => $message->getOffset(), $messages));
+    }
+
+    public function testMetadataUpdateClearsUnreadBufferAfterProcessedMessage(): void
+    {
+        [$connection, $consumer, $deliver, $metadataHandler] = $this->makeConsumerWithHandlers(committedOffset: 11);
+        $this->assertIsCallable($deliver);
+        $this->assertIsCallable($metadataHandler);
+        $connection->expects($this->any())->method('readLoop')->willReturn(0);
+
+        $deliver($this->deliverOf($this->buildOneEntryChunk('processed', 9)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 11)));
+        $processed = $consumer->readOne(timeout: 0);
+        $this->assertNotNull($processed);
+        $this->assertSame(9, $processed->getOffset());
+
+        $metadataHandler();
+        $this->assertFalse($consumer->hasUnread());
+        $this->assertTrue($consumer->resubscribeIfLost());
+
+        // The existing resume position is lastOffset + 1 (10). Simulate broker
+        // redelivery through the actual callback and ensure there are no old copies.
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 10)));
+        $deliver($this->deliverOf($this->buildOneEntryChunk('buffered', 11)));
+        $messages = $consumer->read(timeout: 0);
+        $this->assertSame([10, 11], array_map(static fn(Message $message): int => $message->getOffset(), $messages));
     }
 
     public function testMetadataUpdateMarksSubscriptionLostAndReadResubscribes(): void

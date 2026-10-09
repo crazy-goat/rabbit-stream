@@ -10,6 +10,7 @@
             <directory>tests/Contract</directory>
             <directory>tests/Enum</directory>
             <directory>tests/Exception</directory>
+            <directory>tests/Repro</directory>
             <directory>tests/Request</directory>
             <directory>tests/Response</directory>
             <directory>tests/Serializer</directory>

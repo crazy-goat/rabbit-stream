@@ -39,7 +39,27 @@ class ReadBuffer
         // getUint32()/getUint64()/getInt64() would return floats instead of ints
         // on a 32-bit build, silently corrupting offsets (#458).
         Platform::assertSixtyFourBitIntegers();
-        $this->windowLength = $length ?? (strlen($buffer) - $this->offset);
+
+        $bufferLength = strlen($buffer);
+        if ($this->offset < 0 || $this->offset > $bufferLength) {
+            throw new DeserializationException(
+                sprintf('Invalid buffer window offset %d for buffer length %d', $this->offset, $bufferLength)
+            );
+        }
+
+        $available = $bufferLength - $this->offset;
+        if ($length !== null && ($length < 0 || $length > $available)) {
+            throw new DeserializationException(
+                sprintf(
+                    'Invalid buffer window length %d at offset %d: only %d bytes available',
+                    $length,
+                    $this->offset,
+                    $available
+                )
+            );
+        }
+
+        $this->windowLength = $length ?? $available;
     }
 
     private function ensureAvailable(int $bytes): void
@@ -123,7 +143,14 @@ class ReadBuffer
             return [];
         }
 
-        $this->ensureAvailable($count * 8);
+        if ($count > intdiv(PHP_INT_MAX, 8)) {
+            throw new DeserializationException(
+                sprintf('Invalid uint64 array count %d at position %d', $count, $this->position)
+            );
+        }
+
+        $byteCount = $count * 8;
+        $this->ensureAvailable($byteCount);
 
         // An explicit repeat count, not 'J*': unpack() reads from the offset to
         // the end of the *backing string*, so 'J*' would swallow trailing bytes
@@ -151,7 +178,7 @@ class ReadBuffer
             }
         }
 
-        $this->position += $count * 8;
+        $this->position += $byteCount;
         return $values;
     }
 
@@ -280,7 +307,7 @@ class ReadBuffer
         $arrayLength = $this->getUint32();
 
         $remaining = $this->windowLength - $this->position;
-        if ($arrayLength * 2 > $remaining) {
+        if ($arrayLength > intdiv($remaining, 2)) {
             throw new DeserializationException(
                 sprintf(
                     'Invalid string array count %d at position %d: need at least %d bytes, but only %d available',

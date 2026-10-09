@@ -18,6 +18,7 @@ use CrazyGoat\RabbitStream\Request\PublishRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV2;
 use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
+use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedClosures;
 use CrazyGoat\RabbitStream\Tests\Support\CapturedObjects;
@@ -29,9 +30,9 @@ class ProducerTest extends TestCase
 {
     public function testSendAcceptsOptionalWriteTimeout(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $capturedTimeout = null;
         $connection->expects($this->any())
@@ -60,9 +61,9 @@ class ProducerTest extends TestCase
 
     public function testSendEncodesMessageBodyAsAmqpDataSection(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $capturedRequest = null;
         $connection->expects($this->any())
@@ -97,9 +98,9 @@ class ProducerTest extends TestCase
 
     public function testSendBatchAcceptsOptionalWriteTimeout(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $capturedTimeout = null;
         $connection->expects($this->any())
@@ -128,10 +129,10 @@ class ProducerTest extends TestCase
 
     public function testWaitForConfirmsAcceptsFloatTimeout(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $capturedTimeout = null;
         $connection->expects($this->any())
@@ -167,7 +168,7 @@ class ProducerTest extends TestCase
 
     public function testWaitForConfirmsResolvesWhenConfirmsArrive(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -203,11 +204,11 @@ class ProducerTest extends TestCase
 
     public function testSendBatchCreatesSingleRequestWithMultipleMessages(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $capturedRequest = null;
 
-        // Allow constructor calls (declare() sends DeclarePublisherRequestV1 and reads response)
-        $connection->expects($this->exactly(2))
+        // Only correlated exchanges use request(); publish batches are fire-and-forget.
+        $connection->expects($this->once())
             ->method('sendMessage')
             ->with($this->callback(function ($request) use (&$capturedRequest): bool {
                 if ($request instanceof PublishRequestV1) {
@@ -215,10 +216,6 @@ class ProducerTest extends TestCase
                 }
                 return true;
             }));
-
-        // Only declare() reads response, sendBatch() is fire-and-forget like send()
-        $connection->expects($this->once())
-            ->method('readMessage');
 
         $producer = new Producer($connection, 'test-stream', 1);
         $producer->sendBatch(['msg1', 'msg2', 'msg3']);
@@ -252,7 +249,7 @@ class ProducerTest extends TestCase
 
     public function testWaitForConfirmsThrowsOnTimeout(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         $connection->expects($this->any())
             ->method('registerPublisher');
@@ -275,7 +272,7 @@ class ProducerTest extends TestCase
 
     public function testGetLastPublishingIdReturnsCorrectValue(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage');
@@ -294,7 +291,7 @@ class ProducerTest extends TestCase
 
     public function testSendIncrementsPendingConfirms(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -305,7 +302,7 @@ class ProducerTest extends TestCase
             });
 
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $readLoopCalled = false;
         $connection->expects($this->once())
@@ -329,11 +326,11 @@ class ProducerTest extends TestCase
 
     public function testSendBatchWithEmptyArrayDoesNotSend(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
-        $connection->expects($this->once())
+        $connection->expects($this->never())
             ->method('sendMessage');
 
         $producer = new Producer($connection, 'test-stream', 1);
@@ -342,10 +339,10 @@ class ProducerTest extends TestCase
 
     public function testWaitForConfirmsReturnsImmediatelyWhenNoPendingConfirms(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $connection->expects($this->never())->method('readLoop');
 
@@ -362,7 +359,7 @@ class ProducerTest extends TestCase
         // Regression guard for #385: waitForConfirms() must pass maxFrames: 1
         // so readLoop() hands control back after each dispatched frame instead
         // of blocking for the whole timeout.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -373,7 +370,7 @@ class ProducerTest extends TestCase
             });
 
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $captured = ['maxFrames' => null, 'timeout' => null];
         $connection->expects($this->once())
@@ -401,7 +398,7 @@ class ProducerTest extends TestCase
         // Guards the multi-confirm drain: with maxFrames: 1, readLoop() returns
         // after a single dispatched frame, so waitForConfirms() must loop and
         // call readLoop() again for each remaining pending confirm.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -412,7 +409,7 @@ class ProducerTest extends TestCase
             });
 
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $readLoopCallCount = 0;
         $connection->expects($this->exactly(3))
@@ -437,10 +434,10 @@ class ProducerTest extends TestCase
 
     public function testWaitForConfirmsThrowsTimeoutExceptionWhenNoConfirmEverArrives(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         // readLoop() never invokes onConfirm, simulating a broker that never confirms.
         $connection->expects($this->atLeastOnce())->method('readLoop');
@@ -456,7 +453,7 @@ class ProducerTest extends TestCase
 
     public function testQuerySequenceThrowsForUnnamedProducer(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage');
@@ -474,7 +471,7 @@ class ProducerTest extends TestCase
         // Regression guard for #415: initializePublishingId() treats '' as
         // anonymous (`name !== null && name !== ''`), so querySequence() must
         // reject it too instead of querying the broker with an empty name.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
         $connection->expects($this->any())->method('readMessage');
@@ -489,10 +486,10 @@ class ProducerTest extends TestCase
 
     public function testGetPendingConfirmsReturnsCurrentCount(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $producer = new Producer($connection, 'test-stream', 1);
 
@@ -505,10 +502,10 @@ class ProducerTest extends TestCase
 
     public function testMaxPendingConfirmsZeroPreservesUnlimitedBehaviour(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         // Backpressure disabled (0 = unlimited), so readLoop() must never be
         // invoked to drain confirms, no matter how many sends pile up.
@@ -525,7 +522,7 @@ class ProducerTest extends TestCase
 
     public function testSendDrainsConfirmsWhenMaxPendingConfirmsReached(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -536,7 +533,7 @@ class ProducerTest extends TestCase
             });
 
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $readLoopCallCount = 0;
         $connection->expects($this->once())
@@ -564,7 +561,7 @@ class ProducerTest extends TestCase
 
     public function testSendBatchNeverExceedsMaxPendingConfirms(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var callable|null $onConfirm */
         $onConfirm = null;
@@ -589,7 +586,7 @@ class ProducerTest extends TestCase
                 }
                 $maxObservedInFlight = max($maxObservedInFlight, count($inFlight));
             });
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())
             ->method('readLoop')
             ->willReturnCallback(function () use (&$onConfirm, &$inFlight): int {
@@ -614,13 +611,13 @@ class ProducerTest extends TestCase
 
     public function testSendBatchLargerThanMaxPendingConfirmsIsRejected(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
         $connection->expects($this->never())->method('readLoop');
         $connection->expects($this->once())
-            ->method('sendMessage')
-            ->with($this->isInstanceOf(DeclarePublisherRequestV1::class));
+            ->method('request')
+            ->with($this->isInstanceOf(DeclarePublisherRequestV1::class))
+            ->willReturn(new \stdClass());
 
         $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 5);
 
@@ -631,7 +628,7 @@ class ProducerTest extends TestCase
 
     public function testSendBatchDrainsConfirmsWhenMaxPendingConfirmsReached(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -642,7 +639,7 @@ class ProducerTest extends TestCase
             });
 
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $connection->expects($this->once())
             ->method('readLoop')
@@ -665,10 +662,10 @@ class ProducerTest extends TestCase
 
     public function testSendThrowsTimeoutExceptionWhenBackpressureNeverDrains(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         // readLoop() never invokes onConfirm, simulating a broker that never confirms.
         $connection->expects($this->atLeastOnce())->method('readLoop');
@@ -688,35 +685,23 @@ class ProducerTest extends TestCase
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerPublisher');
 
-        $mockResponse = $this->createMock(\CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1::class);
-        $mockResponse->method('getSequence')->willReturn(42);
-
-        // Constructor calls sendMessage with DeclarePublisherRequestV1
-        // initializePublishingId calls sendMessage with QueryPublisherSequenceRequestV1
-        // querySequence calls sendMessage with QueryPublisherSequenceRequestV1
-        $capturedRequest = null;
+        // Constructor and explicit querySequence() both use the same response.
         $connection->expects($this->exactly(3))
-            ->method('sendMessage')
-            ->with($this->callback(function ($request) use (&$capturedRequest): bool {
+            ->method('request')
+            ->willReturnCallback(function (object $request): object {
                 if ($request instanceof QueryPublisherSequenceRequestV1) {
-                    $capturedRequest = $request;
+                    return QueryPublisherSequenceResponseV1::fromArray([
+                        'correlationId' => 1,
+                        'sequence' => 42,
+                    ]);
                 }
-                return true;
-            }));
-
-        $connection->expects($this->exactly(3))
-            ->method('readMessage')
-            ->willReturnOnConsecutiveCalls(
-                new \stdClass(), // For DeclarePublisher response
-                $mockResponse,   // For initializePublishingId QueryPublisherSequence response
-                $mockResponse    // For querySequence QueryPublisherSequence response
-            );
+                return new \stdClass();
+            });
 
         $producer = new Producer($connection, 'test-stream', 1, 'my-producer');
 
         $sequence = $producer->querySequence();
         $this->assertEquals(42, $sequence);
-        $this->assertNotNull($capturedRequest, 'QueryPublisherSequenceRequestV1 should have been sent');
     }
 
 
@@ -726,9 +711,9 @@ class ProducerTest extends TestCase
 
     public function testFailedSendDoesNotLeavePendingConfirmsBehind(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())
             ->method('sendMessage')
             ->willReturnCallback(function (object $request): void {
@@ -757,9 +742,9 @@ class ProducerTest extends TestCase
 
     public function testFailedBatchSendDoesNotLeavePendingConfirmsBehind(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())
             ->method('sendMessage')
             ->willReturnCallback(function (object $request): void {
@@ -783,9 +768,9 @@ class ProducerTest extends TestCase
 
     public function testSuccessfulSendStillCountsTowardsPendingConfirms(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())->method('sendMessage');
         // Publish v2 was negotiated, so sendWithFilter() may carry a filter value.
         $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
@@ -805,9 +790,9 @@ class ProducerTest extends TestCase
      */
     public function testSendWithFilterUsesV2WhenTheBrokerNegotiatedIt(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
 
         $captured = null;
@@ -827,9 +812,9 @@ class ProducerTest extends TestCase
 
     public function testSendWithFilterUsesV1WhenTheFilterValueIsNullEvenIfV2IsNegotiated(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
 
         $captured = null;
@@ -849,9 +834,9 @@ class ProducerTest extends TestCase
 
     public function testSendWithFilterUsesV1WhenTheBrokerDidNotNegotiateV2(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(false);
 
         $captured = null;
@@ -871,9 +856,9 @@ class ProducerTest extends TestCase
 
     public function testSendWithFilterRejectsANonNullFilterValueWhenV2IsNotNegotiated(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(false);
 
         $published = 0;
@@ -902,9 +887,9 @@ class ProducerTest extends TestCase
     public function testPlainSendStaysOnV1EvenWhenV2IsNegotiated(): void
     {
         // The protocol says to use v1 when there is no filter value.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->any())->method('supportsCommandVersion')->willReturn(true);
 
         $captured = null;
@@ -925,15 +910,15 @@ class ProducerTest extends TestCase
     public function testCloseIsIdempotentAndReleasesThePublisherIdOnce(): void
     {
         $deletes = 0;
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
         $connection->expects($this->any())
-            ->method('sendMessage')
-            ->willReturnCallback(function (object $request) use (&$deletes): void {
+            ->method('request')
+            ->willReturnCallback(function (object $request) use (&$deletes): object {
                 if ($request instanceof DeletePublisherRequestV1) {
                     $deletes++;
                 }
+                return new \stdClass();
             });
 
         $released = [];
@@ -975,6 +960,15 @@ class ProducerTest extends TestCase
         $this->assertSame([1], $released, 'A stale publisher skips DeletePublisher but still frees its id');
     }
 
+    /** @return StreamConnection&\PHPUnit\Framework\MockObject\MockObject */
+    private function createProducerStreamConnectionMock(): StreamConnection
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->method('request')->willReturn(new \stdClass());
+
+        return $connection;
+    }
+
     /**
      * Producer wired to a mock connection that captures the per-stream
      * MetadataUpdate handler and the publisher confirm/error callbacks.
@@ -983,7 +977,8 @@ class ProducerTest extends TestCase
      *     0: StreamConnection&\PHPUnit\Framework\MockObject\MockObject,
      *     1: CapturedClosures,
      *     2: CapturedClosures,
-     *     3: CapturedClosures
+     *     3: CapturedClosures,
+     *     4: CapturedClosures
      * }
      */
     private function connectionCapturingHandlers(): array
@@ -991,7 +986,8 @@ class ProducerTest extends TestCase
         $metadataHandlers = new CapturedClosures();
         $errorCallbacks = new CapturedClosures();
         $confirmCallbacks = new CapturedClosures();
-        $connection = $this->createMock(StreamConnection::class);
+        $connectionLostHandlers = new CapturedClosures();
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())
             ->method('registerMetadataUpdateHandler')
             ->willReturnCallback(function (string $stream, string $id, \Closure $h) use ($metadataHandlers): void {
@@ -1014,8 +1010,23 @@ class ProducerTest extends TestCase
                     $errorCallbacks->add($onError);
                 }
             );
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
-        return [$connection, $metadataHandlers, $errorCallbacks, $confirmCallbacks];
+        $connection->expects($this->any())
+            ->method('registerConnectionLostHandler')
+            ->willReturnCallback(function (int $id, \Closure $handler) use ($connectionLostHandlers): void {
+                $connectionLostHandlers->add($handler);
+            });
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request): object {
+                if ($request instanceof QueryPublisherSequenceRequestV1) {
+                    return \CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1::fromArray([
+                        'correlationId' => 1,
+                        'sequence' => 0,
+                    ]);
+                }
+                return new \stdClass();
+            });
+        return [$connection, $metadataHandlers, $errorCallbacks, $confirmCallbacks, $connectionLostHandlers];
     }
 
     public function testMetadataUpdateMarksProducerStaleAndNextSendRedeclares(): void
@@ -1023,10 +1034,19 @@ class ProducerTest extends TestCase
         [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
         /** @var CapturedObjects<object> $requests */
         $requests = new CapturedObjects();
+        $declareCalls = 0;
         $connection->expects($this->any())
             ->method('request')
-            ->willReturnCallback(function (object $request) use ($requests): object {
-                $requests->add($request);
+            ->willReturnCallback(function (object $request) use ($requests, &$declareCalls): object {
+                if ($request instanceof DeclarePublisherRequestV1 && ++$declareCalls > 1) {
+                    $requests->add($request);
+                }
+                if ($request instanceof QueryPublisherSequenceRequestV1) {
+                    return \CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1::fromArray([
+                        'correlationId' => 1,
+                        'sequence' => 0,
+                    ]);
+                }
                 return new \stdClass();
             });
         $published = 0;
@@ -1107,8 +1127,10 @@ class ProducerTest extends TestCase
         $attempts = 0;
         $connection->expects($this->any())
             ->method('request')
-            ->willReturnCallback(function () use (&$attempts): object {
-                $attempts++;
+            ->willReturnCallback(function (object $request) use (&$attempts): object {
+                if (!$request instanceof DeclarePublisherRequestV1 || $attempts++ === 0) {
+                    return new \stdClass();
+                }
                 throw new ProtocolException('nope', responseCode: ResponseCodeEnum::STREAM_NOT_EXIST);
             });
         $connection->expects($this->any())->method('sendMessage');
@@ -1135,11 +1157,15 @@ class ProducerTest extends TestCase
     {
         [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
         $attempts = 0;
+        $declarations = 0;
         $connection->expects($this->any())
             ->method('request')
-            ->willReturnCallback(function () use (&$attempts): object {
-                $attempts++;
-                throw new ProtocolException('denied', responseCode: ResponseCodeEnum::ACCESS_REFUSED);
+            ->willReturnCallback(function (object $request) use (&$attempts, &$declarations): object {
+                if ($request instanceof DeclarePublisherRequestV1 && ++$declarations > 1) {
+                    $attempts++;
+                    throw new ProtocolException('denied', responseCode: ResponseCodeEnum::ACCESS_REFUSED);
+                }
+                return new \stdClass();
             });
         $connection->expects($this->any())->method('sendMessage');
 
@@ -1188,7 +1214,7 @@ class ProducerTest extends TestCase
         // callback before the DeletePublisher exchange, so PublishConfirm
         // frames for in-flight messages were dropped and pendingConfirms was
         // stuck at 1 forever.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -1198,7 +1224,7 @@ class ProducerTest extends TestCase
                 $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
             });
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $readLoopCallCount = 0;
         $connection->expects($this->exactly(2))
@@ -1223,7 +1249,7 @@ class ProducerTest extends TestCase
 
     public function testCloseConfirmsArrivingDuringDeletePublisherExchangeAreNotDropped(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -1240,10 +1266,9 @@ class ProducerTest extends TestCase
             ->willReturnCallback(function (int $id) use (&$unregisterOrder): void {
                 $unregisterOrder[] = 'unregister';
             });
-        // A confirm arrives interleaved with the DeletePublisher response —
-        // readMessage()'s transparent server-push handling fires the callback.
+        // A confirm arrives interleaved with the correlated DeletePublisher response.
         $connection->expects($this->any())
-            ->method('readMessage')
+            ->method('request')
             ->willReturnCallback(function () use (&$registeredCallbacks, &$unregisterOrder): \stdClass {
                 $this->assertNotContains(
                     'unregister',
@@ -1268,10 +1293,10 @@ class ProducerTest extends TestCase
 
     public function testCloseUsesConfiguredConfirmDrainTimeout(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $capturedTimeout = null;
         $connection->expects($this->once())
             ->method('readLoop')
@@ -1297,7 +1322,7 @@ class ProducerTest extends TestCase
 
     public function testCloseConfirmDrainTimeoutMustNotBeNegative(): void
     {
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('closeConfirmDrainTimeout must be >= 0');
@@ -1311,7 +1336,7 @@ class ProducerTest extends TestCase
         // untested — a broker that stops confirming must not hang close()
         // forever. GitHub #522 added the observability that turns the silent
         // loss into a warning log plus a counter.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -1321,7 +1346,7 @@ class ProducerTest extends TestCase
                 $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
             });
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         // The broker never confirms: readLoop() simply times out each slot.
         $connection->expects($this->atLeastOnce())
             ->method('readLoop')
@@ -1354,11 +1379,11 @@ class ProducerTest extends TestCase
         // F1 review round 1: in fire-and-forget mode (maxPendingConfirms: 0)
         // the pending set is unbounded, so the warning must log the count plus
         // only a bounded prefix of the stranded ids.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->any())->method('registerMetadataUpdateHandler');
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
         $connection->expects($this->atLeastOnce())->method('readLoop')->willReturn(0);
 
         $logger = new RecordingLogger();
@@ -1392,7 +1417,7 @@ class ProducerTest extends TestCase
         // Regression guard for #521: a duplicate confirm used to decrement the
         // bare pendingConfirms counter, so waitForConfirms() returned after a
         // single confirm frame even though another publish was still unconfirmed.
-        $connection = $this->createMock(StreamConnection::class);
+        $connection = $this->createProducerStreamConnectionMock();
 
         /** @var array{onConfirm: callable, onError: callable}|null $registeredCallbacks */
         $registeredCallbacks = null;
@@ -1402,7 +1427,7 @@ class ProducerTest extends TestCase
                 $registeredCallbacks = ['onConfirm' => $onConfirm, 'onError' => $onError];
             });
         $connection->expects($this->any())->method('sendMessage');
-        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
 
         $readLoopCallCount = 0;
         $connection->expects($this->exactly(2))
@@ -1431,6 +1456,157 @@ class ProducerTest extends TestCase
             2,
             $readLoopCallCount,
             'waitForConfirms() must keep draining until the still-outstanding id 1 is confirmed'
+        );
+    }
+
+    public function testRealConnectionLossFailsInflightPublishesWhileWaitingForConfirms(): void
+    {
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $this->assertNotFalse($pair);
+        [$server, $client] = $pair;
+        stream_set_blocking($client, false);
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        (new \ReflectionProperty($connection, 'stream'))->setValue($connection, $client);
+        (new \ReflectionProperty($connection, 'connected'))->setValue($connection, true);
+
+        // DeclarePublisher response read synchronously by the Producer constructor.
+        fwrite($server, pack('N', 10) . pack('nnNn', 0x8001, 1, 1, 0x0001));
+
+        /** @var list<ConfirmationStatus> $statuses */
+        $statuses = [];
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: static function (ConfirmationStatus $status) use (&$statuses): void {
+                $statuses[] = $status;
+            },
+            logger: $logger,
+        );
+        $producer->send('a');
+        $producer->send('b');
+        $producer->send('c');
+
+        // Confirm publishing id 0, then close the peer before ids 1 and 2 resolve.
+        fwrite($server, pack('N', 17) . pack('nnCNJ', 0x0003, 1, 1, 1, 0));
+        fclose($server);
+
+        try {
+            $producer->waitForConfirms(2.0);
+            $this->fail('waitForConfirms() must surface the lost connection');
+        } catch (ConnectionException) {
+            // Expected after the pending ids have been reported by the loss hook.
+        }
+
+        $confirmed = [];
+        $failed = [];
+        foreach ($statuses as $status) {
+            if ($status->isConfirmed()) {
+                $confirmed[] = $status->getPublishingId();
+            } else {
+                $failed[] = $status->getPublishingId();
+                $this->assertSame(Producer::CONNECTION_LOST_ERROR_CODE, $status->getErrorCode());
+            }
+        }
+        sort($failed);
+
+        $this->assertSame([0], $confirmed);
+        $this->assertSame([1, 2], $failed);
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(2, $producer->getLostConfirmCount());
+        $this->assertCount(1, $logger->warningMessages());
+
+        try {
+            $producer->close();
+        } catch (ConnectionException) {
+            // DeletePublisher cannot be sent after the peer has closed.
+        }
+
+        $this->assertCount(3, $statuses, 'Closing after loss must not report ids twice');
+    }
+
+    public function testConnectionCloseNotifiesProducersAndRemovesOnlyTheirPendingIds(): void
+    {
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $this->assertNotFalse($pair);
+        [$server, $client] = $pair;
+        stream_set_blocking($client, false);
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        (new \ReflectionProperty($connection, 'stream'))->setValue($connection, $client);
+        (new \ReflectionProperty($connection, 'connected'))->setValue($connection, true);
+        fwrite($server, pack('N', 10) . pack('nnNn', 0x8001, 1, 1, 0x0001));
+
+        /** @var list<ConfirmationStatus> $statuses */
+        $statuses = [];
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: static function (ConfirmationStatus $status) use (&$statuses): void {
+                $statuses[] = $status;
+            },
+        );
+        $producer->send('unconfirmed');
+        $connection->close();
+
+        $this->assertFalse($connection->isConnected());
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(1, $producer->getLostConfirmCount());
+        $this->assertCount(1, $statuses);
+        $this->assertFalse($statuses[0]->isConfirmed());
+        $this->assertSame(0, $statuses[0]->getPublishingId());
+
+        fclose($server);
+        try {
+            $producer->close();
+        } catch (ConnectionException) {
+            // The connection has already been closed explicitly above.
+        }
+    }
+
+    public function testConnectionLossReportsOnlyStillOutstandingIdsAndLogsBoundedSet(): void
+    {
+        [$connection, , , $confirmCallbacks, $connectionLostHandlers] = $this->connectionCapturingHandlers();
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var CapturedObjects<ConfirmationStatus> $statuses */
+        $statuses = new CapturedObjects();
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use ($statuses): void {
+                $statuses->add($status);
+            },
+            logger: $logger,
+        );
+
+        for ($i = 0; $i < StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 2; $i++) {
+            $producer->send('message-' . $i);
+        }
+        $confirmCallbacks->at()([0]);
+        $connectionLostHandlers->at()('peer closed connection');
+
+        $this->assertSame(0, $producer->getPendingConfirms());
+        $this->assertSame(StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 1, $producer->getLostConfirmCount());
+        $this->assertCount(StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 2, $statuses->all());
+        $this->assertTrue($statuses->at(0)->isConfirmed());
+        $this->assertFalse($statuses->at(1)->isConfirmed());
+        $this->assertSame(Producer::CONNECTION_LOST_ERROR_CODE, $statuses->at(1)->getErrorCode());
+        $this->assertSame(1, $statuses->at(1)->getPublishingId());
+        $this->assertSame(StreamConnection::MAX_LOGGED_PUBLISHING_IDS + 1, $statuses->at(11)->getPublishingId());
+        $this->assertSame(1, count($logger->warningMessages()));
+        $warningContexts = $logger->warningContexts();
+        $this->assertCount(1, $warningContexts);
+        $this->assertArrayHasKey('publishingIds', $warningContexts[0]);
+        $this->assertIsArray($warningContexts[0]['publishingIds']);
+        $this->assertCount(
+            StreamConnection::MAX_LOGGED_PUBLISHING_IDS,
+            $warningContexts[0]['publishingIds']
         );
     }
 

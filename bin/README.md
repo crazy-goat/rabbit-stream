@@ -10,7 +10,7 @@ does not version `.git/hooks/`, so this keeps hooks alongside the code that
 depends on them. Re-run after a fresh clone or when a hook is added/renamed.
 
 ```bash
-bash bin/install-hooks.sh     # or: php bin/install-hooks.sh
+bash bin/install-hooks.sh
 ```
 
 If a hook already exists in `.git/hooks/` as a real (non-symlink) file, it is

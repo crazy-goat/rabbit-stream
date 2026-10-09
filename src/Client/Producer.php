@@ -38,10 +38,12 @@ use Psr\Log\NullLogger;
  * is being recreated) before publishing. A PublishError with
  * PUBLISHER_NOT_EXIST or STREAM_NOT_AVAILABLE is treated the same way.
  *
- * Messages that were in flight when the stream went away are never confirmed
- * by the broker; they are reported to the onConfirm callback as failed
- * (ConfirmationStatus with the MetadataUpdate response code) so the
- * application can decide whether to resend them. A named producer re-reads
+ * Messages that were in flight when the stream or connection goes away are
+ * never confirmed by the broker; they are reported to the onConfirm callback
+ * as failed so the application can decide whether to resend them. A connection
+ * loss uses CONNECTION_LOST_ERROR_CODE (a client-side code outside the broker's
+ * 16-bit response-code range); a stream MetadataUpdate uses its response code.
+ * A named producer re-reads
  * its publishing sequence from the broker on re-declare, so ids never collide.
  *
  * Note: this handles the single-node / delete-and-recreate case. In a cluster,
@@ -52,6 +54,8 @@ use Psr\Log\NullLogger;
 class Producer implements ProducerInterface
 {
     public const DEFAULT_MAX_PENDING_CONFIRMS = 10000;
+    /** Client-side failure code assigned when connection loss makes a publish outcome unknown. */
+    public const CONNECTION_LOST_ERROR_CODE = 0x10000;
     public const DEFAULT_REDECLARE_TIMEOUT = 5.0;
     public const DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT = 2.0;
     private const DEFAULT_BACKPRESSURE_TIMEOUT = 30.0;
@@ -75,10 +79,10 @@ class Producer implements ProducerInterface
     private bool $closed = false;
 
     /**
-     * Cumulative number of unconfirmed publishes abandoned by a bounded
-     * close() drain timeout. Those confirms can never arrive (the publisher id
-     * is released), so they are reported here and at warning level instead of
-     * disappearing silently (GitHub #522).
+     * Cumulative number of unconfirmed publishes reported lost after a
+     * connection loss, a broker-side publisher loss, or a bounded close() drain
+     * timeout. Those confirms can no longer be observed by this producer, so
+     * the ids are failed through onConfirm and logged instead of disappearing.
      */
     private int $lostConfirmCount = 0;
 
@@ -163,8 +167,39 @@ class Producer implements ProducerInterface
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;
         $this->logger = $logger ?? new NullLogger();
-        $this->declare();
-        $this->initializePublishingId();
+        $declared = false;
+        try {
+            $this->declare();
+            $declared = true;
+            $this->initializePublishingId();
+        } catch (\Throwable $e) {
+            try {
+                $this->connection->unregisterPublisher($this->publisherId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the construction failure.
+            }
+            try {
+                $this->connection->unregisterConnectionLostHandler($this->publisherId);
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the construction failure.
+            }
+            try {
+                $this->connection->unregisterMetadataUpdateHandler(
+                    $this->stream,
+                    "publisher-{$this->publisherId}"
+                );
+            } catch (\Throwable) {
+                // Cleanup is best effort; preserve the construction failure.
+            }
+            if ($declared) {
+                try {
+                    $this->connection->request(new DeletePublisherRequestV1($this->publisherId));
+                } catch (\Throwable) {
+                    // The broker-side declaration may remain if it cannot be deleted.
+                }
+            }
+            throw $e;
+        }
     }
 
     /**
@@ -194,19 +229,52 @@ class Producer implements ProducerInterface
     {
         $this->stale = true;
         $this->staleCode = $code;
-        // The broker forgot the publisher together with its unconfirmed
-        // messages: they will never be confirmed. Report exactly the ids that
-        // are still outstanding as failed so the application can resend, and
-        // stop counting them against back-pressure. Reporting the raw set (not
-        // a synthesised publishingId-lost..publishingId-1 range) means ids that
-        // were already confirmed are never double-reported (GitHub #521).
+        // Reporting only outstanding ids avoids replaying confirms already handled.
+        $this->failAllPending($code, 'the broker forgot the publisher');
+    }
+
+    /**
+     * Report and account for every publish whose outcome is now unknowable.
+     * Clearing the set before callbacks prevents re-entrant notifications from
+     * reporting an id twice.
+     */
+    private function failAllPending(int $code, string $reason): void
+    {
         $lost = array_keys($this->pendingConfirms);
+        $lostCount = count($lost);
+        if ($lostCount === 0) {
+            return;
+        }
+
         $this->pendingConfirms = [];
+        $this->lostConfirmCount += $lostCount;
         if ($this->onConfirm instanceof \Closure) {
             foreach ($lost as $id) {
                 ($this->onConfirm)(new ConfirmationStatus(false, errorCode: $code, publishingId: $id));
             }
         }
+
+        $message = sprintf(
+            'Producer %d on stream "%s" lost %d unconfirmed publish(es): %s',
+            $this->publisherId,
+            $this->stream,
+            $lostCount,
+            $reason
+        );
+        if ($lostCount > StreamConnection::MAX_LOGGED_PUBLISHING_IDS) {
+            $message .= sprintf(
+                ' (%d publishing ids in total; only the first %d are logged)',
+                $lostCount,
+                StreamConnection::MAX_LOGGED_PUBLISHING_IDS
+            );
+        }
+        $this->logger->warning($message, [
+            'publisherId' => $this->publisherId,
+            'stream' => $this->stream,
+            'reason' => $reason,
+            'lostCount' => $lostCount,
+            'publishingIds' => array_slice($lost, 0, StreamConnection::MAX_LOGGED_PUBLISHING_IDS),
+        ]);
     }
 
     /**
@@ -334,13 +402,18 @@ class Producer implements ProducerInterface
                 $this->markStale($update->getCode());
             }
         );
+        $this->connection->registerConnectionLostHandler(
+            $this->publisherId,
+            function (string $reason): void {
+                $this->failAllPending(self::CONNECTION_LOST_ERROR_CODE, $reason);
+            }
+        );
 
-        $this->connection->sendMessage(new DeclarePublisherRequestV1(
+        $this->connection->request(new DeclarePublisherRequestV1(
             $this->publisherId,
             $this->name,
             $this->stream
         ));
-        $this->connection->readMessage();
     }
 
     /**
@@ -541,8 +614,9 @@ class Producer implements ProducerInterface
      * Idempotent: a second call is a no-op, so the publisher id cannot be
      * handed back twice (and then to two live producers at once). The confirm
      * callback stays registered through the DeletePublisher exchange and any
-     * still-in-flight confirms are drained (bounded) before the id is released;
-     * anything not drained in time is counted by getLostConfirmCount().
+     * still-in-flight confirms are drained (bounded) before the id is released.
+     * If the connection is lost, remaining IDs are immediately reported as failed
+     * and counted by getLostConfirmCount().
      *
      * @throws ConnectionException If the socket is not connected or the
      *                          DeletePublisher write or read fails.
@@ -564,17 +638,17 @@ class Producer implements ProducerInterface
             if (!$this->stale) {
                 // A stale publisher is already gone on the broker;
                 // DeletePublisher would only earn a PUBLISHER_NOT_EXIST error.
-                $this->connection->sendMessage(new DeletePublisherRequestV1($this->publisherId));
                 // The confirm callback must stay registered until the
                 // DeletePublisher response has been read: PublishConfirm /
                 // PublishError frames for messages still in flight may arrive
                 // on the socket while we wait, and dropping them would leave
                 // pendingConfirms raised forever (GitHub #474).
-                $this->connection->readMessage();
+                $this->connection->request(new DeletePublisherRequestV1($this->publisherId));
                 $this->drainPendingConfirms();
             }
         } finally {
             $this->connection->unregisterPublisher($this->publisherId);
+            $this->connection->unregisterConnectionLostHandler($this->publisherId);
             $this->connection->unregisterMetadataUpdateHandler($this->stream, "publisher-{$this->publisherId}");
             // The id goes back to the pool even when DeletePublisher fails —
             // this producer will never use it again either way (#388).
@@ -596,16 +670,17 @@ class Producer implements ProducerInterface
      */
     private function drainPendingConfirms(): void
     {
-        // Bounded drain: leftover confirms after the timeout are lost. Do not
-        // let them vanish silently — the caller is closing the producer and
-        // will never see an onConfirm for them, so count them and log the
-        // count plus a bounded prefix of the affected publishing ids (GitHub
-        // #522). The full id list can be unbounded in fire-and-forget mode
-        // (maxPendingConfirms: 0), so it must never reach the logger verbatim.
+        // Bounded drain: leftover confirms after the timeout are reported
+        // through the same path as other unknowable publishes. The pending ID
+        // set can be unbounded in fire-and-forget mode, so failAllPending logs
+        // only a bounded prefix.
         if ($this->drainUntilZero($this->closeConfirmDrainTimeout)) {
             return;
         }
 
+        // A local drain deadline is not proof that the connection is gone:
+        // preserve the historical pending-ID view while recording that close()
+        // can no longer observe their confirms.
         $lost = array_keys($this->pendingConfirms);
         $lostCount = count($lost);
         $this->lostConfirmCount += $lostCount;
@@ -624,15 +699,13 @@ class Producer implements ProducerInterface
                 StreamConnection::MAX_LOGGED_PUBLISHING_IDS
             );
         }
-        $this->logger->warning(
-            $message,
-            [
-                'publisherId' => $this->publisherId,
-                'stream' => $this->stream,
-                'lostCount' => $lostCount,
-                'publishingIds' => array_slice($lost, 0, StreamConnection::MAX_LOGGED_PUBLISHING_IDS),
-            ]
-        );
+        $this->logger->warning($message, [
+            'publisherId' => $this->publisherId,
+            'stream' => $this->stream,
+            'reason' => 'close confirm drain timeout',
+            'lostCount' => $lostCount,
+            'publishingIds' => array_slice($lost, 0, StreamConnection::MAX_LOGGED_PUBLISHING_IDS),
+        ]);
     }
 
     /**
@@ -647,7 +720,14 @@ class Producer implements ProducerInterface
             if ($remaining <= 0) {
                 return false;
             }
-            $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
+            try {
+                $this->connection->readLoop(maxFrames: 1, timeout: $remaining);
+            } catch (ConnectionException $e) {
+                if (!$this->connection->isConnected()) {
+                    $this->failAllPending(self::CONNECTION_LOST_ERROR_CODE, $e->getMessage());
+                }
+                throw $e;
+            }
         }
 
         return true;
@@ -687,10 +767,17 @@ class Producer implements ProducerInterface
             return;
         }
 
-        if (!$this->drainUntilZero($timeout)) {
-            throw new TimeoutException(
-                'Timed out waiting for ' . count($this->pendingConfirms) . ' publish confirms'
-            );
+        try {
+            if (!$this->drainUntilZero($timeout)) {
+                throw new TimeoutException(
+                    'Timed out waiting for ' . count($this->pendingConfirms) . ' publish confirms'
+                );
+            }
+        } catch (ConnectionException $e) {
+            if (!$this->connection->isConnected()) {
+                $this->failAllPending(self::CONNECTION_LOST_ERROR_CODE, $e->getMessage());
+            }
+            throw $e;
         }
     }
 
@@ -716,9 +803,9 @@ class Producer implements ProducerInterface
      *
      * Grows on each successful send/sendBatch/sendWithFilter and shrinks as
      * PublishConfirm/PublishError frames are dispatched (via waitForConfirms(),
-     * readLoop(), the maxPendingConfirms back-pressure drain or close()). After
-     * close(), ids stranded by the bounded drain are still counted here (see
-     * getLostConfirmCount()).
+     * readLoop(), the maxPendingConfirms back-pressure drain or close()). On
+     * connection loss, any remaining ids are reported failed and removed from
+     * this count; see getLostConfirmCount() for cumulative loss accounting.
      *
      * @return int Current number of outstanding (unconfirmed) publishes.
      */
@@ -728,19 +815,18 @@ class Producer implements ProducerInterface
     }
 
     /**
-     * Cumulative number of publishes whose confirms were abandoned by a
-     * bounded close() drain timeout (GitHub #522).
+     * Cumulative number of publishes whose outcomes became unknowable to this producer.
      *
-     * close() waits up to CLOSE_CONFIRM_DRAIN_TIMEOUT for in-flight
-     * PublishConfirm/PublishError frames; anything still outstanding when that
-     * expires can never be confirmed because the publisher id is released.
-     * Each such publish is logged at warning level and counted here, so an
-     * operator can tell "the broker stopped confirming" from "everything
-     * drained". The set of stranded ids is also still reported by
-     * getPendingConfirms() after close().
+     * Includes ids failed because the connection was lost (also when another
+     * object detected that loss), the broker forgot the publisher, or the
+     * bounded close() confirm drain expired. In each case the count increases
+     * only for ids still outstanding; completed confirms/errors are excluded.
+     * Connection-loss and broker-side publisher-loss IDs are reported through
+     * onConfirm and removed from getPendingConfirms(); IDs left after a local
+     * close drain timeout remain visible in getPendingConfirms() for compatibility.
      *
-     * @return int Cumulative number of publishes whose confirms were lost to a
-     *             close() drain timeout (0 in normal operation).
+     * @return int Cumulative number of publishes reported lost (0 in normal
+     *             operation).
      */
     public function getLostConfirmCount(): int
     {
@@ -775,10 +861,9 @@ class Producer implements ProducerInterface
         if ($this->name === null || $this->name === '') {
             throw new InvalidArgumentException('Cannot query sequence for unnamed producer');
         }
-        $this->connection->sendMessage(
+        $response = $this->connection->request(
             new QueryPublisherSequenceRequestV1($this->name, $this->stream)
         );
-        $response = $this->connection->readMessage();
         if (!$response instanceof QueryPublisherSequenceResponseV1) {
             throw UnexpectedResponseException::create(QueryPublisherSequenceResponseV1::class, $response);
         }

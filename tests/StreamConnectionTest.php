@@ -22,6 +22,7 @@ use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\TuneRequestV1;
 use CrazyGoat\RabbitStream\Response\ConsumerUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
+use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
@@ -821,8 +822,15 @@ class StreamConnectionTest extends TestCase
         $this->assertInstanceOf(CreateResponseV1::class, $response);
         $this->assertSame(1, $response->getCorrelationId());
 
-        // The parked correlation-2 response is handed to the next plain readMessage().
-        $parked = $connection->readMessage(1.0);
+        // A readMessage() caller cannot consume a response parked for correlation 2.
+        try {
+            $connection->readMessage(0.05);
+            $this->fail('Expected readMessage() to ignore the parked correlated response.');
+        } catch (TimeoutException) {
+            // Expected: only request() may consume the parked response.
+        }
+
+        $parked = $connection->request(new CreateRequestV1('b'), 1.0);
         $this->assertInstanceOf(CreateResponseV1::class, $parked);
         $this->assertSame(2, $parked->getCorrelationId());
 
@@ -846,6 +854,100 @@ class StreamConnectionTest extends TestCase
         $response = $connection->request(new CreateRequestV1('a'), 1.0);
         $this->assertInstanceOf(CreateResponseV1::class, $response);
         $this->assertSame(1, $response->getCorrelationId());
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadMessageDispatchesCreditErrorBeforeReturningCorrelatedReply(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+        $received = null;
+        $connection->registerCreditErrorHandler(3, function (CreditResponseV1 $response) use (&$received): void {
+            $received = $response;
+        });
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $connection->sendMessage(new CreateRequestV1('a'));
+        $response = $connection->readMessage(1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertInstanceOf(CreditResponseV1::class, $received);
+        $this->assertSame(3, $received->getSubscriptionId());
+        $this->assertSame(0x04, $received->getResponseCode());
+        $this->assertSame('Credit request rejected by server', $logger->warningMessages()[0]);
+        $this->assertSame(3, $logger->warningContexts()[0]['subscriptionId']);
+        $this->assertSame('0x0004', $logger->warningContexts()[0]['responseCode']);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testRequestDispatchesCreditErrorBeforeReturningCorrelatedReply(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $received = null;
+        $connection->registerCreditErrorHandler(3, function (CreditResponseV1 $response) use (&$received): void {
+            $received = $response;
+        });
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 3)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('a'), 1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $response);
+        $this->assertInstanceOf(CreditResponseV1::class, $received);
+        $this->assertSame(3, $received->getSubscriptionId());
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadLoopDispatchesCreditErrorToRegisteredSubscription(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+        $received = null;
+        $connection->registerCreditErrorHandler(7, function (CreditResponseV1 $response) use (&$received): void {
+            $received = $response;
+        });
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 7)));
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 1.0));
+
+        $this->assertInstanceOf(CreditResponseV1::class, $received);
+        $this->assertNotContains(
+            'readLoop() received unexpected non-server-push frame, discarding',
+            $logger->warningMessages()
+        );
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadLoopLogsCreditErrorWithoutRegisteredSubscription(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 7)));
+        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+
+        $this->assertSame('Credit request rejected for unregistered subscription', $logger->warningMessages()[0]);
+        $this->assertSame(7, $logger->warningContexts()[0]['subscriptionId']);
+        $this->assertSame('0x0004', $logger->warningContexts()[0]['responseCode']);
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -965,6 +1067,139 @@ class StreamConnectionTest extends TestCase
             $logger->warningMessages(),
             'a confirm for a registered publisher must not warn (#522 regression guard)'
         );
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testNestedReadLoopDoesNotEndOuterReadLoop(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $receivedIds = [];
+        $nested = false;
+        $connection->registerPublisher(
+            1,
+            function (array $ids) use (&$receivedIds, &$nested, $connection): void {
+                $receivedIds[] = $ids[0];
+                if (!$nested) {
+                    $nested = true;
+                    $connection->readLoop(maxFrames: 1, timeout: 1.0);
+                }
+            },
+            function (): void {
+            }
+        );
+
+        foreach ([1, 2, 3] as $publishingId) {
+            fwrite(
+                $serverSocket,
+                $this->buildFrame(
+                    KeyEnum::PUBLISH_CONFIRM->value,
+                    1,
+                    pack('C', 1) . pack('N', 1) . pack('J', $publishingId)
+                )
+            );
+        }
+
+        $connection->readLoop(timeout: 2.0);
+
+        self::assertSame([1, 2, 3], $receivedIds);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testStopInsideNestedReadLoopStopsOuterReadLoop(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $receivedIds = [];
+        $nested = false;
+        $connection->registerPublisher(
+            1,
+            function (array $ids) use (&$receivedIds, &$nested, $connection): void {
+                $receivedIds[] = $ids[0];
+                if (!$nested) {
+                    $nested = true;
+                    $connection->readLoop(maxFrames: 1, timeout: 1.0);
+                    return;
+                }
+
+                $connection->stop();
+            },
+            function (): void {
+            }
+        );
+
+        foreach ([1, 2, 3] as $publishingId) {
+            fwrite(
+                $serverSocket,
+                $this->buildFrame(
+                    KeyEnum::PUBLISH_CONFIRM->value,
+                    1,
+                    pack('C', 1) . pack('N', 1) . pack('J', $publishingId)
+                )
+            );
+        }
+
+        $connection->readLoop(timeout: 2.0);
+
+        self::assertSame([1, 2], $receivedIds);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testNestedReadLoopRestoresRunningStateWhenCallbackThrows(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $nestedException = null;
+        $runningAfterNestedException = null;
+        $connection->registerPublisher(
+            1,
+            function (array $ids) use ($connection, &$nestedException, &$runningAfterNestedException): void {
+                if ($ids[0] === 1) {
+                    try {
+                        $connection->readLoop(maxFrames: 1, timeout: 1.0);
+                    } catch (RuntimeException $exception) {
+                        $nestedException = $exception;
+                        $runningAfterNestedException = (new \ReflectionProperty($connection, 'running'))
+                            ->getValue($connection);
+                        $connection->stop();
+                    }
+
+                    return;
+                }
+
+                throw new RuntimeException('confirm callback failed');
+            },
+            function (): void {
+            }
+        );
+
+        foreach ([1, 2] as $publishingId) {
+            fwrite(
+                $serverSocket,
+                $this->buildFrame(
+                    KeyEnum::PUBLISH_CONFIRM->value,
+                    1,
+                    pack('C', 1) . pack('N', 1) . pack('J', $publishingId)
+                )
+            );
+        }
+
+        $connection->readLoop(timeout: 2.0);
+
+        self::assertInstanceOf(RuntimeException::class, $nestedException);
+        self::assertTrue($runningAfterNestedException);
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -2887,33 +3122,22 @@ class StreamConnectionTest extends TestCase
         $connection = new StreamConnection('127.0.0.1', 5552, $logger);
         $this->injectSocket($connection, $clientSocket);
 
-        // TuneRequestV1 is not SASL_AUTHENTICATE, so we expect normal hex logging.
+        // TuneRequestV1 is not SASL_AUTHENTICATE, so metadata is logged normally.
         $connection->sendMessage(new TuneRequestV1(1024, 100));
 
         $debugMessages = $logger->debugMessages();
         $this->assertCount(1, $debugMessages);
-        $this->assertStringStartsWith('Socket -> ', $debugMessages[0]);
-        // Must contain hex digits (bin2hex output), not a redaction marker.
-        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
-        $this->assertMatchesRegularExpression('/^Socket -> [0-9a-f]+$/', $debugMessages[0]);
+        $this->assertSame('Socket -> TUNE v1, 16 bytes', $debugMessages[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);
     }
 
     /**
-     * Synthetic test: drive debugFrame()'s key-match branch through the
-     * readFrame() entry point using a frame whose command key is the
-     * SASL_AUTHENTICATE REQUEST key (0x0013).
-     *
-     * This is NOT a real wire scenario — a server never sends 0x0013 on the
-     * read path; the SASL_AUTHENTICATE *response* uses 0x8013
-     * (KeyEnum::SASL_AUTHENTICATE_RESPONSE), which debugFrame() does NOT
-     * redact (and does not need to: the response carries no client
-     * credentials — the leak is solely in the request, see
-     * testSaslAuthenticateFrameIsRedactedWhenDebugLoggingEnabled). This test
-     * only exercises the redaction branch of debugFrame() via readFrame() to
-     * confirm the helper behaves identically on both entry points.
+     * Synthetic test: drive debugFrame()'s redaction branch through readFrame()
+     * with the SASL_AUTHENTICATE request key. The server never sends this request
+     * key on the read path; this only proves that debugFrame() redacts it on both
+     * entry points.
      */
     public function testDebugFrameRedactsFrameWithSaslAuthenticateRequestKeyOnReadPath(): void
     {
@@ -2953,11 +3177,9 @@ class StreamConnectionTest extends TestCase
 
     /**
      * A real SASL_AUTHENTICATE *response* (key 0x8013) carries no client
-     * credentials, so debugFrame() must log it as normal hex. This documents
-     * the intended behaviour and guards against someone over-redacting on the
-     * read path.
+     * credentials, so it is logged as metadata without a redaction marker.
      */
-    public function testSaslAuthenticateResponseReadFrameIsLoggedAsNormalHex(): void
+    public function testSaslAuthenticateResponseReadFrameLogsMetadata(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
@@ -2974,15 +3196,13 @@ class StreamConnectionTest extends TestCase
 
         $debugMessages = $logger->debugMessages();
         $this->assertCount(1, $debugMessages);
-        $this->assertStringStartsWith('Socket <-', $debugMessages[0]);
-        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
-        $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
+        $this->assertSame('Socket <- SASL_AUTHENTICATE_RESPONSE v1, 14 bytes', $debugMessages[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);
     }
 
-    public function testNonSaslReadFrameProducesNormalHexDebugLineWhenDebugLoggingEnabled(): void
+    public function testNonSaslReadFrameLogsMetadataWhenDebugLoggingEnabled(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
@@ -2997,14 +3217,60 @@ class StreamConnectionTest extends TestCase
 
         $debugMessages = $logger->debugMessages();
         $this->assertCount(1, $debugMessages);
-        $this->assertStringStartsWith('Socket <-', $debugMessages[0]);
-        $this->assertStringNotContainsString('redacted', $debugMessages[0]);
-        $this->assertMatchesRegularExpression('/^Socket <-[0-9a-f]+$/', $debugMessages[0]);
+        $this->assertSame('Socket <- TUNE v1, 14 bytes', $debugMessages[0]);
 
         fclose($serverSocket);
         fclose($clientSocket);
     }
 
+
+    public function testLargePublishFrameLogsOnlyBoundedMetadata(): void
+    {
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $sink = tmpfile();
+        self::assertIsResource($sink);
+        $this->injectSocket($connection, $sink);
+        (new \ReflectionProperty($connection, 'preOpenMaxFrameSize'))->setValue($connection, 0);
+
+        $secret = 'CARD-4111111111111111-';
+        $payload = $secret . str_repeat('A', 4 * 1024 * 1024 - strlen($secret));
+        $connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(1, $payload)));
+
+        $debugMessages = $logger->debugMessages();
+        self::assertCount(1, $debugMessages);
+        self::assertLessThanOrEqual(4096, strlen($debugMessages[0]));
+        self::assertStringContainsString('PUBLISH v1', $debugMessages[0]);
+        self::assertStringNotContainsString(bin2hex($secret), $debugMessages[0]);
+
+        fclose($sink);
+    }
+
+    public function testLargeDeliverFrameLogsOnlyBoundedMetadata(): void
+    {
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $secret = 'PII-jane.doe@example.com-';
+        $body = $secret . str_repeat('B', 4 * 1024 * 1024 - strlen($secret));
+        $content = pack('nn', KeyEnum::DELIVER->value, 1) . pack('C', 1) . $body;
+        $frame = pack('N', strlen($content)) . $content;
+
+        $source = tmpfile();
+        self::assertIsResource($source);
+        fwrite($source, $frame);
+        rewind($source);
+        $this->injectSocket($connection, $source);
+
+        $connection->readFrame();
+
+        $debugMessages = $logger->debugMessages();
+        self::assertCount(1, $debugMessages);
+        self::assertLessThanOrEqual(4096, strlen($debugMessages[0]));
+        self::assertStringContainsString('DELIVER v1', $debugMessages[0]);
+        self::assertStringNotContainsString(bin2hex($secret), $debugMessages[0]);
+
+        fclose($source);
+    }
 
     public function testDispatchMetadataUpdateInvokesPerStreamHandlersThenGlobalCallback(): void
     {
@@ -3060,6 +3326,99 @@ class StreamConnectionTest extends TestCase
 
         fclose($serverSocket);
         fclose($clientSocket);
+    }
+
+    public function testHeartbeatIntervalIsStoredAndZeroDisablesIt(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        self::assertSame(0, $connection->getHeartbeatInterval());
+
+        $connection->setHeartbeatInterval(5);
+        self::assertSame(5, $connection->getHeartbeatInterval());
+
+        $connection->setHeartbeatInterval(0);
+        self::assertSame(0, $connection->getHeartbeatInterval());
+    }
+
+    public function testReadLoopSendsCorrelationFreeHeartbeatAndClosesSilentConnection(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+
+        $start = microtime(true);
+        try {
+            $connection->readLoop(timeout: 4.0);
+            self::fail('Expected ConnectionException after missed heartbeats');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('missing inbound frames', $exception->getMessage());
+        }
+
+        $elapsed = microtime(true) - $start;
+        self::assertLessThan(3.5, $elapsed);
+        self::assertFalse($connection->isConnected());
+
+        stream_set_blocking($serverSocket, false);
+        $frame = stream_get_contents($serverSocket);
+        self::assertIsString($frame);
+        self::assertGreaterThanOrEqual(8, strlen($frame));
+        $size = unpack('N', substr($frame, 0, 4));
+        $key = unpack('n', substr($frame, 4, 2));
+        $version = unpack('n', substr($frame, 6, 2));
+        self::assertIsArray($size);
+        self::assertIsArray($key);
+        self::assertIsArray($version);
+        self::assertSame(4, $size[1]);
+        self::assertSame(KeyEnum::HEARTBEAT->value, $key[1]);
+        self::assertSame(1, $version[1]);
+
+        fclose($serverSocket);
+    }
+
+    public function testZeroHeartbeatIntervalKeepsIdleConnectionOpenWithoutSendingFrames(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(0);
+
+        self::assertSame(0, $connection->readLoop(timeout: 0.1));
+        self::assertTrue($connection->isConnected());
+
+        stream_set_blocking($serverSocket, false);
+        self::assertSame('', stream_get_contents($serverSocket));
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadMessageSendsHeartbeatAndDetectsSilentPeer(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+
+        $start = microtime(true);
+        try {
+            $connection->readMessage(3.5);
+            self::fail('Expected ConnectionException after missed heartbeats');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('missing inbound frames', $exception->getMessage());
+        }
+        self::assertLessThan(3.0, microtime(true) - $start);
+        self::assertFalse($connection->isConnected());
+
+        stream_set_blocking($serverSocket, false);
+        $frame = stream_get_contents($serverSocket);
+        self::assertIsString($frame);
+        self::assertGreaterThanOrEqual(8, strlen($frame));
+        $key = unpack('n', substr($frame, 4, 2));
+        self::assertIsArray($key);
+        self::assertSame(KeyEnum::HEARTBEAT->value, $key[1]);
+
+        fclose($serverSocket);
     }
 
     // ---------------------------------------------------------------------
@@ -3153,6 +3512,70 @@ class StreamConnectionTest extends TestCase
         // The stale frame was discarded, not parked for a later readMessage().
         $this->expectException(TimeoutException::class);
         $connection->readMessage(0.05);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testLateErrorReplyForAnAbandonedCorrelationIdIsDiscarded(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+
+        try {
+            $connection->request(new CreateRequestV1('a'), 0.05);
+            self::fail('Expected TimeoutException');
+        } catch (TimeoutException) {
+            // Expected: the id is then marked abandoned by the client layer.
+        }
+        $connection->abandonCorrelation(1);
+
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 0x0005)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $response = $connection->request(new CreateRequestV1('b'), 1.0);
+
+        self::assertInstanceOf(CreateResponseV1::class, $response);
+        self::assertSame(2, $response->getCorrelationId());
+        self::assertCount(1, $logger->warningContexts());
+        self::assertSame(1, $logger->warningContexts()[0]['correlationId']);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testNestedRequestParksOuterErrorUntilItsRequestOwnerReadsIt(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // The ConsumerUpdate handler issues correlation 2 while the outer
+        // request (correlation 1) is waiting. Its error arrives first.
+        fwrite($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 0x0005)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $nested = null;
+        $connection->registerConsumerUpdateHandler(
+            1,
+            function () use ($connection, &$nested): OffsetSpec {
+                $nested = $connection->request(new CreateRequestV1('nested'), 1.0);
+                return OffsetSpec::offset(42);
+            }
+        );
+
+        try {
+            $connection->request(new CreateRequestV1('outer'), 1.0);
+            self::fail('Expected the outer request to receive its protocol error');
+        } catch (ProtocolException $exception) {
+            self::assertSame(0x0005, $exception->getResponseCode()?->value);
+        }
+
+        self::assertInstanceOf(CreateResponseV1::class, $nested);
+        self::assertSame(2, $nested->getCorrelationId());
 
         fclose($serverSocket);
         fclose($clientSocket);

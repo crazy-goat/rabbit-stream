@@ -108,6 +108,14 @@ class ReadBufferTest extends TestCase
         }
     }
 
+    public function testGetStringArrayWithMaximumCountThrowsDeserializationException(): void
+    {
+        $buf = new ReadBuffer(pack('N', 0xFFFFFFFF));
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Invalid string array count 4294967295');
+        $buf->getStringArray();
+    }
+
     public function testRewind(): void
     {
         $buf = new ReadBuffer("\x00\x01\x00\x02");
@@ -370,6 +378,13 @@ class ReadBufferTest extends TestCase
         $buf = new ReadBuffer('');
         $this->assertSame([], $buf->getUint64Array(0));
         $this->assertSame(0, $buf->getPosition());
+    }
+
+    public function testGetUint64ArrayWithOverflowingCountThrowsDeserializationException(): void
+    {
+        $buf = new ReadBuffer('');
+        $this->expectException(DeserializationException::class);
+        $buf->getUint64Array(PHP_INT_MAX);
     }
 
     public function testGetUint64ArrayReadsOnlyTheRequestedCount(): void
@@ -670,6 +685,27 @@ class ReadBufferTest extends TestCase
     }
 
     // --- Window (offset/length) tests -------------------------------------------------
+
+    public function testWindowLengthLargerThanBackingStringThrowsWithoutWarning(): void
+    {
+        $warnings = [];
+        set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+            $warnings[] = $message;
+            return true;
+        });
+
+        try {
+            $buffer = new ReadBuffer(str_repeat('A', 16), 0, 100);
+            $buffer->getUint64Array(2);
+            $this->fail('Expected DeserializationException');
+        } catch (DeserializationException $exception) {
+            $this->assertStringContainsString('Invalid buffer window length 100', $exception->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame([], $warnings, 'invalid windows must not reach unpack() and emit warnings');
+    }
 
     public function testWindowReadsAreRelativeToOffset(): void
     {
