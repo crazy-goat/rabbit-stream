@@ -61,6 +61,10 @@ if [ -z "$container_id" ]; then
     echo "ERROR: 'docker compose up -d' started no 'rabbitmq' container." >&2
     exit 1
 fi
+if [[ "$container_id" == *$'\n'* ]]; then
+    echo "ERROR: found multiple 'rabbitmq' containers; scaling is not supported." >&2
+    exit 1
+fi
 
 # `docker inspect` reads health status directly, so health polling needs neither host `python3`
 # nor the JSON shape `docker compose ps --format json` happens to emit (#472).
