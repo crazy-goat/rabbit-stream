@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Contract\ProducerInterface;
+use LogicException;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -48,8 +50,12 @@ class NamedProducerDeduplicationExample
         for ($i = 1; $i <= 5; $i++) {
             $message = "Order #{$i}";
             $producer1->send($message);
-            $this->sentMessages[$producer1->getLastPublishingId()] = $message;
-            echo "  → Sent {$message} (ID: {$producer1->getLastPublishingId()})\n";
+            $publishingId = $producer1->getLastPublishingId();
+            if ($publishingId === null) {
+                throw new LogicException('A publishing ID should be assigned after sending a message.');
+            }
+            $this->sentMessages[$publishingId] = $message;
+            echo "  → Sent {$message} (ID: {$publishingId})\n";
         }
 
         $this->waitForConfirms($producer1);
@@ -87,8 +93,12 @@ class NamedProducerDeduplicationExample
         for ($i = 6; $i <= 7; $i++) {
             $message = "Order #{$i}";
             $producer2->send($message);
-            $this->sentMessages[$producer2->getLastPublishingId()] = $message;
-            echo "  → Sent {$message} (ID: {$producer2->getLastPublishingId()})\n";
+            $publishingId = $producer2->getLastPublishingId();
+            if ($publishingId === null) {
+                throw new LogicException('A publishing ID should be assigned after sending a message.');
+            }
+            $this->sentMessages[$publishingId] = $message;
+            echo "  → Sent {$message} (ID: {$publishingId})\n";
         }
 
         $this->waitForConfirms($producer2);
@@ -132,26 +142,33 @@ class NamedProducerDeduplicationExample
                 'max-length-bytes' => '1000000000',
             ]);
             echo "  ✓ Stream '{$this->streamName}' created\n";
-        } catch (\Exception $e) {
+        } catch (\Exception) {
             echo "  ℹ Stream may already exist\n";
         }
     }
 
-    private function createNamedProducer(Connection $connection): \CrazyGoat\RabbitStream\Client\Producer
+    private function createNamedProducer(Connection $connection): ProducerInterface
     {
         echo "Creating named producer '{$this->producerName}'...\n";
 
         $producer = $connection->createProducer(
             $this->streamName,
             name: $this->producerName,
-            onConfirm: function (ConfirmationStatus $status) {
+            onConfirm: function (ConfirmationStatus $status): void {
                 $id = $status->getPublishingId();
+                if ($id === null) {
+                    throw new LogicException('A confirmation should include a publishing ID.');
+                }
                 if ($status->isConfirmed()) {
                     $this->confirmedMessages[$id] = $this->sentMessages[$id] ?? '(unknown)';
                     echo "    ✓ Confirmed: #{$id}\n";
                 } else {
-                    $this->failedMessages[$id] = $status->getErrorCode();
-                    echo "    ✗ Failed: #{$id} (code: {$status->getErrorCode()})\n";
+                    $errorCode = $status->getErrorCode();
+                    if ($errorCode === null) {
+                        throw new LogicException('A failed confirmation should include an error code.');
+                    }
+                    $this->failedMessages[$id] = $errorCode;
+                    echo "    ✗ Failed: #{$id} (code: {$errorCode})\n";
                 }
             }
         );
@@ -161,12 +178,12 @@ class NamedProducerDeduplicationExample
         return $producer;
     }
 
-    private function waitForConfirms(\CrazyGoat\RabbitStream\Client\Producer $producer): void
+    private function waitForConfirms(ProducerInterface $producer): void
     {
         try {
             $producer->waitForConfirms(timeout: 5.0);
             echo "  ✓ All confirms received\n";
-        } catch (\CrazyGoat\RabbitStream\Exception\TimeoutException $e) {
+        } catch (\CrazyGoat\RabbitStream\Exception\TimeoutException) {
             echo "  ⚠ Timeout waiting for confirms\n";
         }
     }

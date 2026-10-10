@@ -120,7 +120,7 @@ foreach ($files as $file) {
     }
 }
 
-if ($errors) {
+if ($errors !== []) {
     fwrite(STDERR, "Broken docs links:\n");
     fwrite(STDERR, implode("", $errors));
     fwrite(STDERR, "\n" . count($errors) . " broken link(s) found\n");

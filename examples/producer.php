@@ -24,7 +24,7 @@ $connection->createStream('my-stream', [
 $producer = $connection->createProducer(
     'my-stream',
     name: 'my-producer',
-    onConfirm: function (ConfirmationStatus $status) {
+    onConfirm: function (ConfirmationStatus $status): void {
         if ($status->isConfirmed()) {
             echo "Confirmed: #{$status->getPublishingId()}\n";
         } else {

@@ -46,7 +46,7 @@ for ($i = 0; $i < 100; $i++) {
         'order_id' => $i,
         'customer_id' => $customerId,
         'amount' => random_int(10, 1000),
-    ]);
+    ], JSON_THROW_ON_ERROR);
 
     $producer->send($message, routingKey: $customerId);
 }

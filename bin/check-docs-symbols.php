@@ -422,10 +422,10 @@ foreach ($markdownFiles as $markdownFile) {
                     }
                     continue;
                 }
-                if ($character === "'" || $character === '"' || $character === '`') {
+                if (in_array($character, ["'", '"', '`'], true)) {
                     $quote = $character;
                     $argument .= $character;
-                } elseif ($character === '(' || $character === '[' || $character === '{') {
+                } elseif (in_array($character, ['(', '[', '{'], true)) {
                     $depth++;
                     $argument .= $character;
                 } elseif ($character === ')' && $depth === 1) {
@@ -433,7 +433,7 @@ foreach ($markdownFiles as $markdownFile) {
                         $arguments[] = ['text' => $argument, 'offset' => $argumentOffset];
                     }
                     break;
-                } elseif ($character === ')' || $character === ']' || $character === '}') {
+                } elseif (in_array($character, [')', ']', '}'], true)) {
                     $depth--;
                     $argument .= $character;
                 } elseif ($character === ',' && $depth === 1) {

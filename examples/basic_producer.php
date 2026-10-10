@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -86,13 +87,13 @@ class BasicProducerExample
         }
     }
 
-    private function createProducer(): \CrazyGoat\RabbitStream\Client\Producer
+    private function createProducer(): ProducerInterface
     {
         echo "Step 3: Creating producer...\n";
 
         $producer = $this->connection->createProducer(
             'example-stream',
-            onConfirm: function (ConfirmationStatus $status) {
+            onConfirm: function (ConfirmationStatus $status): void {
                 if ($status->isConfirmed()) {
                     $this->confirmedCount++;
                     echo "  ✓ Confirmed: #{$status->getPublishingId()}\n";
@@ -109,7 +110,7 @@ class BasicProducerExample
         return $producer;
     }
 
-    private function publishSingleMessage(\CrazyGoat\RabbitStream\Client\Producer $producer): void
+    private function publishSingleMessage(ProducerInterface $producer): void
     {
         echo "Step 4: Publishing single message...\n";
 
@@ -118,7 +119,7 @@ class BasicProducerExample
         echo "  ✓ Message sent\n\n";
     }
 
-    private function publishBatch(\CrazyGoat\RabbitStream\Client\Producer $producer): void
+    private function publishBatch(ProducerInterface $producer): void
     {
         echo "Step 5: Publishing batch of 5 messages...\n";
 
@@ -132,7 +133,7 @@ class BasicProducerExample
         echo "  ✓ Batch sent (5 messages)\n\n";
     }
 
-    private function waitForConfirms(\CrazyGoat\RabbitStream\Client\Producer $producer): void
+    private function waitForConfirms(ProducerInterface $producer): void
     {
         echo "Step 6: Waiting for confirms...\n";
 
@@ -144,7 +145,7 @@ class BasicProducerExample
         }
     }
 
-    private function cleanup(\CrazyGoat\RabbitStream\Client\Producer $producer): void
+    private function cleanup(ProducerInterface $producer): void
     {
         echo "Step 7: Cleaning up...\n";
 

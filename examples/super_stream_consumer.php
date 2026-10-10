@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
+use LogicException;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -28,7 +29,7 @@ $consumer = $connection->createSuperStreamConsumer(
 $running = true;
 $smokeRun = getenv('RABBITMQ_SMOKE') === '1';
 $readTimeout = $smokeRun ? 1.0 : 5.0;
-pcntl_signal(SIGINT, function () use (&$running) {
+pcntl_signal(SIGINT, function () use (&$running): void {
     echo "\nShutting down...\n";
     $running = false;
 });
@@ -43,8 +44,12 @@ while ($running) {
         // getStream() names the partition (physical stream) this particular
         // message was delivered from; offset tracking is per-partition, so
         // it must be stored against that same partition name.
-        echo "partition={$msg->getStream()} offset={$msg->getOffset()} body={$msg->getBody()}\n";
-        $consumer->storeOffset($msg->getStream(), $msg->getOffset() + 1);
+        $partition = $msg->getStream();
+        if ($partition === null) {
+            throw new LogicException('A super stream message should include its partition name.');
+        }
+        echo "partition={$partition} offset={$msg->getOffset()} body=" . print_r($msg->getBody(), true) . "\n";
+        $consumer->storeOffset($partition, $msg->getOffset() + 1);
         $count++;
     }
 
