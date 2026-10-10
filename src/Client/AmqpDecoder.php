@@ -251,7 +251,6 @@ class AmqpDecoder
                 case 0x76: // AmqpSequence (body)
                 case 0x77: // AmqpValue (body)
                     if ($isAccumulatingDataBody) {
-                        $sections['body'] = implode('', $bodyParts);
                         $bodyParts = [];
                         $isAccumulatingDataBody = false;
                     }
