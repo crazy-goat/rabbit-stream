@@ -127,7 +127,7 @@ class CheckDocsFrameKeysTest extends TestCase
         $this->assertStringNotContainsString('unknown command key', $stderr);
     }
 
-    public function testAcceptsCorrelatedAndUncorrelatedFrames(): void
+    public function testIgnoresCommentsWhenDetectingCorrelatedFrames(): void
     {
         $root = $this->makeTempRoot([
             'docs/en/frames.md' => implode("\n", [
@@ -194,7 +194,7 @@ class CheckDocsFrameKeysTest extends TestCase
             PHP);
         file_put_contents($dir . '/src/Response/ExampleResponseV1.php', <<<'PHP'
             <?php
-            class ExampleResponseV1 implements CorrelationInterface
+            class ExampleResponseV1 extends SimpleCorrelatedResponseV1
             {
                 public static function getKey(): int
                 {
@@ -204,6 +204,7 @@ class CheckDocsFrameKeysTest extends TestCase
             PHP);
         file_put_contents($dir . '/src/Response/PublishConfirmResponseV1.php', <<<'PHP'
             <?php
+            /** Mentions CorrelationInterface and SimpleCorrelatedResponseV1 for documentation only. */
             class PublishConfirmResponseV1
             {
                 public static function getKey(): int
