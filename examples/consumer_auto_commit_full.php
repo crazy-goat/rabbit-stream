@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -105,7 +106,7 @@ class ConsumerAutoCommitExample
         return $lastOffset;
     }
 
-    private function createConsumer(?int $startOffset): \CrazyGoat\RabbitStream\Client\Consumer
+    private function createConsumer(?int $startOffset): ConsumerInterface
     {
         echo "Step 4: Creating consumer with auto-commit...\n";
 
@@ -127,7 +128,7 @@ class ConsumerAutoCommitExample
         return $consumer;
     }
 
-    private function processMessages(\CrazyGoat\RabbitStream\Client\Consumer $consumer): int
+    private function processMessages(ConsumerInterface $consumer): int
     {
         echo "Step 5: Processing messages (max {$this->messagesToProcess})...\n";
 
@@ -139,7 +140,7 @@ class ConsumerAutoCommitExample
                 // Read messages with 5-second timeout
                 $messages = $consumer->read(timeout: 5.0);
 
-                if (empty($messages)) {
+                if ($messages === []) {
                     echo "  ℹ No more messages, stopping\n";
                     break;
                 }
@@ -184,7 +185,7 @@ class ConsumerAutoCommitExample
     private function simulateProcessing(\CrazyGoat\RabbitStream\Client\Message $message): void
     {
         // Simulate some processing work
-        $body = $message->getBody();
+        $message->getBody();
 
         // In a real application, you would:
         // - Parse the message
@@ -197,7 +198,7 @@ class ConsumerAutoCommitExample
         usleep(1000); // 1ms
     }
 
-    private function cleanup(\CrazyGoat\RabbitStream\Client\Consumer $consumer): void
+    private function cleanup(ConsumerInterface $consumer): void
     {
         echo "Step 6: Cleaning up...\n";
 

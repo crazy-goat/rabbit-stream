@@ -696,7 +696,7 @@ function main(array $options): int
         $allEntries,
         static fn (array $entry): bool => ($entry['meta']['status'] ?? '') !== 'promoted',
     ));
-    $tokens = array_map('tokenSet', $comparable);
+    $tokens = array_map(tokenSet(...), $comparable);
 
     for ($i = 0, $count = count($comparable); $i < $count; $i++) {
         for ($j = $i + 1; $j < $count; $j++) {

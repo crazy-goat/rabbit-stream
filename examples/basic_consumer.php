@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -77,7 +78,7 @@ class BasicConsumerExample
         }
     }
 
-    private function createConsumer(): \CrazyGoat\RabbitStream\Client\Consumer
+    private function createConsumer(): ConsumerInterface
     {
         echo "Step 3: Creating consumer...\n";
 
@@ -94,7 +95,7 @@ class BasicConsumerExample
         return $consumer;
     }
 
-    private function consumeMessages(\CrazyGoat\RabbitStream\Client\Consumer $consumer): void
+    private function consumeMessages(ConsumerInterface $consumer): void
     {
         echo "Step 4: Consuming messages (max 10)...\n";
 
@@ -105,7 +106,7 @@ class BasicConsumerExample
                 // Read messages with 5-second timeout
                 $messages = $consumer->read(timeout: 5.0);
 
-                if (empty($messages)) {
+                if ($messages === []) {
                     echo "  ℹ No more messages, stopping\n";
                     break;
                 }
@@ -117,7 +118,7 @@ class BasicConsumerExample
 
                     // Display message body (truncated if too long)
                     $body = $message->getBody();
-                    $bodyStr = is_string($body) ? $body : json_encode($body);
+                    $bodyStr = is_string($body) ? $body : (json_encode($body) ?: '');
                     if (strlen($bodyStr) > 50) {
                         $bodyStr = substr($bodyStr, 0, 50) . '...';
                     }
@@ -136,7 +137,7 @@ class BasicConsumerExample
         echo "\n";
     }
 
-    private function cleanup(\CrazyGoat\RabbitStream\Client\Consumer $consumer): void
+    private function cleanup(ConsumerInterface $consumer): void
     {
         echo "Step 5: Cleaning up...\n";
 

@@ -28,7 +28,7 @@ $consumer = $connection->createConsumer(
 $running = true;
 $smokeRun = getenv('RABBITMQ_SMOKE') === '1';
 $readTimeout = $smokeRun ? 1.0 : 5.0;
-pcntl_signal(SIGINT, function () use (&$running) {
+pcntl_signal(SIGINT, function () use (&$running): void {
     $running = false;
 });
 
@@ -36,14 +36,14 @@ while ($running) {
     pcntl_signal_dispatch();
 
     $message = $consumer->readOne(timeout: $readTimeout);
-    if ($message === null) {
+    if (!$message instanceof \CrazyGoat\RabbitStream\Client\Message) {
         if ($smokeRun) {
             break;
         }
         continue;
     }
 
-    echo "offset={$message->getOffset()} body={$message->getBody()}\n";
+    echo "offset={$message->getOffset()} body=" . print_r($message->getBody(), true) . "\n";
 
     if ($smokeRun) {
         break;

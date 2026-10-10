@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Contract\ConsumerInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -82,7 +83,7 @@ class OffsetResumeExample
     /**
      * Create a consumer that resumes from the last stored offset
      */
-    private function createResumingConsumer(): \CrazyGoat\RabbitStream\Client\Consumer
+    private function createResumingConsumer(): ConsumerInterface
     {
         echo "Step 3: Creating resuming consumer...\n";
 
@@ -130,7 +131,7 @@ class OffsetResumeExample
     /**
      * Process messages and store offset after each one
      */
-    private function processMessages(\CrazyGoat\RabbitStream\Client\Consumer $consumer): int
+    private function processMessages(ConsumerInterface $consumer): int
     {
         echo "Step 4: Processing messages (max {$this->messagesToProcess})...\n";
 
@@ -143,7 +144,7 @@ class OffsetResumeExample
                 // Read messages with 5-second timeout
                 $messages = $consumer->read(timeout: 5.0);
 
-                if (empty($messages)) {
+                if ($messages === []) {
                     echo "  ℹ No more messages, stopping\n";
                     break;
                 }
@@ -213,7 +214,7 @@ class OffsetResumeExample
 
             // Simulate occasional failures (5% chance)
             // In production, this would be real error handling
-            if (getenv('RABBITMQ_SMOKE') !== '1' && rand(1, 100) <= 5) {
+            if (getenv('RABBITMQ_SMOKE') !== '1' && random_int(1, 100) <= 5) {
                 echo "\n  ⚠ Simulated processing failure\n";
                 return false;
             }
@@ -225,7 +226,7 @@ class OffsetResumeExample
         }
     }
 
-    private function cleanup(\CrazyGoat\RabbitStream\Client\Consumer $consumer): void
+    private function cleanup(ConsumerInterface $consumer): void
     {
         echo "Step 5: Cleaning up...\n";
 

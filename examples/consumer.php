@@ -26,7 +26,7 @@ $consumer = $connection->createConsumer(
 $running = true;
 $smokeRun = getenv('RABBITMQ_SMOKE') === '1';
 $readTimeout = $smokeRun ? 1.0 : 5.0;
-pcntl_signal(SIGINT, function () use (&$running) {
+pcntl_signal(SIGINT, function () use (&$running): void {
     echo "\nShutting down...\n";
     $running = false;
 });
@@ -40,7 +40,7 @@ while ($running) {
     foreach ($messages as $msg) {
         // getBody() returns the plain payload: Producer wrapped it in an
         // AMQP 1.0 Data section and the consumer decoded it back.
-        echo "offset={$msg->getOffset()} body={$msg->getBody()}\n";
+        echo "offset={$msg->getOffset()} body=" . print_r($msg->getBody(), true) . "\n";
         $count++;
     }
 
