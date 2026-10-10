@@ -58,6 +58,28 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringNotContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
+    public function testFailsImmediatelyWhenTheBrokerHasATerminalStatus(): void
+    {
+        foreach (['unhealthy', 'exited', 'dead'] as $terminalStatus) {
+            $dir = $this->makeFixture();
+            $result = $this->runE2eIn(
+                $dir,
+                'fakecid',
+                $terminalStatus,
+                timeoutSeconds: 3,
+                retries: '90',
+                interval: '1'
+            );
+
+            $this->assertFalse($result['timedOut'], 'run-e2e.sh did not fail promptly for ' . $terminalStatus);
+            $this->assertNotSame(0, $result['exit']);
+            $this->assertStringContainsString('ERROR: RabbitMQ is not healthy', $result['stderr']);
+            $this->assertStringContainsString("last status: '{$terminalStatus}'", $result['stderr']);
+            $this->assertStringContainsString('FAKE-RABBITMQ-LOG', $result['stderr']);
+            $this->assertSame(1, substr_count((string) file_get_contents($dir . '/docker.log'), 'inspect -f'));
+        }
+    }
+
     public function testFailsWhenComposeStartedNoContainer(): void
     {
         $result = $this->runE2e('healthy', psQ: '');
