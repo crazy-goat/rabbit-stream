@@ -29,6 +29,10 @@ The following extension must be enabled in your PHP installation:
 |-----------|---------|---------------|
 | `mbstring` | String encoding and manipulation | `php -m \| grep mbstring` |
 
+### Required Composer Dependencies
+
+- **`psr/log ^3.0`** is required at runtime and is installed automatically when you install RabbitStream with Composer.
+
 Check the required extension:
 
 ```bash
