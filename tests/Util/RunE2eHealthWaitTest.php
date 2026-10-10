@@ -102,6 +102,21 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringNotContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
+    public function testFailsClearlyWhenComposeStartedMultipleContainers(): void
+    {
+        $dir = $this->makeFixture();
+        $result = $this->runE2eIn($dir, "first-container\nsecond-container", 'healthy');
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertNotSame(0, $result['exit']);
+        $this->assertStringContainsString('found multiple', $result['stderr']);
+        $this->assertStringContainsString('scaling is not supported', $result['stderr']);
+        $this->assertStringNotContainsString('RabbitMQ is not healthy', $result['stderr']);
+        $dockerLog = (string) file_get_contents($dir . '/docker.log');
+        $this->assertSame(0, substr_count($dockerLog, 'inspect -f'));
+        $this->assertStringNotContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
+    }
+
     public function testRejectsNonNumericHealthRetriesBeforeStartingCompose(): void
     {
         $result = $this->runE2e('healthy', retries: 'abc');
