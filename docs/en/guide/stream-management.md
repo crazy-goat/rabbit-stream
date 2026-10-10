@@ -163,6 +163,7 @@ foreach ($stats as $key => $value) {
 | `first_offset` | Offset of the first message in the stream |
 | `last_offset` | Offset of the last message in the stream |
 | `committed_chunk_id` | ID of the last committed chunk |
+| `committed_offset` | Offset of the last committed message in the stream |
 | `chunk_count` | Total number of chunks in the stream |
 
 ### Calculating Message Count
