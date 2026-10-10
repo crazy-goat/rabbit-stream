@@ -16,10 +16,13 @@ RABBITMQ_HOST="${RABBITMQ_HOST:-127.0.0.1}"
 if [ -z "${RABBITMQ_PORT+x}" ]; then
     RABBITMQ_PORT="$(bash bin/free-port.sh)"
 fi
+if [ -z "${RABBITMQ_AMQP_PORT+x}" ]; then
+    RABBITMQ_AMQP_PORT="$(bash bin/free-port.sh)"
+fi
 if [ -z "${RABBITMQ_MANAGEMENT_PORT+x}" ]; then
     RABBITMQ_MANAGEMENT_PORT="$(bash bin/free-port.sh)"
 fi
-export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT
+export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_AMQP_PORT RABBITMQ_MANAGEMENT_PORT
 
 # Health-wait bounds: E2E_HEALTH_RETRIES polls, E2E_HEALTH_INTERVAL seconds apart.
 # The defaults cap the wait at three minutes instead of polling forever (#472).

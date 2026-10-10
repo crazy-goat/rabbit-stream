@@ -110,6 +110,7 @@ class RunE2eHealthWaitTest extends TestCase
         $dir = $this->makeFixture();
         $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: [
             'RABBITMQ_PORT' => '5552',
+            'RABBITMQ_AMQP_PORT' => '5672',
             'RABBITMQ_MANAGEMENT_PORT' => '15672',
         ]);
 
@@ -132,7 +133,8 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertSame(0, $result['exit'], $result['stderr']);
         $dockerLog = (string) file_get_contents($dir . '/docker.log');
         $this->assertStringContainsString('RABBITMQ_PORT=43123', $dockerLog);
-        $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=43124', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_AMQP_PORT=43124', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=43125', $dockerLog);
         $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
@@ -141,6 +143,7 @@ class RunE2eHealthWaitTest extends TestCase
         $dir = $this->makeFixture();
         $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: [
             'RABBITMQ_PORT' => '5552',
+            'RABBITMQ_AMQP_PORT' => '5672',
             'RABBITMQ_MANAGEMENT_PORT' => '15672',
         ]);
 
@@ -148,6 +151,7 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertSame(0, $result['exit'], $result['stderr']);
         $dockerLog = (string) file_get_contents($dir . '/docker.log');
         $this->assertStringContainsString('RABBITMQ_PORT=5552', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_AMQP_PORT=5672', $dockerLog);
         $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=15672', $dockerLog);
         $this->assertFileDoesNotExist($dir . '/python3-count');
     }
@@ -155,14 +159,18 @@ class RunE2eHealthWaitTest extends TestCase
     public function testHonorsPortsFromWorktreeEnvironmentFile(): void
     {
         $dir = $this->makeFixture();
-        file_put_contents($dir . '/.env.worktree', "RABBITMQ_PORT=44001\nRABBITMQ_MANAGEMENT_PORT=44002\n");
+        file_put_contents(
+            $dir . '/.env.worktree',
+            "RABBITMQ_PORT=44001\nRABBITMQ_AMQP_PORT=44002\nRABBITMQ_MANAGEMENT_PORT=44003\n"
+        );
         $result = $this->runE2eIn($dir, 'fakecid', 'healthy');
 
         $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
         $this->assertSame(0, $result['exit'], $result['stderr']);
         $dockerLog = (string) file_get_contents($dir . '/docker.log');
         $this->assertStringContainsString('RABBITMQ_PORT=44001', $dockerLog);
-        $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=44002', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_AMQP_PORT=44002', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=44003', $dockerLog);
         $this->assertFileDoesNotExist($dir . '/python3-count');
     }
 
@@ -259,6 +267,7 @@ class RunE2eHealthWaitTest extends TestCase
                 #!/usr/bin/env bash
                 echo "$*" >> "$FAKE_LOG"
                 echo "RABBITMQ_PORT=${RABBITMQ_PORT:-}" >> "$FAKE_LOG"
+                echo "RABBITMQ_AMQP_PORT=${RABBITMQ_AMQP_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_MANAGEMENT_PORT=${RABBITMQ_MANAGEMENT_PORT:-}" >> "$FAKE_LOG"
                 if [ "$1" = compose ]; then
                   shift
@@ -285,6 +294,7 @@ class RunE2eHealthWaitTest extends TestCase
                 case "$count" in
                   1) echo 43123 ;;
                   2) echo 43124 ;;
+                  3) echo 43125 ;;
                   *) exit 1 ;;
                 esac
                 PYTHON,
