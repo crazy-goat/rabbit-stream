@@ -85,6 +85,21 @@ class CheckDocsSymbolsTest extends TestCase
         );
     }
 
+    public function testFailsOnUnimportedBareConstructorClass(): void
+    {
+        $docs = $this->makeDocs([
+            'guide/example.md' => "```php\nnew NopeClass();\n```\n",
+        ]);
+
+        [$exit, , $stderr] = $this->runGate($docs);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString(
+            'guide/example.md:2: class NopeClass is not imported or fully qualified',
+            $stderr
+        );
+    }
+
     public function testFailsOnUnknownNamedConstructorArgument(): void
     {
         $docs = $this->makeDocs([

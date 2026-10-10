@@ -274,6 +274,53 @@ foreach ($classes as $className => $class) {
 }
 
 $errors = [];
+$allowedUnqualifiedClasses = array_fill_keys([
+    'BasicConsumerExample',
+    'BasicProducerExample',
+    'ChunkEntry',
+    'ConnectionException',
+    'ConnectionPool',
+    'Consumer',
+    'ConsumerAutoCommitExample',
+    'ConsumerWithOffsetHandling',
+    'CreditRequestV1',
+    'CustomLogger',
+    'DebugLogger',
+    'DeclarePublisherRequestV1',
+    'DeserializationException',
+    'FilteringLogger',
+    'HeartbeatRequestV1',
+    'InvalidArgumentException',
+    'JsonSerializer',
+    'KeyValue',
+    'Logger',
+    'LowLevelConnectionExample',
+    'Message',
+    'MetadataRequestV1',
+    'MyRequest',
+    'NamedProducerDeduplicationExample',
+    'NullLogger',
+    'OffsetResumeExample',
+    'OpenRequestV1',
+    'PhpBinarySerializer',
+    'Producer',
+    'ProtocolException',
+    'PublisherWithErrorHandling',
+    'ReadBuffer',
+    'ReflectionClass',
+    'RobustStreamClient',
+    'SimpleFileLogger',
+    'StreamConnection',
+    'StreamHandler',
+    'StreamManager',
+    'SubscribeRequestV1',
+    'TuneResponseV1',
+    'WriteBuffer',
+], true);
+$allowedUnqualifiedClasses = array_fill_keys(
+    array_map(strtolower(...), array_keys($allowedUnqualifiedClasses)),
+    true
+);
 $markdownFiles = new RecursiveIteratorIterator(
     new RecursiveDirectoryIterator($docsRoot, FilesystemIterator::SKIP_DOTS)
 );
@@ -304,7 +351,8 @@ foreach ($markdownFiles as $markdownFile) {
         string $path,
         array &$errors,
         array $classes,
-        array $sourceDirectories
+        array $sourceDirectories,
+        array $allowedUnqualifiedClasses
     ): void {
         $code = implode("\n", $block);
         $knownNamespace = static function (string $name) use ($sourceDirectories): bool {
@@ -395,7 +443,22 @@ foreach ($markdownFiles as $markdownFile) {
             } else {
                 $fqcn = $imports[strtolower($classToken)] ?? '';
             }
-            if ($fqcn === '' || !isset($classes[$fqcn])) {
+            if ($fqcn === '') {
+                if (
+                    !in_array(strtolower($classToken), ['class', 'self', 'parent', 'static'], true)
+                    && !isset($allowedUnqualifiedClasses[strtolower($classToken)])
+                ) {
+                    $line = $startLine + substr_count(substr($code, 0, $offset), "\n");
+                    $errors[] = sprintf(
+                        '%s:%d: class %s is not imported or fully qualified — the fence cannot be checked',
+                        $path,
+                        $line,
+                        $classToken
+                    );
+                }
+                continue;
+            }
+            if (!isset($classes[$fqcn])) {
                 continue;
             }
 
@@ -501,7 +564,15 @@ foreach ($markdownFiles as $markdownFile) {
             if (!str_starts_with($fence, 'ignored:')) {
                 $tagLine = $lines[$fenceStart - 2] ?? '';
                 if (preg_match('/^\s*(```+|~~~+)\s*php\b/i', $tagLine)) {
-                    $checkFence($fenceText, $fenceStart, $relativePath, $errors, $classes, $sourceDirectories);
+                    $checkFence(
+                        $fenceText,
+                        $fenceStart,
+                        $relativePath,
+                        $errors,
+                        $classes,
+                        $sourceDirectories,
+                        $allowedUnqualifiedClasses
+                    );
                 }
             }
             $fence = null;
