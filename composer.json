@@ -1,5 +1,6 @@
 {
     "name": "crazy-goat/rabbit-stream",
+    "description": "A PHP client for the RabbitMQ Streams protocol.",
     "type": "library",
     "license": "MIT",
     "autoload": {
