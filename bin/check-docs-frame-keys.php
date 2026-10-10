@@ -65,8 +65,28 @@ foreach (['Request', 'Response'] as $directory) {
         if (!preg_match('/\bclass\s+[A-Za-z0-9_]+\b([^{}]*)\{/s', $source, $classMatch)) {
             continue;
         }
-        $correlated = str_contains($source, 'CorrelationInterface')
-            || str_contains($source, 'SimpleCorrelatedResponseV1');
+        $tokens = token_get_all($source);
+        $classHeader = '';
+        $insideClassHeader = false;
+        foreach ($tokens as $token) {
+            if (is_array($token) && $token[0] === T_CLASS) {
+                $insideClassHeader = true;
+                continue;
+            }
+            if ($insideClassHeader && $token === '{') {
+                break;
+            }
+            if (!$insideClassHeader || !is_array($token)) {
+                continue;
+            }
+            if (in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                $classHeader .= ' ';
+                continue;
+            }
+            $classHeader .= $token[1];
+        }
+        $correlated = preg_match('/\\bimplements\\b[^{}]*\\bCorrelationInterface\\b/', $classHeader) === 1
+            || preg_match('/\\bextends\\b[^{}]*\\bSimpleCorrelatedResponseV1\\b/', $classHeader) === 1;
         $key = $keyByCase[$keyMatch[1]] ?? null;
         if ($key !== null) {
             $correlationByKey[$key] = $correlated;
