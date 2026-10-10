@@ -69,6 +69,11 @@ while [ "$attempt" -lt "$HEALTH_RETRIES" ]; do
     if [ "$status" = "healthy" ]; then
         break
     fi
+    case "$status" in
+        unhealthy|exited|dead)
+            break
+            ;;
+    esac
     echo -n "."
     sleep "$HEALTH_INTERVAL"
 done

@@ -93,6 +93,23 @@ class CheckDocsFrameKeysTest extends TestCase
         $this->assertStringContainsString('outgoing size field declares 5 bytes; 8 bytes follow', $stderr);
     }
 
+    public function testUnqualifiedIgnoreMarkerDoesNotSkipFrameValidation(): void
+    {
+        $root = $this->makeTempRoot([
+            'docs/en/frames.md' => implode("\n", [
+                'Socket -> 000000050001000100000001 unknown key 0x0099 <!-- docs-frame-keys: ignore -->',
+                'Socket <- 00010001 unknown key 0x0099 <!-- docs-frame-keys: ignore -->',
+            ]) . "\n",
+        ]);
+
+        [$exit, , $stderr] = $this->runGate($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('outgoing size field declares 5 bytes; 8 bytes follow', $stderr);
+        $this->assertStringContainsString('<- frame key 0x0001 requires a four-byte CorrelationId', $stderr);
+        $this->assertStringNotContainsString('unknown command key', $stderr);
+    }
+
     public function testChecksCorrelationIdWidthAndAllowsRangesMasksAndExplicitExamples(): void
     {
         $root = $this->makeTempRoot([

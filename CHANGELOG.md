@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- **E2E: fail fast on terminal RabbitMQ health statuses (#665)** — `run-e2e.sh` stops polling immediately when the broker is `unhealthy`, `exited` or `dead`, then prints the container logs.
 - **Chore: add a package description to Composer metadata (#575)** — `composer.json` now describes RabbitStream as a PHP client for the RabbitMQ Streams protocol, so `composer validate --strict` accepts the package metadata.
 - **E2E: allocate free host ports when no worktree environment is configured (#773)** — `run-e2e.sh` uses a shared free-port allocator for RabbitMQ, AMQP and management ports when `.env.worktree` and exported values are absent, and assigns a unique Compose project name when none is configured, avoiding local port conflicts and resource collisions between parallel E2E runs.
 
