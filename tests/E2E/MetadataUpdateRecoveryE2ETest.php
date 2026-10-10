@@ -145,7 +145,7 @@ class MetadataUpdateRecoveryE2ETest extends E2ETestCase
         $bodies = [];
         $deadline = microtime(true) + 5.0;
         while ($bodies === [] && microtime(true) < $deadline) {
-            $bodies = $this->bodiesOf($consumer->read(timeout: min(0.5, $deadline - microtime(true))));
+            $bodies = $this->bodiesOf($consumer->read(timeout: max(0.01, min(0.5, $deadline - microtime(true)))));
         }
         $consumer->close();
 
