@@ -86,7 +86,7 @@ project="$(tr '[:upper:]' '[:lower:]' <<<"$repo-issue-$issue" | tr -c 'a-z0-9\n'
   # grep exits 1 when there is no compose file; that is fine.
   { grep -rhoE '\$\{[A-Z0-9_]*PORT[A-Z0-9_]*:-[0-9]+\}' --include='*compose*.y*ml' . 2>/dev/null || true; } \
     | sed -E 's/^\$\{([A-Z0-9_]+):-.*/\1/' | sort -u | while read -r name; do
-      port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
+      port="$(bash bin/free-port.sh)"
       echo "$name=$port"
     done
 } >.env.worktree

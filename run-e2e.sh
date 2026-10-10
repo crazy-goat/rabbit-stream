@@ -12,10 +12,20 @@ if [ -f .env.worktree ]; then
         fi
     done < .env.worktree
 fi
+# Give runs without a worktree environment their own Compose resources too.
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-rabbit-stream-$$-$RANDOM}"
+export COMPOSE_PROJECT_NAME
 RABBITMQ_HOST="${RABBITMQ_HOST:-127.0.0.1}"
-RABBITMQ_PORT="${RABBITMQ_PORT:-5552}"
-RABBITMQ_MANAGEMENT_PORT="${RABBITMQ_MANAGEMENT_PORT:-15672}"
-export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT
+if [ -z "${RABBITMQ_PORT+x}" ]; then
+    RABBITMQ_PORT="$(bash bin/free-port.sh)"
+fi
+if [ -z "${RABBITMQ_AMQP_PORT+x}" ]; then
+    RABBITMQ_AMQP_PORT="$(bash bin/free-port.sh)"
+fi
+if [ -z "${RABBITMQ_MANAGEMENT_PORT+x}" ]; then
+    RABBITMQ_MANAGEMENT_PORT="$(bash bin/free-port.sh)"
+fi
+export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_AMQP_PORT RABBITMQ_MANAGEMENT_PORT
 
 # Health-wait bounds: E2E_HEALTH_RETRIES polls, E2E_HEALTH_INTERVAL seconds apart.
 # The defaults cap the wait at three minutes instead of polling forever (#472).
@@ -49,8 +59,8 @@ if [ -z "$container_id" ]; then
     exit 1
 fi
 
-# `docker inspect` reads the health status directly: no host `python3` and no dependency
-# on the JSON shape `docker compose ps --format json` happens to emit (#472).
+# `docker inspect` reads health status directly, so health polling needs neither host `python3`
+# nor the JSON shape `docker compose ps --format json` happens to emit (#472).
 status=""
 attempt=0
 while [ "$attempt" -lt "$HEALTH_RETRIES" ]; do
