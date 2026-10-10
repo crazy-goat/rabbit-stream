@@ -1973,7 +1973,11 @@ class StreamConnection
         }
 
         if (!array_key_exists(0, $reply) || !array_key_exists(1, $reply)) {
-            return sprintf('array of %d element(s)', count($reply));
+            if (count($reply) !== 2) {
+                return sprintf('array of %d element(s)', count($reply));
+            }
+
+            $reply = array_values($reply);
         }
 
         return sprintf('array{%s, %s}', get_debug_type($reply[0]), get_debug_type($reply[1]));

@@ -1786,7 +1786,7 @@ class StreamConnectionTest extends TestCase
         return [
             'empty array' => [[], 'array of 0 element(s)'],
             'one element' => [[1], 'array of 1 element(s)'],
-            'string keys' => [['type' => 1, 'offset' => 0], 'array of 2 element(s)'],
+            'string keys' => [['type' => 1, 'offset' => 0], 'array{int, int}'],
             'non-int values' => [['1', 'abc'], 'array{string, string}'],
             'null' => [null, 'null'],
             'not an array' => [5, 'int'],
