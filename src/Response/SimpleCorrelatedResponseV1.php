@@ -34,20 +34,7 @@ abstract class SimpleCorrelatedResponseV1 implements
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
-        $key = $buffer->getUint16();
-        $version = $buffer->getUint16();
-        $correlationId = $buffer->getUint32();
-        $responseCode = $buffer->getUint16();
-
-        // Validate key matches expected value for concrete class
-        if (static::getKey() !== $key) {
-            throw new ProtocolException('Unexpected command code');
-        }
-
-        // Validate version matches expected value
-        if (static::getVersion() !== $version) {
-            throw new ProtocolException('Unexpected version');
-        }
+        ['correlationId' => $correlationId, 'responseCode' => $responseCode] = static::readHeader($buffer);
 
         // Validate response code is OK
         $code = ResponseCodeEnum::tryFrom($responseCode);
@@ -62,6 +49,29 @@ abstract class SimpleCorrelatedResponseV1 implements
         $object = new static();
         $object->withCorrelationId($correlationId);
         return $object;
+    }
+
+    /**
+     * Read and validate the shared response header before command-specific parsing.
+     *
+     * @return array{correlationId: int, responseCode: int}
+     */
+    protected static function readHeader(ReadBuffer $buffer): array
+    {
+        $key = $buffer->getUint16();
+        $version = $buffer->getUint16();
+        $correlationId = $buffer->getUint32();
+        $responseCode = $buffer->getUint16();
+
+        if (static::getKey() !== $key) {
+            throw new ProtocolException('Unexpected command code');
+        }
+
+        if (static::getVersion() !== $version) {
+            throw new ProtocolException('Unexpected version');
+        }
+
+        return ['correlationId' => $correlationId, 'responseCode' => $responseCode];
     }
 
     /**

@@ -15,18 +15,7 @@ class SaslAuthenticateResponseV1 extends SimpleCorrelatedResponseV1
 
     public static function fromStreamBuffer(ReadBuffer $buffer): ?static
     {
-        $key = $buffer->getUint16();
-        $version = $buffer->getUint16();
-        $correlationId = $buffer->getUint32();
-        $responseCode = $buffer->getUint16();
-
-        if (static::getKey() !== $key) {
-            throw new ProtocolException('Unexpected command code');
-        }
-
-        if (static::getVersion() !== $version) {
-            throw new ProtocolException('Unexpected version');
-        }
+        ['correlationId' => $correlationId, 'responseCode' => $responseCode] = static::readHeader($buffer);
 
         $code = ResponseCodeEnum::tryFrom($responseCode);
         if ($code === null || ($code !== ResponseCodeEnum::OK && $code !== ResponseCodeEnum::SASL_CHALLENGE)) {
