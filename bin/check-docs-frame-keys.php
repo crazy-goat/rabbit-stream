@@ -142,6 +142,7 @@ foreach ($docsFiles as $docsFile) {
         }
         $isCommandKeyTableRow = $insideCommandKeyTable;
         $ignoredKeys = [];
+        $ignoreUnknownKeys = false;
         $isIgnoredLine = preg_match(
             '/<!--\s*docs-frame-keys:\s*ignore(?:\s+(0x[0-9a-fA-F]{4}))?\s*-->/',
             $line,
@@ -151,8 +152,8 @@ foreach ($docsFiles as $docsFile) {
             if (isset($ignoreMatch[1])) {
                 $ignoredKeys[] = strtolower($ignoreMatch[1]);
             } else {
-                // An unqualified marker opts out the whole line (for an illustrative value or range).
-                continue;
+                // An unqualified marker opts out of unknown-key detection for the whole line.
+                $ignoreUnknownKeys = true;
             }
         }
 
@@ -226,6 +227,10 @@ foreach ($docsFiles as $docsFile) {
                     $errors[] = sprintf('%s:%d: %s (%s)', $relativePath, $lineNo, $dumpError, trim($line));
                 }
             }
+        }
+
+        if ($ignoreUnknownKeys) {
+            continue;
         }
 
         if (
