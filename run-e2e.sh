@@ -12,6 +12,9 @@ if [ -f .env.worktree ]; then
         fi
     done < .env.worktree
 fi
+# Give runs without a worktree environment their own Compose resources too.
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-rabbit-stream-$$-$RANDOM}"
+export COMPOSE_PROJECT_NAME
 RABBITMQ_HOST="${RABBITMQ_HOST:-127.0.0.1}"
 if [ -z "${RABBITMQ_PORT+x}" ]; then
     RABBITMQ_PORT="$(bash bin/free-port.sh)"

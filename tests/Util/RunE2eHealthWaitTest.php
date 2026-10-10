@@ -138,6 +138,24 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
+    public function testUsesAnIsolatedComposeProjectWhenNoWorktreeEnvironmentFileExists(): void
+    {
+        $firstDir = $this->makeFixture();
+        $firstResult = $this->runE2eIn($firstDir, 'fakecid', 'healthy');
+        $secondDir = $this->makeFixture();
+        $secondResult = $this->runE2eIn($secondDir, 'fakecid', 'healthy');
+
+        $this->assertSame(0, $firstResult['exit'], $firstResult['stderr']);
+        $this->assertSame(0, $secondResult['exit'], $secondResult['stderr']);
+        $firstLog = (string) file_get_contents($firstDir . '/docker.log');
+        $secondLog = (string) file_get_contents($secondDir . '/docker.log');
+        preg_match('/COMPOSE_PROJECT_NAME=([^\\n]+)/', $firstLog, $firstMatch);
+        preg_match('/COMPOSE_PROJECT_NAME=([^\\n]+)/', $secondLog, $secondMatch);
+        $this->assertNotEmpty($firstMatch[1] ?? null);
+        $this->assertNotEmpty($secondMatch[1] ?? null);
+        $this->assertNotSame($firstMatch[1], $secondMatch[1]);
+    }
+
     public function testHonorsExportedPortsWhenNoWorktreeEnvironmentFileExists(): void
     {
         $dir = $this->makeFixture();
@@ -145,6 +163,7 @@ class RunE2eHealthWaitTest extends TestCase
             'RABBITMQ_PORT' => '5552',
             'RABBITMQ_AMQP_PORT' => '5672',
             'RABBITMQ_MANAGEMENT_PORT' => '15672',
+            'COMPOSE_PROJECT_NAME' => 'explicit-project',
         ]);
 
         $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
@@ -153,6 +172,7 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringContainsString('RABBITMQ_PORT=5552', $dockerLog);
         $this->assertStringContainsString('RABBITMQ_AMQP_PORT=5672', $dockerLog);
         $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=15672', $dockerLog);
+        $this->assertStringContainsString('COMPOSE_PROJECT_NAME=explicit-project', $dockerLog);
         $this->assertFileDoesNotExist($dir . '/python3-count');
     }
 
@@ -161,7 +181,8 @@ class RunE2eHealthWaitTest extends TestCase
         $dir = $this->makeFixture();
         file_put_contents(
             $dir . '/.env.worktree',
-            "RABBITMQ_PORT=44001\nRABBITMQ_AMQP_PORT=44002\nRABBITMQ_MANAGEMENT_PORT=44003\n"
+            "COMPOSE_PROJECT_NAME=worktree-project\n"
+            . "RABBITMQ_PORT=44001\nRABBITMQ_AMQP_PORT=44002\nRABBITMQ_MANAGEMENT_PORT=44003\n"
         );
         $result = $this->runE2eIn($dir, 'fakecid', 'healthy');
 
@@ -171,6 +192,7 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringContainsString('RABBITMQ_PORT=44001', $dockerLog);
         $this->assertStringContainsString('RABBITMQ_AMQP_PORT=44002', $dockerLog);
         $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=44003', $dockerLog);
+        $this->assertStringContainsString('COMPOSE_PROJECT_NAME=worktree-project', $dockerLog);
         $this->assertFileDoesNotExist($dir . '/python3-count');
     }
 
@@ -266,6 +288,7 @@ class RunE2eHealthWaitTest extends TestCase
             'bin/docker' => <<<'SH'
                 #!/usr/bin/env bash
                 echo "$*" >> "$FAKE_LOG"
+                echo "COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_PORT=${RABBITMQ_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_AMQP_PORT=${RABBITMQ_AMQP_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_MANAGEMENT_PORT=${RABBITMQ_MANAGEMENT_PORT:-}" >> "$FAKE_LOG"
