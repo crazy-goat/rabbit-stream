@@ -80,6 +80,18 @@ class RunE2eHealthWaitTest extends TestCase
         }
     }
 
+    public function testFailsWithDiagnosticWhenComposeCannotStartRabbitMq(): void
+    {
+        $dir = $this->makeFixture();
+        $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: ['FAKE_UP_EXIT' => '1']);
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertNotSame(0, $result['exit']);
+        $this->assertStringContainsString('ERROR: could not start the RabbitMQ broker.', $result['stderr']);
+        $this->assertSame(1, substr_count((string) file_get_contents($dir . '/docker.log'), 'down'));
+        $this->assertStringNotContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
+    }
+
     public function testFailsWhenComposeStartedNoContainer(): void
     {
         $result = $this->runE2e('healthy', psQ: '');
@@ -317,7 +329,10 @@ class RunE2eHealthWaitTest extends TestCase
                 if [ "$1" = compose ]; then
                   shift
                   case "$1" in
-                    up|down) exit 0 ;;
+                    up)
+                      if [ "${FAKE_UP_EXIT:-0}" -ne 0 ]; then exit "$FAKE_UP_EXIT"; fi
+                      exit 0 ;;
+                    down) exit 0 ;;
                     ps)
                       if [ -n "$FAKE_PS_Q" ]; then echo "$FAKE_PS_Q"; fi
                       exit 0 ;;
