@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **E2E: allocate free host ports when no worktree environment is configured (#773)** — `run-e2e.sh` uses a shared free-port allocator for RabbitMQ and management ports when `.env.worktree` and exported values are absent, avoiding local port conflicts and allowing parallel E2E runs.
+
 ## [1.10.0] - 2026-10-09
 
 ### Added

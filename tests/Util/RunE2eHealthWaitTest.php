@@ -103,13 +103,15 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringNotContainsString('Starting RabbitMQ', $result['stdout']);
     }
 
-    public function testDoesNotInvokeHostPython3(): void
+    public function testDoesNotInvokeHostPython3WhenPortsAreConfigured(): void
     {
-        // A failing `python3` shadows any real one. The old pipeline piped
-        // `docker compose ps --format json` through it, so this scenario only
-        // finished once the dependency was removed.
+        // A failing `python3` shadows any real one. Configured ports do not need
+        // the allocator, so the health-wait path remains independent of it.
         $dir = $this->makeFixture();
-        $result = $this->runE2eIn($dir, 'fakecid', 'healthy');
+        $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: [
+            'RABBITMQ_PORT' => '5552',
+            'RABBITMQ_MANAGEMENT_PORT' => '15672',
+        ]);
 
         $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish without python3');
         $this->assertSame(0, $result['exit'], $result['stderr']);
@@ -121,7 +123,51 @@ class RunE2eHealthWaitTest extends TestCase
         );
     }
 
+    public function testAllocatesFreePortsWhenNoWorktreeEnvironmentFileExists(): void
+    {
+        $dir = $this->makeFixture();
+        $result = $this->runE2eIn($dir, 'fakecid', 'healthy');
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertSame(0, $result['exit'], $result['stderr']);
+        $dockerLog = (string) file_get_contents($dir . '/docker.log');
+        $this->assertStringContainsString('RABBITMQ_PORT=43123', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=43124', $dockerLog);
+        $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
+    }
+
+    public function testHonorsExportedPortsWhenNoWorktreeEnvironmentFileExists(): void
+    {
+        $dir = $this->makeFixture();
+        $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: [
+            'RABBITMQ_PORT' => '5552',
+            'RABBITMQ_MANAGEMENT_PORT' => '15672',
+        ]);
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertSame(0, $result['exit'], $result['stderr']);
+        $dockerLog = (string) file_get_contents($dir . '/docker.log');
+        $this->assertStringContainsString('RABBITMQ_PORT=5552', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=15672', $dockerLog);
+        $this->assertFileDoesNotExist($dir . '/python3-count');
+    }
+
+    public function testHonorsPortsFromWorktreeEnvironmentFile(): void
+    {
+        $dir = $this->makeFixture();
+        file_put_contents($dir . '/.env.worktree', "RABBITMQ_PORT=44001\nRABBITMQ_MANAGEMENT_PORT=44002\n");
+        $result = $this->runE2eIn($dir, 'fakecid', 'healthy');
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertSame(0, $result['exit'], $result['stderr']);
+        $dockerLog = (string) file_get_contents($dir . '/docker.log');
+        $this->assertStringContainsString('RABBITMQ_PORT=44001', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=44002', $dockerLog);
+        $this->assertFileDoesNotExist($dir . '/python3-count');
+    }
+
     /**
+     * @param array<string, string> $environment
      * @return array{exit: int, stdout: string, stderr: string, timedOut: bool}
      */
     private function runE2e(
@@ -129,14 +175,16 @@ class RunE2eHealthWaitTest extends TestCase
         string $psQ = 'fakecid',
         int $timeoutSeconds = 30,
         string $retries = '3',
-        string $interval = '0'
+        string $interval = '0',
+        array $environment = []
     ): array {
         $dir = $this->makeFixture();
 
-        return $this->runE2eIn($dir, $psQ, $health, $timeoutSeconds, $retries, $interval);
+        return $this->runE2eIn($dir, $psQ, $health, $timeoutSeconds, $retries, $interval, $environment);
     }
 
     /**
+     * @param array<string, string> $environment
      * @return array{exit: int, stdout: string, stderr: string, timedOut: bool}
      */
     private function runE2eIn(
@@ -145,7 +193,8 @@ class RunE2eHealthWaitTest extends TestCase
         string $health,
         int $timeoutSeconds = 30,
         string $retries = '3',
-        string $interval = '0'
+        string $interval = '0',
+        array $environment = []
     ): array {
         $stdoutFile = $dir . '/stdout.txt';
         $stderrFile = $dir . '/stderr.txt';
@@ -163,6 +212,7 @@ class RunE2eHealthWaitTest extends TestCase
                 'FAKE_PS_Q' => $psQ,
                 'E2E_HEALTH_RETRIES' => $retries,
                 'E2E_HEALTH_INTERVAL' => $interval,
+                ...$environment,
             ]
         );
         if (!is_resource($process)) {
@@ -202,11 +252,14 @@ class RunE2eHealthWaitTest extends TestCase
     {
         $dir = $this->makeTempDir([
             'run-e2e.sh' => (string) file_get_contents(dirname(__DIR__, 2) . '/run-e2e.sh'),
+            'bin/free-port.sh' => (string) file_get_contents(dirname(__DIR__, 2) . '/bin/free-port.sh'),
             'vendor/bin/phpunit' => "#!/usr/bin/env bash\necho FAKE-PHPUNIT-RAN\nexit 0\n",
             'bin/run-examples.sh' => "#!/usr/bin/env bash\necho FAKE-EXAMPLES-RAN\nexit 0\n",
             'bin/docker' => <<<'SH'
                 #!/usr/bin/env bash
                 echo "$*" >> "$FAKE_LOG"
+                echo "RABBITMQ_PORT=${RABBITMQ_PORT:-}" >> "$FAKE_LOG"
+                echo "RABBITMQ_MANAGEMENT_PORT=${RABBITMQ_MANAGEMENT_PORT:-}" >> "$FAKE_LOG"
                 if [ "$1" = compose ]; then
                   shift
                   case "$1" in
@@ -222,12 +275,25 @@ class RunE2eHealthWaitTest extends TestCase
                 SH,
             'bin/sleep' => "#!/usr/bin/env bash\nexit 0\n",
             'bin/curl' => "#!/usr/bin/env bash\nexit 0\n",
-            'bin/python3' => "#!/usr/bin/env bash\ntouch \"\$(dirname \"\$0\")/../python3-was-called\"\nexit 127\n",
+            'bin/python3' => <<<'PYTHON'
+                #!/usr/bin/env bash
+                count_file="$(dirname "$0")/../python3-count"
+                count=0
+                if [ -f "$count_file" ]; then count="$(cat "$count_file")"; fi
+                count=$((count + 1))
+                echo "$count" > "$count_file"
+                case "$count" in
+                  1) echo 43123 ;;
+                  2) echo 43124 ;;
+                  *) exit 1 ;;
+                esac
+                PYTHON,
         ]);
         $executables = [
             'run-e2e.sh',
             'vendor/bin/phpunit',
             'bin/run-examples.sh',
+            'bin/free-port.sh',
             'bin/docker',
             'bin/sleep',
             'bin/curl',

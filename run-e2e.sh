@@ -13,8 +13,12 @@ if [ -f .env.worktree ]; then
     done < .env.worktree
 fi
 RABBITMQ_HOST="${RABBITMQ_HOST:-127.0.0.1}"
-RABBITMQ_PORT="${RABBITMQ_PORT:-5552}"
-RABBITMQ_MANAGEMENT_PORT="${RABBITMQ_MANAGEMENT_PORT:-15672}"
+if [ -z "${RABBITMQ_PORT+x}" ]; then
+    RABBITMQ_PORT="$(bash bin/free-port.sh)"
+fi
+if [ -z "${RABBITMQ_MANAGEMENT_PORT+x}" ]; then
+    RABBITMQ_MANAGEMENT_PORT="$(bash bin/free-port.sh)"
+fi
 export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT
 
 # Health-wait bounds: E2E_HEALTH_RETRIES polls, E2E_HEALTH_INTERVAL seconds apart.
@@ -49,8 +53,8 @@ if [ -z "$container_id" ]; then
     exit 1
 fi
 
-# `docker inspect` reads the health status directly: no host `python3` and no dependency
-# on the JSON shape `docker compose ps --format json` happens to emit (#472).
+# `docker inspect` reads health status directly, so health polling needs neither host `python3`
+# nor the JSON shape `docker compose ps --format json` happens to emit (#472).
 status=""
 attempt=0
 while [ "$attempt" -lt "$HEALTH_RETRIES" ]; do
