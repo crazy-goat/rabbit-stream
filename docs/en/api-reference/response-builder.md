@@ -237,7 +237,6 @@ Failed to deserialize response for command: {commandName}
 ```php
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\ResponseBuilder;
-use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 
 // Frame data from socket (without size prefix)
 $frameData = "\x80\x15\x00\x01\x00\x00\x00\x01\x00\x01";
