@@ -4,12 +4,7 @@ This document provides detailed protocol reference for the connection handshake 
 
 ## TCP Connection
 
-RabbitMQ Stream protocol uses TCP port **5552** by default. The connection begins with a standard TCP socket establishment:
-
-```php
-$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
-socket_connect($socket, $host, $port);  // port 5552
-```
+RabbitMQ Stream protocol uses TCP port **5552** by default. The client opens the TCP connection with PHP's `stream_socket_client()` (and uses the corresponding `ssl://` stream for TLS); connection failures are reported as `ConnectionException` with the transport error message and code. Applications should use the library's connection API rather than opening a socket themselves.
 
 ## Protocol Commands
 

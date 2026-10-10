@@ -240,9 +240,7 @@ $connection->close();
 
 ### Error: Connection refused
 
-```
-Warning: socket_connect(): unable to connect [111]: Connection refused
-```
+The client cannot connect to the RabbitMQ stream endpoint. The exact connection error message and system error code depend on the operating system.
 
 **Cause:** RabbitMQ is not running or the stream plugin is not enabled.
 
