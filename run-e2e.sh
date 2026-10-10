@@ -48,7 +48,10 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Starting RabbitMQ..."
-docker compose up -d
+if ! docker compose up -d; then
+    echo "ERROR: could not start the RabbitMQ broker." >&2
+    exit 1
+fi
 
 echo "Waiting for RabbitMQ to be healthy..."
 # Resolve the container from the compose project (a worktree sets COMPOSE_PROJECT_NAME),
