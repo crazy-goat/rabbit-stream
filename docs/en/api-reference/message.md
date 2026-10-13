@@ -791,3 +791,36 @@ The body type depends on the AMQP encoding:
 - [Producer API Reference](producer.md)
 - [Consuming Guide](../guide/consuming.md)
 - [AMQP 1.0 Specification](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-complete-v1.0-os.pdf)
+
+
+## Construction Methods
+
+### fromRawEntry()
+
+Construct a message from raw entry bytes. The entry bytes are copied; AMQP sections are decoded lazily.
+
+```php
+public static function fromRawEntry(
+    int $offset,
+    int $timestamp,
+    string $rawData,
+    ?string $stream = null,
+    int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+): self
+```
+
+### fromChunkView()
+
+Construct a message as a zero-copy view into a chunk string. AMQP sections are decoded lazily.
+
+```php
+public static function fromChunkView(
+    int $offset,
+    int $timestamp,
+    string $chunk,
+    int $start,
+    int $length,
+    ?string $stream = null,
+    int $maxDepth = AmqpDecoder::MAX_RECURSION_DEPTH,
+): self
+```
