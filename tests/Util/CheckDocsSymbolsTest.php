@@ -85,6 +85,18 @@ class CheckDocsSymbolsTest extends TestCase
         );
     }
 
+    public function testAllowsImportFromTestSubnamespace(): void
+    {
+        $docs = $this->makeDocs([
+            'guide/example.md' => "```php\nuse CrazyGoat\\RabbitStream\\Tests\\Request\\SomeTest;\n```\n",
+        ]);
+
+        [$exit, $stdout, $stderr] = $this->runGate($docs);
+
+        $this->assertSame(0, $exit, $stderr);
+        $this->assertStringContainsString('All class references and named constructor arguments', $stdout);
+    }
+
     public function testFailsOnUnimportedBareConstructorClass(): void
     {
         $docs = $this->makeDocs([
