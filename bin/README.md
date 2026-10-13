@@ -29,6 +29,18 @@ Runs every lint step (PHPCS, Rector, PHPStan, kb-lint, docs link check, test sui
 coverage, stale ext-sockets reference check, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
 the pre-push hook and the CI `lint` job all call it. Needs `shellcheck` on `PATH`.
 
+## check-docs-frame-keys.php
+
+Checks documented command-key literals against `KeyEnum` and validates logged protocol frames. An
+inline HTML comment can exempt a key literal from this check:
+
+- `<!-- docs-frame-keys: ignore -->` suppresses unknown-key detection for all key literals on
+  that line.
+- `<!-- docs-frame-keys: ignore 0x8002 -->` exempts only the specified key literal on that line.
+
+The qualified form accepts one four-digit hexadecimal key. The marker does not suppress validation
+of logged frame structure. The checker runs as part of `bin/lint.sh`.
+
 ## kb-lint.php
 
 Lints the subagent knowledge base under `docs/helpers/`:
