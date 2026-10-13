@@ -28,6 +28,7 @@ step "phpstan" vendor/bin/phpstan analyse
 step "kb-lint" php bin/kb-lint.php
 step "docs-links" php bin/check-docs-links.php
 step "docs-symbols" php bin/check-docs-symbols.php
+step "api-reference" php bin/check-api-reference.php
 step "docs-frame-keys" php bin/check-docs-frame-keys.php
 step "stale-sockets" php bin/check-stale-sockets.php
 step "test-suite-coverage" php bin/check-test-suites.php
