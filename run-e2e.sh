@@ -66,8 +66,8 @@ if [[ "$container_id" == *$'\n'* ]]; then
     exit 1
 fi
 
-# `docker inspect` reads health status directly, so health polling needs neither host `python3`
-# nor the JSON shape `docker compose ps --format json` happens to emit (#472).
+# Automatic free-port allocation above uses host `python3` when ports are unset; health polling
+# uses `docker inspect` and needs no host `python3` or `docker compose ps --format json` (#472).
 status=""
 attempt=0
 while [ "$attempt" -lt "$HEALTH_RETRIES" ]; do
