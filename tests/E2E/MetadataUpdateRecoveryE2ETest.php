@@ -123,7 +123,21 @@ class MetadataUpdateRecoveryE2ETest extends E2ETestCase
 
         $consumer = $connection->createConsumer($stream, OffsetSpec::first());
         $this->assertInstanceOf(Consumer::class, $consumer);
-        $this->assertCount(4, $consumer->read(timeout: 5.0));
+
+        // read() waits for the first message and returns everything buffered at
+        // that point; it is not a promise to collect every currently available
+        // message. Keep reading until the whole seeded batch has arrived.
+        $bodies = [];
+        $deadline = microtime(true) + 5.0;
+        while (count($bodies) < 4 && microtime(true) < $deadline) {
+            $message = $consumer->readOne(timeout: $deadline - microtime(true));
+            if ($message instanceof Message) {
+                $body = $message->getBody();
+                $this->assertIsString($body);
+                $bodies[] = $body;
+            }
+        }
+        $this->assertSame(['a', 'b', 'e', 'f'], $bodies, 'The initial subscription must deliver every seeded message');
         $this->assertFalse($consumer->isSubscriptionLost());
 
         $admin->deleteStream($stream);

@@ -363,6 +363,12 @@ foreach ($markdownFiles as $markdownFile) {
                 if (str_starts_with($directory, $name . '\\')) {
                     return true;
                 }
+                if (
+                    $directory === 'CrazyGoat\\RabbitStream\\Tests'
+                    && str_starts_with($name, $directory . '\\')
+                ) {
+                    return true;
+                }
             }
             return false;
         };
