@@ -150,7 +150,7 @@ public function sendBatch(array $messages, ?float $timeout = null): void
 
 - `ConnectionException` - If the socket is not connected or the write/read fails
 - `DeserializationException` - If a response or server-push frame read while draining back-pressure cannot be deserialized
-- `InvalidArgumentException` - If the serialized `Publish` request exceeds the negotiated outgoing frame size
+- `InvalidArgumentException` - If the serialized `Publish` request exceeds the negotiated outgoing frame size, or the batch exceeds a positive `maxPendingConfirms` limit
 - `ProtocolException` - If the broker rejects a re-declare or sends an unexpected frame
 - `TimeoutException` - If the write, a re-declare, or the `maxPendingConfirms` back-pressure drain times out
 
@@ -168,6 +168,7 @@ $producer->sendBatch($messages);
 
 #### Notes
 
+- When a positive `maxPendingConfirms` limit is configured, a batch larger than the limit is rejected with `InvalidArgumentException` before the producer checks or re-declares its publisher. This fail-fast size check therefore takes precedence even if the producer is stale.
 - More efficient than multiple `send()` calls for high throughput
 - All messages in the batch share the same network frame
 - Each message is a plain payload string, automatically wrapped in an AMQP 1.0 Data section (same encoding as `send()`)
