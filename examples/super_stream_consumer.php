@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
-use LogicException;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
