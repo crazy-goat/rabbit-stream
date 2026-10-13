@@ -26,6 +26,8 @@ use PHPUnit\Framework\TestCase;
  */
 class ProducerDocblockTest extends TestCase
 {
+    use HasReturnDescription;
+
     private const EXCEPTION_NAMESPACE = 'CrazyGoat\\RabbitStream\\Exception\\';
 
     /**
@@ -263,35 +265,6 @@ class ProducerDocblockTest extends TestCase
     }
 
     /**
-     * Regression for the generic-type case: a type such as
-     * `array<string, string>` must be consumed as a whole (spaces inside the
-     * angle brackets included) before deciding whether prose remains. The old
-     * regex split on the inner space and treated `string>` as a description.
-     */
-    public function testReturnDescriptionHandlesGenericTypesWithSpaces(): void
-    {
-        $method = new \ReflectionMethod(self::class, 'hasReturnDescription');
-
-        $bare = "/**\n * @return array<string, string>\n */";
-        $this->assertFalse(
-            $method->invoke($this, $bare),
-            'A bare @return with a spaced generic type has no description.'
-        );
-
-        $inline = "/**\n * @return array<string, string> Map of filter name to value.\n */";
-        $this->assertTrue(
-            $method->invoke($this, $inline),
-            'A @return with a spaced generic type and inline prose has a description.'
-        );
-
-        $nextLine = "/**\n * @return array<string, string>\n * Map of filter name to value.\n */";
-        $this->assertTrue(
-            $method->invoke($this, $nextLine),
-            'A description on the line after the @return type counts.'
-        );
-    }
-
-    /**
      * The prose description: the docblock text before the first `@tag`.
      */
     private function description(string $docblock): string
@@ -310,38 +283,6 @@ class ProducerDocblockTest extends TestCase
         }
 
         return trim(implode(' ', $prose));
-    }
-
-    /**
-     * Whether the docblock has an `@return` tag carrying a description after
-     * its type. A bare `@return <type>` whose type merely repeats the native
-     * return type is removed by Rector's DEAD_CODE set (FAQ-008), so tag
-     * presence alone is not enough — the gate must require prose too. A
-     * description may sit on the tag line or on the continuation line(s).
-     */
-    private function hasReturnDescription(string $docblock): bool
-    {
-        $body = preg_replace('~^/\*\*|\*/$~', '', trim($docblock)) ?? '';
-        $lines = explode("\n", $body);
-
-        foreach ($lines as $index => $line) {
-            $line = trim(ltrim(trim($line), '*'));
-            if (preg_match('/^@return\s+(?:\S*<[^>]*>|\S*\{[^}]*\}|\S+)\s*(.*)$/', $line, $matches) !== 1) {
-                continue;
-            }
-            if (trim($matches[1]) !== '') {
-                return true;
-            }
-            for ($next = $index + 1, $count = count($lines); $next < $count; $next++) {
-                $continuation = trim(ltrim(trim($lines[$next]), '*'));
-                if ($continuation === '' || str_starts_with($continuation, '@')) {
-                    break;
-                }
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function needsReturnTag(\ReflectionMethod $method): bool
