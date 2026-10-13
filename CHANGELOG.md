@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Workflow: accepted issues are assigned to the authenticated `gh` account (#836)** — the `check_done` gate assigns an unassigned issue before coding, permits a retry when assigned to the same account, and skips issues assigned to another account. Assignments remain after the run ends and must be removed manually.
+
 ## [1.11.0] - 2026-10-13
 
 ### Changed
