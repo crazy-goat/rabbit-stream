@@ -10,6 +10,8 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
     command: >
       sh -c "rabbitmq-plugins enable rabbitmq_stream && rabbitmq-server"
+    # Keep this failure budget shorter than the run-e2e.sh health-wait bound,
+    # so the script does not keep polling after Docker has declared the broker unhealthy.
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 5s
