@@ -204,6 +204,13 @@ tracked issues, without duplicates.
 
 ### Vendored issue-to-merge workflow
 
+The `check_done` gate assigns an accepted issue to the account authenticated in
+`gh` before the run enters `open_pr` or coding. An issue assigned to that same
+account may be retried; an issue assigned to someone else is skipped. The
+assignment is intentionally retained after the run ends (including failures and
+manual stops), because the workflow has no safe end-state cleanup hook. A
+maintainer must unassign the issue to release it for another run or person.
+
 This repository vendors its customized `issue-to-merge` workflow in
 [`.tyci/workflows/issue-to-merge/`](../.tyci/workflows/issue-to-merge/). It pauses for explicit
 human approval before merging a PR that changes protected paths (`.github/`, `.tyci/`, or
