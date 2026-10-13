@@ -898,3 +898,22 @@ function consumeWithRetry(
 - [Message API Reference](message.md)
 - [Consuming Guide](../guide/consuming.md)
 - [OffsetSpec Reference](../../../src/VO/OffsetSpec.php)
+
+
+## Additional Public Methods
+
+### isClosed()
+
+Whether `close()` has already run.
+
+```php
+public function isClosed(): bool
+```
+
+### getCreditTarget()
+
+Return the current in-flight chunk target used by the adaptive credit window.
+
+```php
+public function getCreditTarget(): int
+```
