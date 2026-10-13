@@ -615,3 +615,23 @@ $payload = $buffer->getRemainingBytes();
 // Or let the library's dispatcher decode the whole frame for you:
 $response = ResponseBuilder::fromResponseBuffer(new ReadBuffer($frameData));
 ```
+
+
+## Additional Public Methods
+
+### getRemainingWindow()
+
+Return the remaining bytes as a `[string, offset, length]` zero-copy window and advance this buffer to its end.
+
+```php
+/** @return array{0: string, 1: int, 2: int} */
+public function getRemainingWindow(): array
+```
+
+### slice()
+
+Create a new zero-copy buffer window relative to this buffer's current position without consuming this buffer.
+
+```php
+public function slice(int $offset, ?int $length = null): self
+```

@@ -658,3 +658,136 @@ if ($frame !== null) {
 // Non-blocking message send
 $connection->sendMessage($request, timeout: 0.0);
 ```
+
+
+## Additional Public Methods
+
+### setHeartbeatInterval()
+
+Set the negotiated heartbeat interval in seconds; zero disables heartbeat sending and missed-heartbeat detection.
+
+```php
+public function setHeartbeatInterval(int $seconds): void
+```
+
+### getHeartbeatInterval()
+
+Return the negotiated heartbeat interval in seconds.
+
+```php
+public function getHeartbeatInterval(): int
+```
+
+### setMaxDeliverFrameSize()
+
+Set the incoming Deliver-frame byte limit; zero means unlimited.
+
+```php
+public function setMaxDeliverFrameSize(int $maxDeliverFrameSize): void
+```
+
+### getMaxDeliverFrameSize()
+
+Return the incoming Deliver-frame byte limit; zero means unlimited.
+
+```php
+public function getMaxDeliverFrameSize(): int
+```
+
+### setOutgoingMaxFrameSize()
+
+Set the maximum outgoing frame size in bytes; zero means unlimited. Oversized frames are rejected before writing.
+
+```php
+public function setOutgoingMaxFrameSize(int $outgoingMaxFrameSize): void
+```
+
+### getOutgoingMaxFrameSize()
+
+Return the maximum outgoing frame size in bytes; zero means unlimited.
+
+```php
+public function getOutgoingMaxFrameSize(): int
+```
+
+### setCommandVersions()
+
+Store the broker-reported per-command version ranges, keyed by protocol command key.
+
+```php
+/** @param array<int, CommandVersion> $commandVersions */
+public function setCommandVersions(array $commandVersions): void
+```
+
+### getCommandVersions()
+
+Return the broker-reported per-command version ranges, keyed by protocol command key.
+
+```php
+/** @return array<int, CommandVersion> */
+public function getCommandVersions(): array
+```
+
+### supportsCommandVersion()
+
+Check whether the broker supports a command version. Version 1 is assumed when the command was not negotiated.
+
+```php
+public function supportsCommandVersion(KeyEnum $key, int $version): bool
+```
+
+### abandonCorrelation()
+
+Mark a timed-out request correlation ID as abandoned so a late response is discarded.
+
+```php
+public function abandonCorrelation(int $correlationId): void
+```
+
+### registerCreditErrorHandler()
+
+Register a handler for a rejected Credit request on a subscription.
+
+```php
+public function registerCreditErrorHandler(int $subscriptionId, callable $handler): void
+```
+
+### registerConsumerUpdateHandler()
+
+Register a per-subscription handler for ConsumerUpdate queries. A handler returning `null` replies with the `none` offset type.
+
+```php
+public function registerConsumerUpdateHandler(int $subscriptionId, callable $handler): void
+```
+
+### unregisterConsumerUpdateHandler()
+
+Remove the registered per-subscription ConsumerUpdate handler.
+
+```php
+public function unregisterConsumerUpdateHandler(int $subscriptionId): void
+```
+
+### registerConnectionLostHandler()
+
+Register a handler called with the reason when the connection can no longer carry frames.
+
+```php
+public function registerConnectionLostHandler(int $handlerId, callable $handler): void
+```
+
+### unregisterConnectionLostHandler()
+
+Remove a registered connection-loss handler.
+
+```php
+public function unregisterConnectionLostHandler(int $handlerId): void
+```
+
+### request()
+
+Send a correlated request and return its matching response; responses for other in-flight requests are parked for their matching calls.
+
+```php
+public function request(object $request, float $timeout = 30.0): object
+```

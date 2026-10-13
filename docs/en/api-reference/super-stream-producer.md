@@ -402,3 +402,14 @@ final class RoundRobinRoutingStrategy implements RoutingStrategy
 - [Connection API Reference](connection.md)
 - [Producer API Reference](producer.md)
 - [SuperStreamConsumer API Reference](super-stream-consumer.md)
+
+
+## Additional Public Methods
+
+### markPartitionsStale()
+
+Mark the partition topology stale so the next publish refreshes it. Normally called by the `Connection` metadata-update handler.
+
+```php
+public function markPartitionsStale(): void
+```
