@@ -13,7 +13,7 @@ RabbitMQ Streams provides durable, append-only message streams. Consumers read m
 
 ### Creating a Consumer
 
-Use `Connection::createConsumer()` to create a high-level consumer:
+Use `Connection::createConsumer()` to create a high-level consumer. Save the PHP snippets in this guide as scripts in your Composer project's root directory; they load Composer dependencies with `require_once __DIR__ . '/vendor/autoload.php';`.
 
 ```php
 <?php
@@ -23,7 +23,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
 $connection = Connection::create('127.0.0.1');
 
@@ -98,7 +98,7 @@ declare(strict_types=1);
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
 $connection = Connection::create('127.0.0.1');
 
@@ -827,7 +827,7 @@ use CrazyGoat\RabbitStream\Request\UnsubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
 // Low-level connection, handshaken by the high-level factory
 $stream = new StreamConnection('127.0.0.1', 5552);
