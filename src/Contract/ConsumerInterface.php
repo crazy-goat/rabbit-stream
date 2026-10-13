@@ -206,6 +206,9 @@ interface ConsumerInterface
      *
      * @param callable $callback Called with (bool $active, ConsumerInterface $this): ?OffsetSpec.
      *                           Return null to keep the current position (offsetType 0).
+     *                           The return value is validated when a ConsumerUpdate
+     *                           frame is dispatched; an invalid value raises
+     *                           InvalidArgumentException.
      */
     public function onConsumerUpdate(callable $callback): void;
 }
