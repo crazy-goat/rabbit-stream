@@ -10,7 +10,7 @@ Publishing in RabbitMQ Streams is asynchronous by design. When you publish a mes
 
 ### Creating a Producer
 
-The simplest way to publish messages is using the high-level `Producer` API:
+The simplest way to publish messages is using the high-level `Producer` API. Save the PHP snippets in this guide as scripts in your Composer project's root directory; they load Composer dependencies with `require_once __DIR__ . '/vendor/autoload.php';`.
 
 ```php
 <?php

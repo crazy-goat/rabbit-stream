@@ -84,6 +84,8 @@ unread messages are buffered) still applies on top of the window. Configure it
 through the high-level factory, for example:
 `$connection->createConsumer('orders', OffsetSpec::first(), maxBufferSize: 100)`.
 
+Save complete PHP examples from this guide as scripts in your Composer project's root directory. They load Composer dependencies with `require_once __DIR__ . '/vendor/autoload.php';`.
+
 This guide shows the low-level API — the snippet uses a raw `StreamConnection`
 (`$stream`):
 
