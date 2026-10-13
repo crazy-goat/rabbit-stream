@@ -578,7 +578,12 @@ metrics or custom throttling logic.
 Controls message polling timeout:
 
 ```php
-$consumer = new Consumer(/* ... */);
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
+
+$consumer = $connection->createConsumer(
+    'my-stream',
+    OffsetSpec::next(),
+);
 
 // Non-blocking check
 $messages = $consumer->read(timeout: 0.0);
