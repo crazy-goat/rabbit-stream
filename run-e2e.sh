@@ -28,6 +28,8 @@ fi
 export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_AMQP_PORT RABBITMQ_MANAGEMENT_PORT
 
 # Health-wait bounds: E2E_HEALTH_RETRIES polls, E2E_HEALTH_INTERVAL seconds apart.
+# Keep this wait longer than the Compose healthcheck budget (see docker-compose.yml),
+# so a slow broker can finish its healthchecks before this script gives up.
 # The defaults cap the wait at three minutes instead of polling forever (#472).
 HEALTH_RETRIES="${E2E_HEALTH_RETRIES:-90}"
 HEALTH_INTERVAL="${E2E_HEALTH_INTERVAL:-2}"
