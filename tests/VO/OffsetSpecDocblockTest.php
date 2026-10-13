@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\VO;
 
+use CrazyGoat\RabbitStream\Tests\Client\HasReturnDescription;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
 
@@ -23,6 +24,8 @@ use PHPUnit\Framework\TestCase;
  */
 class OffsetSpecDocblockTest extends TestCase
 {
+    use HasReturnDescription;
+
     private const EXCEPTION_NAMESPACE = 'CrazyGoat\\RabbitStream\\Exception\\';
 
     public function testEveryPublicFactoryIsDocumented(): void
@@ -221,37 +224,5 @@ class OffsetSpecDocblockTest extends TestCase
         }
 
         return trim(implode(' ', $prose));
-    }
-
-    /**
-     * Whether the docblock has an `@return` tag carrying a description after
-     * its type. A bare `@return <type>` whose type merely repeats the native
-     * return type is removed by Rector's DEAD_CODE set (FAQ-008), so tag
-     * presence alone is not enough — the gate must require prose too. A
-     * description may sit on the tag line or on the continuation line(s).
-     */
-    private function hasReturnDescription(string $docblock): bool
-    {
-        $body = preg_replace('~^/\*\*|\*/$~', '', trim($docblock)) ?? '';
-        $lines = explode("\n", $body);
-
-        foreach ($lines as $index => $line) {
-            $line = trim(ltrim(trim($line), '*'));
-            if (preg_match('/^@return\s+(?:\S*<[^>]*>|\S*\{[^}]*\}|\S+)\s*(.*)$/', $line, $matches) !== 1) {
-                continue;
-            }
-            if (trim($matches[1]) !== '') {
-                return true;
-            }
-            for ($next = $index + 1, $count = count($lines); $next < $count; $next++) {
-                $continuation = trim(ltrim(trim($lines[$next]), '*'));
-                if ($continuation === '' || str_starts_with($continuation, '@')) {
-                    break;
-                }
-                return true;
-            }
-        }
-
-        return false;
     }
 }
