@@ -6,6 +6,7 @@ namespace CrazyGoat\RabbitStream\Tests\Contract;
 
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
+use CrazyGoat\RabbitStream\Tests\Client\HasReturnDescription;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -26,6 +27,8 @@ use PHPUnit\Framework\TestCase;
  */
 class ContractDocblockTest extends TestCase
 {
+    use HasReturnDescription;
+
     private const CONTRACT_DIR = __DIR__ . '/../../src/Contract';
     private const EXCEPTION_NAMESPACE = 'CrazyGoat\\RabbitStream\\Exception\\';
 
@@ -645,38 +648,6 @@ class ContractDocblockTest extends TestCase
         }
 
         return trim(implode(' ', $prose));
-    }
-
-    /**
-     * Whether the docblock has an `@return` tag carrying a description after
-     * its type. A bare `@return <type>` whose type merely repeats the native
-     * return type is removed by Rector's DEAD_CODE set (FAQ-008), so tag
-     * presence alone is not enough — the gate must require prose too. A
-     * description may sit on the tag line or on the continuation line(s).
-     */
-    private function hasReturnDescription(string $docblock): bool
-    {
-        $body = preg_replace('~^/\*\*|\*/$~', '', trim($docblock)) ?? '';
-        $lines = explode("\n", $body);
-
-        foreach ($lines as $index => $line) {
-            $line = trim(ltrim(trim($line), '*'));
-            if (preg_match('/^@return\s+(?:\S*<[^>]*>|\S*\{[^}]*\}|\S+)\s*(.*)$/', $line, $matches) !== 1) {
-                continue;
-            }
-            if (trim($matches[1]) !== '') {
-                return true;
-            }
-            for ($next = $index + 1, $count = count($lines); $next < $count; $next++) {
-                $continuation = trim(ltrim(trim($lines[$next]), '*'));
-                if ($continuation === '' || str_starts_with($continuation, '@')) {
-                    break;
-                }
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function needsReturnTag(\ReflectionMethod $method): bool
