@@ -50,8 +50,23 @@ find_pr() {
 
 pr=$(find_pr)
 if [ -z "$pr" ]; then
+    title=""
+    default_ref="origin/$TYCI_DEFAULT_BRANCH"
+    if git rev-parse --verify --quiet "$default_ref^{commit}" >/dev/null &&
+        git merge-base --is-ancestor "$default_ref" HEAD; then
+        title="$(git log --format=%s --reverse --no-merges "$default_ref"..HEAD | sed -n '1p')"
+    fi
+    if [ -z "$title" ]; then
+        title="$(git log -1 --format=%s --no-merges HEAD)"
+    fi
+    if [ -z "$title" ]; then
+        title="$(git log -1 --format=%s)"
+    fi
+    if [ -z "$title" ]; then
+        title="issue-$TYCI_ISSUE"
+    fi
     gh pr create -R "$TYCI_REPO" --base "$TYCI_DEFAULT_BRANCH" --head "$branch" \
-        --title "$(git log -1 --format=%s)" --body "Closes #$TYCI_ISSUE" >&2
+        --title "$title" --body "Closes #$TYCI_ISSUE" >&2
     pr=$(find_pr)
 fi
 
