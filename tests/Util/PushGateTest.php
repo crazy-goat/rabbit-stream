@@ -28,6 +28,11 @@ class PushGateTest extends TestCase
         $this->runGit(['push', '-u', 'origin', 'main']);
         $this->runGit(['checkout', '-b', 'issue-42']);
         $this->commit('change.txt', 'issue change', 'feat: preserve issue title (#42)');
+        $this->runGit(['checkout', 'main']);
+        $this->commit('main-update.txt', 'default branch update', 'docs: update default branch');
+        $this->runGit(['push', 'origin', 'main']);
+        $this->runGit(['checkout', 'issue-42']);
+        $this->runGit(['fetch', 'origin']);
         $mergeSubject = "Merge remote-tracking branch 'origin/main' into issue-42";
         $this->runGit(['merge', '--no-ff', '-m', $mergeSubject, 'origin/main']);
         $this->runGit(['push', '-u', 'origin', 'issue-42']);
@@ -43,6 +48,13 @@ class PushGateTest extends TestCase
 
     public function testCreatesPullRequestWithFirstNonMergeCommitSubject(): void
     {
+        $head = trim($this->runGit(['rev-list', '--parents', '-n', '1', 'HEAD']));
+        $this->assertCount(3, explode(' ', $head), 'HEAD must be a merge commit with two parents.');
+        $this->assertSame(
+            "Merge remote-tracking branch 'origin/main' into issue-42",
+            trim($this->runGit(['show', '-s', '--format=%s', 'HEAD']))
+        );
+
         [$exit, $stdout, $stderr, $calls] = $this->runPush();
 
         $this->assertSame(0, $exit, $stderr);
@@ -121,7 +133,7 @@ BASH);
     }
 
     /** @param list<string> $arguments */
-    private function runGit(array $arguments): void
+    private function runGit(array $arguments): string
     {
         $process = proc_open(
             array_merge(['git'], $arguments),
@@ -139,6 +151,7 @@ BASH);
         fclose($pipes[2]);
         $exit = proc_close($process);
         $this->assertSame(0, $exit, $stderr . $stdout);
+        return $stdout;
     }
 
     private function commit(string $path, string $contents, string $subject): void
