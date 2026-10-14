@@ -124,7 +124,7 @@ gh pr create --fill --body "Closes #<N>"
 gh pr checks --watch
 ```
 
-- The PR title is a Conventional Commit. With squash merge it becomes the commit message.
+- The PR title is a Conventional Commit. With squash merge it becomes the commit message. The vendored `issue-to-merge` workflow derives a new PR title from the first non-merge commit after the default branch, so synchronizing merge commits do not replace the change's subject; it falls back to the branch's latest non-merge commit when the default branch is not an ancestor.
 - Use the PR template. Put `Closes #<N>` in the description.
 - The required check is `ci-ok`. If CI fails, read the log (`gh run view --log-failed`),
   and go back to **step 3**. Do not disable or skip a check to make it green.
