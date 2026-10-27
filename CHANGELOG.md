@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **CI: the RabbitMQ image comes from Google's Docker Hub mirror, with ECR Public as fallback (#872)** — `e2e-tests` still failed with `toomanyrequests` after #826, because the pull limit applies to every Docker Hub image pulled anonymously. `run-e2e.sh` now pulls `mirror.gcr.io/library/rabbitmq:4-management` with three attempts and a backoff, then falls back to `public.ecr.aws/docker/library/rabbitmq:4-management`, and exports the image that worked. `docker-compose.yml` uses `${RABBITMQ_IMAGE:-mirror.gcr.io/library/rabbitmq:4-management}`. Both registries serve the identical digest.
+
 ## [1.12.0] - 2026-10-14
 
 ### Changed

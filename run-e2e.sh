@@ -43,6 +43,43 @@ if ! [[ "$HEALTH_INTERVAL" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+# Pull the broker image before compose starts it. Docker Hub is not in the list: its anonymous
+# pull limit is shared by GitHub-hosted runners (#826, #872). An image set in the environment is the only candidate.
+if [ -n "${RABBITMQ_IMAGE:-}" ]; then
+    RABBITMQ_IMAGE_CANDIDATES=("$RABBITMQ_IMAGE")
+else
+    RABBITMQ_IMAGE_CANDIDATES=(
+        "mirror.gcr.io/library/rabbitmq:4-management"
+        "public.ecr.aws/docker/library/rabbitmq:4-management"
+    )
+fi
+PULL_ATTEMPTS=3
+
+pull_rabbitmq_image() {
+    local image attempt
+    for image in "${RABBITMQ_IMAGE_CANDIDATES[@]}"; do
+        for attempt in $(seq 1 "$PULL_ATTEMPTS"); do
+            echo "Pulling $image (attempt $attempt of $PULL_ATTEMPTS)..."
+            if docker pull "$image"; then
+                RABBITMQ_IMAGE="$image"
+                export RABBITMQ_IMAGE
+                return 0
+            fi
+            if [ "$attempt" -lt "$PULL_ATTEMPTS" ]; then
+                # Back off 5 seconds, then 10 seconds, before the next attempt.
+                sleep $((attempt * 5))
+            fi
+        done
+        echo "WARNING: could not pull $image; trying the next candidate." >&2
+    done
+    return 1
+}
+
+if ! pull_rabbitmq_image; then
+    echo "ERROR: could not pull the RabbitMQ image from any candidate." >&2
+    exit 1
+fi
+
 cleanup() {
     echo "Stopping RabbitMQ..."
     docker compose down
