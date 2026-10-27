@@ -167,8 +167,8 @@
         "merged": "findings",
         "behind": "rebase",
         "protected": "ask_protected",
-        "fail": "fixer",
-        "default": "fixer"
+        "fail": "ask_protected",
+        "default": "ask_protected"
       }
     }
   }
