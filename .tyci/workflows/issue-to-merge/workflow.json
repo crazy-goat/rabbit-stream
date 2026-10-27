@@ -98,6 +98,7 @@
     },
     "merge": {
       "check": "checks/merge.sh",
+      "guard": true,
       "on": {
         "merged": "findings",
         "behind": "rebase",
@@ -161,6 +162,7 @@
     },
     "merge_approved": {
       "check": "checks/merge_approved.sh",
+      "guard": true,
       "on": {
         "merged": "findings",
         "behind": "rebase",
