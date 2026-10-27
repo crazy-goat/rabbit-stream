@@ -43,6 +43,62 @@ if ! [[ "$HEALTH_INTERVAL" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+# Pull the broker image before compose starts it. Docker Hub is not in the list: its anonymous
+# pull limit is shared by GitHub-hosted runners (#826). ECR Public has a similar limit (#872),
+# so it is only the fallback. An image set in the environment is the only candidate.
+if [ -n "${RABBITMQ_IMAGE:-}" ]; then
+    RABBITMQ_IMAGE_CANDIDATES=("$RABBITMQ_IMAGE")
+else
+    RABBITMQ_IMAGE_CANDIDATES=(
+        "mirror.gcr.io/library/rabbitmq:4-management"
+        "public.ecr.aws/docker/library/rabbitmq:4-management"
+    )
+fi
+PULL_ATTEMPTS=3
+
+pull_rabbitmq_image() {
+    local image attempt
+    for image in "${RABBITMQ_IMAGE_CANDIDATES[@]}"; do
+        for attempt in $(seq 1 "$PULL_ATTEMPTS"); do
+            echo "Pulling $image (attempt $attempt of $PULL_ATTEMPTS)..."
+            if docker pull "$image"; then
+                RABBITMQ_IMAGE="$image"
+                export RABBITMQ_IMAGE
+                return 0
+            fi
+            if [ "$attempt" -lt "$PULL_ATTEMPTS" ]; then
+                # Back off 5 seconds, then 10 seconds, before the next attempt.
+                sleep $((attempt * 5))
+            fi
+        done
+        echo "WARNING: could not pull $image; trying the next candidate." >&2
+    done
+    return 1
+}
+
+# Print the first candidate that already exists in the local Docker cache.
+find_cached_rabbitmq_image() {
+    local image
+    for image in "${RABBITMQ_IMAGE_CANDIDATES[@]}"; do
+        if docker image inspect "$image" >/dev/null 2>&1; then
+            echo "$image"
+            return 0
+        fi
+    done
+    return 1
+}
+
+if ! pull_rabbitmq_image; then
+    # No registry answered. A cached copy still lets the broker start offline.
+    if ! cached_image="$(find_cached_rabbitmq_image)"; then
+        echo "ERROR: could not pull the RabbitMQ image and no candidate is cached locally." >&2
+        exit 1
+    fi
+    RABBITMQ_IMAGE="$cached_image"
+    export RABBITMQ_IMAGE
+    echo "WARNING: using the cached image $RABBITMQ_IMAGE; the registry pull failed." >&2
+fi
+
 cleanup() {
     echo "Stopping RabbitMQ..."
     docker compose down
