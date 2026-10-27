@@ -75,7 +75,7 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
-    public function testFailsBeforeComposeWhenEveryImageCandidateFails(): void
+    public function testFailsBeforeComposeWhenEveryImageCandidateFailsAndNothingIsCached(): void
     {
         $dir = $this->makeFixture();
         $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: ['FAKE_PULL_FAIL' => '*']);
@@ -86,6 +86,41 @@ class RunE2eHealthWaitTest extends TestCase
         $dockerLog = (string) file_get_contents($dir . '/docker.log');
         $this->assertSame(0, substr_count($dockerLog, 'compose up'));
         $this->assertStringNotContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
+    }
+
+    public function testUsesTheCachedMirrorImageWhenEveryPullFails(): void
+    {
+        $dir = $this->makeFixture();
+        $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: [
+            'FAKE_PULL_FAIL' => '*',
+            'FAKE_LOCAL_IMAGE' => 'mirror.gcr.io/library/rabbitmq:4-management',
+        ]);
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertSame(0, $result['exit'], $result['stderr']);
+        $this->assertStringContainsString('WARNING: using the cached image mirror.gcr.io', $result['stderr']);
+        $dockerLog = (string) file_get_contents($dir . '/docker.log');
+        $this->assertSame(1, substr_count($dockerLog, 'compose up'));
+        $this->assertStringContainsString('RABBITMQ_IMAGE=mirror.gcr.io/library/rabbitmq:4-management', $dockerLog);
+        $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
+    }
+
+    public function testUsesTheCachedEcrImageWhenOnlyItIsCachedAndEveryPullFails(): void
+    {
+        $dir = $this->makeFixture();
+        $result = $this->runE2eIn($dir, 'fakecid', 'healthy', environment: [
+            'FAKE_PULL_FAIL' => '*',
+            'FAKE_LOCAL_IMAGE' => 'public.ecr.aws/docker/library/rabbitmq:4-management',
+        ]);
+
+        $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish');
+        $this->assertSame(0, $result['exit'], $result['stderr']);
+        $dockerLog = (string) file_get_contents($dir . '/docker.log');
+        $this->assertStringContainsString(
+            'RABBITMQ_IMAGE=public.ecr.aws/docker/library/rabbitmq:4-management',
+            $dockerLog
+        );
+        $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
     public function testFailsWithDiagnosticsWhenTheBrokerNeverBecomesHealthy(): void
@@ -384,6 +419,10 @@ class RunE2eHealthWaitTest extends TestCase
                 echo "RABBITMQ_AMQP_PORT=${RABBITMQ_AMQP_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_MANAGEMENT_PORT=${RABBITMQ_MANAGEMENT_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-}" >> "$FAKE_LOG"
+                if [ "$1" = image ] && [ "$2" = inspect ]; then
+                  if [ -n "${FAKE_LOCAL_IMAGE:-}" ] && [ "$3" = "$FAKE_LOCAL_IMAGE" ]; then exit 0; fi
+                  exit 1
+                fi
                 if [ "$1" = pull ]; then
                   case "$2" in
                     ${FAKE_PULL_FAIL:-NO-MATCH}) exit 1 ;;

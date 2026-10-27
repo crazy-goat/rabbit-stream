@@ -44,7 +44,8 @@ if ! [[ "$HEALTH_INTERVAL" =~ ^[0-9]+$ ]]; then
 fi
 
 # Pull the broker image before compose starts it. Docker Hub is not in the list: its anonymous
-# pull limit is shared by GitHub-hosted runners (#826, #872). An image set in the environment is the only candidate.
+# pull limit is shared by GitHub-hosted runners (#826). ECR Public has a similar limit (#872),
+# so it is only the fallback. An image set in the environment is the only candidate.
 if [ -n "${RABBITMQ_IMAGE:-}" ]; then
     RABBITMQ_IMAGE_CANDIDATES=("$RABBITMQ_IMAGE")
 else
@@ -75,9 +76,27 @@ pull_rabbitmq_image() {
     return 1
 }
 
+# Print the first candidate that already exists in the local Docker cache.
+find_cached_rabbitmq_image() {
+    local image
+    for image in "${RABBITMQ_IMAGE_CANDIDATES[@]}"; do
+        if docker image inspect "$image" >/dev/null 2>&1; then
+            echo "$image"
+            return 0
+        fi
+    done
+    return 1
+}
+
 if ! pull_rabbitmq_image; then
-    echo "ERROR: could not pull the RabbitMQ image from any candidate." >&2
-    exit 1
+    # No registry answered. A cached copy still lets the broker start offline.
+    if ! cached_image="$(find_cached_rabbitmq_image)"; then
+        echo "ERROR: could not pull the RabbitMQ image and no candidate is cached locally." >&2
+        exit 1
+    fi
+    RABBITMQ_IMAGE="$cached_image"
+    export RABBITMQ_IMAGE
+    echo "WARNING: using the cached image $RABBITMQ_IMAGE; the registry pull failed." >&2
 fi
 
 cleanup() {
