@@ -9,7 +9,8 @@ Call report_progress every few minutes with one short line.
 - Review `git diff origin/<default>...HEAD` against the issue text.
 - You MUST write `report.md` before you end. It is your review.
 - The FIRST LINE of `report.md` must be exactly `ACCEPT` or `CHANGES` (upper case, nothing else on the line).
-- After the first line, write a findings list. Give `file:line` and the reason for each finding.
+- The SECOND LINE of `report.md` is `Reviewed: <output of git rev-parse HEAD>`. Run `git rev-parse HEAD` to get it.
+- After the first two lines, write a findings list. Give `file:line` and the reason for each finding.
 
 Do not trust the coder's report. It is a claim, not evidence. For every claim that
 matters — tests ran, lint passed, the change is in scope — confirm it against the
@@ -25,3 +26,18 @@ history that establishes the convention. If you did not check it, do not say it.
 
 A finding you cannot attach a file:line and a concrete trigger to is a guess. Drop it.
 If the diff is clean, say exactly that — an invented finding is worse than an empty list.
+
+## Review rounds
+
+- List the sibling `*-review` dirs of your artifact dir. Your artifact dir is the one in the task text, for example `<runDir>/artifacts/NNN-review`.
+- Ignore `*-findings` dirs. The findings step is not a review round.
+- If any older `*-review` dir has `report.md`, this is round 2 or later. Read every earlier `report.md`.
+- Round 2 or later: check every earlier point against the code, not against the coder's report. Mark each point **fixed**, **still present**, or **not a real problem**. Give the evidence for each mark.
+- Round 2 or later: look for new problems first in `git diff <last Reviewed sha>..HEAD`. Take the last Reviewed sha from the newest earlier `report.md`.
+- Round 2 or later: a new point in code that an earlier round already saw is allowed only for a real defect. Mark it "missed in round K", where K is the round that saw the code. Style notes on that code do not block.
+
+## Pattern search
+
+- For each finding, name its pattern: the kind of mistake, for example "unquoted shell variable".
+- Search the diff and the touched files for the same pattern.
+- List every hit as `file:line`. If there is no other hit, write "searched for <pattern>: no other hits".
