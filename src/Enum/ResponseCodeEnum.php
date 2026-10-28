@@ -46,7 +46,9 @@ enum ResponseCodeEnum: int
      * Unsubscribe or Credit named a subscription id the broker does not know
      * (for example after a MetadataUpdate dropped it). Handling: treat the
      * subscription as gone; Consumer::close() skips Unsubscribe for an
-     * already-lost subscription to avoid this.
+     * already-lost subscription to avoid this. A Credit answered with this code
+     * while the Consumer's subscription is lost or being re-subscribed is stale and
+     * ignored (#881).
      */
     case SUBSCRIPTION_ID_NOT_EXIST = 0x04;
 

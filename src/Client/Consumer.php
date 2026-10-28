@@ -511,6 +511,16 @@ class Consumer implements ConsumerInterface
         $this->connection->registerCreditErrorHandler(
             $this->subscriptionId,
             function (CreditResponseV1 $response): void {
+                // While the subscription is lost or being re-subscribed, the broker no longer
+                // knows it. A SUBSCRIPTION_ID_NOT_EXIST answer then belongs to a Credit sent
+                // before the stream was deleted, so it is stale and must not poison the
+                // re-subscribed consumer (#881).
+                if (
+                    $this->subscriptionLost
+                    && $response->getResponseCode() === ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST->value
+                ) {
+                    return;
+                }
                 $this->creditError = new ProtocolException(
                     sprintf(
                         'Credit rejected for subscription %d with response code 0x%04x',
