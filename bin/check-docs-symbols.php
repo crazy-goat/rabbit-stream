@@ -23,7 +23,7 @@ if (!is_dir($docsRoot)) {
     exit(2);
 }
 
-/** @var array<string, array{file: string, parameters: list<string>, parent: ?string, constructorDeclared: bool}> $classes */
+/** @var array<string, array{file: string, parameters: list<string>, parent: ?string}> $classes */
 $classes = [];
 /** @var array<string, true> $sourceDirectories */
 $sourceDirectories = ['CrazyGoat\\RabbitStream\\Tests' => true];
@@ -64,7 +64,7 @@ foreach ($sourceFiles as $sourceFile) {
         break;
     }
 
-    /** @var array<string, array{parameters: list<string>, parent: ?string, constructorDeclared: bool}> $classNames */
+    /** @var array<string, array{parameters: list<string>, parent: ?string}> $classNames */
     $classNames = [];
     foreach ($tokens as $index => $token) {
         if (!is_array($token) || !in_array($token[0], [T_CLASS, T_INTERFACE, T_TRAIT, T_ENUM], true)) {
@@ -97,7 +97,7 @@ foreach ($sourceFiles as $sourceFile) {
         }
 
         $className = ($namespace === '' ? '' : $namespace . '\\') . $tokens[$nameIndex][1];
-        $classNames[$className] = ['parameters' => [], 'parent' => null, 'constructorDeclared' => false];
+        $classNames[$className] = ['parameters' => [], 'parent' => null];
         for ($parentIndex = $nameIndex + 1; isset($tokens[$parentIndex]); $parentIndex++) {
             $parentToken = $tokens[$parentIndex];
             if ($parentToken === '{') {
@@ -173,7 +173,6 @@ foreach ($sourceFiles as $sourceFile) {
             while (isset($tokens[$openParen]) && $tokens[$openParen] !== '(') {
                 $openParen++;
             }
-            $classNames[$className]['constructorDeclared'] = true;
             $parameterTokens = [];
             $parameterDepth = 1;
             for ($paramIndex = $openParen + 1; isset($tokens[$paramIndex]) && $parameterDepth > 0; $paramIndex++) {
@@ -236,7 +235,6 @@ foreach ($sourceFiles as $sourceFile) {
             'file' => $sourceFile->getPathname(),
             'parameters' => $class['parameters'],
             'parent' => $class['parent'],
-            'constructorDeclared' => $class['constructorDeclared'],
         ];
     }
 
