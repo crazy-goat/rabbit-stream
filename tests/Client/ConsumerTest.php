@@ -250,6 +250,70 @@ class ConsumerTest extends TestCase
         ));
     }
 
+    public function testStaleCreditErrorWhileResubscribingIsIgnoredAndLaterCreditErrorIsRaised(): void
+    {
+        $deliverCallback = null;
+        $metadataHandler = null;
+        $creditErrorHandler = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $callback) use (&$deliverCallback): void {
+                $deliverCallback = $callback;
+            });
+        $connection->expects($this->any())
+            ->method('registerCreditErrorHandler')
+            ->willReturnCallback(function (int $id, callable $handler) use (&$creditErrorHandler): void {
+                $creditErrorHandler = $handler;
+            });
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(
+                function (string $stream, string $handlerId, callable $callback) use (&$metadataHandler): void {
+                    $metadataHandler = $callback;
+                }
+            );
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('request')
+            ->willReturnCallback(function (object $request) use (&$creditErrorHandler): object {
+                if ($request instanceof StreamStatsRequestV1) {
+                    // The broker processed a Credit sent before the stream was deleted after it
+                    // dropped the subscription: its SUBSCRIPTION_ID_NOT_EXIST answer arrives
+                    // while the StreamStats reply is still pending.
+                    $this->assertIsCallable($creditErrorHandler);
+                    $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x04, 'subscriptionId' => 1]));
+                    return new StreamStatsResponseV1([new Statistic('committed_offset', 109)]);
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        (new \ReflectionProperty($consumer, 'lastOffset'))->setValue($consumer, 104);
+        (new \ReflectionProperty($consumer, 'hasProcessedMessage'))->setValue($consumer, true);
+        $this->assertIsCallable($metadataHandler);
+        $metadataHandler();
+
+        $this->assertTrue($consumer->resubscribeIfLost());
+        $this->assertFalse($consumer->isSubscriptionLost());
+
+        $this->assertIsCallable($deliverCallback);
+        $deliverCallback($this->deliverOf($this->buildChunk(['m105', 'm106'], 105)));
+        $this->assertSame([105, 106], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->read(timeout: 0.0)
+        ));
+
+        // A rejected credit on the live, re-subscribed subscription is still an error.
+        $this->assertIsCallable($creditErrorHandler);
+        $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x04, 'subscriptionId' => 1]));
+        try {
+            $consumer->read(timeout: 0.0);
+            self::fail('A credit error on the live subscription must still be raised');
+        } catch (ProtocolException $exception) {
+            $this->assertSame(ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST, $exception->getResponseCode());
+        }
+    }
+
     private function assertResumeOffset(
         int $lastOffset,
         int $committedChunkId,
