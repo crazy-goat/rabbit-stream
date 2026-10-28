@@ -21,14 +21,15 @@ use CrazyGoat\RabbitStream\Platform;
  * (last one wins), which is data loss on untrusted broker data with no signal
  * to the caller.
  *
- * This decoder prefers failing loudly over silent corruption: a key that cannot
- * be represented without collision — a non-scalar key (null, list, map), a
- * float/bool key that PHP would retype to int, or an int/string pair that lands
- * on the same PHP array key (a symbol and a string of equal characters, or an
- * int and its string spelling) — is rejected with a
- * {@see DeserializationException} naming the key type, rather than overwriting
- * an earlier entry. Keys that PHP preserves as-is (int and string, including an
- * empty string) are kept, so every ordinary map still decodes unchanged. The
+ * This decoder prefers failing loudly over silent corruption. A key that is not
+ * an int or a string is rejected with a {@see DeserializationException} naming
+ * the key type: a non-scalar key (null, list, map), or a float/bool key that PHP
+ * would retype to int. A key that is an int or a string is also rejected when it
+ * lands on the same PHP array key as an earlier key (a symbol and a string of
+ * equal characters, an int and its numeric-string spelling, or an exact
+ * duplicate), rather than overwriting that earlier entry (see
+ * {@see addMapEntry()}). An int or string key that does not collide is kept, so
+ * every ordinary map still decodes unchanged, including an empty string key. The
  * alternative, a lossless representation (a map value object or a list of
  * key/value pairs), is a larger design change and is not implemented here.
  */
@@ -932,7 +933,7 @@ class AmqpDecoder
      * to int — is rejected with a message naming the key type.
      *
      * @param string $what compound name, for exception messages
-     * @throws DeserializationException when the key has no lossless PHP array key
+     * @throws DeserializationException when the key is neither an int nor a string
      */
     private static function toPhpMapKey(mixed $key, string $what): int|string
     {

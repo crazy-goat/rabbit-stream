@@ -123,12 +123,13 @@ arrays accept only `int` and `string` keys and retype the rest, so a lossy
 conversion would silently collapse distinct entries (`null`, a list, a map and
 `false` all become `''`; a symbol and a string of equal characters become one key;
 `true`, `1.0` and `'1'` all become the int `1`). The decoder rejects such a key
-with a `DeserializationException` naming its type instead of overwriting an
-earlier entry — a non-scalar key (null, list, map, …), a float/bool key PHP would
-retype to int, and an `int`/`string` pair that lands on the same PHP array key
-(a symbol and a string of equal characters, an int and its numeric-string
-spelling, or an exact duplicate, which AMQP 1.0 forbids anyway). Maps of `int`
-and `string` keys — including an empty string — decode unchanged.
+with a `DeserializationException` naming its type, so no entry is lost silently.
+It rejects a key that is not an `int` or `string`: a non-scalar key (null, list,
+map, …), or a float/bool key that PHP would retype to int. It also rejects a key
+that lands on the same PHP array key as an earlier key: a symbol and a string of
+equal characters, an int and its numeric-string spelling, or an exact duplicate,
+which AMQP 1.0 forbids anyway. Maps of distinct `int` and `string` keys —
+including an empty string — decode unchanged.
 
 ### Described Types
 
@@ -291,7 +292,7 @@ Beyond depth, a payload is rejected (with `DeserializationException`) when:
 | A compound's `count` fits the bytes actually available | Same, for a `count` that simply lies |
 | A compound's elements consume exactly its declared `size` | A lying `size` otherwise desynchronises everything decoded after it |
 | A map's `count` is even | Keys and values are counted separately |
-| A map key has a lossless PHP array key | A non-scalar, float/bool or colliding key would otherwise overwrite an earlier entry silently |
+| A map key is an int or string that does not collide with an earlier key | A non-scalar, float/bool or colliding key would otherwise overwrite an earlier entry silently |
 | A Data section (0x75) carries binary | Anything else used to be dropped silently, leaving an empty body |
 | Every variable-width length fits the frame | Bounds are compared as subtractions, so a 32-bit length cannot overflow the check |
 
