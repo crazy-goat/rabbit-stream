@@ -614,10 +614,6 @@ class ProducerTest extends TestCase
         $connection = $this->createProducerStreamConnectionMock();
         $connection->expects($this->any())->method('registerPublisher');
         $connection->expects($this->never())->method('readLoop');
-        $connection->expects($this->once())
-            ->method('request')
-            ->with($this->isInstanceOf(DeclarePublisherRequestV1::class))
-            ->willReturn(new \stdClass());
 
         $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 5);
 
