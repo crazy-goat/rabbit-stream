@@ -31,7 +31,7 @@ use CrazyGoat\RabbitStream\VO\PublishedMessage;
  */
 class AmqpMessageDecoderE2ETest extends E2ETestCase
 {
-            /**
+    /**
      * Build a simple AMQP 1.0 message with Data section only
      */
     private function buildAmqpDataMessage(string $body): string
