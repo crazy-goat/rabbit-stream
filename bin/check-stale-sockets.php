@@ -34,10 +34,6 @@ foreach (['src', 'docs/en'] as $directory) {
         }
 
         $path = substr($file->getPathname(), strlen($root) + 1);
-        if ($directory === 'docs/en' && preg_match('#^docs/en/(?:proof_of_work|plans)(?:/|$)#', $path)) {
-            continue;
-        }
-
         $contents = file_get_contents($file->getPathname());
         if ($contents === false || !preg_match($pattern, $contents)) {
             continue;

@@ -39,11 +39,10 @@ class CheckStaleSocketsTest extends TestCase
         $this->assertStringContainsString('docs/en/guide/example.md:1: forbidden token MSG_WAITALL', $stderr);
     }
 
-    public function testIgnoresHistoricalDocsDirectories(): void
+    public function testIgnoresHistoricalMaterialOutsideScannedDirectories(): void
     {
         $root = $this->makeTempRoot([
-            'docs/en/plans/transport.md' => 'socket_recv',
-            'docs/en/proof_of_work/transport.md' => 'socket_write',
+            'docs/archive/plans/transport.md' => 'socket_recv',
             'docs/en/guide/current.md' => 'Current docs are clean.',
             'src/StreamConnection.php' => '<?php echo "clean";',
         ]);
