@@ -9,7 +9,7 @@ use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
-class NamedProducerDeduplicationTest extends E2ETestCase
+class NamedProducerResumeTest extends E2ETestCase
 {
     private ?Connection $connection = null;
     private ?ProducerInterface $producer = null;
@@ -18,8 +18,8 @@ class NamedProducerDeduplicationTest extends E2ETestCase
 
     protected function setUp(): void
     {
-        $this->streamName = 'test-dedup-stream-' . uniqid();
-        $this->producerRef = 'test-dedup-producer-' . uniqid();
+        $this->streamName = 'test-resume-stream-' . uniqid();
+        $this->producerRef = 'test-resume-producer-' . uniqid();
         $this->connection = $this->createConnection();
         $this->connection->createStream($this->streamName);
     }
@@ -122,7 +122,7 @@ class NamedProducerDeduplicationTest extends E2ETestCase
         $receivedMessages = [];
         $deadline = time() + 10;
 
-        // Read ALL messages without deduplication - let server handle it
+        // Read ALL stored messages from both sessions, without client-side filtering
         while (time() < $deadline) {
             $messages = $consumer->read(timeout: 0.5);
             if ($messages === []) {
@@ -152,7 +152,7 @@ class NamedProducerDeduplicationTest extends E2ETestCase
         $this->assertSame(
             $expectedIds,
             $receivedIds,
-            'Message IDs should be exactly 1-15 with no duplicates'
+            'Stream should hold message-1 to message-15 exactly once across both sessions'
         );
     }
 }
