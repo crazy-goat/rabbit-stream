@@ -458,6 +458,7 @@ there is no need to parse and copy every `ChunkEntry` first or call
 `AmqpMessageDecoder::decodeAll()`:
 
 ```php
+// $chunkBytes: the chunk bytes from the Deliver response, as in the first snippet.
 $batchSize = 100;
 $batch = [];
 $processBatch = static function (array $messages): void {
