@@ -31,9 +31,11 @@ If the diff is clean, say exactly that — an invented finding is worse than an 
 
 - List the sibling `*-review` dirs of your artifact dir. Your artifact dir is the one in the task text, for example `<runDir>/artifacts/NNN-review`.
 - Ignore `*-findings` dirs. The findings step is not a review round.
-- If any older `*-review` dir has `report.md`, this is round 2 or later. Read every earlier `report.md`.
+- The current round is the number of earlier sibling `*-review` dirs that have a `report.md`, plus one. Round 1 means no such dir. The round of an earlier report is its place in that list, counted from 1 in the order of the `NNN` prefix.
+- Round 2 or later: read every earlier `report.md`.
 - Round 2 or later: check every earlier point against the code, not against the coder's report. Mark each point **fixed**, **still present**, or **not a real problem**. Give the evidence for each mark.
-- Round 2 or later: look for new problems first in `git diff <last Reviewed sha>..HEAD`. Take the last Reviewed sha from the newest earlier `report.md`.
+- Round 2 or later: look for new problems first in `git diff <last Reviewed sha>..HEAD`. Take the last Reviewed sha from the newest earlier `report.md` that has a `Reviewed:` line. Reports written before that line existed have none.
+- Round 2 or later, and no earlier `report.md` has a `Reviewed:` line: review the whole diff, `git diff origin/<default>...HEAD`, and write in `report.md` that no earlier report has a `Reviewed:` line.
 - Round 2 or later: a new point in code that an earlier round already saw is allowed only for a real defect. Mark it "missed in round K", where K is the round that saw the code. Style notes on that code do not block.
 
 ## Pattern search
