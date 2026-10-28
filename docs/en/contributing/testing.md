@@ -47,15 +47,19 @@ composer test:unit
 
 ### E2E Tests Only
 
-E2E tests require RabbitMQ running via Docker:
+E2E tests need a running RabbitMQ broker. Run this command from the project root:
 
 ```bash
-# Start RabbitMQ first
-docker compose up -d
-
-# Run E2E tests
 ./run-e2e.sh
-# OR
+```
+
+The script starts its own broker and stops it at exit. Do not run `docker compose up -d` before `run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
+
+To run only the PHPUnit suite, start a broker and check its health. In a worktree, load the environment first with `set -a && . ./.env.worktree && set +a`. Then run:
+
+```bash
+docker compose up -d
+docker compose ps   # wait until the status shows (healthy)
 ./vendor/bin/phpunit --testsuite e2e
 ```
 
@@ -189,7 +193,7 @@ class ExampleResponseV1Test extends TestCase
 
 E2E tests require:
 
-1. **RabbitMQ running** via Docker:
+1. **RabbitMQ running** via Docker. `./run-e2e.sh` starts the broker for you. To start it by hand, run:
    ```bash
    docker compose up -d
    ```
@@ -242,23 +246,22 @@ class ExampleE2ETest extends TestCase
 
 ## E2E Setup Script
 
-The `run-e2e.sh` script automates E2E test execution:
+The `run-e2e.sh` script runs the whole E2E flow. Run it from the project root:
 
 ```bash
-#!/bin/bash
-
-# 1. Start RabbitMQ
-docker compose up -d
-
-# 2. Wait for RabbitMQ to be healthy
-#    The wait is bounded (see below), reads the status with `docker inspect`
-#    and dumps the broker log before failing.
-# 3. Run E2E tests
-./vendor/bin/phpunit --testsuite e2e
-
-# 4. Stop RabbitMQ
-docker compose down
+./run-e2e.sh
 ```
+
+The script runs these steps in order:
+
+1. Load `.env.worktree` when it exists. Pick a free host port for each port variable that is not set.
+2. Pull the RabbitMQ image. Try `mirror.gcr.io` first, then `public.ecr.aws`, with three attempts for each.
+3. If every pull fails, use a copy of the image that is already in the local Docker cache. If no copy is cached, the script stops with an error.
+4. Start the broker with `docker compose up -d`.
+5. Wait until the broker is healthy. The wait is bounded, see below.
+6. Run the E2E suite with `./vendor/bin/phpunit --testsuite e2e --testdox`.
+7. Run the example smoke tests with `bin/run-examples.sh`.
+8. Stop the broker with `docker compose down`. This runs on exit, also after a failure.
 
 The wait resolves the container with `docker compose ps -q rabbitmq` (so a
 worktree's `COMPOSE_PROJECT_NAME` and remapped ports are honoured) and polls its
@@ -310,10 +313,10 @@ The `phpunit.xml` file defines test suites:
 
 ### E2E Tests Fail with "Connection Refused"
 
-RabbitMQ isn't running:
+RabbitMQ isn't running. Start it and wait until the status shows `(healthy)`:
 ```bash
 docker compose up -d
-sleep 5  # Wait for startup
+docker compose ps
 ```
 
 ### Tests Pass Locally but Fail in CI
