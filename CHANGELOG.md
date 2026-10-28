@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-28
+
 ### Changed
 - **Chore: `bin/check-stale-sockets.php` drops the exclusion for `docs/en/plans/` and `docs/en/proof_of_work/` (#708)** — both directories no longer exist and nothing creates them, so the exclusion was dead code. Historical material lives in `docs/archive/`, which the gate never scans. `tests/Util/CheckStaleSocketsTest.php` now checks that a stale token under `docs/archive/plans/` is ignored and that a stale token under `docs/en/plans/` is reported.
 - **Workflow: the review prompt defines the round number and the base commit fallback (#875)** — `.tyci/workflows/issue-to-merge/prompts/review.md` now counts the current round as the earlier sibling `*-review` dirs with a non-empty `report.md`, plus one. When no earlier report has a `Reviewed:` line (reports from before that line existed), the reviewer uses the whole diff against `origin/<default>` and says so in its report. No code behaviour change.
