@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **CI: the `1.x` maintenance branch gets CI on push, and `AGENTS.md` describes the two release lines (#945)** — `main` now prepares 2.0.0 and takes breaking changes. The new `1.x` branch takes only changes that keep the public API. `.github/workflows/ci.yml` runs on `push` to `main` and to `1.x`. `AGENTS.md` says how to pick the target branch, how to backport with `git cherry-pick -x`, and how to start a `1.x` worktree. No code behaviour change.
+
 ## [1.13.0] - 2026-10-28
 
 ### Changed
