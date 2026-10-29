@@ -53,6 +53,32 @@ class AmqpDecoder
     private const MAX_COMPOUND_ELEMENTS = 131072;
 
     /**
+     * Decoded-value budget for one message (or one decodeValue() call): the total of
+     * `count + COMPOUND_OVERHEAD` over every list, map and array, nested ones
+     * included, plus `2 + COMPOUND_OVERHEAD` for every described value. MAX_COMPOUND_ELEMENTS
+     * caps one compound only, so a body of many compounds, each under that cap, still
+     * grew without bound and ended in an uncatchable `Allowed memory size exhausted`
+     * fatal (#947). When the budget is spent the decoder throws a catchable
+     * DeserializationException instead.
+     *
+     * The budget bounds the number of decoded PHP values and their array overhead. It
+     * does not bound the size of string payloads, which a message still pays for in
+     * bytes. One unit is about 16 bytes of PHP array memory (a null element in a packed
+     * array). 2 097 152 units = 16 x MAX_COMPOUND_ELEMENTS: a message may hold about 15
+     * full-size compounds, well above any real AMQP message. Smaller compounds are
+     * cheaper, so the budget is only reached by a body built to reach it.
+     */
+    private const MAX_DECODED_VALUES = 2097152;
+
+    /**
+     * Fixed cost, in budget units, of every compound on top of its element count.
+     * An empty-ish PHP array costs ~250 bytes (about 16 units), so a body of many
+     * tiny lists (a list8 of one null is 4 bytes on the wire) cannot slip under
+     * the budget by having few elements per compound. Described values pay it too.
+     */
+    private const COMPOUND_OVERHEAD = 16;
+
+    /**
      * Decode a single AMQP 1.0 value from the binary data at the given position.
      * Returns [value, newPosition].
      *
@@ -71,7 +97,8 @@ class AmqpDecoder
         int $depth = 0,
         int $maxDepth = self::MAX_RECURSION_DEPTH
     ): array {
-        $value = self::decodeValueInPlace($data, $position, $depth, $maxDepth);
+        $budget = self::MAX_DECODED_VALUES;
+        $value = self::decodeValueInPlace($data, $position, $depth, $maxDepth, $budget);
         return [$value, $position];
     }
 
@@ -87,7 +114,8 @@ class AmqpDecoder
         string $data,
         int &$position,
         int $depth,
-        int $maxDepth
+        int $maxDepth,
+        int &$budget
     ): mixed {
         if ($depth === 0) {
             // unpack('N'/'J') in the fixed-width readers would return floats on a
@@ -141,19 +169,19 @@ class AmqpDecoder
             0xb3 => self::readSymbol32($data, $position), // sym32
 
             // Compound types (8-bit length)
-            0xc0 => self::readList8($data, $position, $depth, $maxDepth), // list8
-            0xc1 => self::readMap8($data, $position, $depth, $maxDepth), // map8
+            0xc0 => self::readList8($data, $position, $depth, $maxDepth, $budget), // list8
+            0xc1 => self::readMap8($data, $position, $depth, $maxDepth, $budget), // map8
 
             // Compound types (32-bit length)
-            0xd0 => self::readList32($data, $position, $depth, $maxDepth), // list32
-            0xd1 => self::readMap32($data, $position, $depth, $maxDepth), // map32
+            0xd0 => self::readList32($data, $position, $depth, $maxDepth, $budget), // list32
+            0xd1 => self::readMap32($data, $position, $depth, $maxDepth, $budget), // map32
 
             // Array types (#464)
-            0xe0 => self::readArray8($data, $position, $depth, $maxDepth), // array8
-            0xf0 => self::readArray32($data, $position, $depth, $maxDepth), // array32
+            0xe0 => self::readArray8($data, $position, $depth, $maxDepth, $budget), // array8
+            0xf0 => self::readArray32($data, $position, $depth, $maxDepth, $budget), // array32
 
             // Described type
-            0x00 => self::readDescribedType($data, $position, $depth, $maxDepth),
+            0x00 => self::readDescribedType($data, $position, $depth, $maxDepth, $budget),
 
             default => throw new DeserializationException(sprintf('Unsupported AMQP type: 0x%02x', $formatCode)),
         };
@@ -186,6 +214,7 @@ class AmqpDecoder
         ];
 
         $position = 0;
+        $budget = self::MAX_DECODED_VALUES;
         $dataLength = strlen($data);
         $bodyParts = [];
         $isAccumulatingDataBody = false;
@@ -207,7 +236,13 @@ class AmqpDecoder
 
             // Read the described type (skip the 0x00 marker; depth 0 -> 1)
             $position++;
-            ['descriptor' => $descriptor, 'value' => $value] = self::readDescribedType($data, $position, 0, $maxDepth);
+            ['descriptor' => $descriptor, 'value' => $value] = self::readDescribedType(
+                $data,
+                $position,
+                0,
+                $maxDepth,
+                $budget
+            );
 
             // Match descriptor to section
             switch ($descriptor) {
@@ -717,9 +752,29 @@ class AmqpDecoder
     }
 
     /**
+     * Charge one compound against the per-message budget before its array is built (#947).
+     *
+     * @param int $budget remaining units, reduced in place
+     * @param int $count number of elements the compound declares
+     * @param string $what compound name, for exception messages
+     */
+    private static function chargeBudget(int &$budget, int $count, string $what): void
+    {
+        $cost = $count + self::COMPOUND_OVERHEAD;
+        if ($cost > $budget) {
+            throw new DeserializationException(sprintf(
+                'Decoded value limit exceeded at %s (limit %d): the message holds too many list, map and array values',
+                $what,
+                self::MAX_DECODED_VALUES
+            ));
+        }
+        $budget -= $cost;
+    }
+
+    /**
      * @return array<int, mixed>
      */
-    private static function readList8(string $data, int &$position, int $depth, int $maxDepth): array
+    private static function readList8(string $data, int &$position, int $depth, int $maxDepth, int &$budget): array
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading list8 header');
@@ -728,13 +783,14 @@ class AmqpDecoder
         $count = ord($data[$position + 1]);
         $position += 2;
         $contentEnd = self::compoundContentEnd($data, $position, $size, 1, 'List8');
+        self::chargeBudget($budget, $count, 'List8');
 
         $list = [];
         for ($i = 0; $i < $count; $i++) {
             if ($position >= $contentEnd) {
                 throw new DeserializationException('List8 count exceeds available data');
             }
-            $list[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $list[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'List8');
 
@@ -744,7 +800,7 @@ class AmqpDecoder
     /**
      * @return array<int, mixed>
      */
-    private static function readList32(string $data, int &$position, int $depth, int $maxDepth): array
+    private static function readList32(string $data, int &$position, int $depth, int $maxDepth, int &$budget): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading list32 header');
@@ -758,13 +814,14 @@ class AmqpDecoder
         // depth 1, so the #397 recursion guard does not apply — see
         // assertCompoundCount().
         self::assertCompoundCount($count, $contentEnd - $position, 'List32');
+        self::chargeBudget($budget, $count, 'List32');
 
         $list = [];
         for ($i = 0; $i < $count; $i++) {
             if ($position >= $contentEnd) {
                 throw new DeserializationException('List32 count exceeds available data');
             }
-            $list[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $list[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'List32');
 
@@ -774,7 +831,7 @@ class AmqpDecoder
     /**
      * @return array<string|int, mixed>
      */
-    private static function readMap8(string $data, int &$position, int $depth, int $maxDepth): array
+    private static function readMap8(string $data, int &$position, int $depth, int $maxDepth, int &$budget): array
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading map8 header');
@@ -784,6 +841,7 @@ class AmqpDecoder
         $position += 2;
         $contentEnd = self::compoundContentEnd($data, $position, $size, 1, 'Map8');
         self::assertEvenMapCount($count, 'Map8');
+        self::chargeBudget($budget, $count, 'Map8');
 
         $map = [];
         $numPairs = intdiv($count, 2);
@@ -791,11 +849,11 @@ class AmqpDecoder
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map8 count exceeds available data');
             }
-            $key = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $key = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map8 missing value for key');
             }
-            $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
             self::addMapEntry($map, $key, $value, 'Map8');
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Map8');
@@ -814,7 +872,7 @@ class AmqpDecoder
      *
      * @return list<mixed>
      */
-    private static function readArray8(string $data, int &$position, int $depth, int $maxDepth): array
+    private static function readArray8(string $data, int &$position, int $depth, int $maxDepth, int &$budget): array
     {
         if ($position + 1 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading array8 header');
@@ -823,13 +881,14 @@ class AmqpDecoder
         $count = ord($data[$position + 1]);
         $position += 2;
         $contentEnd = self::compoundContentEnd($data, $position, $size, 1, 'Array8');
+        self::chargeBudget($budget, $count, 'Array8');
 
         $array = [];
         for ($i = 0; $i < $count; $i++) {
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Array8 count exceeds available data');
             }
-            $array[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $array[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Array8');
 
@@ -837,7 +896,7 @@ class AmqpDecoder
     }
 
     /** @return list<mixed> */
-    private static function readArray32(string $data, int &$position, int $depth, int $maxDepth): array
+    private static function readArray32(string $data, int &$position, int $depth, int $maxDepth, int &$budget): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading array32 header');
@@ -851,13 +910,14 @@ class AmqpDecoder
         // is depth 1, so the #397 recursion guard does not apply — see
         // assertCompoundCount().
         self::assertCompoundCount($count, $contentEnd - $position, 'Array32');
+        self::chargeBudget($budget, $count, 'Array32');
 
         $array = [];
         for ($i = 0; $i < $count; $i++) {
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Array32 count exceeds available data');
             }
-            $array[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $array[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Array32');
 
@@ -867,7 +927,7 @@ class AmqpDecoder
     /**
      * @return array<string|int, mixed>
      */
-    private static function readMap32(string $data, int &$position, int $depth, int $maxDepth): array
+    private static function readMap32(string $data, int &$position, int $depth, int $maxDepth, int &$budget): array
     {
         if ($position + 7 >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data reading map32 header');
@@ -882,6 +942,7 @@ class AmqpDecoder
         self::assertCompoundCount($count, $contentEnd - $position, 'Map32');
 
         self::assertEvenMapCount($count, 'Map32');
+        self::chargeBudget($budget, $count, 'Map32');
 
         $map = [];
         $numPairs = intdiv($count, 2);
@@ -889,11 +950,11 @@ class AmqpDecoder
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map32 count exceeds available data');
             }
-            $key = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $key = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
             if ($position >= $contentEnd) {
                 throw new DeserializationException('Map32 missing value for key');
             }
-            $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+            $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
             self::addMapEntry($map, $key, $value, 'Map32');
         }
         self::assertCompoundConsumed($position, $contentEnd, $size, 'Map32');
@@ -998,10 +1059,17 @@ class AmqpDecoder
     /**
      * @return array{descriptor: mixed, value: mixed}
      */
-    private static function readDescribedType(string $data, int &$position, int $depth, int $maxDepth): array
-    {
-        $descriptor = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
-        $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth);
+    private static function readDescribedType(
+        string $data,
+        int &$position,
+        int $depth,
+        int $maxDepth,
+        int &$budget
+    ): array {
+        // A described value becomes a two-member PHP array, so it is charged like a compound.
+        self::chargeBudget($budget, 2, 'Described type');
+        $descriptor = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
+        $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         return ['descriptor' => $descriptor, 'value' => $value];
     }
 }
