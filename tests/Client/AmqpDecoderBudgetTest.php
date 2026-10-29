@@ -97,14 +97,17 @@ class AmqpDecoderBudgetTest extends TestCase
         AmqpDecoder::decodeMessage($this->amqpValue($this->list32(17, $maps)));
     }
 
+    #[RunInSeparateProcess]
     public function testLargeValidMessageUnderBudgetStillDecodes(): void
     {
         // 2 full-size lists (131072 elements each, the per-compound cap): decoded in full.
         $decoded = AmqpDecoder::decodeMessage($this->listOfNullLists(2));
 
-        $this->assertIsArray($decoded['body']);
-        $this->assertCount(2, $decoded['body']);
-        $this->assertCount(self::ELEMENTS, $decoded['body'][1]);
+        $body = $decoded['body'];
+        unset($decoded);
+        $this->assertIsArray($body);
+        $this->assertSame(2, count($body));
+        $this->assertSame(self::ELEMENTS, count($body[1]));
     }
 
     #[RunInSeparateProcess]
