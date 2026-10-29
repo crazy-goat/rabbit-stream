@@ -62,6 +62,10 @@ with `$tls->getPassphrase()`. The `$passphrase` property is private, so
 `var_export()`, `serialize()`, `json_encode()`, the `(array)` cast and stack traces
 do not show it. Code that read `$tls->passphrase` must call `getPassphrase()`.
 
+`connect()` completes the TLS handshake, including the client certificate and the key
+passphrase, within `socketTimeout`. The E2E test `tests/E2E/TlsConnectionE2ETest.php` runs
+against a broker with a TLS stream listener and mutual TLS (`./run-e2e.sh` sets it up).
+
 Peer certificate and hostname verification are **on by default**
 (`verify_peer`/`verify_peer_name`). For a self-signed development broker you can
 disable them explicitly — do not do this in production:

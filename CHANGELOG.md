@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **TLS: `StreamConnection::connect()` completes a TLS connection (#906)** — every `connect()` with a `TlsConfig` (and so `Connection::create(tls: ...)`) threw `ValueError: stream_socket_enable_crypto(): Argument #3 ($crypto_method) must be specified when enabling encryption` right after the handshake, on PHP 8.1 to 8.5, since v1.4.0. The `ssl://` scheme already completes the TLS handshake inside `stream_socket_client()`, and `connect()` then called `stream_socket_enable_crypto()` a second time. The second call is removed (option 1 of the issue), so no setting such as `crypto_method` is needed and the public API does not change. The handshake keeps the `socketTimeout` limit of #402: a peer that accepts TCP and never answers makes `connect()` fail within `socketTimeout`. `connect()` closes the stream on every failure path. The new `tests/E2E/TlsConnectionE2ETest.php` publishes and consumes through `Connection::create(..., tls: ...)` against a broker TLS stream listener (port 5551) with mutual TLS and a passphrase-encrypted client key, and checks that a missing client certificate and a wrong passphrase fail. `run-e2e.sh` generates the certificates at run time (`bin/gen-e2e-certs.sh`) and starts the broker with `docker-compose.tls.yml` and `docker/rabbitmq-tls.conf`; no private key is committed. `tests/StreamConnectionTest.php` pins the #402 limit for a silent TLS peer.
+
 ## [1.13.1] - 2026-10-29
 
 ### Changed (BREAKING)

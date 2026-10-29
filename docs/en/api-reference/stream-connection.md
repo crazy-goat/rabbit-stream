@@ -41,14 +41,14 @@ public function __construct(
 
 ### connect()
 
-Establishes the TCP socket connection to the RabbitMQ server.
+Establishes the TCP socket connection to the RabbitMQ server. With a `TlsConfig`, the `ssl://` transport completes the TLS handshake inside this call, within `$socketTimeout`. The stream is closed when `connect()` fails.
 
 ```php
 public function connect(): void
 ```
 
 **Throws:**
-- `ConnectionException` - If socket creation or connection fails, or if the stream cannot be put in non-blocking mode
+- `ConnectionException` - If socket creation, connection or the TLS handshake fails, or if the stream cannot be put in non-blocking mode
 
 **Example:**
 ```php

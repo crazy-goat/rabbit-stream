@@ -321,6 +321,14 @@ class StreamConnection
      * TLS ssl:// transport (GitHub #400) share one I/O path — see the $stream
      * property docblock for why ext-sockets cannot be kept for TLS.
      *
+     * With ssl:// the TLS handshake (including the client certificate and the
+     * key passphrase of the TlsConfig) completes inside stream_socket_client(),
+     * bounded by $socketTimeout. A peer that accepts TCP and never answers the
+     * handshake therefore fails within $socketTimeout (GitHub #402). No second
+     * stream_socket_enable_crypto() call may follow: it throws a ValueError
+     * without a crypto method, and returns false on a stream that already has TLS
+     * (GitHub #906). The stream is closed on every failure path.
+     *
      * @throws ConnectionException If the socket cannot be created or connected,
      *                             or the TLS handshake fails
      */
@@ -345,92 +353,24 @@ class StreamConnection
             );
         }
 
-        // The stream is kept non-blocking: every read and write is driven by an
-        // explicit stream_select() bounded by $socketTimeout, which gives the
-        // same "no I/O call may block unboundedly" guarantee as the previous
-        // socket timeout options (GitHub #402). stream_set_timeout()
-        // could not be used because it bounds reads but NOT blocking writes.
-        if (!stream_set_blocking($stream, false)) {
+        try {
+            // The stream is kept non-blocking: every read and write is driven by an
+            // explicit stream_select() bounded by $socketTimeout, which gives the
+            // same "no I/O call may block unboundedly" guarantee as the previous
+            // socket timeout options (GitHub #402). stream_set_timeout()
+            // could not be used because it bounds reads but NOT blocking writes.
+            if (!stream_set_blocking($stream, false)) {
+                throw new ConnectionException('Cannot set the connection to non-blocking mode');
+            }
+        } catch (Throwable $e) {
             fclose($stream);
-            throw new ConnectionException('Cannot set the connection to non-blocking mode');
-        }
-
-        if ($useTls) {
-            $this->enableCrypto($stream);
+            throw $e;
         }
 
         $this->connected = true;
         $this->stream = $stream;
         $this->lastReadAt = microtime(true);
         $this->lastWriteAt = $this->lastReadAt;
-    }
-
-    /**
-     * Perform the TLS handshake on a non-blocking stream, bounded by
-     * $socketTimeout (GitHub #400).
-     *
-     * stream_socket_enable_crypto() on a blocking stream would wait on the
-     * default INI timeout (or longer) if the broker stalls mid-handshake,
-     * which would weaken the #402 "no unbounded I/O" guarantee. Instead, the
-     * handshake is driven like every other I/O call: retry while it reports
-     * progress, wait between attempts with stream_select(), and give up once
-     * the deadline expires.
-     *
-     * @param resource $stream Non-blocking stream to upgrade to TLS
-     * @throws ConnectionException If the handshake fails or exceeds $socketTimeout
-     */
-    private function enableCrypto($stream): void
-    {
-        $endpoint = sprintf('%s:%d', $this->host, $this->port);
-        $deadline = microtime(true) + $this->socketTimeout;
-
-        while (true) {
-            $result = @stream_socket_enable_crypto($stream, true);
-            if ($result === true) {
-                return;
-            }
-
-            $opensslError = $this->lastOpenSslError();
-            if ($opensslError !== null) {
-                fclose($stream);
-                throw new ConnectionException("TLS handshake failed with {$endpoint}: {$opensslError}");
-            }
-
-            // No OpenSSL error queued: the handshake needs more data
-            // (would-block) and must be retried once the socket is ready.
-            $remaining = $deadline - microtime(true);
-            if ($remaining <= 0) {
-                fclose($stream);
-                throw new ConnectionException(sprintf(
-                    'TLS handshake with %s timed out after %.1fs',
-                    $endpoint,
-                    $this->socketTimeout
-                ));
-            }
-
-            $read = [$stream];
-            $write = [$stream];
-            $except = null;
-            // The handshake may need to read or write; listen for both.
-            [$selectTimeoutSec, $selectTimeoutUsec] = $this->splitSelectTimeout($remaining);
-            $this->selectStreams($read, $write, $except, $selectTimeoutSec, $selectTimeoutUsec);
-            // On timeout (0) or interruption the loop re-enters and either
-            // hits the deadline check above or retries the handshake.
-        }
-    }
-
-    /**
-     * Drain the OpenSSL error queue, keeping the details of the most recent
-     * failure (bad cafile, hostname mismatch, expired cert, ...).
-     */
-    private function lastOpenSslError(): ?string
-    {
-        $messages = [];
-        while (($message = openssl_error_string()) !== false) {
-            $messages[] = $message;
-        }
-
-        return $messages === [] ? null : implode('; ', array_reverse($messages));
     }
 
     /**
