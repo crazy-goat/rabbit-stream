@@ -1210,7 +1210,7 @@ class StreamConnection
      * @throws ConnectionException If the write fails or a partial frame cannot be completed
      * @throws TimeoutException    If nothing at all could be written before the $socketTimeout deadline expired
      */
-    private function writeAll(string $frame): int
+    private function writeAll(#[\SensitiveParameter] string $frame): int
     {
         $stream = $this->requireStream();
 
@@ -1983,7 +1983,7 @@ class StreamConnection
         return sprintf('array{%s, %s}', get_debug_type($reply[0]), get_debug_type($reply[1]));
     }
 
-    private function wrapFrame(string $content): string
+    private function wrapFrame(#[\SensitiveParameter] string $content): string
     {
         // Direct pack()+concat instead of a WriteBuffer object: this runs once
         // per outgoing message (and once per heartbeat/close-response reply).
@@ -2164,7 +2164,7 @@ class StreamConnection
      *                          4-byte length prefix, in readFrame it does not
      * @param int    $keyOffset Byte offset of the uint16 command key within $frame
      */
-    private function debugFrame(string $prefix, string $frame, int $keyOffset): void
+    private function debugFrame(string $prefix, #[\SensitiveParameter] string $frame, int $keyOffset): void
     {
         if (!$this->debugLogging) {
             return;

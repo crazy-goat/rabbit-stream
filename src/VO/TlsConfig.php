@@ -14,15 +14,30 @@ namespace CrazyGoat\RabbitStream\VO;
  */
 final class TlsConfig implements \JsonSerializable
 {
+    /**
+     * The passphrase lives in a Secret holder, not in a string property, so that
+     * var_export(), serialize(), json_encode(), the (array) cast, print_r() and
+     * the trace of any object that holds this config do not show it (#948).
+     * Read it with getPassphrase().
+     */
+    private readonly ?Secret $passphrase;
+
     public function __construct(
         public readonly ?string $cafile = null,
         public readonly ?string $localCert = null,
         public readonly ?string $localPk = null,
-        #[\SensitiveParameter] public readonly ?string $passphrase = null,
+        #[\SensitiveParameter] ?string $passphrase = null,
         public readonly ?string $peerName = null,
         public readonly bool $verifyPeer = true,
         public readonly bool $verifyPeerName = true,
     ) {
+        $this->passphrase = $passphrase === null ? null : new Secret($passphrase);
+    }
+
+    /** The private-key passphrase, or null when none is set. */
+    public function getPassphrase(): ?string
+    {
+        return $this->passphrase?->reveal();
     }
 
     /**
@@ -36,7 +51,7 @@ final class TlsConfig implements \JsonSerializable
             'cafile' => $this->cafile,
             'localCert' => $this->localCert,
             'localPk' => $this->localPk,
-            'passphrase' => $this->passphrase === null ? null : '***',
+            'passphrase' => $this->passphrase instanceof \CrazyGoat\RabbitStream\VO\Secret ? '***' : null,
             'peerName' => $this->peerName,
             'verifyPeer' => $this->verifyPeer,
             'verifyPeerName' => $this->verifyPeerName,
@@ -104,8 +119,9 @@ final class TlsConfig implements \JsonSerializable
         if ($this->localPk !== null) {
             $ssl['local_pk'] = $this->localPk;
         }
-        if ($this->passphrase !== null) {
-            $ssl['passphrase'] = $this->passphrase;
+        $passphrase = $this->getPassphrase();
+        if ($passphrase !== null) {
+            $ssl['passphrase'] = $passphrase;
         }
         if ($this->peerName !== null) {
             $ssl['peer_name'] = $this->peerName;

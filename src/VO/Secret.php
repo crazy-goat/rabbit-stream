@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\VO;
 
+use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use WeakMap;
 
 /**
@@ -41,5 +42,13 @@ final class Secret
     public function __serialize(): array
     {
         return [];
+    }
+
+    /** @param array<string, string> $data */
+    public function __unserialize(array $data): void
+    {
+        throw new DeserializationException(
+            'A credential is not serialized, so it cannot be restored. Create a new object with the credential.'
+        );
     }
 }

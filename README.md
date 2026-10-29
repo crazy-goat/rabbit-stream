@@ -57,6 +57,11 @@ $connection = Connection::create(
 );
 ```
 
+Pass the private-key passphrase with `new TlsConfig(passphrase: '...')`. Read it
+with `$tls->getPassphrase()`. The `$passphrase` property is private, so
+`var_export()`, `serialize()`, `json_encode()`, the `(array)` cast and stack traces
+do not show it. Code that read `$tls->passphrase` must call `getPassphrase()`.
+
 Peer certificate and hostname verification are **on by default**
 (`verify_peer`/`verify_peer_name`). For a self-signed development broker you can
 disable them explicitly — do not do this in production:

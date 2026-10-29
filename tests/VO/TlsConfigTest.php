@@ -83,7 +83,7 @@ class TlsConfigTest extends TestCase
         self::assertSame('/ca.pem', $restored->cafile);
         self::assertFalse($restored->verifyPeer);
         self::assertTrue($restored->verifyPeerName);
-        self::assertNull($restored->passphrase);
+        self::assertNull($restored->getPassphrase());
     }
 
     public function testConnectionStillReadsPassphrase(): void
@@ -114,17 +114,50 @@ class TlsConfigTest extends TestCase
         self::assertStringNotContainsString('example-passphrase', $trace);
     }
 
+    public function testVarExportArrayCastAndPrintRDoNotShowPassphrase(): void
+    {
+        $config = new TlsConfig(localPk: '/k.pem', passphrase: 'example-passphrase');
+
+        self::assertStringNotContainsString('example-passphrase', var_export($config, true));
+        self::assertStringNotContainsString('example-passphrase', print_r((array) $config, true));
+        self::assertStringNotContainsString('example-passphrase', print_r($config, true));
+        self::assertStringContainsString('/k.pem', var_export($config, true));
+        self::assertSame('example-passphrase', $config->getPassphrase());
+        self::assertNull((new TlsConfig())->getPassphrase());
+    }
+
+    public function testStackTraceOfObjectHoldingTlsConfigHoldsNoPassphrase(): void
+    {
+        $trace = $this->traceOf(static function (): void {
+            $stream = new StreamConnection('127.0.0.1', 5551, tls: new TlsConfig(passphrase: 'example-passphrase'));
+            Connection::create(requestedFrameMax: -1, streamConnection: $stream);
+        });
+
+        self::assertStringNotContainsString('example-passphrase', $trace);
+    }
+
+    public function testTraceControlShowsHarmlessArguments(): void
+    {
+        $trace = $this->traceOf(static function (): void {
+            new StreamConnection('control-host.invalid', 5551, socketTimeout: 0.0);
+        });
+
+        self::assertStringContainsString('control-host.invalid', $trace);
+    }
+
     private function traceOf(callable $call): string
     {
         if (PHP_VERSION_ID < 80200) {
             self::markTestSkipped('#[\\SensitiveParameter] needs PHP 8.2');
         }
-        ini_set('zend.exception_ignore_args', '0');
+        $old = ini_set('zend.exception_ignore_args', '0');
 
         try {
             $call();
         } catch (\Throwable $e) {
             return var_export($e->getTrace(), true) . json_encode($e->getTrace());
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $old);
         }
         self::fail('Expected an exception');
     }
