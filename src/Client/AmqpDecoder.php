@@ -55,16 +55,18 @@ class AmqpDecoder
     /**
      * Decoded-value budget for one message (or one decodeValue() call): the total of
      * `count + COMPOUND_OVERHEAD` over every list, map and array, nested ones
-     * included. MAX_COMPOUND_ELEMENTS caps one compound only, so a body of many
-     * compounds, each under that cap, still grew without bound and ended in an
-     * uncatchable `Allowed memory size exhausted` fatal (#947). When the budget is
-     * spent the decoder throws a catchable DeserializationException instead.
+     * included, plus `2 + COMPOUND_OVERHEAD` for every described value. MAX_COMPOUND_ELEMENTS
+     * caps one compound only, so a body of many compounds, each under that cap, still
+     * grew without bound and ended in an uncatchable `Allowed memory size exhausted`
+     * fatal (#947). When the budget is spent the decoder throws a catchable
+     * DeserializationException instead.
      *
-     * One unit is about 16 bytes of PHP array memory (a null element in a packed
-     * array). 2 097 152 units = 16 x MAX_COMPOUND_ELEMENTS: a message may hold 16
-     * full-size compounds, well above any real AMQP message, and the worst case
-     * stays near 32-64 MiB of arrays, so it fits memory_limit=128M. Smaller
-     * compounds are cheaper, so the budget is only reached by a body built to reach it.
+     * The budget bounds the number of decoded PHP values and their array overhead. It
+     * does not bound the size of string payloads, which a message still pays for in
+     * bytes. One unit is about 16 bytes of PHP array memory (a null element in a packed
+     * array). 2 097 152 units = 16 x MAX_COMPOUND_ELEMENTS: a message may hold about 15
+     * full-size compounds, well above any real AMQP message. Smaller compounds are
+     * cheaper, so the budget is only reached by a body built to reach it.
      */
     private const MAX_DECODED_VALUES = 2097152;
 
@@ -72,7 +74,7 @@ class AmqpDecoder
      * Fixed cost, in budget units, of every compound on top of its element count.
      * An empty-ish PHP array costs ~250 bytes (about 16 units), so a body of many
      * tiny lists (a list8 of one null is 4 bytes on the wire) cannot slip under
-     * the budget by having few elements per compound.
+     * the budget by having few elements per compound. Described values pay it too.
      */
     private const COMPOUND_OVERHEAD = 16;
 
@@ -1064,6 +1066,8 @@ class AmqpDecoder
         int $maxDepth,
         int &$budget
     ): array {
+        // A described value becomes a two-member PHP array, so it is charged like a compound.
+        self::chargeBudget($budget, 2, 'Described type');
         $descriptor = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         return ['descriptor' => $descriptor, 'value' => $value];

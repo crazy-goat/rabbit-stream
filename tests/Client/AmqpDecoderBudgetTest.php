@@ -76,6 +76,7 @@ class AmqpDecoderBudgetTest extends TestCase
         // Two sections, each below the budget alone (about 1.5 M units), over it together.
         $section = $this->listOfNullLists(11);
         $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Decoded value limit exceeded');
 
         AmqpDecoder::decodeMessage($section . $section);
     }
@@ -104,5 +105,29 @@ class AmqpDecoderBudgetTest extends TestCase
         $this->assertIsArray($decoded['body']);
         $this->assertCount(2, $decoded['body']);
         $this->assertCount(self::ELEMENTS, $decoded['body'][1]);
+    }
+
+    #[RunInSeparateProcess]
+    public function testDescribedValuesAreChargedToTheBudget(): void
+    {
+        // 4 lists of 131072 described values (00 40 40: descriptor null, value null).
+        $inner = $this->list32(self::ELEMENTS, str_repeat("\x00\x40\x40", self::ELEMENTS));
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Decoded value limit exceeded');
+
+        AmqpDecoder::decodeMessage($this->amqpValue($this->list32(4, str_repeat($inner, 4))));
+    }
+
+    #[RunInSeparateProcess]
+    public function testBudgetBoundaryIsFifteenFullLists(): void
+    {
+        $decoded = AmqpDecoder::decodeMessage($this->listOfNullLists(15));
+        $count = is_array($decoded['body']) ? count($decoded['body']) : -1;
+        unset($decoded);
+        $this->assertSame(15, $count);
+
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Decoded value limit exceeded');
+        AmqpDecoder::decodeMessage($this->listOfNullLists(16));
     }
 }
