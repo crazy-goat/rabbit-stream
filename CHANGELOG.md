@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Credentials stay out of dumps, serialized data and traces (#948)** — after #606 the TLS passphrase and the SASL password still showed in `var_export()`, `serialize()`, `json_encode()`, the `(array)` cast and exception stack traces. `SaslAuthenticateRequestV1` now keeps the password in an internal holder, so none of these outputs show it. `TlsConfig` implements `JsonSerializable` and `__serialize()`/`__unserialize()` without the passphrase. `Connection::create(tls:)`, the `StreamConnection` constructor `$tls`, `StreamConnection::sendMessage()` and `sendFrame()` mark their parameters `#[\SensitiveParameter]` (PHP 8.2 or later), so traces show no value for them. Visible output change: `serialize()` of a `TlsConfig` no longer holds the passphrase, and an unserialized `TlsConfig` has a null passphrase. `json_encode()` of a `TlsConfig` no longer has the `passphrase` key. `var_export()` and the `(array)` cast of a `TlsConfig` still show the passphrase, because it is a public property; this needs a breaking change in 2.0. The public API does not change.
+
 ### Changed
 - **CI: the `1.x` maintenance branch gets CI on push, and `AGENTS.md` describes the two release lines (#945)** — `main` now prepares 2.0.0 and takes breaking changes. The new `1.x` branch takes only changes that keep the public API. `.github/workflows/ci.yml` runs on `push` to `main` and to `1.x`. `AGENTS.md` says how to pick the target branch, how to backport with `git cherry-pick -x`, and how to start a `1.x` worktree. No code behaviour change.
 

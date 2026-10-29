@@ -12,7 +12,7 @@ namespace CrazyGoat\RabbitStream\VO;
  * instance to Connection::create(tls: ...) or new StreamConnection(tls: ...) to
  * use the encrypted transport (RabbitMQ stream listener on port 5551).
  */
-final class TlsConfig
+final class TlsConfig implements \JsonSerializable
 {
     public function __construct(
         public readonly ?string $cafile = null,
@@ -41,6 +41,46 @@ final class TlsConfig
             'verifyPeer' => $this->verifyPeer,
             'verifyPeerName' => $this->verifyPeerName,
         ];
+    }
+
+    /**
+     * Return the configuration fields without the private-key passphrase.
+     *
+     * @return array<string, bool|string|null>
+     */
+    public function jsonSerialize(): array
+    {
+        return [
+            'cafile' => $this->cafile,
+            'localCert' => $this->localCert,
+            'localPk' => $this->localPk,
+            'peerName' => $this->peerName,
+            'verifyPeer' => $this->verifyPeer,
+            'verifyPeerName' => $this->verifyPeerName,
+        ];
+    }
+
+    /**
+     * Return the state for serialize() without the private-key passphrase.
+     * An unserialized instance has a null passphrase.
+     *
+     * @return array<string, bool|string|null>
+     */
+    public function __serialize(): array
+    {
+        return $this->jsonSerialize();
+    }
+
+    /** @param array<string, bool|string|null> $data */
+    public function __unserialize(array $data): void
+    {
+        $this->cafile = is_string($data['cafile'] ?? null) ? $data['cafile'] : null;
+        $this->localCert = is_string($data['localCert'] ?? null) ? $data['localCert'] : null;
+        $this->localPk = is_string($data['localPk'] ?? null) ? $data['localPk'] : null;
+        $this->passphrase = null;
+        $this->peerName = is_string($data['peerName'] ?? null) ? $data['peerName'] : null;
+        $this->verifyPeer = ($data['verifyPeer'] ?? true) !== false;
+        $this->verifyPeerName = ($data['verifyPeerName'] ?? true) !== false;
     }
 
     /**

@@ -306,7 +306,7 @@ class StreamConnection
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
         float $socketTimeout = self::DEFAULT_SOCKET_TIMEOUT,
-        private readonly ?TlsConfig $tls = null,
+        #[\SensitiveParameter] private readonly ?TlsConfig $tls = null,
     ) {
         $this->setSocketTimeout($socketTimeout);
         // Resolve once at construction so the frame metadata path is skipped
@@ -1085,7 +1085,7 @@ class StreamConnection
      *                                  stream.initial_frame_max until Open completes)
      * @throws TimeoutException         If the write times out
      */
-    public function sendMessage(object $request, ?float $timeout = null): void
+    public function sendMessage(#[\SensitiveParameter] object $request, ?float $timeout = null): void
     {
         if ($request instanceof CorrelationInterface) {
             // The correlation id must be assigned before serialization so it
@@ -1129,7 +1129,7 @@ class StreamConnection
      *                                  oversize is a {@see ProtocolException} from {@see sendMessage()})
      * @throws TimeoutException         If the socket is not ready for writing within the timeout
      */
-    public function sendFrame(string $frame, ?float $timeout = null): int
+    public function sendFrame(#[\SensitiveParameter] string $frame, ?float $timeout = null): int
     {
         if ($this->outgoingMaxFrameSize > 0) {
             // $frame includes the 4-byte length prefix added by wrapFrame(); the

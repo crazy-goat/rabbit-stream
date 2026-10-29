@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Request;
 
+use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\StreamConnection;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 
 class SaslAuthenticateRequestV1Test extends TestCase
 {
@@ -54,5 +57,45 @@ class SaslAuthenticateRequestV1Test extends TestCase
 
         $this->assertStringContainsString('secretpassword123', $bytes);
         $this->assertStringContainsString('guest', $bytes);
+    }
+
+    public function testPasswordIsHiddenInVarExportSerializeJsonAndArrayCast(): void
+    {
+        $request = new SaslAuthenticateRequestV1('PLAIN', 'guest', 'example-password');
+
+        $this->assertStringNotContainsString('example-password', var_export($request, true));
+        $this->assertStringNotContainsString('example-password', serialize($request));
+        $this->assertStringNotContainsString('example-password', (string) json_encode($request));
+        $this->assertStringNotContainsString('example-password', print_r((array) $request, true));
+        $this->assertStringNotContainsString('example-password', print_r($request, true));
+        $this->assertStringContainsString('example-password', $request->toStreamBuffer()->getContents());
+    }
+
+    public function testSerializedRequestStillRoundTrips(): void
+    {
+        $request = new SaslAuthenticateRequestV1('PLAIN', 'guest', 'example-password');
+        $restored = unserialize(serialize($request));
+
+        $this->assertInstanceOf(SaslAuthenticateRequestV1::class, $restored);
+        $this->assertSame('guest', $restored->toArray()['username']);
+    }
+
+    public function testStackTraceOfSendMessageHoldsNoPassword(): void
+    {
+        if (PHP_VERSION_ID < 80200) {
+            $this->markTestSkipped('#[\\SensitiveParameter] needs PHP 8.2');
+        }
+        ini_set('zend.exception_ignore_args', '0');
+
+        $stream = new StreamConnection('127.0.0.1', 1, new NullLogger());
+        $stream->setOutgoingMaxFrameSize(8);
+
+        try {
+            $stream->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'app', 'example-password'));
+            $this->fail('Expected an exception');
+        } catch (InvalidArgumentException $e) {
+            $trace = var_export($e->getTrace(), true) . json_encode($e->getTrace());
+            $this->assertStringNotContainsString('example-password', $trace);
+        }
     }
 }
