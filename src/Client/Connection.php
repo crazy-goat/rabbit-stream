@@ -181,7 +181,7 @@ class Connection implements ConnectionInterface
         ?int $maxDeliverFrameSize = null,
         ?StreamConnection $streamConnection = null,
         ?float $socketTimeout = null,
-        ?TlsConfig $tls = null,
+        #[\SensitiveParameter] ?TlsConfig $tls = null,
         ?int $initialFrameMax = null,
     ): self {
         if ($requestedFrameMax !== null && $requestedFrameMax < 0) {
