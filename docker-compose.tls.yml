@@ -1,0 +1,9 @@
+# Adds the TLS stream listener (mutual TLS) to the E2E broker. run-e2e.sh selects it
+# through COMPOSE_FILE and sets RABBITMQ_TLS_CERT_DIR to the generated certificates.
+services:
+  rabbitmq:
+    ports:
+      - "${RABBITMQ_TLS_PORT:-5551}:5551"
+    volumes:
+      - ./docker/rabbitmq-tls.conf:/etc/rabbitmq/conf.d/20-tls.conf:ro
+      - ${RABBITMQ_TLS_CERT_DIR:?set by run-e2e.sh}:/certs:ro

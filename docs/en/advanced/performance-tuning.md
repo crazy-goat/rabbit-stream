@@ -746,22 +746,11 @@ $conn2 = new StreamConnection(host: '127.0.0.1', port: 5552);
 - Share one connection for multiple producers/consumers
 - Implement connection pooling in application layer
 
-### No TLS Support
+### TLS Handshake Cost
 
-Current implementation does not support TLS/SSL:
-
-```php
-// This will fail if server requires TLS
-$connection = new StreamConnection(
-    host: 'rabbitmq.example.com',
-    port: 5552,  // Standard port, no TLS
-);
-```
-
-**Workarounds:**
-- Use VPN or private network
-- Terminate TLS at load balancer
-- Use stunnel for TLS tunneling
+A TLS connection (`tls: new TlsConfig(...)`, broker port 5551) does the handshake inside
+`connect()`. The handshake has the same `socketTimeout` limit as every other I/O call.
+Reuse one connection for many producers and consumers to pay this cost once.
 
 ## Performance Benchmarks
 
