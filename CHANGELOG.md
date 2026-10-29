@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - **CI: the `1.x` maintenance branch gets CI on push, and `AGENTS.md` describes the two release lines (#945)** — `main` now prepares 2.0.0 and takes breaking changes. The new `1.x` branch takes only changes that keep the public API. `.github/workflows/ci.yml` runs on `push` to `main` and to `1.x`. `AGENTS.md` says how to pick the target branch, how to backport with `git cherry-pick -x`, and how to start a `1.x` worktree. No code behaviour change.
 
+### Fixed
+- **Decoder: a total limit of decoded values per message (#947)** — `AmqpDecoder` capped the element count of each list, map and array, but not the total. A body with many compounds, each under the cap, could use memory without a bound and end in an uncatchable `Allowed memory size exhausted` error (for example 8 lists of 131072 one-element lists, or 64 lists of 131072 nulls, at `memory_limit` 128M). `decodeMessage()` and `decodeValue()` now charge every list, map, array (8 and 32 bit) and described value against a budget of 2 097 152 units, 16 times the per-compound cap, and throw `DeserializationException` when it is spent. No public API change. `tests/Client/AmqpDecoderBudgetTest.php` pins both body shapes and a large valid message under the limit.
+
 ## [1.13.0] - 2026-10-28
 
 ### Changed
