@@ -238,6 +238,7 @@ class RunE2eHealthWaitTest extends TestCase
             'RABBITMQ_PORT' => '5552',
             'RABBITMQ_AMQP_PORT' => '5672',
             'RABBITMQ_MANAGEMENT_PORT' => '15672',
+            'RABBITMQ_TLS_PORT' => '5551',
         ]);
 
         $this->assertFalse($result['timedOut'], 'run-e2e.sh did not finish without python3');
@@ -261,6 +262,7 @@ class RunE2eHealthWaitTest extends TestCase
         $this->assertStringContainsString('RABBITMQ_PORT=43123', $dockerLog);
         $this->assertStringContainsString('RABBITMQ_AMQP_PORT=43124', $dockerLog);
         $this->assertStringContainsString('RABBITMQ_MANAGEMENT_PORT=43125', $dockerLog);
+        $this->assertStringContainsString('RABBITMQ_TLS_PORT=43126', $dockerLog);
         $this->assertStringContainsString('FAKE-PHPUNIT-RAN', $result['stdout']);
     }
 
@@ -289,6 +291,7 @@ class RunE2eHealthWaitTest extends TestCase
             'RABBITMQ_PORT' => '5552',
             'RABBITMQ_AMQP_PORT' => '5672',
             'RABBITMQ_MANAGEMENT_PORT' => '15672',
+            'RABBITMQ_TLS_PORT' => '5551',
             'COMPOSE_PROJECT_NAME' => 'explicit-project',
         ]);
 
@@ -308,7 +311,7 @@ class RunE2eHealthWaitTest extends TestCase
         file_put_contents(
             $dir . '/.env.worktree',
             "COMPOSE_PROJECT_NAME=worktree-project\n"
-            . "RABBITMQ_PORT=44001\nRABBITMQ_AMQP_PORT=44002\nRABBITMQ_MANAGEMENT_PORT=44003\n"
+            . "RABBITMQ_PORT=44001\nRABBITMQ_AMQP_PORT=44002\nRABBITMQ_MANAGEMENT_PORT=44003\nRABBITMQ_TLS_PORT=44004\n"
         );
         $result = $this->runE2eIn($dir, 'fakecid', 'healthy');
 
@@ -411,6 +414,7 @@ class RunE2eHealthWaitTest extends TestCase
             'bin/free-port.sh' => (string) file_get_contents(dirname(__DIR__, 2) . '/bin/free-port.sh'),
             'vendor/bin/phpunit' => "#!/usr/bin/env bash\necho FAKE-PHPUNIT-RAN\nexit 0\n",
             'bin/run-examples.sh' => "#!/usr/bin/env bash\necho FAKE-EXAMPLES-RAN\nexit 0\n",
+            'bin/gen-e2e-certs.sh' => "#!/usr/bin/env bash\nmkdir -p \"\$1\"\nexit 0\n",
             'bin/docker' => <<<'SH'
                 #!/usr/bin/env bash
                 echo "$*" >> "$FAKE_LOG"
@@ -418,6 +422,7 @@ class RunE2eHealthWaitTest extends TestCase
                 echo "RABBITMQ_PORT=${RABBITMQ_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_AMQP_PORT=${RABBITMQ_AMQP_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_MANAGEMENT_PORT=${RABBITMQ_MANAGEMENT_PORT:-}" >> "$FAKE_LOG"
+                echo "RABBITMQ_TLS_PORT=${RABBITMQ_TLS_PORT:-}" >> "$FAKE_LOG"
                 echo "RABBITMQ_IMAGE=${RABBITMQ_IMAGE:-}" >> "$FAKE_LOG"
                 if [ "$1" = image ] && [ "$2" = inspect ]; then
                   if [ -n "${FAKE_LOCAL_IMAGE:-}" ] && [ "$3" = "$FAKE_LOCAL_IMAGE" ]; then exit 0; fi
@@ -458,6 +463,7 @@ class RunE2eHealthWaitTest extends TestCase
                   1) echo 43123 ;;
                   2) echo 43124 ;;
                   3) echo 43125 ;;
+                  4) echo 43126 ;;
                   *) exit 1 ;;
                 esac
                 PYTHON,
@@ -466,6 +472,7 @@ class RunE2eHealthWaitTest extends TestCase
             'run-e2e.sh',
             'vendor/bin/phpunit',
             'bin/run-examples.sh',
+            'bin/gen-e2e-certs.sh',
             'bin/free-port.sh',
             'bin/docker',
             'bin/sleep',

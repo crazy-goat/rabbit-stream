@@ -14,3 +14,4 @@ opencode.json
 /findings.md
 /review.md
 /.env.worktree
+/.e2e-tls.*/

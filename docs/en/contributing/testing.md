@@ -53,7 +53,7 @@ E2E tests need a running RabbitMQ broker. Run this command from the project root
 ./run-e2e.sh
 ```
 
-The script starts its own broker and stops it at exit. Do not run `docker compose up -d` before `run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
+The script starts its own broker and stops it at exit. The broker has a TLS stream listener with mutual TLS for `tests/E2E/TlsConnectionE2ETest.php`. The script generates the test certificates with `bin/gen-e2e-certs.sh` into a gitignored `.e2e-tls.*` directory and deletes them at exit. That test is skipped when you run the suite without the script, because it needs `RABBITMQ_TLS_PORT`, `RABBITMQ_TLS_CERT_DIR` and `RABBITMQ_TLS_PASSPHRASE`. Do not run `docker compose up -d` before `run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
 
 To run only the PHPUnit suite, start a broker and check its health. In a worktree, load the environment first with `set -a && . ./.env.worktree && set +a`. Then run:
 

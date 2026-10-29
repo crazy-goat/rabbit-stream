@@ -98,6 +98,35 @@ class StreamConnectionTest extends TestCase
         }
     }
 
+    public function testTlsConnectFailsWithinSocketTimeoutWhenPeerNeverAnswersHandshake(): void
+    {
+        // A peer that accepts TCP and never speaks TLS: the kernel completes the TCP
+        // connect, so the client waits for the server hello (GitHub #402, #906).
+        $server = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+        self::assertIsResource($server, "Cannot listen: {$errorMessage} ({$errorCode})");
+        $port = (int) substr((string) strrchr((string) stream_socket_get_name($server, false), ':'), 1);
+
+        $connection = new StreamConnection(
+            '127.0.0.1',
+            $port,
+            socketTimeout: 1.0,
+            tls: new TlsConfig(verifyPeer: false, verifyPeerName: false)
+        );
+
+        $start = microtime(true);
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException');
+        } catch (ConnectionException $e) {
+            self::assertStringContainsString('ssl://127.0.0.1:' . $port, $e->getMessage());
+        } finally {
+            fclose($server);
+        }
+
+        self::assertLessThan(3.0, microtime(true) - $start);
+        self::assertFalse($connection->isConnected());
+    }
+
     public function testUsesNullLoggerByDefault(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);

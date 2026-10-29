@@ -25,7 +25,22 @@ fi
 if [ -z "${RABBITMQ_MANAGEMENT_PORT+x}" ]; then
     RABBITMQ_MANAGEMENT_PORT="$(bash bin/free-port.sh)"
 fi
-export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_AMQP_PORT RABBITMQ_MANAGEMENT_PORT
+if [ -z "${RABBITMQ_TLS_PORT+x}" ]; then
+    RABBITMQ_TLS_PORT="$(bash bin/free-port.sh)"
+fi
+export RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_AMQP_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_TLS_PORT
+
+# TLS test material (#906): a CA, a server certificate and a client certificate with a
+# passphrase-encrypted key, generated now and deleted at exit. The broker gets an extra TLS
+# stream listener with mutual TLS through docker-compose.tls.yml.
+# The directory lives inside the checkout (gitignored), not in $TMPDIR: Docker VMs such as
+# Colima share the home directory with the container, but not macOS /var/folders.
+RABBITMQ_TLS_CERT_DIR="$(mktemp -d "$PWD/.e2e-tls.XXXXXX")"
+RABBITMQ_TLS_PASSPHRASE="e2e-$RANDOM-$RANDOM-$RANDOM"
+export RABBITMQ_TLS_CERT_DIR RABBITMQ_TLS_PASSPHRASE
+trap 'rm -rf "$RABBITMQ_TLS_CERT_DIR"' EXIT
+export COMPOSE_FILE="docker-compose.yml:docker-compose.tls.yml"
+bash bin/gen-e2e-certs.sh "$RABBITMQ_TLS_CERT_DIR" "$RABBITMQ_TLS_PASSPHRASE"
 
 # Health-wait bounds: E2E_HEALTH_RETRIES polls, E2E_HEALTH_INTERVAL seconds apart.
 # Keep this wait longer than the Compose healthcheck budget (see docker-compose.yml),
@@ -102,6 +117,7 @@ fi
 cleanup() {
     echo "Stopping RabbitMQ..."
     docker compose down
+    rm -rf "$RABBITMQ_TLS_CERT_DIR"
 }
 trap cleanup EXIT
 
