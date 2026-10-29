@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-10-29
+
 ### Changed (BREAKING)
 - **`TlsConfig::$passphrase` is private; read it with `TlsConfig::getPassphrase()` (#948)** — `$tls->passphrase` now fails. The constructor and `new TlsConfig(passphrase: '...')` are unchanged. See the #948 entry under Fixed.
 
