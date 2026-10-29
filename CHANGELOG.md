@@ -6,11 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+- **`TlsConfig::$passphrase` is private; read it with `TlsConfig::getPassphrase()` (#948)** — `$tls->passphrase` now fails. The constructor and `new TlsConfig(passphrase: '...')` are unchanged. See the #948 entry under Fixed.
+
 ### Changed
 - **CI: the `1.x` maintenance branch gets CI on push, and `AGENTS.md` describes the two release lines (#945)** — `main` now prepares 2.0.0 and takes breaking changes. The new `1.x` branch takes only changes that keep the public API. `.github/workflows/ci.yml` runs on `push` to `main` and to `1.x`. `AGENTS.md` says how to pick the target branch, how to backport with `git cherry-pick -x`, and how to start a `1.x` worktree. No code behaviour change.
 
 ### Fixed
 - **Decoder: a total limit of decoded values per message (#947)** — `AmqpDecoder` capped the element count of each list, map and array, but not the total. A body with many compounds, each under the cap, could use memory without a bound and end in an uncatchable `Allowed memory size exhausted` error (for example 8 lists of 131072 one-element lists, or 64 lists of 131072 nulls, at `memory_limit` 128M). `decodeMessage()` and `decodeValue()` now charge every list, map, array (8 and 32 bit) and described value against a budget of 2 097 152 units, 16 times the per-compound cap, and throw `DeserializationException` when it is spent. No public API change. `tests/Client/AmqpDecoderBudgetTest.php` pins both body shapes and a large valid message under the limit.
+- **Credentials stay out of dumps, serialized data and traces (#948)** — after #606 the TLS passphrase and the SASL password still showed in `var_export()`, `serialize()`, `json_encode()`, the `(array)` cast and exception stack traces. This fix breaks one public API. `TlsConfig::$passphrase` was a public readonly `?string` property; it is now private, so `$tls->passphrase` fails. Use the new `TlsConfig::getPassphrase(): ?string` instead. The constructor is unchanged, so `new TlsConfig(passphrase: '...')` still works. `TlsConfig` and `SaslAuthenticateRequestV1` now hold the secret in an internal holder, so no dump, serialized data or trace of them, or of an object that holds them (`StreamConnection`, `Connection`, `Consumer`, `Producer`), shows it. Visible output changes: `serialize()` of a `TlsConfig` no longer holds the passphrase, and an unserialized `TlsConfig` has a null passphrase; `unserialize()` of a `SaslAuthenticateRequestV1` throws `DeserializationException`; `json_encode()` of a `TlsConfig` has no `passphrase` key. `Connection::create(tls:)`, the `StreamConnection` constructor `$tls`, `sendMessage()`, `sendFrame()` and the private send path mark the frame parameters `#[\SensitiveParameter]` (PHP 8.2 or later), so traces show no value for them.
 
 ## [1.13.0] - 2026-10-28
 

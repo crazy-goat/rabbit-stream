@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\VO\Secret;
 
 class SaslAuthenticateRequestV1 implements
     ToStreamBufferInterface,
@@ -24,18 +25,25 @@ class SaslAuthenticateRequestV1 implements
     use V1Trait;
     use CommandTrait;
 
+    /**
+     * The password lives in a Secret holder, not in a string property, so that
+     * var_export(), serialize(), json_encode() and the (array) cast do not show it.
+     */
+    private Secret $password;
+
     public function __construct(
         private string $mechanism,
         private string $username,
-        #[\SensitiveParameter] private string $password,
+        #[\SensitiveParameter] string $password,
     ) {
+        $this->password = new Secret($password);
     }
 
     public function toStreamBuffer(): WriteBuffer
     {
         return self::getKeyVersion($this->getCorrelationId())
             ->addString($this->mechanism)
-            ->addBytes("\0" . $this->username . "\0" . $this->password);
+            ->addBytes("\0" . $this->username . "\0" . $this->password->reveal());
     }
 
     /** @return array<string, string> */
