@@ -310,6 +310,16 @@ The generic flow is in [docs/workflow.md](docs/workflow.md). On top of it:
 
 - Branches are `<type>/issue-<N>-<slug>`, created by `bin/worktree.sh <N>`.
   Never work directly on `main`; it is protected and needs a green `ci-ok`.
+- Two release lines (maintainer decision, 2026-10-29):
+  - `main` prepares 2.0.0. It takes breaking changes and new features.
+  - `1.x` is the maintenance branch for 1.x releases. It takes only changes that do not
+    break the public API: bug fixes, security fixes and backports of approved features.
+  - The issue comment names the target branch. If it names both, merge into `main` first.
+    Then backport the change with `git cherry-pick -x` in a separate PR into `1.x`.
+  - For `1.x` work, start the worktree from `origin/1.x`, not from `main`, and open the PR
+    with `gh pr create --base 1.x`. `bin/worktree.sh` and tyci start from the default branch only.
+  - `1.x` has the same protection as `main`: squash merge only, and a green `ci-ok` on an
+    up-to-date branch.
 - A PR that implements a protocol command also changes `README.md`: `❌` → `✅` in the
   Protocol Implementation Status table.
 - Run `bin/lint.sh && composer test:unit` before the review. Run `./run-e2e.sh` only for
