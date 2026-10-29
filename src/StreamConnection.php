@@ -306,7 +306,7 @@ class StreamConnection
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly BinarySerializerInterface $serializer = new PhpBinarySerializer(),
         float $socketTimeout = self::DEFAULT_SOCKET_TIMEOUT,
-        private readonly ?TlsConfig $tls = null,
+        #[\SensitiveParameter] private readonly ?TlsConfig $tls = null,
     ) {
         $this->setSocketTimeout($socketTimeout);
         // Resolve once at construction so the frame metadata path is skipped
@@ -1085,7 +1085,7 @@ class StreamConnection
      *                                  stream.initial_frame_max until Open completes)
      * @throws TimeoutException         If the write times out
      */
-    public function sendMessage(object $request, ?float $timeout = null): void
+    public function sendMessage(#[\SensitiveParameter] object $request, ?float $timeout = null): void
     {
         if ($request instanceof CorrelationInterface) {
             // The correlation id must be assigned before serialization so it
@@ -1129,7 +1129,7 @@ class StreamConnection
      *                                  oversize is a {@see ProtocolException} from {@see sendMessage()})
      * @throws TimeoutException         If the socket is not ready for writing within the timeout
      */
-    public function sendFrame(string $frame, ?float $timeout = null): int
+    public function sendFrame(#[\SensitiveParameter] string $frame, ?float $timeout = null): int
     {
         if ($this->outgoingMaxFrameSize > 0) {
             // $frame includes the 4-byte length prefix added by wrapFrame(); the
@@ -1210,7 +1210,7 @@ class StreamConnection
      * @throws ConnectionException If the write fails or a partial frame cannot be completed
      * @throws TimeoutException    If nothing at all could be written before the $socketTimeout deadline expired
      */
-    private function writeAll(string $frame): int
+    private function writeAll(#[\SensitiveParameter] string $frame): int
     {
         $stream = $this->requireStream();
 
@@ -1983,7 +1983,7 @@ class StreamConnection
         return sprintf('array{%s, %s}', get_debug_type($reply[0]), get_debug_type($reply[1]));
     }
 
-    private function wrapFrame(string $content): string
+    private function wrapFrame(#[\SensitiveParameter] string $content): string
     {
         // Direct pack()+concat instead of a WriteBuffer object: this runs once
         // per outgoing message (and once per heartbeat/close-response reply).
@@ -2164,7 +2164,7 @@ class StreamConnection
      *                          4-byte length prefix, in readFrame it does not
      * @param int    $keyOffset Byte offset of the uint16 command key within $frame
      */
-    private function debugFrame(string $prefix, string $frame, int $keyOffset): void
+    private function debugFrame(string $prefix, #[\SensitiveParameter] string $frame, int $keyOffset): void
     {
         if (!$this->debugLogging) {
             return;

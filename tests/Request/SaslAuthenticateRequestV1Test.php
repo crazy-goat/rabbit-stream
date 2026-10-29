@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Request;
 
 use CrazyGoat\RabbitStream\Request\SaslAuthenticateRequestV1;
+use CrazyGoat\RabbitStream\StreamConnection;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 
 class SaslAuthenticateRequestV1Test extends TestCase
 {
@@ -54,5 +56,70 @@ class SaslAuthenticateRequestV1Test extends TestCase
 
         $this->assertStringContainsString('secretpassword123', $bytes);
         $this->assertStringContainsString('guest', $bytes);
+    }
+
+    public function testPasswordIsHiddenInVarExportSerializeJsonAndArrayCast(): void
+    {
+        $request = new SaslAuthenticateRequestV1('PLAIN', 'guest', 'example-password');
+
+        $this->assertStringNotContainsString('example-password', var_export($request, true));
+        $this->assertStringNotContainsString('example-password', serialize($request));
+        $this->assertStringNotContainsString('example-password', (string) json_encode($request));
+        $this->assertStringNotContainsString('example-password', print_r((array) $request, true));
+        $this->assertStringNotContainsString('example-password', print_r($request, true));
+        $this->assertStringContainsString('example-password', $request->toStreamBuffer()->getContents());
+    }
+
+    public function testUnserializedRequestFailsClearly(): void
+    {
+        $serialized = serialize(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'example-password'));
+
+        $this->expectException(\CrazyGoat\RabbitStream\Exception\DeserializationException::class);
+        unserialize($serialized);
+    }
+
+    public function testStackTraceOfOversizedSendMessageHoldsNoPassword(): void
+    {
+        $stream = new StreamConnection('control-host.invalid', 1, new NullLogger());
+        $stream->setOutgoingMaxFrameSize(8);
+
+        $trace = $this->traceOf($stream);
+
+        $this->assertStringContainsString('sendFrame', $trace);
+        $this->assertStringNotContainsString('example-password', $trace);
+    }
+
+    public function testStackTraceOfFailedWriteHoldsNoPassword(): void
+    {
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $this->assertIsArray($pair);
+        fclose($pair[1]);
+
+        $stream = new StreamConnection('control-host.invalid', 1, new NullLogger());
+        $reflection = new \ReflectionClass($stream);
+        $reflection->getProperty('stream')->setValue($stream, $pair[0]);
+        $reflection->getProperty('connected')->setValue($stream, true);
+
+        $trace = $this->traceOf($stream);
+
+        $this->assertStringContainsString('writeAll', $trace);
+        $this->assertStringNotContainsString('example-password', $trace);
+    }
+
+    private function traceOf(StreamConnection $stream): string
+    {
+        if (PHP_VERSION_ID < 80200) {
+            $this->markTestSkipped('#[\\SensitiveParameter] needs PHP 8.2');
+        }
+        $old = ini_set('zend.exception_ignore_args', '0');
+
+        try {
+            $stream->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'app', 'example-password'));
+        } catch (\Throwable $e) {
+            return var_export($e->getTrace(), true) . json_encode($e->getTrace());
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $old);
+        }
+        $this->fail('Expected an exception');
     }
 }
