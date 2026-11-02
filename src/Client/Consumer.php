@@ -322,6 +322,9 @@ class Consumer implements ConsumerInterface
     private function onStreamUnavailable(): void
     {
         $this->subscriptionLost = true;
+        // A credit error may have arrived for the dropped subscription before
+        // its MetadataUpdate; it must not poison the replacement subscription.
+        $this->creditError = null;
         // Nothing is in flight any more: the broker forgot the subscription and
         // with it every outstanding credit.
         $this->creditsInFlight = 0;

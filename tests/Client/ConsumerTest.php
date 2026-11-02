@@ -250,6 +250,23 @@ class ConsumerTest extends TestCase
         ));
     }
 
+    public function testStaleCreditErrorBeforeMetadataUpdateDoesNotPoisonResubscribedConsumer(): void
+    {
+        [, $consumer, , $metadataHandler, $creditErrorHandler] = $this->makeConsumerWithHandlers();
+        $this->assertIsCallable($creditErrorHandler);
+
+        // The stale response can arrive before MetadataUpdate marks the subscription lost.
+        $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x04, 'subscriptionId' => 1]));
+        $this->assertIsCallable($metadataHandler);
+        $metadataHandler();
+
+        $this->assertTrue($consumer->resubscribeIfLost());
+        $this->assertFalse($consumer->isSubscriptionLost());
+
+        // A stale error must not prevent normal reads after the subscription is restored.
+        $this->assertSame([], $consumer->read(timeout: 0.0));
+    }
+
     public function testStaleCreditErrorWhileResubscribingIsIgnoredAndLaterCreditErrorIsRaised(): void
     {
         $deliverCallback = null;

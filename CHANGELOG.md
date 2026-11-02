@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Consumer: stale credit errors received before MetadataUpdate no longer poison re-subscription (#883)** — clear any stored credit error when the broker reports that the subscription was dropped. This handles `SUBSCRIPTION_ID_NOT_EXIST` arriving before MetadataUpdate as well as during re-subscription; errors on a live subscription are still raised. `tests/Client/ConsumerTest.php` covers the earlier frame order and a live-subscription error.
+
 ## [1.13.2] - 2026-10-29
 
 ### Fixed
