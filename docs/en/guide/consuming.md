@@ -435,9 +435,12 @@ $consumer = $connection->createConsumer(
 
 ### What Gets Stored
 
-The stored value is the **next** offset to consume — `lastProcessedOffset + 1`
-— which is what the Java, Go and .NET clients store too. Resume by handing it
-straight to `OffsetSpec::offset()` (which is inclusive), with no arithmetic:
+PHP stores the **next** offset to consume — `lastProcessedOffset + 1`. The
+Java, Go and .NET clients store the offset of the last processed message
+instead, so stored offsets are not portable between these clients. Check an
+offset from another client before resuming a PHP consumer; no conversion is
+specified here. A PHP-stored offset can be passed directly to
+`OffsetSpec::offset()` (which is inclusive):
 
 ```php
 $stored = $connection->queryOffset('auto-consumer', 'events');

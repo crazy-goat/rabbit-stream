@@ -857,12 +857,13 @@ class Consumer implements ConsumerInterface
     /**
      * Store an offset for this consumer's name on the broker.
      *
-     * Convention: the stored value is the **next** offset to consume, i.e.
-     * `lastProcessedOffset + 1`, which is what auto-commit writes and what the
-     * Java, Go and .NET clients store — so a stored offset can be handed to
-     * `OffsetSpec::offset()` (inclusive) directly, and is portable across
-     * clients. Before #396 auto-commit stored the last *consumed* offset, which
-     * redelivered that message on every resume.
+     * PHP stores the **next** offset to consume, i.e.
+     * `lastProcessedOffset + 1`; auto-commit uses the same convention. The
+     * Java, Go and .NET clients store the offset of the last processed message,
+     * so stored offsets are not portable between these clients. Check the value
+     * before resuming a PHP consumer with an offset from another client; no
+     * conversion is specified here. Before #396 auto-commit stored the last
+     * *consumed* offset, which redelivered that message on every resume.
      *
      * @param int $offset Next offset to consume
      * @throws ProtocolException If this consumer has no name (offsets are

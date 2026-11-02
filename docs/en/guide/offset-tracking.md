@@ -192,10 +192,11 @@ if ($response instanceof ResolveOffsetSpecResponseV1) {
 
 ### What a Stored Offset Means
 
-A stored offset is the **next** offset to consume — `lastProcessedOffset + 1`,
-not the offset of the last processed message. That is what auto-commit writes,
-what `storeOffset()` expects, and what the Java, Go and .NET clients store, so
-offsets are portable between clients and resuming needs no arithmetic:
+PHP stores the **next** offset to consume — `lastProcessedOffset + 1`.
+Auto-commit writes this value, and `storeOffset()` expects it. The Java, Go and
+.NET clients store the offset of the last processed message instead, so stored
+offsets are not portable between these clients. Check an offset from another
+client before resuming a PHP consumer; no conversion is specified here.
 
 ```php
 $stored = $consumer->queryOffset();               // e.g. 42, or null if none
