@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use Throwable;
+
 class Message
 {
     private bool $decoded;
+
+    /** The error of a failed decode, thrown again by every later accessor (see ensureDecoded()). */
+    private ?Throwable $decodeError = null;
 
     /**
      * Construct a fully-decoded Message (backwards-compatible eager path), or —
@@ -115,7 +120,10 @@ class Message
     private const DATA_VBIN8_PREFIX = "\x00\x53\x75\xa0";
 
     /**
-     * Decode $rawData into sections and cache the result. No-op once already decoded.
+     * Decode the lazy input into sections and cache the result. No-op once already decoded.
+     *
+     * A failed decode is cached too: the input is released before the decoder runs, so
+     * a later call cannot decode it again. Every later call throws the same error.
      */
     private function ensureDecoded(): void
     {
@@ -123,6 +131,23 @@ class Message
             return;
         }
 
+        if ($this->decodeError instanceof Throwable) {
+            throw $this->decodeError;
+        }
+
+        try {
+            $this->decodeInput();
+        } catch (Throwable $error) {
+            $this->decodeError = $error;
+            throw $error;
+        }
+    }
+
+    /**
+     * Decode $rawData or $chunk into sections. Releases the input before it decodes.
+     */
+    private function decodeInput(): void
+    {
         if ($this->chunk !== null) {
             $this->ensureDecodedFromChunkView();
             return;

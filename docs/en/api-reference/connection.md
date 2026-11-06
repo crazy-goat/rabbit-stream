@@ -329,8 +329,12 @@ public function createStream(string $name, array $arguments = []): void
 
 #### Exceptions
 
+- `ProtocolException` - If the broker returns a non-OK response code (for example when the stream already exists), or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If the stream already exists or arguments are invalid
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -367,8 +371,12 @@ public function deleteStream(string $name): void
 
 #### Exceptions
 
+- `ProtocolException` - If the broker returns a non-OK response code (for example when the stream does not exist), or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If the stream does not exist
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -398,7 +406,12 @@ public function streamExists(string $name): bool
 
 #### Exceptions
 
+- `ProtocolException` - If the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -439,8 +452,12 @@ A new stream with no messages returns `-1` for each key.
 
 #### Exceptions
 
+- `ProtocolException` - If the broker returns a non-OK response code (for example when the stream does not exist), or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If the stream does not exist
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -482,7 +499,12 @@ public function getMetadata(array $streams): MetadataResponseV1
 
 #### Exceptions
 
+- `ProtocolException` - If the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -543,8 +565,12 @@ public function createSuperStream(
 
 #### Exceptions
 
+- `ProtocolException` - If the broker returns a non-OK response code (for example when the super stream already exists or an argument is invalid), or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If the super stream already exists or arguments are invalid
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -579,8 +605,12 @@ public function deleteSuperStream(string $name): void
 
 #### Exceptions
 
+- `ProtocolException` - If the broker returns a non-OK response code (for example when the super stream does not exist), or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If the super stream does not exist
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -612,7 +642,12 @@ public function route(string $routingKey, string $superStream): array
 
 #### Exceptions
 
+- `ProtocolException` - If the broker returns a non-OK response code, or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -648,8 +683,12 @@ public function partitions(string $superStream): array
 
 #### Exceptions
 
+- `ProtocolException` - If the super stream does not exist, it has zero partitions, or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If the super stream does not exist, or exists but currently has zero partitions
+- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -691,10 +730,12 @@ when nothing has been stored yet for the pair (the broker's `NO_OFFSET`,
 
 #### Exceptions
 
+- `ProtocolException` - If the broker returns any non-OK response code **other than** `NO_OFFSET` (for example `STREAM_NOT_EXIST`), or the response has an unexpected command or version
 - `UnexpectedResponseException` - If the server returns an unexpected response
-- `ProtocolException` - If the broker returns any non-OK response code **other than**
-  `NO_OFFSET` (for example `STREAM_NOT_EXIST`)
 - `InvalidArgumentException` - If `$reference` is longer than 255 bytes, or the serialized request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -809,9 +850,12 @@ public function createProducer(
 
 #### Exceptions
 
-- `ProtocolException` - If the stream does not exist
-- `ConnectionException` - If all 256 publisher ids of this connection are in use
+- `ConnectionException` - If the socket is not connected, a write or read fails, or all 256 publisher ids of this connection are in use
 - `InvalidArgumentException` - If `$redeclareTimeout` or `$closeConfirmDrainTimeout` is negative, if `$name` is longer than 255 bytes, or if the serialized `DeclarePublisher` request exceeds the negotiated outgoing frame size
+- `ProtocolException` - If the stream does not exist (the `DeclarePublisher` response code is asserted), or the response has an unexpected command or version
+- `UnexpectedResponseException` - If a named producer's sequence query receives an unexpected response
+- `DeserializationException` - If a response frame cannot be deserialized
+- `TimeoutException` - If a response does not arrive in time
 
 #### Example
 
@@ -893,9 +937,16 @@ public function createConsumer(
 
 #### Exceptions
 
-- `ProtocolException` - If the stream does not exist or offset is invalid
-- `ConnectionException` - If all 256 subscription ids of this connection are in use
-- `InvalidArgumentException` - If `$maxBufferSize` is not positive, `$initialCredit` is outside 1–32767, `$creditWindowBytes` is negative, `$maxDecodeDepth` is below 1, `$singleActiveConsumer` is set without `$name`, or `$name` is longer than 255 bytes while `$singleActiveConsumer` is set or `$autoCommit` is above 0
+- `ConnectionException` - If the socket is not connected, a write or read fails, or all 256 subscription ids of this connection are in use
+- `InvalidArgumentException` - If one of these cases occurs:
+  - `$maxBufferSize` is not positive, or `$initialCredit` is outside 1 to 32767
+  - `$creditWindowBytes` is negative, or `$maxDecodeDepth` is below 1
+  - `$singleActiveConsumer` is set without `$name`
+  - `$name` is longer than 255 bytes while `$singleActiveConsumer` is set or `$autoCommit` is above 0
+  - the serialized request exceeds the negotiated outgoing frame size
+- `ProtocolException` - If the broker rejects the Subscribe with a non-OK response code, or the response has an unexpected command or version
+- `DeserializationException` - If a response frame cannot be deserialized
+- `TimeoutException` - If the Subscribe response does not arrive in time
 
 #### Example
 
@@ -964,8 +1015,15 @@ public function createSuperStreamProducer(
 
 #### Exceptions
 
-- `ProtocolException` - If the super stream does not exist or has zero partitions
-- `InvalidArgumentException` - If `$closeConfirmDrainTimeout` is negative, or if a derived partition producer name (`<name>-<partition>`) is longer than 255 bytes. The derived name check runs after the `partitions()` lookup, so no `DeclarePublisher` frame is sent
+- `ProtocolException` - If the super stream does not exist, it has zero partitions, or a response has an unexpected command or version
+- `UnexpectedResponseException` - If a `partitions()` response has an unexpected type
+- `InvalidArgumentException` - If one of these cases occurs:
+  - `$closeConfirmDrainTimeout` is negative
+  - a derived partition producer name (`<name>-<partition>`) is longer than 255 bytes
+  - a `partitions()` request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected, or a write or read fails
+- `DeserializationException` - If a response frame cannot be deserialized
+- `TimeoutException` - If a response does not arrive in time
 
 #### Example
 
@@ -1032,8 +1090,16 @@ public function createSuperStreamConsumer(
 
 #### Exceptions
 
-- `ProtocolException` - If the super stream does not exist or has zero partitions
-- `InvalidArgumentException` - If `$maxBufferSize` is not positive, another `Consumer` argument is out of range, or `$name` is longer than 255 bytes while `$singleActiveConsumer` is set or `$autoCommit` is above 0
+- `ProtocolException` - If the super stream does not exist, it has zero partitions, the broker rejects a Subscribe, or a response has an unexpected command or version
+- `UnexpectedResponseException` - If a `partitions()` response has an unexpected type
+- `ConnectionException` - If the socket is not connected, a write or read fails, or all 256 subscription ids of this connection are in use
+- `InvalidArgumentException` - If one of these cases occurs:
+  - a Consumer argument is out of range, including a non-positive `$maxBufferSize`
+  - `$singleActiveConsumer` is set without `$name`
+  - `$name` is longer than 255 bytes while `$singleActiveConsumer` is set or `$autoCommit` is above 0
+  - a `partitions()` request or a per-partition `Subscribe` request exceeds the negotiated outgoing frame size
+- `DeserializationException` - If a response frame cannot be deserialized
+- `TimeoutException` - If a response does not arrive in time
 
 #### Example
 
@@ -1079,9 +1145,19 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is lost
+- `ConnectionException` - If one of these cases occurs:
+  - the socket is not connected, or `stream_select()` fails
+  - signal interruptions of `stream_select()` outrun the retry bound (more than 1,000,000 in a row)
+  - a read fails, or the peer closes the connection
+  - no inbound data arrives for two heartbeat intervals. The connection then closes.
+  - a frame is incomplete and its read times out. The connection then closes.
+  - a heartbeat write times out during an incomplete frame. The connection then closes.
+  - a frame is larger than the maximum frame size. The connection then closes.
 - `DeserializationException` - If a server-push frame cannot be deserialized
+- `InvalidArgumentException` - If a registered `ConsumerUpdate` callback or handler returns an invalid reply, for example an offset type outside 0 to 5
 - `TimeoutException` - If a reply this loop must send (a heartbeat echo, a server-close acknowledgement or a ConsumerUpdate reply) cannot be written within the socket timeout
+
+An exception that a callback throws (publish confirm, publish error, deliver or metadata update) reaches the caller of `readLoop()`. An exception that a `ConsumerUpdate` callback or handler throws also reaches the caller, after the loop sends a `none` reply. For example, a single-active-consumer handler of a `Consumer` can raise `ProtocolException` or `UnexpectedResponseException` from its `queryOffset()` call.
 
 #### Example
 
@@ -1119,10 +1195,10 @@ the v1 baseline is assumed: `true` for version 1, `false` for anything higher.
 
 #### Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `$key` | `KeyEnum` | Command to check, e.g. `KeyEnum::PUBLISH` |
-| `$version` | `int` | Version to check (1-based) |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$key` | `KeyEnum` | Yes | Command to check, e.g. `KeyEnum::PUBLISH` |
+| `$version` | `int` | Yes | Version to check (1-based) |
 
 #### Return Value
 
@@ -1214,7 +1290,11 @@ None
 
 #### Exceptions
 
-- `UnexpectedResponseException` - If the server returns an unexpected response during close
+- `ProtocolException` - If the broker returns a non-OK Close response code, or the response has an unexpected command or version
+- `UnexpectedResponseException` - If the server returns an unexpected response
+- `ConnectionException` - If the socket is not connected, or the Close exchange fails
+- `DeserializationException` - If the Close response frame cannot be deserialized
+- `TimeoutException` - If the Close response does not arrive in time
 
 #### Example
 

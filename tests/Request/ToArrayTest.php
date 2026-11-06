@@ -180,6 +180,20 @@ class ToArrayTest extends TestCase
         $array = $request->toArray();
         $this->assertSame('stream', $array['stream']);
         $this->assertSame(['type' => OffsetSpec::TYPE_FIRST, 'value' => null], $array['offsetSpec']);
+        $this->assertSame([], $array['properties']);
+    }
+
+    public function testResolveOffsetSpecRequestReturnsProperties(): void
+    {
+        $request = new ResolveOffsetSpecRequestV1(
+            'stream',
+            OffsetSpec::first(),
+            ['match-unfiltered' => 'true', 'filter.0' => 'abc']
+        );
+        $this->assertSame(
+            ['match-unfiltered' => 'true', 'filter.0' => 'abc'],
+            $request->toArray()['properties']
+        );
     }
 
     public function testPeerPropertiesRequestReturnsProperties(): void
