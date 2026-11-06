@@ -679,7 +679,7 @@ public function queryOffset(string $reference, string $stream): ?int
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `$reference` | `string` | Yes | Consumer name (reference) |
+| `$reference` | `string` | Yes | Consumer name (reference). Maximum 255 bytes. A longer value throws `InvalidArgumentException`. |
 | `$stream` | `string` | Yes | Stream name |
 
 #### Return Value
@@ -720,7 +720,7 @@ public function storeOffset(string $reference, string $stream, int $offset): voi
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `$reference` | `string` | Yes | Consumer name (reference) |
+| `$reference` | `string` | Yes | Consumer name (reference). Maximum 255 bytes. A longer value throws `InvalidArgumentException`. |
 | `$stream` | `string` | Yes | Stream name |
 | `$offset` | `int` | Yes | The **next** offset to consume, i.e. `lastProcessedOffset + 1` (see `Consumer::storeOffset()`) |
 
@@ -795,7 +795,7 @@ public function createProducer(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to publish to |
-| `$name` | `?string` | No | Unique producer name for deduplication. If provided, the producer reads back its publishing sequence on creation and resumes from it, so a reconnect/restart continues above the broker's stored sequence instead of replaying it. |
+| `$name` | `?string` | No | Unique producer name for deduplication. If provided, the producer reads back its publishing sequence on creation and resumes from it, so a reconnect/restart continues above the broker's stored sequence instead of replaying it. Maximum 255 bytes. A longer name throws `InvalidArgumentException`. |
 | `$onConfirm` | `?callable` | No | Callback invoked for each publish confirmation. Receives `ConfirmationStatus`. |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap on outstanding publishes. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
 | `$redeclareTimeout` | `float` | No | How long a publish keeps retrying `DeclarePublisher` after a `MetadataUpdate` dropped the publisher. Default: `Producer::DEFAULT_REDECLARE_TIMEOUT` (5.0 s). See [Producer::isStale()](producer.md#isstale). |
@@ -864,7 +864,7 @@ public function createConsumer(
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification (see `OffsetSpec` factory methods) |
-| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. |
+| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. Maximum 255 bytes. A longer name throws `InvalidArgumentException`. |
 | `$autoCommit` | `int` | No | Auto-commit interval (number of messages). `0` disables auto-commit. |
 | `$initialCredit` | `int` | No | Initial (and minimum) number of chunks in flight, 1–32767. Default: `10` |
 | `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (`filter.0`, `filter.1`, ... properties). Chunk-granular — see the [Consumer API reference](consumer.md). |
@@ -949,7 +949,7 @@ public function createSuperStreamProducer(
 |-----------|------|----------|-------------|
 | `$superStream` | `string` | Yes | Name of the super stream to publish to |
 | `$strategy` | `?RoutingStrategy` | No | Routing strategy. Default: `HashRoutingStrategy` — MurmurHash3 x86_32, seed `104729`, matching the Java/.NET clients exactly, so a routing key lands on the same partition regardless of which client language published it. See `KeyRoutingStrategy` for broker-resolved (exchange binding) routing instead. |
-| `$name` | `?string` | No | Base producer name. Each partition's underlying `Producer` gets the derived name `"{$name}-{$partition}"`, so per-partition sequence dedup still works. |
+| `$name` | `?string` | No | Base producer name. Each partition's underlying `Producer` gets the derived name `"{$name}-{$partition}"`, so per-partition sequence dedup still works. The derived name has a maximum of 255 bytes. A longer derived name throws `InvalidArgumentException` when the producer is created. |
 | `$onConfirm` | `?callable` | No | Confirmation callback, passed through to every partition's `Producer`. |
 | `$maxPendingConfirms` | `int` | No | Back-pressure cap, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_MAX_PENDING_CONFIRMS`. |
 | `$redeclareTimeout` | `float` | No | Re-declare timeout after a `MetadataUpdate`, passed through to every partition's `Producer`. Default: `Producer::DEFAULT_REDECLARE_TIMEOUT` (5.0 s). |
@@ -1013,7 +1013,7 @@ public function createSuperStreamConsumer(
 |-----------|------|----------|-------------|
 | `$superStream` | `string` | Yes | Name of the super stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification, applied to every partition |
-| `$name` | `?string` | No | Consumer name, shared by every partition's subscription. Required for `singleActiveConsumer` — the broker groups the per-partition subscriptions into one single-active-consumer group *per partition* using this shared name. |
+| `$name` | `?string` | No | Consumer name, shared by every partition's subscription. Required for `singleActiveConsumer` — the broker groups the per-partition subscriptions into one single-active-consumer group *per partition* using this shared name. Maximum 255 bytes. A longer name throws `InvalidArgumentException`. |
 | `$autoCommit` | `int` | No | Auto-commit interval (messages), passed through to every partition's `Consumer` |
 | `$initialCredit` | `int` | No | Initial flow control credits, passed through to every partition's `Consumer` |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer per partition. Requires `$name`. |
