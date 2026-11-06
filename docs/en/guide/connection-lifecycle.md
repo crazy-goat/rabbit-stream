@@ -66,7 +66,11 @@ The connection handshake follows this exact sequence:
 
 ### 1. PeerProperties (0x0011 / 0x8011)
 
-The first step exchanges client and server capabilities. The client sends its properties (like product name, version, platform), and the server responds with its capabilities.
+The first step exchanges client and server capabilities. The client sends its properties, and the server responds with its capabilities. The client sends three properties:
+
+- `product`: `rabbit-stream`
+- `version`: the version of the package that Composer installed, or `unknown` when Composer does not provide it
+- `platform`: `PHP` followed by the PHP version, for example `PHP 8.5.10`
 
 **Purpose:**
 - Exchange version information
