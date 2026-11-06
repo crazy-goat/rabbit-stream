@@ -107,8 +107,6 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             'A must hold unread partition 1 messages before the handover'
         );
 
-        $storedBeforeB = $admin->queryOffset($group, $partitions[1]);
-
         $b = $connectionB->createSuperStreamConsumer(
             $this->superStream,
             OffsetSpec::first(),
@@ -141,10 +139,12 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             }
         }
         $this->assertSame(9, $lastRead, 'B must read partition 1 up to offset 9');
-        // Derive the value B stores last. Auto-commit stores lastOffset + 1 after every
-        // $autoCommit messages B processes. Without a new store, the value stays the
-        // one A stored before the handover.
-        $expectedByB = $storedBeforeB;
+        // Derive the value B stores last. B resumes at the stored offset, which A may
+        // have raised on demotion, so the first offset B returns is B's resume point.
+        // Auto-commit then stores lastOffset + 1 after every $autoCommit messages B
+        // processes. If B stores nothing, the broker keeps that resume point.
+        $this->assertNotEmpty($bPartitionOffsets, 'B must return partition 1 messages');
+        $expectedByB = $bPartitionOffsets[0];
         $processedSinceStore = 0;
         foreach ($bPartitionOffsets as $offset) {
             $processedSinceStore++;
