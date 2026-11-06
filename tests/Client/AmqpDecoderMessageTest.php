@@ -548,8 +548,8 @@ class AmqpDecoderMessageTest extends TestCase
     public function testSymbolicSectionDescriptorDecodesLikeNumericCode(string $name, int $code): void
     {
         // Same value bytes for both forms; only the descriptor differs.
-        // Properties (0x73) must be a list (#944), so it gets list0 instead of binary.
-        $valueData = $code === 0x73 ? "\x45" : "\xa0\x02hi";
+        // Properties (0x73) must be a list (#944), so it gets a non-empty list8 instead of binary.
+        $valueData = $code === 0x73 ? "\xc0\x04\x01\xa1\x01x" : "\xa0\x02hi";
         $numeric = "\x00\x53" . pack('C', $code) . $valueData;
         $symbolic = $this->buildSymbolicSection($name, $valueData);
 
@@ -638,7 +638,6 @@ class AmqpDecoderMessageTest extends TestCase
         yield 'smalluint (case 3)' => ["\x00\x53\x73\x52\x07"];
         yield 'map with int key 0 (case 4)' => ["\x00\x53\x73\xc1\x06\x02\x52\x00\xa1\x01x"];
         yield 'empty map8' => ["\x00\x53\x73\xc1\x01\x00"];
-        yield 'null' => ["\x00\x53\x73\x40"];
     }
 
     /**
@@ -650,6 +649,15 @@ class AmqpDecoderMessageTest extends TestCase
         $this->expectExceptionMessage('Properties section (0x73) must be a list');
 
         AmqpDecoder::decodeMessage($message);
+    }
+
+    public function testNullPropertiesSectionDecodesToNoFieldsTolerantly(): void
+    {
+        // Tolerated (#944): a null Properties value gives [], as it did before the fix.
+        $sections = AmqpDecoder::decodeMessage("\x00\x53\x73\x40" . $this->buildDataSection('body'));
+
+        $this->assertSame([], $sections['properties']);
+        $this->assertSame('body', $sections['body']);
     }
 
     public function testPropertiesSectionAsMapNamesTheFormatCode(): void
@@ -735,6 +743,16 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame(['a' => 3], $sections['applicationProperties']);
         $this->assertSame('body', $sections['body']);
         $this->assertSame(['f' => 4], $sections['footer']);
+    }
+
+    public function testAmqpSequenceThenDataGivesTheDataBodyTolerantly(): void
+    {
+        // Case 2: the AmqpSequence body is discarded with no error; the Data body is kept.
+        $message = "\x00\x53\x76\xc0\x03\x01\x52\x2a" . $this->buildDataSection('Y');
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame('Y', $sections['body']);
     }
 
     public function testAmqpSequenceBodyDecodes(): void

@@ -242,14 +242,18 @@ class AmqpDecoder
      * Returns ['header' => [...], 'properties' => [...], 'applicationProperties' => [...],
      *          'messageAnnotations' => [...], 'body' => string|mixed]
      *
-     * A Properties section (0x73) whose value is not a list (list0, list8 or list32)
-     * throws a DeserializationException. The message bodies below are tolerated
-     * malformed input (issue #944). The decoder accepts them and does not throw:
+     * A Properties section (0x73) whose value is a map, a scalar or a described value
+     * (not list0, list8 or list32) throws a DeserializationException. A null value
+     * decodes as no properties. The forms below are tolerated malformed input (issue
+     * #944). The decoder accepts them and does not throw:
+     * - A Properties section (0x73) whose value is null (0x40) decodes as [].
      * - A Data section (0x75) whose value is str8 or sym8 (AMQP 1.0 requires binary).
      *   The string bytes become the body.
      * - An AmqpValue (0x77) or AmqpSequence (0x76) section mixed with Data sections in
-     *   one message (AMQP 1.0 allows one body kind). Data bytes after an AmqpValue
-     *   string are joined to it. A Data section before an AmqpValue is replaced by it.
+     *   one message (AMQP 1.0 allows one body kind). Data bytes after a string AmqpValue
+     *   are joined to it. A Data section after an AmqpSequence or a non-string AmqpValue
+     *   gives the body, and the earlier body is discarded. A Data section before an
+     *   AmqpValue is replaced by it.
      *
      * @param int $maxDepth maximum allowed recursion depth
      * @return array<string, mixed>
@@ -320,8 +324,13 @@ class AmqpDecoder
                     break;
 
                 case 0x73: // Properties
+                    // Tolerated (#944): a null value decodes as no properties, as before.
+                    if ($valueFormatCode === 0x40) {
+                        $sections['properties'] = [];
+                        break;
+                    }
                     // AMQP 1.0 defines Properties as a composite type with a list source.
-                    // A map, a scalar or null would otherwise give empty or shifted fields.
+                    // A map or a scalar would otherwise give empty or shifted fields.
                     // Every decoded list passes array_is_list(); it also narrows the type.
                     if (
                         !is_array($value)
