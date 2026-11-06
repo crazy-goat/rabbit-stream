@@ -616,10 +616,55 @@ class ProducerTest extends TestCase
         $connection->expects($this->never())->method('readLoop');
 
         $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 5);
+        $connection->expects($this->never())->method('sendMessage');
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Batch size 6 exceeds maxPendingConfirms limit 5');
         $producer->sendBatch(['a', 'b', 'c', 'd', 'e', 'f']);
+    }
+
+    public function testSendBatchLargerThanMaxPendingConfirmsOnStaleProducerDoesNotRedeclare(): void
+    {
+        [$connection, $metadataHandlers] = $this->connectionCapturingHandlers();
+        $declareCalls = 0;
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function (object $request) use (&$declareCalls): object {
+                if ($request instanceof DeclarePublisherRequestV1) {
+                    $declareCalls++;
+                }
+                if ($request instanceof QueryPublisherSequenceRequestV1) {
+                    return \CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1::fromArray([
+                        'correlationId' => 1,
+                        'sequence' => 0,
+                    ]);
+                }
+                return new \stdClass();
+            });
+
+        $producer = new Producer($connection, 'test-stream', 1, maxPendingConfirms: 5);
+        $metadataHandlers->at()(
+            new MetadataUpdateResponseV1(ResponseCodeEnum::STREAM_NOT_AVAILABLE->value, 'test-stream')
+        );
+        $this->assertTrue($producer->isStale());
+        $declareCallsBeforeBatch = $declareCalls;
+
+        $connection->expects($this->never())->method('sendMessage');
+        $connection->expects($this->never())->method('readLoop');
+
+        try {
+            $producer->sendBatch(['a', 'b', 'c', 'd', 'e', 'f']);
+            $this->fail('An oversized batch must throw InvalidArgumentException');
+        } catch (InvalidArgumentException $e) {
+            $this->assertSame('Batch size 6 exceeds maxPendingConfirms limit 5', $e->getMessage());
+        }
+
+        $this->assertSame(
+            $declareCallsBeforeBatch,
+            $declareCalls,
+            'An oversized batch must be rejected before ensureDeclared() re-declares the publisher'
+        );
+        $this->assertTrue($producer->isStale(), 'A rejected batch must leave the publisher stale');
     }
 
     public function testSendBatchDrainsConfirmsWhenMaxPendingConfirmsReached(): void

@@ -192,8 +192,8 @@ interface ConnectionInterface
      * Fetch the broker's statistics for a stream.
      *
      * @param string $name Stream name.
-     * @return array<string, int> Statistic key => value (for example `messages`,
-     *                                 `bytes`, `publishers`, `consumers`).
+     * @return array<string, int> Statistic key => value. The broker sends `first_chunk_id`,
+     *                                 `last_chunk_id`, `committed_chunk_id` and `committed_offset`.
      * @throws ProtocolException If the broker returns a non-OK response code (for example
      *                                 the stream does not exist), or the response has an
      *                                 unexpected command or version.

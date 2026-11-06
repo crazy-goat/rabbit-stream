@@ -207,6 +207,127 @@ class ConsumerTest extends TestCase
         $this->assertSame(2, $this->getPendingCredits($consumer));
     }
 
+    /**
+     * A single-active-consumer member with its deliver and credit error handlers captured.
+     *
+     * @return array{0: Consumer, 1: callable|null, 2: callable|null, 3: CapturedObjects<object>}
+     */
+    private function singleActiveConsumerWithHandlers(): array
+    {
+        $deliverCallback = null;
+        $creditErrorHandler = null;
+        /** @var CapturedObjects<object> $sent */
+        $sent = new CapturedObjects();
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $callback) use (&$deliverCallback): void {
+                $deliverCallback = $callback;
+            });
+        $connection->expects($this->any())
+            ->method('registerCreditErrorHandler')
+            ->willReturnCallback(function (int $id, callable $handler) use (&$creditErrorHandler): void {
+                $creditErrorHandler = $handler;
+            });
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(static function (object $request): object {
+                if ($request instanceof QueryOffsetRequestV1) {
+                    return QueryOffsetResponseV1::fromArray(['correlationId' => 1, 'offset' => null]);
+                }
+                return new \stdClass();
+            });
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(static function (object $request) use ($sent): void {
+                $sent->add($request);
+            });
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            singleActiveConsumer: true,
+            creditWindowBytes: 0,
+        );
+
+        return [$consumer, $deliverCallback, $creditErrorHandler, $sent];
+    }
+
+    /**
+     * @param CapturedObjects<object> $sent
+     * @return list<int> The credit units of every Credit frame, in send order.
+     */
+    private function creditUnitsSent(CapturedObjects $sent): array
+    {
+        $units = [];
+        foreach ($sent->all() as $request) {
+            if ($request instanceof CreditRequestV1) {
+                $units[] = $request->toArray()['credit'];
+            }
+        }
+
+        return $units;
+    }
+
+    public function testPreconditionFailedFromStepDownWhileCreditInFlightIsIgnoredAfterReactivation(): void
+    {
+        [$consumer, $deliverCallback, $creditErrorHandler, $sent] = $this->singleActiveConsumerWithHandlers();
+        $this->setActive($consumer, true);
+        $this->setCreditsInFlight($consumer, 0);
+        $this->setPendingCredits($consumer, 2);
+        (new \ReflectionMethod($consumer, 'sendPendingCredits'))->invoke($consumer);
+        $this->assertSame([2], $this->creditUnitsSent($sent));
+
+        // The broker steps the member down while the Credit is in flight.
+        $this->invokeConsumerUpdate($consumer, false);
+
+        // The broker answers the Credit with PRECONDITION_FAILED and keeps the credit.
+        $this->assertIsCallable($creditErrorHandler);
+        $this->assertFalse(
+            $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x11, 'subscriptionId' => 1])),
+            'A PRECONDITION_FAILED caused by a step-down is ignored'
+        );
+        $this->assertSame(2, $this->getCreditsInFlight($consumer), 'The kept credit is still in flight');
+
+        // The broker activates the member again. The read must not throw.
+        $this->invokeConsumerUpdate($consumer, true);
+        $this->assertNull($consumer->readOne(timeout: 0.0));
+
+        // One chunk of two messages uses one kept credit, and one unit is granted back.
+        $this->assertIsCallable($deliverCallback);
+        $deliverCallback($this->deliverOf($this->buildChunk(['m0', 'm1'], 0)));
+        $this->assertSame([0, 1], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->read(timeout: 0.0)
+        ));
+        $this->assertSame([2, 1], $this->creditUnitsSent($sent), 'Credit flows again after reactivation');
+        $this->assertSame(2, $this->getCreditsInFlight($consumer), 'The window is not over-granted');
+        $this->assertSame(0, $this->getPendingCredits($consumer));
+    }
+
+    public function testPreconditionFailedOnActiveSingleActiveMemberWithoutStepDownIsStillRaised(): void
+    {
+        [$consumer, , $creditErrorHandler] = $this->singleActiveConsumerWithHandlers();
+        $this->setActive($consumer, true);
+        $this->setPendingCredits($consumer, 2);
+
+        // Nothing stepped the member down, so the broker cannot have refused the credit
+        // because the member was inactive. The rejection is a real error.
+        $this->assertIsCallable($creditErrorHandler);
+        $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x11, 'subscriptionId' => 1]));
+
+        try {
+            $consumer->readOne(timeout: 0.0);
+            self::fail('A PRECONDITION_FAILED on an active member without a step-down must be raised');
+        } catch (ProtocolException $exception) {
+            $this->assertSame(ResponseCodeEnum::PRECONDITION_FAILED, $exception->getResponseCode());
+        }
+        $this->assertSame(0, $this->getPendingCredits($consumer));
+    }
+
     public function testResumeOffsetContinuesAfterLastProcessedMessageWithinCommittedChunk(): void
     {
         $this->assertResumeOffset(105, 100, 109, OffsetSpec::offset(106));
