@@ -959,7 +959,7 @@ class StreamConnection
                 $failure ??= $exception;
             }
         }
-        if ($failure instanceof \Throwable) {
+        if ($failure instanceof Throwable) {
             throw $failure;
         }
     }
@@ -1413,9 +1413,13 @@ class StreamConnection
                 } catch (Throwable $exception) {
                     // The caller gets this exception, not the reply it waits for.
                     // Drop that reply when it arrives, as for a timed-out request.
-                    if ($expectedCorrelationId !== null && $this->connected) {
-                        $this->takePendingResponse($expectedCorrelationId);
-                        $this->abandonCorrelation($expectedCorrelationId);
+                    if ($expectedCorrelationId !== null) {
+                        $parked = $this->takePendingResponse($expectedCorrelationId);
+                        // A reply parked by a nested request() is already here; only an
+                        // id whose reply is still on the way needs to be abandoned.
+                        if ($parked === null && $this->connected) {
+                            $this->abandonCorrelation($expectedCorrelationId);
+                        }
                     }
 
                     throw $exception;
@@ -1516,7 +1520,10 @@ class StreamConnection
     }
 
     /**
+     * Remove and return a parked response. It mutates $pendingResponses.
+     *
      * @return array{correlationId: int, result: object|ProtocolException}|null
+     * @phpstan-impure
      */
     private function takePendingResponse(int $correlationId): ?array
     {
@@ -1550,6 +1557,9 @@ class StreamConnection
      * failed. That bound matters because this is the only select site that can
      * run without a `$timeout`, so it has no deadline to stop a retry; see
      * {@see selectWasInterrupted()} for why the bound is needed at all.
+     *
+     * An exception thrown by a user callback or handler reaches the caller after
+     * every callback of that frame ran.
      *
      * @param int|null   $maxFrames Maximum number of frames to process (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
@@ -1869,7 +1879,7 @@ class StreamConnection
                 $failure ??= $exception;
             }
         }
-        if ($failure instanceof \Throwable) {
+        if ($failure instanceof Throwable) {
             throw $failure;
         }
     }

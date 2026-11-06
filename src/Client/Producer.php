@@ -396,6 +396,7 @@ class Producer implements ProducerInterface
             },
             onError: function (array $errors): void {
                 $fatal = null;
+                $failure = null;
                 foreach ($errors as $error) {
                     if (
                         $error->getCode() === ResponseCodeEnum::PUBLISHER_NOT_EXIST->value
@@ -411,18 +412,33 @@ class Producer implements ProducerInterface
                     }
                     unset($this->pendingConfirms[$publishingId]);
                     if ($this->onConfirm instanceof \Closure) {
-                        ($this->onConfirm)(new ConfirmationStatus(
-                            false,
-                            errorCode: $error->getCode(),
-                            publishingId: $publishingId
-                        ));
+                        try {
+                            ($this->onConfirm)(new ConfirmationStatus(
+                                false,
+                                errorCode: $error->getCode(),
+                                publishingId: $publishingId
+                            ));
+                        } catch (\Throwable $exception) {
+                            // A throwing callback must not skip the errors of
+                            // the other ids in this frame.
+                            $this->logger->error('Publish error callback failed', [
+                                'publisherId' => $this->publisherId,
+                                'publishingId' => $publishingId,
+                                'exception' => $exception,
+                            ]);
+                            $failure ??= $exception;
+                        }
                     }
                 }
                 // The broker does not know this publisher any more (we may have
                 // missed the MetadataUpdate, e.g. it arrived on a frame nobody
-                // read yet): re-declare before the next publish.
+                // read yet): re-declare before the next publish. This runs before
+                // the rethrow, so a throwing callback cannot skip it.
                 if ($fatal !== null && !$this->stale) {
                     $this->markStale($fatal);
+                }
+                if ($failure instanceof \Throwable) {
+                    throw $failure;
                 }
             }
         );
@@ -784,6 +800,9 @@ class Producer implements ProducerInterface
      * the onConfirm callback) until pendingConfirms reaches 0 or the deadline
      * passes. A timeout does not discard the outstanding confirms: they can
      * still arrive on a later waitForConfirms()/readLoop().
+     *
+     * An exception thrown by a user callback reaches the caller after every
+     * callback of that frame ran.
      *
      * @param float $timeout Maximum seconds to wait for the outstanding confirms.
      * @throws TimeoutException If confirms are still outstanding when $timeout expires.

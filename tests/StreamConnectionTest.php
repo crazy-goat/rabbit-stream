@@ -3772,8 +3772,11 @@ class StreamConnectionTest extends TestCase
             $this->assertSame('user metadata callback failed', $exception->getMessage());
         }
 
-        $pendingResponses = new \ReflectionProperty($connection, 'pendingResponses');
-        $this->assertSame([], $pendingResponses->getValue($connection));
+        // The reply to correlation 1 is still in the socket, so only the abandoned set shows the fix.
+        $abandoned = new \ReflectionProperty($connection, 'abandonedCorrelationIds');
+        $abandonedIds = $abandoned->getValue($connection);
+        $this->assertIsArray($abandonedIds);
+        $this->assertArrayHasKey(1, $abandonedIds);
 
         // The late reply for correlation 1 is discarded. Correlation 2 gets its own reply.
         fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
@@ -3781,9 +3784,94 @@ class StreamConnectionTest extends TestCase
 
         $this->assertInstanceOf(CreateResponseV1::class, $response);
         $this->assertSame(2, $response->getCorrelationId());
+        $pendingResponses = new \ReflectionProperty($connection, 'pendingResponses');
         $this->assertSame([], $pendingResponses->getValue($connection));
+        $this->assertSame([], $abandoned->getValue($connection));
 
         fclose($serverSocket);
         fclose($clientSocket);
+    }
+
+    public function testReadResponseKeepsParkedReplyWhenMetadataUpdateHandlerThrows(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // The nested request (correlation 2) reads the reply of the outer request (correlation 1)
+        // first and parks it. The outer request then gets the exception, not that reply.
+        $connection->onMetadataUpdate(function () use ($connection): void {
+            $connection->request(new CreateRequestV1('nested'), 1.0);
+            throw new RuntimeException('user metadata callback failed');
+        });
+
+        fwrite($serverSocket, $this->buildFrame(0x0010, 1, pack('n', 0x0006) . pack('n', 2) . 's1'));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        try {
+            $connection->request(new CreateRequestV1('outer'), 1.0);
+            $this->fail('The exception of the handler must reach the caller of request().');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('user metadata callback failed', $exception->getMessage());
+        }
+
+        // The parked reply is dropped, and its id is not abandoned: the reply is already here.
+        $pendingResponses = new \ReflectionProperty($connection, 'pendingResponses');
+        $abandoned = new \ReflectionProperty($connection, 'abandonedCorrelationIds');
+        $this->assertSame([], $pendingResponses->getValue($connection));
+        $this->assertSame([], $abandoned->getValue($connection));
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testCloseClearsAbandonedIdsBeforeConnectionLostHandlerThrows(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->abandonCorrelation(7);
+        $connection->registerConnectionLostHandler(1, function (): void {
+            throw new RuntimeException('connection-lost handler failed');
+        });
+
+        try {
+            $connection->close();
+            $this->fail('The exception of the handler must reach the caller of close().');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('connection-lost handler failed', $exception->getMessage());
+        }
+
+        // close() finished its cleanup although a handler threw.
+        $abandoned = new \ReflectionProperty($connection, 'abandonedCorrelationIds');
+        $this->assertSame([], $abandoned->getValue($connection));
+
+        fclose($serverSocket);
+    }
+
+    public function testDestructorLogsConnectionLostHandlerExceptionInsteadOfThrowing(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, logger: $logger);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->registerConnectionLostHandler(1, function (): void {
+            throw new RuntimeException('connection-lost handler failed');
+        });
+
+        // The destructor calls close(). The exception must not leave the destructor.
+        unset($connection);
+
+        $messages = array_column(
+            array_filter($logger->records, static fn (array $record): bool => $record['level'] === 'error'),
+            'message'
+        );
+        $this->assertContains('Failed to close connection in destructor', $messages);
+
+        fclose($serverSocket);
     }
 }
