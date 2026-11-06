@@ -1336,6 +1336,7 @@ class ProducerTest extends TestCase
         $warnings = $logger->warningMessages();
         $this->assertCount(1, $warnings, 'the lost publishes must be logged in one warning');
         $this->assertStringContainsString('lost 3 unconfirmed publish(es)', $warnings[0]);
+        $this->assertStringContainsString('DeletePublisher failed in close(): Read timeout', $warnings[0]);
         $this->assertStringContainsString('test-stream', $warnings[0]);
         $this->assertTrue($producer->isClosed());
     }
