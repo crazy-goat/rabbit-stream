@@ -100,7 +100,7 @@ class ConsumerDecodeLimitE2ETest extends E2ETestCase
             1,
             new PublishedMessage(0, AmqpFixtures::messageWithNestedBody($depth))
         ));
-        $publisher->readLoop(maxFrames: 1);
+        $this->assertSame(1, $publisher->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
         $this->assertTrue($confirmed, 'The nested-body entry must be confirmed before consuming');
         $publisher->close();
     }
