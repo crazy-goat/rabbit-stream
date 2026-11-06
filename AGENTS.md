@@ -39,7 +39,7 @@ bin/lint.sh
 # OR
 composer lint
 
-# Apply the fixers (Rector, PHPCBF, kb-lint --fix), then check again
+# Apply the fixers (Rector, PHP-CS-Fixer, kb-lint --fix), then check again
 bin/lint.sh --fix
 # OR
 composer lint:fix
@@ -81,8 +81,8 @@ The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be
 
 ```bash
 composer phpstan     # static analysis (PHPStan level 9)
-composer cs          # check code style (PHPCS PSR-12)
-composer cs-fix      # auto-fix code style (phpcbf)
+composer cs          # check code style (PHP-CS-Fixer, then PHPCS for the checks it cannot do)
+composer cs-fix      # auto-fix code style (PHP-CS-Fixer)
 composer rector      # preview refactoring suggestions (dry-run)
 composer rector:fix  # apply Rector refactoring
 composer kb-lint     # lint the docs/helpers/ knowledge base (runs inside `lint`)

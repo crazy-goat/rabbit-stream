@@ -5,22 +5,24 @@ This project follows strict coding standards to maintain consistency and quality
 ## Standards Overview
 
 - **PSR-12** — Base PHP coding standard
-- **Slevomat Coding Standard** — Additional rules for modern PHP
+- **PHP-CS-Fixer** — Formats the code. Its rules are in `.php-cs-fixer.dist.php`
+- **PHP_CodeSniffer** — Checks the naming, line length and side-effect rules. Its rules are in `phpcs.xml.dist`
 
 ## QA Commands
 
 Run these commands to check and fix code style:
 
 ```bash
-# Check code style (PHPCS)
-composer lint
+# Check code style (PHP-CS-Fixer and PHPCS)
+composer cs
 # OR
+./vendor/bin/php-cs-fixer fix --dry-run --diff
 ./vendor/bin/phpcs --standard=phpcs.xml.dist
 
 # Auto-fix code style violations
-composer lint:fix
+composer cs-fix
 # OR
-./vendor/bin/phpcbf --standard=phpcs.xml.dist
+./vendor/bin/php-cs-fixer fix
 
 # Static analysis (PHPStan)
 composer phpstan
@@ -283,17 +285,20 @@ Before committing code:
 Most IDEs can be configured to automatically check code style:
 
 ### PHPStorm
+- Settings → PHP → Quality Tools → PHP CS Fixer
+- Set the configuration file to `.php-cs-fixer.dist.php`
 - Settings → PHP → Quality Tools → PHP_CodeSniffer
-- Set path to `phpcs.xml.dist`
+- Set the coding standard to `phpcs.xml.dist`
 
 ### VS Code
-- Install "PHP CS Fixer" extension
-- Configure to use `phpcs.xml.dist`
+- Install the "PHP CS Fixer" extension
+- Set `php-cs-fixer.config` to `.php-cs-fixer.dist.php`
 
 ## Continuous Integration
 
 All code style checks run in CI. Pull requests will fail if:
-- PHPCS finds violations
+- PHP-CS-Fixer finds a formatting difference
+- PHPCS finds a violation
 - PHPStan reports errors
 - Tests fail
 

@@ -118,9 +118,10 @@ The script sets `RABBITMQ_TLS_CERT_DIR` and `RABBITMQ_TLS_PASSPHRASE` on every r
 
 Recommended settings:
 
-1. **Code Style**: Import `phpcs.xml.dist` as the project code style
+1. **Code Style**: Use PHP-CS-Fixer with `.php-cs-fixer.dist.php`
 2. **PHP Language Level**: Set to 8.1
 3. **Quality Tools**:
+   - Enable PHP CS Fixer with `.php-cs-fixer.dist.php`
    - Enable PHP_CodeSniffer with `phpcs.xml.dist`
    - Enable PHPStan if installed
 4. **Composer**: Set path to `composer.json`
@@ -140,6 +141,7 @@ Settings for `.vscode/settings.json`:
 {
     "php.validate.executablePath": "/usr/bin/php",
     "php.codeSniffer.standard": "phpcs.xml.dist",
+    "php-cs-fixer.config": ".php-cs-fixer.dist.php",
     "editor.formatOnSave": true
 }
 ```
@@ -169,7 +171,8 @@ rabbit-stream/
 ├── examples/         # Usage examples
 ├── composer.json     # Dependencies
 ├── phpunit.xml       # Test configuration
-└── phpcs.xml.dist    # Code style rules
+├── .php-cs-fixer.dist.php  # Code style rules (PHP-CS-Fixer)
+└── phpcs.xml.dist    # Checks that PHP-CS-Fixer does not cover (PHPCS)
 ```
 
 ## Next Steps
