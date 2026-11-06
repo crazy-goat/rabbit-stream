@@ -102,9 +102,9 @@ public static function fromStreamCode(int $code): KeyEnum
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `$code` | `int` | Raw protocol command code |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$code` | `int` | Yes | Raw protocol command code |
 
 **Return Value:**
 
@@ -205,9 +205,9 @@ public static function fromInt(int $code): ?self
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `$code` | `int` | Integer response code |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$code` | `int` | Yes | Integer response code |
 
 **Return Value:**
 

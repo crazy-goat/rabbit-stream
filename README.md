@@ -17,6 +17,8 @@ composer require crazy-goat/rabbit-stream
 
 ## Quick Start
 
+The snippets in this section use the stream `my-stream`. Create it once before you run them. The [Quick Start guide](docs/en/getting-started/quick-start.md) shows the call (step 2, `createStream()`). `createStream()` throws `ProtocolException` if the stream already exists.
+
 ### Publishing
 
 ```php
@@ -52,7 +54,7 @@ $connection = Connection::create(
     tls: new TlsConfig(
         cafile: '/etc/ssl/ca.pem', // optional: custom CA bundle
         // localCert: '/etc/ssl/client.crt',   // optional: client certificate
-        // localPk: '/etc/ssl/client.key',     // (e.g. for EXTERNAL SASL)
+        // localPk: '/etc/ssl/client.key',     // optional: private key of the client certificate
     ),
 );
 ```
@@ -66,11 +68,18 @@ do not show it. Code that read `$tls->passphrase` must call `getPassphrase()`.
 passphrase, within `socketTimeout`. The E2E test `tests/E2E/TlsConnectionE2ETest.php` runs
 against a broker with a TLS stream listener and mutual TLS (`./run-e2e.sh` sets it up).
 
+The client certificate does not replace the PLAIN login. The broker checks the certificate
+in the TLS handshake, then checks the PLAIN login. The E2E test
+`testPublishAndConsumeOverMutualTls` covers both checks.
+
 Peer certificate and hostname verification are **on by default**
 (`verify_peer`/`verify_peer_name`). For a self-signed development broker you can
 disable them explicitly — do not do this in production:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\VO\TlsConfig;
+
 $connection = Connection::create(
     host: 'localhost',
     port: 5551,
@@ -119,6 +128,8 @@ API reference, protocol notes and examples. Translations are listed in
 [`docs/LANGUAGES.md`](docs/LANGUAGES.md) (currently English only).
 
 ## Usage
+
+The snippets in this section use the stream `my-stream`. Create it once before you run them, as shown in the [Quick Start guide](docs/en/getting-started/quick-start.md).
 
 ### High-level API (Recommended)
 

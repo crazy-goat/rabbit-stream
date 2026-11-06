@@ -52,6 +52,11 @@ class AmqpDecoder
     ];
 
     /**
+     * Format codes of the list types: list0 (0x45), list8 (0xc0) and list32 (0xd0).
+     */
+    private const LIST_FORMAT_CODES = [0x45, 0xc0, 0xd0];
+
+    /**
      * Default maximum nesting depth accepted while decoding (#397). Public so the
      * callers that thread an operator-supplied limit down to here — Consumer,
      * OsirisChunkParser, Message — can spell their own default as this one.
@@ -237,6 +242,19 @@ class AmqpDecoder
      * Returns ['header' => [...], 'properties' => [...], 'applicationProperties' => [...],
      *          'messageAnnotations' => [...], 'body' => string|mixed]
      *
+     * A Properties section (0x73) whose value is a map, a scalar or a described value
+     * (not list0, list8 or list32) throws a DeserializationException. A null value
+     * decodes as no properties. The forms below are tolerated malformed input (issue
+     * #944). The decoder accepts them and does not throw:
+     * - A Properties section (0x73) whose value is null (0x40) decodes as [].
+     * - A Data section (0x75) whose value is str8 or sym8 (AMQP 1.0 requires binary).
+     *   The string bytes become the body.
+     * - An AmqpValue (0x77) or AmqpSequence (0x76) section mixed with Data sections in
+     *   one message (AMQP 1.0 allows one body kind). Data bytes after a string AmqpValue
+     *   are joined to it. A Data section after an AmqpSequence or a non-string AmqpValue
+     *   gives the body, and the earlier body is discarded. A Data section before an
+     *   AmqpValue is replaced by it.
+     *
      * @param int $maxDepth maximum allowed recursion depth
      * @return array<string, mixed>
      */
@@ -281,12 +299,14 @@ class AmqpDecoder
 
             // Read the described type (skip the 0x00 marker; depth 0 -> 1)
             $position++;
+            $valueFormatCode = null;
             ['descriptor' => $descriptor, 'value' => $value] = self::readDescribedType(
                 $data,
                 $position,
                 0,
                 $maxDepth,
-                $budget
+                $budget,
+                $valueFormatCode
             );
 
             // Match descriptor to section
@@ -304,7 +324,25 @@ class AmqpDecoder
                     break;
 
                 case 0x73: // Properties
-                    $sections['properties'] = self::parsePropertiesList(is_array($value) ? $value : []);
+                    // Tolerated (#944): a null value decodes as no properties, as before.
+                    if ($valueFormatCode === 0x40) {
+                        $sections['properties'] = [];
+                        break;
+                    }
+                    // AMQP 1.0 defines Properties as a composite type with a list source.
+                    // A map or a scalar would otherwise give empty or shifted fields.
+                    // Every decoded list passes array_is_list(); it also narrows the type.
+                    if (
+                        !is_array($value)
+                        || !array_is_list($value)
+                        || !in_array($valueFormatCode, self::LIST_FORMAT_CODES, true)
+                    ) {
+                        throw new DeserializationException(sprintf(
+                            'Properties section (0x73) must be a list, got format code 0x%02x',
+                            $valueFormatCode ?? 0x00
+                        ));
+                    }
+                    $sections['properties'] = self::parsePropertiesList($value);
                     break;
 
                 case 0x74: // ApplicationProperties
@@ -1203,11 +1241,14 @@ class AmqpDecoder
         int &$position,
         int $depth,
         int $maxDepth,
-        int &$budget
+        int &$budget,
+        ?int &$valueFormatCode = null
     ): array {
         // A described value becomes a two-member PHP array, so it is charged like a compound.
         self::chargeBudget($budget, 2, 'Described type');
         $descriptor = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
+        // The format code of the value tells a list from a map, which PHP arrays do not.
+        $valueFormatCode = $position < strlen($data) ? ord($data[$position]) : null;
         $value = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         return ['descriptor' => $descriptor, 'value' => $value];
     }

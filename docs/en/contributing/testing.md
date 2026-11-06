@@ -198,11 +198,7 @@ E2E tests require:
    docker compose up -d
    ```
 
-2. **Environment variables** (optional, defaults shown):
-   ```bash
-   export RABBITMQ_HOST=127.0.0.1
-   export RABBITMQ_PORT=5552
-   ```
+2. **Environment variables** (optional). Without `./run-e2e.sh`, the tests default to `127.0.0.1:5552`. Set `RABBITMQ_HOST` and `RABBITMQ_PORT` only for a broker that you start by hand. Do not export them before `./run-e2e.sh`: the script then uses that fixed port and does not pick a free one.
 
 3. **Test stream creation** — Most E2E tests create temporary streams
 

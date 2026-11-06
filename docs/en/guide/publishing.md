@@ -296,9 +296,16 @@ IDs 1-5:
 
 ```php
 <?php
+use CrazyGoat\RabbitStream\Client\Connection;
 
 // First run - publish messages with IDs 1-5
 $connection1 = Connection::create(host: '127.0.0.1', port: 5552, user: 'guest', password: 'guest');
+
+// Create the stream once. Skip this step when the stream exists.
+if (!$connection1->streamExists('my-stream')) {
+    $connection1->createStream('my-stream');
+}
+
 $producer1 = $connection1->createProducer('my-stream', name: 'order-producer');
 
 for ($i = 1; $i <= 5; $i++) {

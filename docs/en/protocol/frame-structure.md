@@ -231,6 +231,7 @@ Hex dump:
 ```php
 use CrazyGoat\RabbitStream\Buffer\WriteBuffer;
 
+// $correlationId, $publisherId, $reference and $stream are the values to send.
 $buffer = new WriteBuffer();
 $buffer
     ->addUint16(0x0001)           // Key: DeclarePublisher
@@ -241,7 +242,7 @@ $buffer
     ->addString($stream);         // stream name
 
 // Get frame bytes
-$frame = $buffer->getBytes();
+$frame = $buffer->getContents();
 ```
 
 ### Reading Frames
@@ -263,6 +264,7 @@ if ($commandCarriesCorrelationId) {
 ### Frame Size Calculation
 
 ```php
+// $content is the encoded command content, for example from $buffer->getContents().
 // Calculate frame size before sending a correlated frame
 $contentLength = strlen($content);
 $frameSize = 8 + $contentLength;  // Key(2) + Version(2) + CorrelationId(4)
@@ -273,7 +275,7 @@ $frameSize = 4 + $contentLength;  // Key(2) + Version(2)
 // Write size header followed by payload
 $sizeBuffer = new WriteBuffer();
 $sizeBuffer->addUint32($frameSize);
-$fullFrame = $sizeBuffer->getBytes() . $content;
+$fullFrame = $sizeBuffer->getContents() . $content;
 ```
 
 ## Big-Endian Byte Order

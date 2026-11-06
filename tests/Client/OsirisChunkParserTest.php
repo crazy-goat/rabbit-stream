@@ -966,6 +966,60 @@ class OsirisChunkParserTest extends TestCase
         $this->assertSame([[[[null]]]], $default[0]->getBody());
     }
 
+    // ========== Extra bytes inside the declared data section (issue #944, cases 5 and 6) ==========
+
+    public function testExtraBytesInsideDataSectionAfterTheDeclaredEntryAreIgnoredTolerantly(): void
+    {
+        // Case 5: 8 bytes follow the one declared entry, inside dataLength and the CRC.
+        // The parser reads the declared count and ignores the rest.
+        $dataSection = pack('N', 5) . 'Hello' . 'JUNKJUNK';
+        $chunk = $this->chunkWithDataSection($dataSection, numEntries: 1, numRecords: 1);
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('Hello', $entries[0]->getData());
+    }
+
+    public function testExtraBytesInsideSubBatchAfterTheDeclaredRecordAreIgnoredTolerantly(): void
+    {
+        // Case 6: the sub-batch declares one record, and 6 bytes follow it inside the
+        // compressed size. The parser reads the declared record count and ignores the rest.
+        $subBatchBody = pack('N', 5) . 'Hello' . "\xaa\xbb\xcc\xdd\xee\xff";
+        $dataSection = "\x80" . pack('n', 1)
+            . pack('N', strlen($subBatchBody))
+            . pack('N', strlen($subBatchBody))
+            . $subBatchBody;
+        $chunk = $this->chunkWithDataSection($dataSection, numEntries: 1, numRecords: 1);
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('Hello', $entries[0]->getData());
+    }
+
+    /**
+     * Build a chunk whose header matches $dataSection exactly, so the CRC and dataLength
+     * are valid. The caller controls the bytes inside the data section.
+     */
+    private function chunkWithDataSection(string $dataSection, int $numEntries, int $numRecords): string
+    {
+        $header = pack('C', 0x50);
+        $header .= pack('C', 0x00);
+        $header .= pack('n', $numEntries);
+        $header .= pack('N', $numRecords);
+        $header .= pack('J', 1234567890);                // timestamp
+        $header .= pack('J', 1);                         // epoch
+        $header .= pack('J', 0);                         // chunkFirstOffset
+        $header .= pack('N', crc32($dataSection));       // chunkCrc
+        $header .= pack('N', strlen($dataSection));      // dataLength
+        $header .= pack('N', 0);                         // trailerLength
+        $header .= pack('C', 0);                         // bloomSize
+        $header .= "\x00\x00\x00";                       // reserved
+
+        return $header . $dataSection;
+    }
+
     public function testOffsetOverflowPastIntMaxThrowsDeserializationExceptionOnBothPaths(): void
     {
         // #927: a second record at PHP_INT_MAX + 1 must not reach the int-typed

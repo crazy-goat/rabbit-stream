@@ -74,7 +74,7 @@ class ReadLoopTimeoutTest extends E2ETestCase
         $connection = $this->connectAndOpen();
         $this->connection = $connection;
 
-        // Regression for #382: socket_select() seconds were clamped to 1 but
+        // Regression for #382: stream_select() seconds were clamped to 1 but
         // microseconds came from the unclamped remainder, yielding
         // tv_usec >= 1_000_000 -> EINVAL + ConnectionException on Linux.
         $start = microtime(true);
