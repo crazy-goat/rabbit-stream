@@ -450,7 +450,9 @@ class StreamConnection
      */
     private function selectFailureMessage(string $summary): string
     {
-        $warning = $this->lastSelectErrorMessage === null ? '' : trim($this->lastSelectErrorMessage);
+        $warning = $this->lastSelectErrorMessage === null
+            ? ''
+            : trim(str_replace("\n", ' ', $this->lastSelectErrorMessage));
 
         if (stripos($warning, 'FD_SETSIZE') !== false) {
             return $summary . ': the socket descriptor is at or above FD_SETSIZE (select(2) limit, '
