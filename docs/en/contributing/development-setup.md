@@ -19,11 +19,11 @@ cd rabbit-stream
 # 2. Install dependencies
 composer install
 
-# 3. Start RabbitMQ (for E2E tests)
-docker compose up -d
-
-# 4. Run tests to verify setup
+# 3. Run tests to verify setup
 composer test:unit
+
+# 4. Run the E2E tests (optional, needs Docker; the script starts its own broker)
+./run-e2e.sh
 ```
 
 ## Detailed Setup
@@ -56,7 +56,11 @@ Or follow the [official Composer installation guide](https://getcomposer.org/doc
 
 ### Docker Setup
 
-The project includes a `docker-compose.yml` file for running RabbitMQ with the Streams plugin enabled:
+The project includes a `docker-compose.yml` file. It runs RabbitMQ with the Streams plugin enabled.
+
+To run the E2E tests, run `./run-e2e.sh`. The script starts the broker, waits until it is healthy, runs the E2E suite, runs the example smoke tests with `bin/run-examples.sh` and stops the broker. Do not run `docker compose up -d` before `./run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
+
+To start a broker by hand, use these commands:
 
 ```bash
 # Start RabbitMQ
@@ -72,23 +76,41 @@ docker compose logs -f rabbitmq
 docker compose down
 ```
 
-RabbitMQ will be available at:
+A plain `docker compose up -d` publishes these ports on the host by default:
 - **Stream Protocol**: `127.0.0.1:5552`
+- **AMQP**: `127.0.0.1:5672`
 - **Management UI**: `http://127.0.0.1:15672` (guest/guest)
+
+The plain command does not start the TLS listener. The TLS E2E test runs only through `./run-e2e.sh`.
 
 ### Environment Variables
 
-E2E tests respect these environment variables:
+The E2E tests read these variables:
 
-```bash
-export RABBITMQ_HOST=127.0.0.1
-export RABBITMQ_PORT=5552
-export RABBITMQ_MANAGEMENT_PORT=15672
-```
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RABBITMQ_HOST` | `127.0.0.1` | Host of the broker |
+| `RABBITMQ_PORT` | `5552` | Stream protocol port |
+| `RABBITMQ_MANAGEMENT_PORT` | `15672` | Management port |
+| `RABBITMQ_TLS_PORT` | none | TLS stream port. The TLS test is skipped when this variable is not set. |
+| `RABBITMQ_TLS_CERT_DIR` | none | Directory with the TLS test certificates |
+| `RABBITMQ_TLS_PASSPHRASE` | none | Passphrase of the client key |
 
-The same variables set the host ports published by `docker-compose.yml`
-(`RABBITMQ_PORT`, `RABBITMQ_AMQP_PORT`, `RABBITMQ_MANAGEMENT_PORT`), so several checkouts
-can run side by side on different ports.
+`docker-compose.yml` reads the port variables to set the host ports. Its defaults are `RABBITMQ_PORT=5552`, `RABBITMQ_AMQP_PORT=5672` and `RABBITMQ_MANAGEMENT_PORT=15672`. Set these variables to run several checkouts side by side on different ports.
+
+`./run-e2e.sh` reads these variables:
+
+| Variable | Behaviour |
+|----------|-----------|
+| `RABBITMQ_PORT`, `RABBITMQ_AMQP_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `RABBITMQ_TLS_PORT` | If a variable is not set, the script sets it to a free port on `127.0.0.1`. |
+| `RABBITMQ_HOST` | Set to `127.0.0.1` when it is not set. |
+| `RABBITMQ_IMAGE` | Broker image. If it is set, the script pulls only this image. |
+| `E2E_HEALTH_RETRIES` | Number of health checks. The default is `90`. |
+| `E2E_HEALTH_INTERVAL` | Seconds between health checks. The default is `2`. |
+
+The script sets `RABBITMQ_TLS_CERT_DIR` and `RABBITMQ_TLS_PASSPHRASE` on every run. It generates the TLS test certificates in a `.e2e-tls.*` directory and deletes that directory at exit. Do not set these two variables yourself.
+
+`bin/worktree.sh` writes the free ports of a worktree to `.env.worktree`. `./run-e2e.sh` loads that file when it exists. A variable that you export before the run keeps your value.
 
 ## IDE Configuration
 
@@ -161,9 +183,12 @@ Once your environment is set up:
 ## Troubleshooting
 
 ### Connection Refused Errors
-If E2E tests fail with "Connection refused", ensure RabbitMQ is running:
+If E2E tests fail with "Connection refused", run the suite with `./run-e2e.sh`. The script starts the broker and waits until it is healthy.
+
+If you run the suite by hand, start the broker and wait for `(healthy)`:
 ```bash
 docker compose up -d
+docker compose ps   # wait until the status shows (healthy)
 ```
 
 ### Permission Issues

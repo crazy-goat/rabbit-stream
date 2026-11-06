@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
-# Pre-push hook: runs `bin/lint.sh` (PHPCS PSR-12 + Rector dry-run +
-# PHPStan level 9 + kb-lint + docs link check +
-# test suite coverage + shellcheck) before allowing a push to succeed.
+# Pre-push hook: runs `bin/lint.sh` (every lint step, see that script)
+# before allowing a push to succeed.
 #
 # Bypass in an emergency with: git push --no-verify
 # CI runs the same checks, so skipping locally just moves the failure later.

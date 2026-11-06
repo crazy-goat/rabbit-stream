@@ -34,8 +34,7 @@ composer test:unit
 # Run E2E tests (requires RabbitMQ — use the script below)
 ./run-e2e.sh
 
-# Run every lint step (PHPCS, Rector dry-run, PHPStan, kb-lint, docs link check,
-# test suite coverage, shellcheck). Check-only; runs all steps, exits non-zero on any failure.
+# Run every lint step (see bin/lint.sh). Check-only; runs all steps, exits non-zero on any failure.
 bin/lint.sh
 # OR
 composer lint
@@ -74,7 +73,7 @@ Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\RabbitStream\Test
 - `tests/VO/` — value-object tests
 - Root-level tests include `PlatformTest.php`, `ResponseBuilderTest.php`, and `StreamConnectionTest.php`.
 
-The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars (default: `127.0.0.1:5552`) and `RABBITMQ_MANAGEMENT_PORT` (default: `15672`).
+The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars and `RABBITMQ_MANAGEMENT_PORT`. Without `./run-e2e.sh`, the defaults are `127.0.0.1:5552` and `15672`. `./run-e2e.sh` picks a free port for each port variable that is not set, so do not export fixed ports before it.
 
 ---
 
@@ -93,9 +92,8 @@ composer test:suite-coverage # fail if a tests/**/*Test.php is outside every php
 
 ## Git Hooks
 
-A pre-push hook runs `bin/lint.sh` (PHPCS + Rector dry-run + PHPStan level 9
-+ `kb-lint` + docs link check + test suite coverage + shellcheck) before every push. Git does not version `.git/hooks/`, so install
-it after a fresh clone:
+A pre-push hook runs `bin/lint.sh` before every push. The script lists every
+lint step. Git does not version `.git/hooks/`, so install it after a fresh clone:
 
 ```bash
 bash bin/install-hooks.sh   # symlinks bin/hooks/* into .git/hooks/

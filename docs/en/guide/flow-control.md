@@ -417,10 +417,10 @@ $stream->readLoop(maxFrames: 100);
 
 ### Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `maxFrames` | `?int` | Process up to N frames (dispatched or discarded), then return |
-| `timeout` | `?float` | Process for up to N seconds, then return |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `maxFrames` | `?int` | No | Process up to N frames (dispatched or discarded), then return |
+| `timeout` | `?float` | No | Process for up to N seconds, then return |
 
 **Examples:**
 
@@ -636,9 +636,9 @@ $consumer = $connection->createConsumer(
 // and use StreamConnection::onConsumerUpdate() if you need a custom reply.
 ```
 
-### Custom ConsumerUpdate Callback
+### Custom ConsumerUpdate Callback with StreamConnection::onConsumerUpdate()
 
-For custom offset selection, register a callback (low-level API):
+For custom offset selection, register a callback with `StreamConnection::onConsumerUpdate()` (low-level API). The callback returns `[int $offsetType, int $offset]`, not an `OffsetSpec`:
 
 ```php
 <?php
