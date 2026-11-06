@@ -24,6 +24,9 @@
         "ext-mbstring": "*",
         "psr/log": "^3.0"
     },
+    "suggest": {
+        "ext-zlib": "Needed to read gzip-compressed sub-batches (codec 1) in Osiris chunks"
+    },
     "require-dev": {
         "ext-sockets": "*",
         "phpunit/phpunit": "~10.5.0",

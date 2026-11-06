@@ -208,33 +208,56 @@ Data:              [32768 bytes of uncompressed message data]
 
 ### Current Status
 
-**Only uncompressed sub-batches are supported.**
+The parser decodes two sub-batch codecs: none and gzip.
 
 The library currently supports:
 - ✅ Simple entries (uncompressed single messages)
 - ✅ Sub-batches with codec = 0 (no compression)
-- ❌ Sub-batches with compression (gzip, snappy, lz4, zstd)
+- ✅ Sub-batches with codec = 1 (gzip), when the ext-zlib extension is loaded
+- ❌ Sub-batches with snappy, lz4 or zstd compression
 
 ### Codec Values
+
+The codec numbers match the `Compression` enum of the RabbitMQ Stream Java client
+(`NONE=0, GZIP=1, SNAPPY=2, LZ4=3, ZSTD=4`).
 
 | Codec | Value | Status |
 |-------|-------|--------|
 | None | 0 | ✅ Supported |
-| Gzip | 1 | ❌ Not supported |
+| Gzip | 1 | ✅ Supported (needs ext-zlib) |
 | Snappy | 2 | ❌ Not supported |
 | LZ4 | 3 | ❌ Not supported |
 | Zstd | 4 | ❌ Not supported |
 
-### Handling Compressed Chunks
+The codec field has 3 bits. Values 5 to 7 are not defined, and the parser does not support them.
 
-If a compressed sub-batch is received, the parser throws:
+### Decoding Gzip Sub-Batches
+
+The gzip body is a gzip stream (RFC 1952), as the Java client writes it.
+The parser inflates the body and reads the records from the result. Each record has
+the same offset and timestamp as a record in a simple entry.
+
+The parser follows these rules:
+1. It inflates the body to no more than `uncompressedSize` bytes.
+2. It throws `DeserializationException` if the body is corrupt or inflates to more than `uncompressedSize` bytes.
+3. It throws `DeserializationException` if the inflated size is not exactly `uncompressedSize`.
+4. It throws `DeserializationException` if ext-zlib is not loaded.
+
+Install the ext-zlib extension to read gzip sub-batches.
+
+### Handling Unsupported Codecs
+
+If a sub-batch uses an unsupported codec, the parser throws:
 
 ```php
 throw new DeserializationException(sprintf(
-    'Compressed sub-batches not supported yet (codec: %d)',
-    $codec
+    'Unsupported sub-batch codec %d (%s): only NONE (0) and GZIP (1) are supported',
+    $codec,
+    $name
 ));
 ```
+
+The `%s` value is the codec name, or `UNKNOWN` for a value that the Java client does not define.
 
 ## OsirisChunkParser
 
