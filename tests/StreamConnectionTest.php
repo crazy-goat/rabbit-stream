@@ -201,6 +201,118 @@ class StreamConnectionTest extends TestCase
         fclose($serverSocket);
     }
 
+    public function testServerCloseCodeAndReasonAreKeptOnTheException(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Close frame from the broker: key, version, correlation id, code 320, reason.
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 8) . 'bye fast';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        try {
+            $connection->request(new CreateRequestV1('close-reason'), 2.0);
+            self::fail('Expected ConnectionException after a server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Connection closed by server: code=320, reason=bye fast', $exception->getMessage());
+            self::assertSame(320, $exception->getServerCloseCode());
+            self::assertSame('bye fast', $exception->getServerCloseReason());
+        }
+
+        self::assertFalse($connection->isConnected());
+        fclose($serverSocket);
+    }
+
+    public function testServerCloseCodeAndReasonAreKeptForNextCallAfterReadLoop(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 8) . 'bye fast';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        // readLoop() returns after the Close frame without an exception.
+        self::assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 2.0));
+        self::assertFalse($connection->isConnected());
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected ConnectionException on the call after a server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Connection closed by server: code=320, reason=bye fast', $exception->getMessage());
+            self::assertSame(320, $exception->getServerCloseCode());
+            self::assertSame('bye fast', $exception->getServerCloseReason());
+        }
+
+        fclose($serverSocket);
+    }
+
+    public function testCloseResponseIsWrittenBeforeTheCloseValuesAreUsedByLaterCalls(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 3) . 'bye';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        self::assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 2.0));
+
+        // handleServerClose() wrote its CloseResponse while the connection was still open.
+        self::assertSame(
+            pack('nnNn', KeyEnum::CLOSE_RESPONSE->value, 1, 7, 0x0001),
+            $this->readResponse($serverSocket)
+        );
+
+        try {
+            $connection->sendMessage(new CreateRequestV1('after-close'));
+            self::fail('Expected ConnectionException after the server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame(320, $exception->getServerCloseCode());
+        }
+
+        fclose($serverSocket);
+    }
+
+    public function testPlainMessageIsKeptWhileTheConnectionIsOpen(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        (new \ReflectionProperty($connection, 'serverCloseCode'))->setValue($connection, 320);
+        (new \ReflectionProperty($connection, 'serverCloseReason'))->setValue($connection, 'bye');
+        (new \ReflectionProperty($connection, 'stream'))->setValue($connection, null);
+
+        try {
+            $connection->sendMessage(new CreateRequestV1('open'));
+            self::fail('Expected ConnectionException on an open connection without a stream');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Cannot use socket: socket is not connected', $exception->getMessage());
+            self::assertNull($exception->getServerCloseCode());
+        }
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testConnectClearsServerCloseValuesFromAnEarlierConnection(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 1, socketTimeout: 0.5);
+        (new \ReflectionProperty($connection, 'serverCloseCode'))->setValue($connection, 320);
+        (new \ReflectionProperty($connection, 'serverCloseReason'))->setValue($connection, 'old');
+
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException: nothing listens on port 1');
+        } catch (ConnectionException) {
+        }
+
+        self::assertNull((new \ReflectionProperty($connection, 'serverCloseCode'))->getValue($connection));
+        self::assertNull((new \ReflectionProperty($connection, 'serverCloseReason'))->getValue($connection));
+    }
+
     public function testReadFrameAcceptsFloatTimeout(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);

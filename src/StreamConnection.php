@@ -38,6 +38,9 @@ class StreamConnection
     private int $heartbeatInterval = 0;
     private float $lastReadAt = 0.0;
     private float $lastWriteAt = 0.0;
+    /** Closing code and reason of the broker's last Close frame; read when the read throws. */
+    private ?int $serverCloseCode = null;
+    private ?string $serverCloseReason = null;
     /**
      * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
      * used for BOTH transports because TLS in PHP is only available through
@@ -56,14 +59,30 @@ class StreamConnection
     private function requireStream()
     {
         if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            // Build the exception before the state change: it names a server close only when already closed.
+            $exception = $this->notConnectedException('Cannot use socket: socket is not connected');
             if ($this->connected) {
                 $this->connected = false;
                 $this->notifyConnectionLost('Connection stream is not available');
             }
-            throw new ConnectionException('Cannot use socket: socket is not connected');
+            throw $exception;
         }
 
         return $this->stream;
+    }
+
+    /**
+     * The exception for a call on a closed connection. After a server-initiated Close, it names the
+     * closing code and the reason; otherwise it has the plain message. While the connection is still
+     * open (handleServerClose() writes its CloseResponse then), it has the plain message too.
+     */
+    private function notConnectedException(string $plainMessage): ConnectionException
+    {
+        if ($this->connected || $this->serverCloseCode === null) {
+            return new ConnectionException($plainMessage);
+        }
+
+        return ConnectionException::serverClosed($this->serverCloseCode, $this->serverCloseReason ?? '');
     }
     private int $correlationId = 0;
     /**
@@ -334,6 +353,9 @@ class StreamConnection
      */
     public function connect(): void
     {
+        // A new connection has no close from an earlier connection.
+        $this->serverCloseCode = null;
+        $this->serverCloseReason = null;
         $useTls = $this->tls instanceof TlsConfig;
         $scheme = $useTls ? 'ssl' : 'tcp';
         $context = stream_context_create($useTls ? $this->tls->toStreamContext() : []);
@@ -1325,7 +1347,7 @@ class StreamConnection
 
         while (true) {
             if (!$this->connected) {
-                throw new ConnectionException("Connection closed");
+                throw $this->notConnectedException('Connection closed');
             }
 
             // A nested request() (issued from a server-push handler dispatched
@@ -1361,7 +1383,7 @@ class StreamConnection
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
-                    throw new ConnectionException("Connection closed by server");
+                    throw $this->notConnectedException('Connection closed by server');
                 }
 
                 continue;
@@ -1760,6 +1782,8 @@ class StreamConnection
         $correlationId = $frame->getUint32();
         $closingCode = $frame->getUint16();
         $closingReason = $frame->getString();
+        $this->serverCloseCode = $closingCode;
+        $this->serverCloseReason = $closingReason ?? '';
         if ($this->debugLogging) {
             $this->logger->debug(sprintf(
                 'Server-initiated close: code=%d, reason=%s',
