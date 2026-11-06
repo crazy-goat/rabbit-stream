@@ -13,7 +13,7 @@ RabbitMQ Streams provides durable, append-only message streams. Consumers read m
 
 ### Creating a Consumer
 
-Use `Connection::createConsumer()` to create a high-level consumer. Save the PHP snippets in this guide as scripts in your Composer project's root directory; they load Composer dependencies with `require_once __DIR__ . '/vendor/autoload.php';`.
+Use `Connection::createConsumer()` to create a high-level consumer. Save the PHP snippets in this guide as scripts in your Composer project's root directory; they load Composer dependencies with `require_once __DIR__ . '/vendor/autoload.php';`. The snippets use the stream `my-stream`. Create it once before you run them. The [Quick Start guide](../getting-started/quick-start.md) shows the call (step 2, `createStream()`). `createStream()` throws `ProtocolException` if the stream already exists.
 
 ```php
 <?php
