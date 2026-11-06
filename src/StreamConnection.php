@@ -71,10 +71,23 @@ class StreamConnection
                 $this->connected = false;
                 $this->notifyConnectionLost('Connection stream is not available');
             }
-            throw new ConnectionException('Cannot use socket: socket is not connected');
+            throw $this->notConnectedException('Cannot use socket: socket is not connected');
         }
 
         return $this->stream;
+    }
+
+    /**
+     * The exception for a call on a closed connection. After a server-initiated Close, it names the
+     * closing code and the reason; otherwise it has the plain message.
+     */
+    private function notConnectedException(string $plainMessage): ConnectionException
+    {
+        if ($this->serverCloseCode === null) {
+            return new ConnectionException($plainMessage);
+        }
+
+        return ConnectionException::serverClosed($this->serverCloseCode, $this->serverCloseReason ?? '');
     }
     private int $correlationId = 0;
     /**
@@ -345,6 +358,9 @@ class StreamConnection
      */
     public function connect(): void
     {
+        // A new connection has no close from an earlier connection.
+        $this->serverCloseCode = null;
+        $this->serverCloseReason = null;
         $useTls = $this->tls instanceof TlsConfig;
         $scheme = $useTls ? 'ssl' : 'tcp';
         $options = [];
@@ -1400,7 +1416,7 @@ class StreamConnection
 
         while (true) {
             if (!$this->connected) {
-                throw new ConnectionException("Connection closed");
+                throw $this->notConnectedException('Connection closed');
             }
 
             // A nested request() (issued from a server-push handler dispatched
@@ -1451,14 +1467,7 @@ class StreamConnection
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
-                    if ($this->serverCloseCode === null) {
-                        throw new ConnectionException("Connection closed by server");
-                    }
-
-                    throw ConnectionException::serverClosed(
-                        $this->serverCloseCode,
-                        $this->serverCloseReason ?? ''
-                    );
+                    throw $this->notConnectedException('Connection closed by server');
                 }
 
                 continue;

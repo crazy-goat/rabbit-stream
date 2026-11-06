@@ -333,7 +333,7 @@ The server can initiate a close at any time by sending a `Close` frame (key `0x0
 
 This is handled automatically by `StreamConnection::dispatchServerPush()` when using `readMessage()` or `readLoop()`.
 
-When the server closes the connection during a request, the client throws `ConnectionException`. Its message names the code and the reason. Call `getServerCloseCode()` and `getServerCloseReason()` on the exception to read the values. Both return `null` when the client did not receive a Close frame. `readLoop()` does not throw this exception, so its caller cannot read the values from it.
+When the server closes the connection, the client throws `ConnectionException`. A `request()` or `readMessage()` call throws it when the Close frame arrives during the call. A `readLoop()` call returns without an exception when the Close frame arrives. The next call on the connection throws it. The message names the code and the reason. Every later call on the closed connection throws the same exception. Call `getServerCloseCode()` and `getServerCloseReason()` on the exception to read the values. Both return `null` when the client did not receive a Close frame.
 
 ### Destructor Auto-Cleanup
 

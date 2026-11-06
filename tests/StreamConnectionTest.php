@@ -224,6 +224,47 @@ class StreamConnectionTest extends TestCase
         fclose($serverSocket);
     }
 
+    public function testServerCloseCodeAndReasonAreKeptForNextCallAfterReadLoop(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 8) . 'bye fast';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        // readLoop() returns after the Close frame without an exception.
+        self::assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 2.0));
+        self::assertFalse($connection->isConnected());
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected ConnectionException on the call after a server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Connection closed by server: code=320, reason=bye fast', $exception->getMessage());
+            self::assertSame(320, $exception->getServerCloseCode());
+            self::assertSame('bye fast', $exception->getServerCloseReason());
+        }
+
+        fclose($serverSocket);
+    }
+
+    public function testConnectClearsServerCloseValuesFromAnEarlierConnection(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 1, socketTimeout: 0.5);
+        (new \ReflectionProperty($connection, 'serverCloseCode'))->setValue($connection, 320);
+        (new \ReflectionProperty($connection, 'serverCloseReason'))->setValue($connection, 'old');
+
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException: nothing listens on port 1');
+        } catch (ConnectionException) {
+        }
+
+        self::assertNull((new \ReflectionProperty($connection, 'serverCloseCode'))->getValue($connection));
+        self::assertNull((new \ReflectionProperty($connection, 'serverCloseReason'))->getValue($connection));
+    }
+
     public function testReadFrameAcceptsFloatTimeout(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);
