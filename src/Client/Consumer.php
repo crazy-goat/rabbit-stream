@@ -95,6 +95,14 @@ class Consumer implements ConsumerInterface
 
     private ?ProtocolException $creditError = null;
 
+    /**
+     * True while a Subscribe request of this consumer waits for its SubscribeResponse.
+     * The broker answers a Credit sent for an earlier consumer that used the same
+     * subscription id before that consumer's Subscribe, so a credit error seen in this
+     * window is stale (#885).
+     */
+    private bool $awaitingSubscribeResponse = false;
+
     /** Credit units (1 unit = 1 chunk) already sent to the server but not yet consumed by a delivered chunk. */
     private int $creditsInFlight = 0;
 
@@ -564,7 +572,13 @@ class Consumer implements ConsumerInterface
 
         $this->connection->registerCreditErrorHandler(
             $this->subscriptionId,
-            function (CreditResponseV1 $response): void {
+            function (CreditResponseV1 $response): bool {
+                // A credit error before our own SubscribeResponse belongs to a Credit sent for
+                // an earlier consumer with this subscription id: the broker answers frames in
+                // order, so it arrives before our reply. Our own Credit cannot be sent yet (#885).
+                if ($this->awaitingSubscribeResponse) {
+                    return false;
+                }
                 // While the subscription is lost or being re-subscribed, the broker no longer
                 // knows it. A SUBSCRIPTION_ID_NOT_EXIST answer then belongs to a Credit sent
                 // before the stream was deleted, so it is stale and must not poison the
@@ -573,7 +587,7 @@ class Consumer implements ConsumerInterface
                     $this->subscriptionLost
                     && $response->getResponseCode() === ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST->value
                 ) {
-                    return;
+                    return false;
                 }
                 $this->creditError = new ProtocolException(
                     sprintf(
@@ -587,6 +601,7 @@ class Consumer implements ConsumerInterface
                 // credit as messages are consumed from the local buffer.
                 $this->pendingCredits = 0;
                 $this->creditsInFlight = 0;
+                return true;
             }
         );
 
@@ -704,6 +719,7 @@ class Consumer implements ConsumerInterface
         // request() correlates the reply: with single-active-consumer the broker
         // may push ConsumerUpdate before the SubscribeResponse, and the handler's
         // nested queryOffset() must not swallow our response.
+        $this->awaitingSubscribeResponse = true;
         try {
             $this->connection->request(
                 new SubscribeRequestV1(
@@ -717,6 +733,8 @@ class Consumer implements ConsumerInterface
         } catch (ProtocolException $e) {
             $this->creditsInFlight = 0;
             throw $e;
+        } finally {
+            $this->awaitingSubscribeResponse = false;
         }
     }
 

@@ -866,8 +866,12 @@ class StreamConnection
     /**
      * Register a handler for a rejected Credit request on a subscription.
      *
+     * The handler returns false when it ignores a stale response; the response is then
+     * logged at debug level. Any other return value means the error was recorded and
+     * it is logged at warning level.
+     *
      * @param int $subscriptionId Subscription ID as declared with the server
-     * @param callable $handler Called with (CreditResponseV1 $response)
+     * @param callable(CreditResponseV1): (bool|void) $handler Called with (CreditResponseV1 $response)
      */
     public function registerCreditErrorHandler(int $subscriptionId, callable $handler): void
     {
@@ -1817,8 +1821,11 @@ class StreamConnection
             'responseCode' => sprintf('0x%04x', $response->getResponseCode()),
         ];
         if (isset($this->creditErrorHandlers[$subscriptionId])) {
+            if (($this->creditErrorHandlers[$subscriptionId])($response) === false) {
+                $this->logger->debug('Credit response ignored by handler', $context);
+                return;
+            }
             $this->logger->warning('Credit request rejected by server', $context);
-            ($this->creditErrorHandlers[$subscriptionId])($response);
             return;
         }
 
