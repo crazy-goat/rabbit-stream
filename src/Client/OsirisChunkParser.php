@@ -208,6 +208,7 @@ class OsirisChunkParser
                     | (self::readUint16At($chunkBytes, $dataEnd, $pos) << 8)
                     | self::readUint8At($chunkBytes, $dataEnd, $pos);
                 $entryData = self::readBytesAt($chunkBytes, $dataEnd, $pos, $entrySize);
+                self::assertOffsetFits($recordCount, $chunkFirstOffset);
                 yield [$currentOffset, $entryData, $timestamp];
                 $entryCount++;
                 $recordCount++;
@@ -263,6 +264,7 @@ class OsirisChunkParser
                     }
                     $innerSize = self::readUint32At($subBatchData, $subLen, $subPos);
                     $innerData = self::readBytesAt($subBatchData, $subLen, $subPos, $innerSize);
+                    self::assertOffsetFits($recordCount, $chunkFirstOffset);
                     yield [$currentOffset, $innerData, $timestamp];
                     $entryCount++;
                     $recordCount++;
@@ -448,6 +450,7 @@ class OsirisChunkParser
                     | (self::readUint16At($chunkBytes, $dataEnd, $pos) << 8)
                     | self::readUint8At($chunkBytes, $dataEnd, $pos);
                 $entryStart = self::checkBytesAt($dataEnd, $pos, $entrySize);
+                self::assertOffsetFits($recordCount, $chunkFirstOffset);
                 yield [$currentOffset, $timestamp, $entryStart, $entrySize];
                 $entryCount++;
                 $recordCount++;
@@ -500,6 +503,7 @@ class OsirisChunkParser
                     }
                     $innerSize = self::readUint32At($chunkBytes, $subBatchEnd, $subPos);
                     $innerStart = self::checkBytesAt($subBatchEnd, $subPos, $innerSize);
+                    self::assertOffsetFits($recordCount, $chunkFirstOffset);
                     yield [$currentOffset, $timestamp, $innerStart, $innerSize];
                     $entryCount++;
                     $recordCount++;
@@ -630,6 +634,23 @@ class OsirisChunkParser
         $start = $pos;
         $pos += $length;
         return $start;
+    }
+
+    /**
+     * Rejects the record at index $recordCount (0-based) when its offset,
+     * $chunkFirstOffset + $recordCount, does not fit in an int. Called before each
+     * yield, so a chunk that holds more records than it declares fails with a
+     * DeserializationException instead of a float offset.
+     */
+    private static function assertOffsetFits(int $recordCount, int $chunkFirstOffset): void
+    {
+        if ($recordCount > PHP_INT_MAX - $chunkFirstOffset) {
+            throw new DeserializationException(sprintf(
+                'Chunk record %d starting at offset %d exceeds PHP_INT_MAX',
+                $recordCount,
+                $chunkFirstOffset
+            ));
+        }
     }
 
     private static function assertRecordCount(int $recordCount, int $numRecords): void

@@ -10,6 +10,7 @@ use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class OsirisChunkParserTest extends TestCase
@@ -992,6 +993,63 @@ class OsirisChunkParserTest extends TestCase
             $this->fail('Expected parseMessages() to reject offsets past PHP_INT_MAX');
         } catch (DeserializationException $e) {
             $this->assertStringContainsString('PHP_INT_MAX', $e->getMessage());
+        }
+    }
+
+    /**
+     * #927 review round 1: a chunk that holds more records than it declares must
+     * also fail with a DeserializationException, not a float-offset TypeError.
+     *
+     * @return array<string, array{int, array<int, array<string, mixed>>, int}>
+     */
+    public static function underDeclaredRecordProvider(): array
+    {
+        $simple = [
+            ['type' => 'simple', 'data' => 'First'],
+            ['type' => 'simple', 'data' => 'Second'],
+        ];
+        $subBatch = [[
+            'type' => 'subbatch',
+            'codec' => 0,
+            'entries' => [['data' => 'First'], ['data' => 'Second']],
+        ]];
+
+        return [
+            'zero declared, two simple entries' => [2, $simple, 0],
+            'one declared, two simple entries' => [2, $simple, 1],
+            'one declared, sub-batch of two records' => [1, $subBatch, 1],
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     */
+    #[DataProvider('underDeclaredRecordProvider')]
+    public function testUnderDeclaredRecordCountPastIntMaxThrowsDeserializationException(
+        int $numEntries,
+        array $entries,
+        int $numRecords
+    ): void {
+        $chunk = $this->createChunk(
+            numEntries: $numEntries,
+            numRecords: $numRecords,
+            timestamp: 1234567890,
+            chunkFirstOffset: PHP_INT_MAX,
+            entries: $entries
+        );
+
+        try {
+            OsirisChunkParser::parse($chunk);
+            $this->fail('Expected parse() to reject records past PHP_INT_MAX');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('exceeds PHP_INT_MAX', $e->getMessage());
+        }
+
+        try {
+            iterator_to_array(OsirisChunkParser::parseMessages($chunk), false);
+            $this->fail('Expected parseMessages() to reject records past PHP_INT_MAX');
+        } catch (DeserializationException $e) {
+            $this->assertStringContainsString('exceeds PHP_INT_MAX', $e->getMessage());
         }
     }
 
