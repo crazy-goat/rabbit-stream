@@ -94,10 +94,23 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             singleActiveConsumer: true,
         );
 
-        // A reads until partition 1 has a stored offset.
+        // A reads partition 1 messages until it has processed $autoCommit of them. Auto-commit
+        // then stores an offset in the same readOne() call. A reads no further, so the
+        // rest of the partition 1 messages stay unread.
+        $aPartition1Read = 0;
+        $deadline = microtime(true) + 20.0;
+        while ($aPartition1Read < $autoCommit && microtime(true) < $deadline) {
+            $message = $a->readOne(timeout: 0.5);
+            if ($message instanceof Message && $message->getStream() === $partitions[1]) {
+                $aPartition1Read++;
+            }
+        }
+        $this->assertSame($autoCommit, $aPartition1Read, 'A must read $autoCommit partition 1 messages');
+
+        // The store reaches the broker asynchronously. Poll the broker without reading.
         $deadline = microtime(true) + 20.0;
         while ($admin->queryOffset($group, $partitions[1]) === null && microtime(true) < $deadline) {
-            $a->readOne(timeout: 0.5);
+            usleep(50_000);
         }
         $this->assertNotNull($admin->queryOffset($group, $partitions[1]), 'A must store an offset of partition 1');
 
