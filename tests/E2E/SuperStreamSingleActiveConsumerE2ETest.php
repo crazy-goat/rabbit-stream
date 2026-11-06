@@ -128,17 +128,16 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         $this->assertFalse($a->isActive($partitions[1]), 'A must be demoted on partition 1');
         $this->assertTrue($b->isActive($partitions[1]), 'B must be active on partition 1');
 
-        // B reads partition 1 up to offset 9 and stores its progress.
+        // B reads partition 1 up to offset 9 and stores its progress. The handover loop
+        // may already have read offset 9, so the loop checks every recorded offset.
         $deadline = microtime(true) + 20.0;
-        $lastRead = null;
-        while ($lastRead !== 9 && microtime(true) < $deadline) {
+        while (!in_array(9, $bPartitionOffsets, true) && microtime(true) < $deadline) {
             $message = $b->readOne(timeout: 0.5);
-            $lastRead = $message?->getOffset();
             if ($message instanceof Message && $message->getStream() === $partitions[1]) {
                 $bPartitionOffsets[] = $message->getOffset();
             }
         }
-        $this->assertSame(9, $lastRead, 'B must read partition 1 up to offset 9');
+        $this->assertContains(9, $bPartitionOffsets, 'B must read partition 1 up to offset 9');
         // Derive the value B stores last. B resumes at the stored offset, which A may
         // have raised on demotion, so the first offset B returns is B's resume point.
         // Auto-commit then stores lastOffset + 1 after every $autoCommit messages B
