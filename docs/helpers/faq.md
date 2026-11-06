@@ -198,8 +198,8 @@ reads `/*`. See the guard at the start of `tearDown()` in
 
 An old issue can say that a feature has no test, or that the docs describe
 it. The text can be stale. Search `tests/E2E/` and `tests/` for the feature
-before you copy the claim into the docs. Issue #910 said "Not tested: client
-cert with PLAIN login". The E2E test `testPublishAndConsumeOverMutualTls`
+before you copy the claim into the docs. Issue #910 said "Not tested: whether a
+broker accepts a client certificate with a PLAIN login." The E2E test `testPublishAndConsumeOverMutualTls`
 already covered that path, so the #910 docs fix did not copy the claim.
 
 ### `memory_get_peak_usage(true)` depends on the allocator: compare two paths
