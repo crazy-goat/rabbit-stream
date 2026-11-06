@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Decoder: AMQP arrays with two or more elements decode the right values (#924)** — `AmqpDecoder` read a format code before each element of an array8 or array32. AMQP 1.0 sends one element constructor for the whole array, and the elements carry no format codes. A two-element array therefore gave a wrong value with no error (`[65, false]` for two smallints 65 and 66), or threw `DeserializationException` for other element types. The decoder now reads the constructor once and decodes every element with it. One-element arrays decode as before. The values of arrays with two or more elements change, and no public method signature changes. `tests/Client/AmqpDecoderTest.php` covers array8 and array32 with two elements, two strings, two lists, null elements and the element limits.
+
 ## [1.14.0] - 2026-11-06
 
 ### Changed

@@ -125,12 +125,32 @@ class AmqpDecoder
         if ($position >= strlen($data)) {
             throw new DeserializationException('Unexpected end of data');
         }
-        if ($depth > $maxDepth) {
-            throw new DeserializationException(sprintf('AMQP recursion depth limit exceeded (max %d)', $maxDepth));
-        }
 
         $formatCode = ord($data[$position]);
         $position++;
+
+        return self::decodeWithFormatCode($data, $formatCode, $position, $depth, $maxDepth, $budget);
+    }
+
+    /**
+     * Decode the body of one value whose format code (constructor) is already read.
+     * An array element has no format code of its own: the array carries one
+     * constructor for all its elements (#924), so array elements call this directly.
+     *
+     * @param int $depth current recursion depth of the value
+     * @param int $maxDepth maximum allowed recursion depth
+     */
+    private static function decodeWithFormatCode(
+        string $data,
+        int $formatCode,
+        int &$position,
+        int $depth,
+        int $maxDepth,
+        int &$budget
+    ): mixed {
+        if ($depth > $maxDepth) {
+            throw new DeserializationException(sprintf('AMQP recursion depth limit exceeded (max %d)', $maxDepth));
+        }
 
         return match ($formatCode) {
             // Fixed-width types
@@ -881,18 +901,73 @@ class AmqpDecoder
         $count = ord($data[$position + 1]);
         $position += 2;
         $contentEnd = self::compoundContentEnd($data, $position, $size, 1, 'Array8');
-        self::chargeBudget($budget, $count, 'Array8');
+
+        return self::readArrayElements(
+            $data,
+            $position,
+            $size,
+            $count,
+            $contentEnd,
+            $depth,
+            $maxDepth,
+            $budget,
+            'Array8'
+        );
+    }
+
+    /**
+     * Read the elements of an array8 or array32 (#924). The array has one element
+     * constructor after the count; every element is a body built with it, and no
+     * element has a format code. A zero-width constructor (null, boolean, zero
+     * number, empty list) takes no bytes per element, so only the element cap
+     * applies to its count.
+     *
+     * @return list<mixed>
+     */
+    private static function readArrayElements(
+        string $data,
+        int &$position,
+        int $size,
+        int $count,
+        int $contentEnd,
+        int $depth,
+        int $maxDepth,
+        int &$budget,
+        string $what
+    ): array {
+        self::chargeBudget($budget, $count, $what);
+        if ($count === 0) {
+            self::assertCompoundConsumed($position, $contentEnd, $size, $what);
+
+            return [];
+        }
+        if ($position >= $contentEnd) {
+            throw new DeserializationException($what . ' constructor is missing');
+        }
+
+        $formatCode = ord($data[$position]);
+        $position++;
+        $available = self::isZeroWidthConstructor($formatCode) ? $count : $contentEnd - $position;
+        self::assertCompoundCount($count, $available, $what);
 
         $array = [];
         for ($i = 0; $i < $count; $i++) {
-            if ($position >= $contentEnd) {
-                throw new DeserializationException('Array8 count exceeds available data');
+            $array[] = self::decodeWithFormatCode($data, $formatCode, $position, $depth + 1, $maxDepth, $budget);
+            if ($position > $contentEnd) {
+                throw new DeserializationException($what . ' count exceeds available data');
             }
-            $array[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
         }
-        self::assertCompoundConsumed($position, $contentEnd, $size, 'Array8');
+        self::assertCompoundConsumed($position, $contentEnd, $size, $what);
 
         return $array;
+    }
+
+    /**
+     * Format codes whose value has no body: a constructor of this kind takes no bytes per element.
+     */
+    private static function isZeroWidthConstructor(int $formatCode): bool
+    {
+        return in_array($formatCode, [0x40, 0x41, 0x42, 0x43, 0x44, 0x45], true);
     }
 
     /** @return list<mixed> */
@@ -906,22 +981,20 @@ class AmqpDecoder
         $position += 8;
         $contentEnd = self::compoundContentEnd($data, $position, $size, 4, 'Array32');
 
-        // Security (#449): the 32-bit $count is attacker-supplied. A flat array
-        // is depth 1, so the #397 recursion guard does not apply — see
-        // assertCompoundCount().
-        self::assertCompoundCount($count, $contentEnd - $position, 'Array32');
-        self::chargeBudget($budget, $count, 'Array32');
-
-        $array = [];
-        for ($i = 0; $i < $count; $i++) {
-            if ($position >= $contentEnd) {
-                throw new DeserializationException('Array32 count exceeds available data');
-            }
-            $array[] = self::decodeValueInPlace($data, $position, $depth + 1, $maxDepth, $budget);
-        }
-        self::assertCompoundConsumed($position, $contentEnd, $size, 'Array32');
-
-        return $array;
+        // Security (#449): the 32-bit $count is attacker-supplied; readArrayElements()
+        // caps it before the loop allocates anything. A flat array is depth 1, so
+        // the #397 recursion guard does not apply.
+        return self::readArrayElements(
+            $data,
+            $position,
+            $size,
+            $count,
+            $contentEnd,
+            $depth,
+            $maxDepth,
+            $budget,
+            'Array32'
+        );
     }
 
     /**
