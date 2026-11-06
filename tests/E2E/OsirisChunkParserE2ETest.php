@@ -58,7 +58,12 @@ class OsirisChunkParserE2ETest extends E2ETestCase
             }
         );
 
-        $connection->readLoop(maxFrames: 1);
+        // The broker may split the 3 confirms across several PublishConfirm frames, so keep
+        // reading one frame at a time until all of them arrived (or the deadline passes).
+        $confirmDeadline = microtime(true) + 5.0;
+        while (count($confirmedIds) < 3 && microtime(true) < $confirmDeadline) {
+            $connection->readLoop(maxFrames: 1, timeout: $confirmDeadline - microtime(true));
+        }
         $this->assertCount(3, $confirmedIds, 'Messages should be confirmed');
 
         $receivedEntries = [];
