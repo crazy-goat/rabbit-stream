@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
+use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Request\MetadataRequestV1;
@@ -21,11 +24,14 @@ use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use ReflectionProperty;
 
 class HeartbeatTest extends E2ETestCase
 {
     private const HEARTBEAT_INTERVAL = 1;
     private const MARGIN = 2;
+    private const SILENT_HEARTBEAT_INTERVAL = 2;
+    private const SILENT_PUBLISH_COUNT = 6;
 
     private ?StreamConnection $connection = null;
 
@@ -205,5 +211,93 @@ class HeartbeatTest extends E2ETestCase
             $secondCallbackCalled,
             'New callback should fire'
         );
+    }
+
+    public function testConnectionSurvivesApplicationThatDoesNotReadForTwoHeartbeatIntervals(): void
+    {
+        $streamName = 'test-heartbeat-silent-' . uniqid();
+        $connection = Connection::create(
+            host: self::$host,
+            port: self::$port,
+            requestedHeartbeat: self::SILENT_HEARTBEAT_INTERVAL,
+        );
+
+        try {
+            $connection->createStream($streamName);
+
+            $streamConnectionProperty = new ReflectionProperty(Connection::class, 'streamConnection');
+            $streamConnection = $streamConnectionProperty->getValue($connection);
+            $this->assertInstanceOf(StreamConnection::class, $streamConnection);
+            $this->assertSame(
+                self::SILENT_HEARTBEAT_INTERVAL,
+                $streamConnection->getHeartbeatInterval(),
+                'The broker must accept the requested heartbeat interval'
+            );
+
+            $confirmed = [];
+            $producer = $connection->createProducer(
+                stream: $streamName,
+                onConfirm: function (ConfirmationStatus $status) use (&$confirmed): void {
+                    if ($status->isConfirmed()) {
+                        $confirmed[] = $status->getPublishingId();
+                    }
+                },
+            );
+
+            // createProducer() read the publisher declaration response. send()
+            // only writes, so the library reads nothing until waitForConfirms().
+            $producer->send('message-0');
+            $silentStart = microtime(true);
+
+            for ($i = 1; $i < self::SILENT_PUBLISH_COUNT; $i++) {
+                sleep(1);
+                $producer->send("message-{$i}");
+            }
+
+            $silentFor = microtime(true) - $silentStart;
+            $this->assertGreaterThanOrEqual(
+                2 * self::SILENT_HEARTBEAT_INTERVAL,
+                $silentFor,
+                'The application must stay silent for longer than two heartbeat intervals'
+            );
+            $this->assertSame(
+                [],
+                $confirmed,
+                'No publish confirm may be read before the application reads again'
+            );
+
+            $producer->waitForConfirms(timeout: 5.0);
+
+            $this->assertSame(
+                range(0, self::SILENT_PUBLISH_COUNT - 1),
+                $confirmed,
+                'Every publish must be confirmed after the silent period'
+            );
+            $this->assertTrue(
+                $connection->isConnected(),
+                'Connection should stay open after the silent period with inbound frames waiting'
+            );
+
+            $producer->close();
+        } finally {
+            if ($connection->isConnected()) {
+                $connection->close();
+            }
+            $this->deleteStreamQuietly($streamName);
+        }
+    }
+
+    private function deleteStreamQuietly(string $streamName): void
+    {
+        $admin = $this->createConnection();
+        try {
+            if ($admin->streamExists($streamName)) {
+                $admin->deleteStream($streamName);
+            }
+        } catch (RabbitStreamExceptionInterface) {
+            // The stream may be absent when the test failed before it was created.
+        } finally {
+            $admin->close();
+        }
     }
 }
