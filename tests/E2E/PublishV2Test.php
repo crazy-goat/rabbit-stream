@@ -156,7 +156,11 @@ class PublishV2Test extends E2ETestCase
         $subscribeResponse = $this->connection->readMessage();
         $this->assertInstanceOf(SubscribeResponseV1::class, $subscribeResponse);
         $this->connection->sendMessage(new CreditRequestV1(1, 10));
-        $this->connection->readLoop(maxFrames: 1, timeout: 5.0);
+        // Deliver frames may split the entries too, so keep reading until 3 arrived (or the deadline passes).
+        $deliverDeadline = microtime(true) + 5.0;
+        while (count($receivedEntries) < 3 && microtime(true) < $deliverDeadline) {
+            $this->connection->readLoop(maxFrames: 1, timeout: $deliverDeadline - microtime(true));
+        }
 
         $this->assertGreaterThanOrEqual(3, count($receivedEntries), 'Should receive at least 3 entries');
         $this->assertSame('message-one', $receivedEntries[0]->getData());

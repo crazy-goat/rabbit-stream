@@ -81,7 +81,11 @@ class OsirisChunkParserE2ETest extends E2ETestCase
 
         $connection->sendMessage(new CreditRequestV1(1, 10));
 
-        $connection->readLoop(maxFrames: 1);
+        // Deliver frames may split the entries too, so keep reading until 3 arrived (or the deadline passes).
+        $deliverDeadline = microtime(true) + 5.0;
+        while (count($receivedEntries) < 3 && microtime(true) < $deliverDeadline) {
+            $connection->readLoop(maxFrames: 1, timeout: $deliverDeadline - microtime(true));
+        }
 
         $this->assertGreaterThanOrEqual(3, count($receivedEntries), 'Should receive at least 3 entries');
 
