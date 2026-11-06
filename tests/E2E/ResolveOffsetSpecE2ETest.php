@@ -16,7 +16,6 @@ use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
 use CrazyGoat\RabbitStream\Response\ResolveOffsetSpecResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 /**

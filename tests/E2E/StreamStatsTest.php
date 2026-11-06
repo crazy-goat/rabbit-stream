@@ -8,7 +8,6 @@ use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\StreamStatsRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 
 class StreamStatsTest extends E2ETestCase
 {

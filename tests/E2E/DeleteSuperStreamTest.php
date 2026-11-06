@@ -10,7 +10,6 @@ use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 
 class DeleteSuperStreamTest extends E2ETestCase
 {

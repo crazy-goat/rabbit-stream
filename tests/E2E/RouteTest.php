@@ -10,7 +10,6 @@ use CrazyGoat\RabbitStream\Request\RouteRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteSuperStreamResponseV1;
 use CrazyGoat\RabbitStream\Response\RouteResponseV1;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 
 class RouteTest extends E2ETestCase
 {

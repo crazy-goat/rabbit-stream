@@ -9,7 +9,6 @@ use CrazyGoat\RabbitStream\Request\CreateRequestV1;
 use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeleteStreamResponseV1;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 
 class DeleteStreamTest extends E2ETestCase
 {

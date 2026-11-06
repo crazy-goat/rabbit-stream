@@ -7,7 +7,6 @@ namespace CrazyGoat\RabbitStream\Tests\E2E;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Request\ExchangeCommandVersionsRequestV1;
 use CrazyGoat\RabbitStream\Response\ExchangeCommandVersionsResponseV1;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
 
 class ExchangeCommandVersionsTest extends E2ETestCase

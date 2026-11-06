@@ -11,7 +11,6 @@ use CrazyGoat\RabbitStream\Request\DeleteStreamRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 
 class DeclarePublisherTest extends E2ETestCase
 {

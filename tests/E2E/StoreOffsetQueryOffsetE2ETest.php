@@ -10,7 +10,6 @@ use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 
 class StoreOffsetQueryOffsetE2ETest extends E2ETestCase
 {

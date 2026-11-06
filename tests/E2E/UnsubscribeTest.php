@@ -13,7 +13,6 @@ use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
 use CrazyGoat\RabbitStream\Response\UnsubscribeResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 class UnsubscribeTest extends E2ETestCase

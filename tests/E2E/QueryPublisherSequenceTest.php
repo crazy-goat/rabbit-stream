@@ -13,7 +13,6 @@ use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 
 class QueryPublisherSequenceTest extends E2ETestCase

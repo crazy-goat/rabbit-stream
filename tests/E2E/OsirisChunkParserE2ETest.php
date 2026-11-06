@@ -16,7 +16,6 @@ use CrazyGoat\RabbitStream\Response\CreateResponseV1;
 use CrazyGoat\RabbitStream\Response\DeclarePublisherResponseV1;
 use CrazyGoat\RabbitStream\Response\DeliverResponseV1;
 use CrazyGoat\RabbitStream\Response\SubscribeResponseV1;
-use CrazyGoat\RabbitStream\Tests\E2E\E2ETestCase;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 
@@ -52,7 +51,7 @@ class OsirisChunkParserE2ETest extends E2ETestCase
         $connection->registerPublisher(
             1,
             function (array $ids) use (&$confirmedIds): void {
-                        $confirmedIds = array_merge($confirmedIds, $ids);
+                $confirmedIds = array_merge($confirmedIds, $ids);
             },
             function (): void {
             }
