@@ -22,28 +22,44 @@ $pattern = '/\\b(?:' . implode('|', array_map(
 )) . ')\\b/';
 $errors = [];
 
-foreach (['src', 'docs/en'] as $directory) {
+// docs/archive/ stays unscanned: it holds historical material. docs/helpers/ stays
+// unscanned: it is the knowledge base, which kb-lint checks.
+$scannedFiles = [];
+
+foreach (['src', 'docs/en', 'examples'] as $directory) {
+    if (!is_dir($root . '/' . $directory)) {
+        continue;
+    }
+
     $iterator = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($root . '/' . $directory, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::LEAVES_ONLY
     );
 
     foreach ($iterator as $file) {
-        if (!$file instanceof SplFileInfo || !$file->isFile()) {
-            continue;
+        if ($file instanceof SplFileInfo && $file->isFile()) {
+            $scannedFiles[] = $file->getPathname();
         }
+    }
+}
 
-        $path = substr($file->getPathname(), strlen($root) + 1);
-        $contents = file_get_contents($file->getPathname());
-        if ($contents === false || !preg_match($pattern, $contents)) {
-            continue;
-        }
+foreach (['README.md', 'AGENTS.md'] as $file) {
+    if (is_file($root . '/' . $file)) {
+        $scannedFiles[] = $root . '/' . $file;
+    }
+}
 
-        foreach (explode("\n", str_replace("\r\n", "\n", $contents)) as $lineNumber => $line) {
-            if (preg_match_all($pattern, $line, $matches)) {
-                foreach ($matches[0] as $match) {
-                    $errors[] = sprintf('%s:%d: forbidden token %s', $path, $lineNumber + 1, $match);
-                }
+foreach ($scannedFiles as $filePath) {
+    $path = substr($filePath, strlen($root) + 1);
+    $contents = file_get_contents($filePath);
+    if ($contents === false || !preg_match($pattern, $contents)) {
+        continue;
+    }
+
+    foreach (explode("\n", str_replace("\r\n", "\n", $contents)) as $lineNumber => $line) {
+        if (preg_match_all($pattern, $line, $matches)) {
+            foreach ($matches[0] as $match) {
+                $errors[] = sprintf('%s:%d: forbidden token %s', $path, $lineNumber + 1, $match);
             }
         }
     }
@@ -54,5 +70,5 @@ if ($errors !== []) {
     exit(1);
 }
 
-echo "No stale ext-sockets references found in src/ or docs/en/.\n";
+echo "No stale ext-sockets references found in src/, docs/en/, examples/, README.md or AGENTS.md.\n";
 exit(0);
