@@ -1243,12 +1243,13 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeArray32HonestLargeFrameThrowsBeforeAllocating(): void
     {
         // Mirrors the #449 list32 PoC: an *honest* array32 whose count truthfully
-        // equals the available bytes, above MAX_COMPOUND_ELEMENTS. The
-        // available-bytes guard does NOT fire (count == available); the element
-        // cap does — before the loop allocates the multi-hundred-MB array.
+        // equals the available bytes, above MAX_COMPOUND_ELEMENTS. The constructor is
+        // a smalluint (0x52), so each element is 1 body byte. The available-bytes
+        // guard does NOT fire (count == available); the element cap does, before the
+        // loop allocates the multi-hundred-MB array.
         $count = 131073; // MAX_COMPOUND_ELEMENTS (131072) + 1
-        $content = str_repeat("\x40", $count);
-        $size = $count + 4; // 4 count bytes + count content bytes
+        $content = "\x52" . str_repeat("\x00", $count);
+        $size = 4 + 1 + $count; // 4 count bytes + constructor + count body bytes
         $payload = "\xf0" . pack('N', $size) . pack('N', $count) . $content;
         $baseline = memory_get_usage(true);
 
@@ -1271,17 +1272,17 @@ class AmqpDecoderTest extends TestCase
     {
         // Boundary: an honest array32 with exactly MAX_COMPOUND_ELEMENTS elements
         // must be accepted — only count > 131072 is rejected. The constructor is a
-        // null (0x40), which takes no bytes per element, so one constructor byte is
-        // the whole content and the decode is bounded by the element cap.
+        // smalluint (0x52), so each element is one body byte (0).
         $count = 131072; // exactly MAX_COMPOUND_ELEMENTS
-        $size = 4 + 1; // 4 count bytes + the null constructor
-        $payload = "\xf0" . pack('N', $size) . pack('N', $count) . "\x40";
+        $content = "\x52" . str_repeat("\x00", $count);
+        $size = 4 + 1 + $count; // 4 count bytes + constructor + count body bytes
+        $payload = "\xf0" . pack('N', $size) . pack('N', $count) . $content;
         $baseline = memory_get_usage(true);
 
         [$value, $pos] = AmqpDecoder::decodeValue($payload, 0);
         assert(is_array($value));
         $this->assertCount($count, $value);
-        $this->assertNull($value[0]);
+        $this->assertSame(0, $value[0]);
         $this->assertSame(strlen($payload), $pos);
 
         // A truthful frame at the cap decodes with bounded memory (~128 KB input
@@ -1347,7 +1348,7 @@ class AmqpDecoderTest extends TestCase
     {
         // AmqpValue body wrapping an array8 of two strings
         $array = "\xe0\x06\x02\xa1\x01a\x01b";
-        $body = "\x00\x53\x76" . $array; // AmqpValue section carrying an array8
+        $body = "\x00\x53\x77" . $array; // AmqpValue (0x77) section carrying an array8
         $decoded = AmqpDecoder::decodeMessage($body);
         $this->assertSame(['a', 'b'], $decoded['body']);
     }

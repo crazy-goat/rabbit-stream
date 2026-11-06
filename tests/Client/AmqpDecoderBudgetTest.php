@@ -121,6 +121,26 @@ class AmqpDecoderBudgetTest extends TestCase
         AmqpDecoder::decodeMessage($this->amqpValue($this->list32(4, str_repeat($inner, 4))));
     }
 
+    public function testZeroWidthArrayCannotExpandFewBytesIntoManyValues(): void
+    {
+        // array32, 13 wire bytes: count 131072 with a null constructor (0x40), which takes
+        // no bytes per element. The array is bounded by its content bytes, so it must throw.
+        $body = $this->amqpValue("\xf0\x00\x00\x00\x05\x00\x02\x00\x00\x40");
+        $this->expectException(DeserializationException::class);
+        $this->expectExceptionMessage('Array32 count 131072 exceeds 8 zero-width elements for 1 content bytes');
+
+        AmqpDecoder::decodeMessage($body);
+    }
+
+    public function testSmallZeroWidthArrayStillDecodesInFullMessage(): void
+    {
+        // array8 of 5 nulls in 2 content bytes (size 2): within the zero-width bound.
+        $this->assertSame(
+            [null, null, null, null, null],
+            AmqpDecoder::decodeMessage($this->amqpValue("\xe0\x02\x05\x40"))['body']
+        );
+    }
+
     #[RunInSeparateProcess]
     public function testBudgetBoundaryIsFifteenFullLists(): void
     {
