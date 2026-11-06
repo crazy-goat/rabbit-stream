@@ -56,11 +56,14 @@ final class FrameSizeReadTest extends TestCase
      * the frame. The fixed read path should peak as the fast path does, which reads
      * the same frame in one piece. The old join peaked at about twice the frame size.
      *
-     * The peak depends on the allocator, so a fixed memory_limit is not reliable
-     * (the fixed path reached 128 MiB on Linux). Instead the test compares the lowest
-     * peak of three slow-path children (default caps) with the lowest peak of three
-     * fast-path children, both with no memory_limit. The frame goes through a pipe,
-     * which returns partial reads as a socket does.
+     * The test compares the peak of a slow-path child (default caps) with the peak of a
+     * fast-path child. Both children run with no memory_limit. The children report
+     * memory_get_peak_usage(false), which counts the memory that PHP uses. The real
+     * size from memory_get_peak_usage(true) depends on the allocator: on Linux the
+     * fast path gave 96 MiB in one run and 128 MiB in the next, so the test was
+     * flaky (#1071). With a 64 MiB frame, the fixed path and the fast path peak at
+     * about 65.5 MiB, and the old join peaked at about 129.5 MiB. The frame goes
+     * through a pipe, which returns partial reads as a socket does.
      */
     public function testLargeDeliverFrameIsNotHeldTwiceInMemory(): void
     {
@@ -68,21 +71,19 @@ final class FrameSizeReadTest extends TestCase
         $frameSize = 64 * 1024 * 1024;
         $slackBytes = 4 * 1024 * 1024;
 
-        $slowPeaks = [];
-        $fastPeaks = [];
-        for ($run = 0; $run < 3; $run++) {
-            $slowPeaks[] = $this->readPeakInChild($frameSize, 'default');
-            $fastPeaks[] = $this->readPeakInChild($frameSize, 'fast');
-        }
+        $slowPeak = $this->readPeakInChild($frameSize, 'default');
+        $fastPeak = $this->readPeakInChild($frameSize, 'fast');
 
-        $toMiB = static fn (int $bytes): string => sprintf('%.1f', $bytes / 1048576);
         $message = sprintf(
-            'Slow path peaks (MiB): %s; fast path peaks (MiB): %s',
-            implode(', ', array_map($toMiB, $slowPeaks)),
-            implode(', ', array_map($toMiB, $fastPeaks)),
+            'Slow path peak: %.1f MiB; fast path peak: %.1f MiB',
+            $slowPeak / 1048576,
+            $fastPeak / 1048576,
         );
 
-        self::assertLessThanOrEqual(min($fastPeaks) + $slackBytes, min($slowPeaks), $message);
+        // A peak below the frame size means that the measure does not see the frame
+        // (for example with USE_ZEND_ALLOC=0), so the comparison would prove nothing.
+        self::assertGreaterThanOrEqual($frameSize, $fastPeak, $message);
+        self::assertLessThanOrEqual($fastPeak + $slackBytes, $slowPeak, $message);
     }
 
     /**
@@ -90,7 +91,7 @@ final class FrameSizeReadTest extends TestCase
      *
      * @param string $mode 'default' keeps the default caps (slow path); 'fast' raises the
      *                     frame cap to $frameSize (one-piece read)
-     * @return int Peak memory in bytes, from memory_get_peak_usage(true) in the child
+     * @return int Peak memory in bytes, from memory_get_peak_usage(false) in the child
      */
     private function readPeakInChild(int $frameSize, string $mode): int
     {
@@ -104,7 +105,7 @@ final class FrameSizeReadTest extends TestCase
                 $connection->setMaxFrameSize((int) $argv[3]);
             }
             $frame = $connection->readFrame(10.0);
-            echo $frame === null ? "none\n" : 'read peak=' . memory_get_peak_usage(true) . "\n";
+            echo $frame === null ? "none\n" : 'read peak=' . memory_get_peak_usage(false) . "\n";
             PHP;
 
         $process = proc_open(
