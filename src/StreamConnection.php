@@ -57,6 +57,32 @@ class StreamConnection
     }
 
     /**
+     * The reason of a failed stream_socket_client() call.
+     *
+     * The socket error text is used when PHP set it. Otherwise the PHP warnings
+     * carry the reason, for example a TLS peer name that did not match (GitHub #928).
+     *
+     * @param list<string> $warnings The PHP warnings that the call emitted
+     */
+    private function describeConnectFailure(?string $errorMessage, ?int $errorCode, array $warnings): string
+    {
+        $code = $errorCode ?? 0;
+        if ($errorMessage !== null && $errorMessage !== '') {
+            return "{$errorMessage} ({$code})";
+        }
+
+        $reasons = array_values(array_unique(array_map(
+            static fn (string $warning): string => (string) preg_replace('/^stream_socket_client\(\): /', '', $warning),
+            $warnings
+        )));
+        if ($reasons === []) {
+            return "unknown error ({$code})";
+        }
+
+        return implode('; ', $reasons);
+    }
+
+    /**
      * The open connection stream, or an exception if it is gone.
      *
      * @return resource
@@ -355,18 +381,38 @@ class StreamConnection
         }
         $context = stream_context_create($options);
 
-        $stream = @stream_socket_client(
-            sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
-            $errorCode,
-            $errorMessage,
-            $this->socketTimeout,
-            STREAM_CLIENT_CONNECT,
-            $context
+        // A failed TLS handshake leaves $errorMessage empty. PHP reports the reason only
+        // as warnings, so a temporary handler collects them (GitHub #928).
+        $warnings = [];
+        set_error_handler(
+            static function (int $number, string $message) use (&$warnings): bool {
+                $warnings[] = $message;
+                return true;
+            }
         );
+        try {
+            $stream = stream_socket_client(
+                sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
+                $errorCode,
+                $errorMessage,
+                $this->socketTimeout,
+                STREAM_CLIENT_CONNECT,
+                $context
+            );
+        } finally {
+            restore_error_handler();
+            // Clear the OpenSSL error queue, so that stale errors do not reach a later
+            // openssl_error_string() call of the application (GitHub #928).
+            if ($useTls && function_exists('openssl_error_string')) {
+                while (openssl_error_string() !== false) {
+                    // Discard each queued error.
+                }
+            }
+        }
         if ($stream === false) {
             throw new ConnectionException(
                 "Cannot connect to {$scheme}://{$this->host}:{$this->port}: " .
-                "{$errorMessage} ({$errorCode})"
+                $this->describeConnectFailure($errorMessage, $errorCode, $warnings)
             );
         }
 
