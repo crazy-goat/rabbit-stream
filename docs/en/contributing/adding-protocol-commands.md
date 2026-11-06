@@ -322,14 +322,16 @@ class ExampleE2ETest extends TestCase
 
 ## Branching Strategy
 
-Always implement new features on a dedicated branch:
+Always implement new features on a dedicated branch. Name the branch
+`<type>/issue-<N>-<slug>`, where `<type>` is `feat`, `fix`, `docs`, `refactor`,
+`test` or `chore`:
 
 ```bash
 # Create feature branch
-git checkout -b feature/issue-{number}-{short-description}
+git checkout -b feat/issue-{number}-{slug}
 
 # Example:
-git checkout -b feature/issue-9-delete-publisher
+git checkout -b feat/issue-9-delete-publisher
 ```
 
 ## After Merging

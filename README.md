@@ -17,6 +17,8 @@ composer require crazy-goat/rabbit-stream
 
 ## Quick Start
 
+The snippets in this section use the stream `my-stream`. Create it once before you run them. The [Quick Start guide](docs/en/getting-started/quick-start.md) shows the call (step 2, `createStream()`). `createStream()` throws `ProtocolException` if the stream already exists.
+
 ### Publishing
 
 ```php
@@ -38,45 +40,10 @@ on the wire, and the consumer returns them unwrapped (see [Publishing](docs/en/g
 
 ### TLS transport (encrypted connections)
 
-By default connections are plaintext `tcp://` (port 5552). Pass a
-`CrazyGoat\RabbitStream\VO\TlsConfig` to use the encrypted `ssl://` transport
-(RabbitMQ stream listener on port **5551**):
-
-```php
-use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\VO\TlsConfig;
-
-$connection = Connection::create(
-    host: 'localhost',
-    port: 5551, // TLS stream port
-    tls: new TlsConfig(
-        cafile: '/etc/ssl/ca.pem', // optional: custom CA bundle
-        // localCert: '/etc/ssl/client.crt',   // optional: client certificate
-        // localPk: '/etc/ssl/client.key',     // (e.g. for EXTERNAL SASL)
-    ),
-);
-```
-
-Pass the private-key passphrase with `new TlsConfig(passphrase: '...')`. Read it
-with `$tls->getPassphrase()`. The `$passphrase` property is private, so
-`var_export()`, `serialize()`, `json_encode()`, the `(array)` cast and stack traces
-do not show it. Code that read `$tls->passphrase` must call `getPassphrase()`.
-
-`connect()` completes the TLS handshake, including the client certificate and the key
-passphrase, within `socketTimeout`. The E2E test `tests/E2E/TlsConnectionE2ETest.php` runs
-against a broker with a TLS stream listener and mutual TLS (`./run-e2e.sh` sets it up).
-
-Peer certificate and hostname verification are **on by default**
-(`verify_peer`/`verify_peer_name`). For a self-signed development broker you can
-disable them explicitly — do not do this in production:
-
-```php
-$connection = Connection::create(
-    host: 'localhost',
-    port: 5551,
-    tls: new TlsConfig(verifyPeer: false, verifyPeerName: false),
-);
-```
+Connections are plaintext by default. Pass a `TlsConfig` to `Connection::create()`
+to use the encrypted transport on the TLS stream port **5551**. The options, the
+certificate checks and the broker setup are in
+[Security and TLS](docs/en/guide/security-and-tls.md).
 
 ### Consuming
 
@@ -119,6 +86,8 @@ API reference, protocol notes and examples. Translations are listed in
 [`docs/LANGUAGES.md`](docs/LANGUAGES.md) (currently English only).
 
 ## Usage
+
+The snippets in this section use the stream `my-stream`. Create it once before you run them, as shown in the [Quick Start guide](docs/en/getting-started/quick-start.md).
 
 ### High-level API (Recommended)
 

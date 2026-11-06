@@ -189,6 +189,7 @@ not advertise `PLAIN`, the only mechanism this client implements. The client
 aborts before sending credentials:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 
 try {
@@ -211,6 +212,7 @@ authenticate with `AUTHENTICATION_FAILURE`, which surfaces as a
 tell "bad password" apart from "the server cannot authenticate us at all":
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
@@ -288,6 +290,24 @@ try {
 
 Catch order matters: `TimeoutException` extends `ConnectionException`.
 
+#### A socket with a descriptor number of 1024 or higher
+
+The client waits for I/O with `stream_select()`. The `select(2)` system call
+cannot wait on a socket whose descriptor number is at or above `FD_SETSIZE`.
+On the tested builds, `FD_SETSIZE` is 1024. An application that keeps about
+1023 or more files and sockets open can reach this limit.
+
+When this happens, the client closes the connection and throws
+`ConnectionException`. The message names the descriptor limit and includes the
+PHP warning:
+
+```text
+stream_select failed while writing: the socket descriptor is at or above FD_SETSIZE (select(2) limit, usually 1024); lower the number of open descriptors in the process. PHP warning: stream_select(): You MUST recompile PHP with a larger value of FD_SETSIZE. ...
+```
+
+To fix this, close the files and sockets that the process does not need. Then
+connect again.
+
 #### Server-initiated close
 
 The broker can close the connection with a Close frame. The frame carries a
@@ -312,6 +332,24 @@ try {
 
 `getServerCloseCode()` returns `null` for a `ConnectionException` that the
 client did not get from a Close frame.
+
+#### TLS peer rejection
+
+With TLS 1.3, `connect()` can succeed before the broker checks the client certificate.
+The broker then sends a TLS alert and closes the connection. The first read fails. The
+exception message starts with `TLS peer rejected the connection:` and names the alert,
+for example `alert certificate required`.
+
+```php
+try {
+    $connection->connect();
+    $connection->readFrame(5.0);
+} catch (ConnectionException $e) {
+    if (str_starts_with($e->getMessage(), 'TLS peer rejected the connection:')) {
+        // The broker rejected the client certificate. Check the certificate and its key.
+    }
+}
+```
 
 #### Publisher/subscription id exhaustion
 
@@ -531,6 +569,7 @@ function connectWithRetry(string $host, int $port, string $user, string $pass): 
 Handle various authentication scenarios:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
@@ -726,6 +765,8 @@ try {
     // re-create the producer before continuing
 }
 ```
+
+For a reconnect pattern for a producer and a consumer, see [Reconnect](reconnect.md).
 
 ## Best Practices
 

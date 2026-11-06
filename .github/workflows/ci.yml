@@ -33,7 +33,11 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags: bin/check-api-signature.php compares src/ with the last release tag.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2

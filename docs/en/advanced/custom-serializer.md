@@ -16,14 +16,14 @@ namespace CrazyGoat\RabbitStream\Serializer;
 interface BinarySerializerInterface
 {
     /**
-     * Converts a Request object to a binary frame (without the 4-byte length prefix).
-     * Uses Request::toArray() to get the data, then serializes to binary.
+     * Converts a Request object to the binary frame content, without the 4-byte size prefix.
+     * The default implementation calls ToStreamBufferInterface::toStreamBuffer() and returns its bytes.
      */
     public function serialize(object $request): string;
 
     /**
      * Converts a binary frame to a Response object.
-     * Deserializes binary to array, then uses Response::fromArray() to build the object.
+     * The method returns an object. It does not return an array.
      */
     public function deserialize(string $frame): object;
 }
@@ -115,7 +115,11 @@ interface FromArrayInterface
 
 ## Creating a Custom Serializer
 
-### Example: JSON Serializer for Testing
+### Example: Counting Decorator
+
+The serializer converts protocol frames, not message bodies, so a custom serializer must produce the same bytes as `PhpBinarySerializer`.
+
+This example wraps `PhpBinarySerializer` and counts each frame:
 
 ```php
 <?php
@@ -123,45 +127,59 @@ interface FromArrayInterface
 namespace MyApp\Serializer;
 
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
-use CrazyGoat\RabbitStream\Buffer\ToArrayInterface;
-use CrazyGoat\RabbitStream\Buffer\FromArrayInterface;
+use Psr\Log\LoggerInterface;
 
-class JsonSerializer implements BinarySerializerInterface
+class CountingSerializer implements BinarySerializerInterface
 {
+    private int $serialized = 0;
+    private int $deserialized = 0;
+
+    public function __construct(
+        private BinarySerializerInterface $inner,
+        private LoggerInterface $logger,
+    ) {
+    }
+
     public function serialize(object $request): string
     {
-        if (!$request instanceof ToArrayInterface) {
-            throw new \InvalidArgumentException(
-                'Request must implement ToArrayInterface'
-            );
-        }
+        $frame = $this->inner->serialize($request);
+        $this->serialized++;
+        $this->logger->debug('Serialized frame', [
+            'class' => $request::class,
+            'bytes' => strlen($frame),
+            'total' => $this->serialized,
+        ]);
 
-        $data = $request->toArray();
-        $data['__class'] = get_class($request);  // Store class name
-        
-        return json_encode($data, JSON_THROW_ON_ERROR);
+        return $frame;
     }
 
     public function deserialize(string $frame): object
     {
-        $data = json_decode($frame, true, 512, JSON_THROW_ON_ERROR);
-        
-        $className = $data['__class'] ?? null;
-        unset($data['__class']);
-        
-        if ($className === null || !class_exists($className)) {
-            throw new \InvalidArgumentException('Cannot determine target class');
-        }
-        
-        if (!is_subclass_of($className, FromArrayInterface::class)) {
-            throw new \InvalidArgumentException(
-                "Class {$className} must implement FromArrayInterface"
-            );
-        }
-        
-        return $className::fromArray($data);
+        $response = $this->inner->deserialize($frame);
+        $this->deserialized++;
+        $this->logger->debug('Deserialized frame', [
+            'class' => $response::class,
+            'bytes' => strlen($frame),
+            'total' => $this->deserialized,
+        ]);
+
+        return $response;
     }
 }
+```
+
+The decorator wraps `PhpBinarySerializer` and passes the same bytes through. Use it as follows:
+
+```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
+use MyApp\Serializer\CountingSerializer;
+use Psr\Log\NullLogger;
+
+// Wrap the default serializer. Pass a PSR-3 logger, such as Monolog, instead of NullLogger.
+$connection = Connection::create(
+    serializer: new CountingSerializer(new PhpBinarySerializer(), new NullLogger()),
+);
 ```
 
 ### Example: Debug Serializer (Hex Dump)
@@ -231,6 +249,8 @@ class DebugSerializer implements BinarySerializerInterface
 
 ### Example: MessagePack Serializer
 
+This sketch does not work against a RabbitMQ broker. The broker reads the protocol frame format, so a MessagePack output is not accepted. Use this pattern only for a different wire format that you control.
+
 ```php
 <?php
 
@@ -268,7 +288,7 @@ class MessagePackSerializer implements BinarySerializerInterface
 
 **Problem:** Binary protocol is hard to inspect during tests
 
-**Solution:** Use DebugSerializer to log all frames
+**Solution:** Use DebugSerializer to log all frames. Install Monolog first with `composer require monolog/monolog`. The library requires only `psr/log`.
 
 ```php
 use MyApp\Serializer\DebugSerializer;

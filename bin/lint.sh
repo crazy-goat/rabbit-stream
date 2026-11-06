@@ -29,6 +29,7 @@ step "kb-lint" php bin/kb-lint.php
 step "docs-links" php bin/check-docs-links.php
 step "docs-symbols" php bin/check-docs-symbols.php
 step "api-reference" php bin/check-api-reference.php
+step "api-signature" php bin/check-api-signature.php
 step "docs-frame-keys" php bin/check-docs-frame-keys.php
 step "stale-sockets" php bin/check-stale-sockets.php
 step "e2e-readloop-timeouts" php bin/check-e2e-readloop-timeouts.php

@@ -888,7 +888,7 @@ try {
     }
 } catch (ConnectionException $e) {
     echo "Connection lost: {$e->getMessage()}\n";
-    // Reconnect logic here
+    // Reconnect: open a new connection and resume from the stored offset (see ../guide/reconnect.md)
 } finally {
     $consumer->close();
 }

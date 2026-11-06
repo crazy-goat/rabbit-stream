@@ -10,6 +10,7 @@ use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Client\Producer;
 use CrazyGoat\RabbitStream\Client\SuperStreamConsumer;
 use CrazyGoat\RabbitStream\Client\SuperStreamProducer;
+use CrazyGoat\RabbitStream\Response\OpenResponseV1;
 use CrazyGoat\RabbitStream\ResponseBuilder;
 use CrazyGoat\RabbitStream\StreamConnection;
 
@@ -26,6 +27,7 @@ $classes = [
     'write-buffer.md' => WriteBuffer::class,
     'response-builder.md' => ResponseBuilder::class,
     'message.md' => Message::class,
+    'open-response.md' => OpenResponseV1::class,
 ];
 $autoload = $repositoryRoot . '/vendor/autoload.php';
 if (is_file($autoload)) {

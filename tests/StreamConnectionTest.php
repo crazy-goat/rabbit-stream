@@ -1026,15 +1026,15 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
-    public function testRequestParksResponsesOfOtherCorrelationIds(): void
+    public function testRequestDropsRepliesThatNoRequestWaitsFor(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
 
         $connection = new StreamConnection('127.0.0.1', 5552);
         $this->injectSocket($connection, $clientSocket);
 
-        // Server answers out of order: correlation 2 first, then correlation 1
-        // (the one request() below is waiting for).
+        // Server answers out of order: correlation 2, which no request holds, first,
+        // then correlation 1 (the one request() below is waiting for).
         fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
         fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
 
@@ -1042,20 +1042,22 @@ class StreamConnectionTest extends TestCase
         $this->assertInstanceOf(CreateResponseV1::class, $response);
         $this->assertSame(1, $response->getCorrelationId());
 
-        // A readMessage() caller cannot consume a response parked for correlation 2.
+        // The reply for correlation 2 is dropped, not parked: a readMessage() caller
+        // gets no response, and nothing stays in pendingResponses.
         try {
             $connection->readMessage(0.05);
-            $this->fail('Expected readMessage() to ignore the parked correlated response.');
+            $this->fail('Expected readMessage() to find no response.');
         } catch (TimeoutException) {
-            // Expected: only request() may consume the parked response.
+            // Expected.
         }
+        $pendingResponses = new \ReflectionProperty($connection, 'pendingResponses');
+        $this->assertSame([], $pendingResponses->getValue($connection));
 
-        // Id 2 is still parked, and no request holds it, so the next request does
-        // not reuse it. It gets id 3 and its own reply.
-        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 3) . pack('n', 1)));
+        // Id 2 is free again, so the next request uses it and gets its own reply.
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
         $next = $connection->request(new CreateRequestV1('b'), 1.0);
         $this->assertInstanceOf(CreateResponseV1::class, $next);
-        $this->assertSame(3, $next->getCorrelationId());
+        $this->assertSame(2, $next->getCorrelationId());
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -2219,7 +2221,7 @@ class StreamConnectionTest extends TestCase
         $this->injectSocket($connection, $clientSocket);
 
         $start = microtime(true);
-        // No frame is sent: readLoop must poll with socket_select until the
+        // No frame is sent: readLoop must poll with stream_select until the
         // deadline. Regression for #382: the seconds were clamped to 1 while
         // the microseconds were derived from the UNCLAMPED remainder
         // (2.5s -> sec = 1, usec = 1_500_000), which select(2) rejects with
