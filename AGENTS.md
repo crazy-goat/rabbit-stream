@@ -82,7 +82,7 @@ The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be
 ```bash
 composer phpstan     # static analysis (PHPStan level 9)
 composer cs          # check code style (PHP-CS-Fixer, then PHPCS for the full PSR-12 check)
-composer cs-fix      # auto-fix code style (PHP-CS-Fixer)
+composer cs-fix      # auto-fix code style (PHP-CS-Fixer, then PHPCBF)
 composer rector      # preview refactoring suggestions (dry-run)
 composer rector:fix  # apply Rector refactoring
 composer kb-lint     # lint the docs/helpers/ knowledge base (runs inside `lint`)

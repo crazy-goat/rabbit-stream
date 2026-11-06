@@ -22,7 +22,7 @@ composer cs
 # Auto-fix code style violations
 composer cs-fix
 # OR
-./vendor/bin/php-cs-fixer fix
+./vendor/bin/php-cs-fixer fix && ./vendor/bin/phpcbf --standard=phpcs.xml.dist
 
 # Static analysis (PHPStan)
 composer phpstan

@@ -19,6 +19,7 @@ if [ "$FIX" = 1 ]; then
     echo "==> fix"
     vendor/bin/rector process || true
     vendor/bin/php-cs-fixer fix || true
+    vendor/bin/phpcbf --standard=phpcs.xml.dist || true
     php bin/kb-lint.php --fix || true
 fi
 

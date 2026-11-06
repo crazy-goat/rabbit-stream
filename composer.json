@@ -45,7 +45,10 @@
             "php-cs-fixer fix --dry-run --diff",
             "phpcs --standard=phpcs.xml.dist"
         ],
-        "cs-fix": "php-cs-fixer fix",
+        "cs-fix": [
+            "php-cs-fixer fix",
+            "phpcbf --standard=phpcs.xml.dist || true"
+        ],
         "test": "phpunit",
         "test:unit": "phpunit --testsuite unit",
         "test:e2e": "phpunit --testsuite e2e",
