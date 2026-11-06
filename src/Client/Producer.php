@@ -134,7 +134,8 @@ class Producer implements ProducerInterface
      *                          publish confirms before abandoning them; defaults
      *                          to DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT. Must be >= 0.
      * @throws InvalidArgumentException If $redeclareTimeout or
-     *                          $closeConfirmDrainTimeout is negative.
+     *                          $closeConfirmDrainTimeout is negative, or $name is longer
+     *                          than 255 bytes.
      * @throws ConnectionException If the socket is not connected or the
      *                          DeclarePublisher/QueryPublisherSequence exchange
      *                          fails.

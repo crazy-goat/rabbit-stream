@@ -915,9 +915,9 @@ class Connection implements ConnectionInterface
      * @throws ConnectionException If the socket is not connected, a write or read fails, or
      *                                 all MAX_CONCURRENT_PUBLISHERS publisher ids are in use.
      * @throws InvalidArgumentException If $redeclareTimeout or
-     *                                 $closeConfirmDrainTimeout is negative, or the serialized
-     *                                 DeclarePublisher request exceeds the negotiated outgoing
-     *                                 frame size.
+     *                                 $closeConfirmDrainTimeout is negative, $name is longer
+     *                                 than 255 bytes, or the serialized DeclarePublisher
+     *                                 request exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If the stream does not exist (the DeclarePublisher response
      *                                 code is asserted), or the response has an unexpected
      *                                 command or version.
@@ -1062,9 +1062,10 @@ class Connection implements ConnectionInterface
      * @throws InvalidArgumentException If $maxBufferSize is not positive, $initialCredit is
      *                                 outside 1..Consumer::MAX_CREDIT, $creditWindowBytes is
      *                                 negative, $maxDecodeDepth is below 1,
-     *                                 $singleActiveConsumer is set without $name, or the
-     *                                 serialized request exceeds the negotiated outgoing frame
-     *                                 size.
+     *                                 $singleActiveConsumer is set without $name, $name is
+     *                                 longer than 255 bytes while $singleActiveConsumer is set
+     *                                 or $autoCommit is above 0, or the serialized request
+     *                                 exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If the broker rejects the Subscribe with a non-OK response
      *                                 code, or the response has an unexpected command or version.
      * @throws DeserializationException If a response frame cannot be deserialized.
@@ -1250,9 +1251,11 @@ class Connection implements ConnectionInterface
      *                                 use.
      * @throws InvalidArgumentException If a Consumer argument is out of range
      *                                 (including a non-positive $maxBufferSize),
-     *                                 $singleActiveConsumer is set without $name, or a
-     *                                 partitions() request — or a per-partition Subscribe
-     *                                 request — exceeds the negotiated outgoing frame size.
+     *                                 $singleActiveConsumer is set without $name, $name is
+     *                                 longer than 255 bytes while $singleActiveConsumer is set
+     *                                 or $autoCommit is above 0, or a partitions() request
+     *                                 or a per-partition Subscribe request exceeds the
+     *                                 negotiated outgoing frame size.
      * @throws DeserializationException If a response frame cannot be deserialized.
      * @throws TimeoutException If a response does not arrive in time.
      */

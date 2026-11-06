@@ -543,6 +543,8 @@ name: 'consumer-' . uniqid()  // Changes every restart!
 name: 'my-consumer'           // Too generic
 ```
 
+The name must be at most 255 bytes long when you store or query offsets, or when you use `autoCommit` or `singleActiveConsumer`; a longer name throws `InvalidArgumentException`.
+
 ### 3. Store Offsets After Successful Processing
 
 ```php

@@ -218,9 +218,10 @@ class Consumer implements ConsumerInterface
      * @throws InvalidArgumentException If $maxBufferSize is not positive, $initialCredit
      *                            is outside 1..MAX_CREDIT, $creditWindowBytes is
      *                            negative, $maxDecodeDepth is below 1,
-     *                            $singleActiveConsumer is set without $name, or the
-     *                            serialized Subscribe request exceeds the negotiated
-     *                            outgoing frame size.
+     *                            $singleActiveConsumer is set without $name, $name is
+     *                            longer than 255 bytes while $singleActiveConsumer is set
+     *                            or $autoCommit is above 0, or the serialized Subscribe
+     *                            request exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If the broker rejects the Subscribe with a non-OK
      *                            response code.
      * @throws ConnectionException If the socket is not connected or the Subscribe
@@ -269,6 +270,10 @@ class Consumer implements ConsumerInterface
         }
         if ($this->singleActiveConsumer) {
             ReferenceLength::assertValid($this->name, 'single-active-consumer name');
+        } elseif ($this->name !== null && $this->autoCommit > 0) {
+            // Auto-commit stores the offset after a message is read. A name that the
+            // broker rejects would fail there, after the message left the buffer (#932).
+            ReferenceLength::assertValid($this->name, 'consumer name');
         }
         $this->active = !$this->singleActiveConsumer;
         $this->subscribe();

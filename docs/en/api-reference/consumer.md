@@ -329,6 +329,7 @@ public function storeOffset(int $offset): void
 #### Exceptions
 
 - `ProtocolException` - If called on an unnamed consumer (no name provided in constructor)
+- `InvalidArgumentException` - If the consumer name is longer than 255 bytes, or the serialized `StoreOffset` request exceeds the negotiated outgoing frame size
 
 #### Example
 
@@ -382,6 +383,7 @@ a normal first-run outcome, not an error.
 - `ProtocolException` - If called on an unnamed consumer, or if the broker returns
   any non-OK response code **other than** `NO_OFFSET`
 - `UnexpectedResponseException` - If the server returns an unexpected response
+- `InvalidArgumentException` - If the consumer name is longer than 255 bytes, or the serialized `QueryOffset` request exceeds the negotiated outgoing frame size
 
 #### Example
 

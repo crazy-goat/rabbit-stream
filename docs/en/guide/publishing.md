@@ -227,7 +227,7 @@ $producer = $connection->createProducer(
 ```
 
 The name must be unique per stream. Multiple connections using the same name
-share the same deduplication state.
+share the same deduplication state. The name must be at most 255 bytes long; a longer name makes `createProducer()` throw `InvalidArgumentException`.
 
 ### How Deduplication Works
 

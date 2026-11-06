@@ -693,6 +693,7 @@ when nothing has been stored yet for the pair (the broker's `NO_OFFSET`,
 - `UnexpectedResponseException` - If the server returns an unexpected response
 - `ProtocolException` - If the broker returns any non-OK response code **other than**
   `NO_OFFSET` (for example `STREAM_NOT_EXIST`)
+- `InvalidArgumentException` - If `$reference` is longer than 255 bytes, or the serialized request exceeds the negotiated outgoing frame size
 
 #### Example
 
@@ -731,7 +732,7 @@ public function storeOffset(string $reference, string $stream, int $offset): voi
 #### Exceptions
 
 - `ConnectionException` - If the socket is not connected or the write fails
-- `InvalidArgumentException` - If the serialized request exceeds the negotiated outgoing frame size
+- `InvalidArgumentException` - If `$reference` is longer than 255 bytes, or the serialized request exceeds the negotiated outgoing frame size
 - `TimeoutException` - If the frame cannot be written within the socket timeout
 
 #### Notes
@@ -809,6 +810,7 @@ public function createProducer(
 
 - `ProtocolException` - If the stream does not exist
 - `ConnectionException` - If all 256 publisher ids of this connection are in use
+- `InvalidArgumentException` - If `$redeclareTimeout` or `$closeConfirmDrainTimeout` is negative, if `$name` is longer than 255 bytes, or if the serialized `DeclarePublisher` request exceeds the negotiated outgoing frame size
 
 #### Example
 
@@ -892,7 +894,7 @@ public function createConsumer(
 
 - `ProtocolException` - If the stream does not exist or offset is invalid
 - `ConnectionException` - If all 256 subscription ids of this connection are in use
-- `InvalidArgumentException` - If `$maxBufferSize` is not positive, `$initialCredit` is outside 1–32767, `$creditWindowBytes` is negative, `$maxDecodeDepth` is below 1, or `$singleActiveConsumer` is set without `$name`
+- `InvalidArgumentException` - If `$maxBufferSize` is not positive, `$initialCredit` is outside 1–32767, `$creditWindowBytes` is negative, `$maxDecodeDepth` is below 1, `$singleActiveConsumer` is set without `$name`, or `$name` is longer than 255 bytes while `$singleActiveConsumer` is set or `$autoCommit` is above 0
 
 #### Example
 
@@ -962,6 +964,7 @@ public function createSuperStreamProducer(
 #### Exceptions
 
 - `ProtocolException` - If the super stream does not exist or has zero partitions
+- `InvalidArgumentException` - If `$closeConfirmDrainTimeout` is negative, or if a derived partition producer name (`<name>-<partition>`) is longer than 255 bytes. The derived name check runs after the `partitions()` lookup, so no `DeclarePublisher` frame is sent
 
 #### Example
 
@@ -1029,7 +1032,7 @@ public function createSuperStreamConsumer(
 #### Exceptions
 
 - `ProtocolException` - If the super stream does not exist or has zero partitions
-- `InvalidArgumentException` - If `$maxBufferSize` is not positive, or another `Consumer` argument is out of range
+- `InvalidArgumentException` - If `$maxBufferSize` is not positive, another `Consumer` argument is out of range, or `$name` is longer than 255 bytes while `$singleActiveConsumer` is set or `$autoCommit` is above 0
 
 #### Example
 

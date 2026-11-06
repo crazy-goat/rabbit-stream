@@ -12,10 +12,13 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PartitionsRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
+use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\SubscribeRequestV1;
 use CrazyGoat\RabbitStream\Response\CloseResponseV1;
 use CrazyGoat\RabbitStream\Response\PartitionsResponseV1;
+use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
+use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
@@ -113,6 +116,123 @@ class ReferenceLimitTest extends TestCase
         $this->assertNotContains(SubscribeRequestV1::class, array_map(get_class(...), $frames));
     }
 
+    public function testSingleActiveConsumerNameAtLimitSubscribes(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames));
+
+        $wire->createConsumer(
+            'test-stream',
+            OffsetSpec::first(),
+            name: str_repeat('c', self::LIMIT),
+            singleActiveConsumer: true,
+        );
+
+        $this->assertContains(SubscribeRequestV1::class, array_map(get_class(...), $frames));
+    }
+
+    public function testCreateConsumerWithAutoCommitAndNameOverLimitThrowsBeforeSubscribe(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames));
+
+        try {
+            $wire->createConsumer(
+                'test-stream',
+                OffsetSpec::first(),
+                name: str_repeat('c', self::LIMIT + 1),
+                autoCommit: 1,
+            );
+            $this->fail('Expected InvalidArgumentException was not thrown');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('consumer name is 256 bytes long', $e->getMessage());
+        }
+
+        $this->assertNotContains(SubscribeRequestV1::class, array_map(get_class(...), $frames));
+    }
+
+    public function testCreateConsumerWithAutoCommitAndNameAtLimitSubscribes(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames));
+
+        $wire->createConsumer(
+            'test-stream',
+            OffsetSpec::first(),
+            name: str_repeat('c', self::LIMIT),
+            autoCommit: 1,
+        );
+
+        $this->assertContains(SubscribeRequestV1::class, array_map(get_class(...), $frames));
+    }
+
+    public function testCreateConsumerWithoutAutoCommitAndNameOverLimitSubscribes(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames));
+
+        // Without auto-commit the name is never sent as an offset reference by the
+        // Consumer itself, so the constructor does not check it.
+        $wire->createConsumer('test-stream', OffsetSpec::first(), name: str_repeat('c', self::LIMIT + 1));
+
+        $this->assertContains(SubscribeRequestV1::class, array_map(get_class(...), $frames));
+    }
+
+    public function testCreateSuperStreamConsumerWithAutoCommitAndNameOverLimitThrowsBeforeSubscribe(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames, 'orders-0'));
+
+        try {
+            $wire->createSuperStreamConsumer(
+                'orders',
+                OffsetSpec::first(),
+                name: str_repeat('c', self::LIMIT + 1),
+                autoCommit: 1,
+            );
+            $this->fail('Expected InvalidArgumentException was not thrown');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('consumer name is 256 bytes long', $e->getMessage());
+        }
+
+        $this->assertNotContains(SubscribeRequestV1::class, array_map(get_class(...), $frames));
+    }
+
+    public function testCreateSuperStreamConsumerWithAutoCommitAndNameAtLimitSubscribes(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames, 'orders-0'));
+
+        $wire->createSuperStreamConsumer(
+            'orders',
+            OffsetSpec::first(),
+            name: str_repeat('c', self::LIMIT),
+            autoCommit: 1,
+        );
+
+        $this->assertContains(SubscribeRequestV1::class, array_map(get_class(...), $frames));
+    }
+
+    public function testCreateProducerWithNameAtLimitDeclaresPublisher(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames));
+
+        $wire->createProducer('test-stream', str_repeat('p', self::LIMIT));
+
+        $this->assertContains(DeclarePublisherRequestV1::class, array_map(get_class(...), $frames));
+    }
+
+    public function testConnectionQueryOffsetAtLimitIsSent(): void
+    {
+        $frames = [];
+        $wire = $this->createConnectionWithMock($this->recordingMock($frames));
+
+        $wire->queryOffset(str_repeat('r', self::LIMIT), 'test-stream');
+
+        $this->assertContains(QueryOffsetRequestV1::class, array_map(get_class(...), $frames));
+    }
+
     public function testConnectionStoreOffsetOverLimitSendsNoFrame(): void
     {
         $frames = [];
@@ -206,17 +326,70 @@ class ReferenceLimitTest extends TestCase
         );
     }
 
+    public function testConsumerWithAutoCommitAndNameOverLimitThrowsBeforeSubscribe(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->never())->method('request');
+        $connection->expects($this->never())->method('sendMessage');
+        $connection->expects($this->never())->method('registerCreditErrorHandler');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('consumer name is 256 bytes long');
+
+        new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: str_repeat('c', self::LIMIT + 1),
+            autoCommit: 1,
+        );
+    }
+
+    public function testConsumerWithAutoCommitAndNameAtLimitSubscribes(): void
+    {
+        $sent = [];
+        $this->consumerWithNameRecording(str_repeat('c', self::LIMIT), $sent, autoCommit: 1);
+
+        $this->assertContains(SubscribeRequestV1::class, array_map(get_class(...), $sent));
+    }
+
+    public function testConsumerStoreOffsetAtLimitSendsFrame(): void
+    {
+        $sent = [];
+        $consumer = $this->consumerWithNameRecording(str_repeat('c', self::LIMIT), $sent);
+        $sent = [];
+
+        $consumer->storeOffset(1);
+
+        $this->assertContains(StoreOffsetRequestV1::class, array_map(get_class(...), $sent));
+    }
+
+    public function testConsumerQueryOffsetAtLimitSendsFrame(): void
+    {
+        $sent = [];
+        $consumer = $this->consumerWithNameRecording(str_repeat('c', self::LIMIT), $sent);
+        $sent = [];
+
+        $consumer->queryOffset();
+
+        $this->assertContains(QueryOffsetRequestV1::class, array_map(get_class(...), $sent));
+    }
+
     /**
      * Build a non-SAC named consumer. Every frame it sends is appended to $sent.
      *
      * @param array<int, object> $sent
      */
-    private function consumerWithNameRecording(string $name, array &$sent): Consumer
+    private function consumerWithNameRecording(string $name, array &$sent, int $autoCommit = 0): Consumer
     {
         $connection = $this->createMock(StreamConnection::class);
         $connection->method('request')->willReturnCallback(
             function (object $request) use (&$sent): object {
                 $sent[] = $request;
+                if ($request instanceof QueryOffsetRequestV1) {
+                    return new QueryOffsetResponseV1();
+                }
                 return new \stdClass();
             }
         );
@@ -226,7 +399,14 @@ class ReferenceLimitTest extends TestCase
             }
         );
 
-        return new Consumer($connection, 'test-stream', 1, OffsetSpec::first(), name: $name);
+        return new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: $name,
+            autoCommit: $autoCommit,
+        );
     }
 
     /** @param array<int, object> $sent */
@@ -252,6 +432,12 @@ class ReferenceLimitTest extends TestCase
                 $frames[] = $request;
                 if ($request instanceof PartitionsRequestV1 && $partition !== null) {
                     return new PartitionsResponseV1([$partition]);
+                }
+                if ($request instanceof QueryOffsetRequestV1) {
+                    return new QueryOffsetResponseV1();
+                }
+                if ($request instanceof QueryPublisherSequenceRequestV1) {
+                    return new QueryPublisherSequenceResponseV1();
                 }
                 return new CloseResponseV1();
             }
