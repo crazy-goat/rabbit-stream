@@ -24,6 +24,7 @@ use CrazyGoat\RabbitStream\Response\SaslAuthenticateResponseV1;
 use CrazyGoat\RabbitStream\Response\SaslHandshakeResponseV1;
 use CrazyGoat\RabbitStream\Response\TuneResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use ReflectionProperty;
 
 class HeartbeatTest extends E2ETestCase
 {
@@ -224,7 +225,7 @@ class HeartbeatTest extends E2ETestCase
         try {
             $connection->createStream($streamName);
 
-            $streamConnectionProperty = new \ReflectionProperty(Connection::class, 'streamConnection');
+            $streamConnectionProperty = new ReflectionProperty(Connection::class, 'streamConnection');
             $streamConnection = $streamConnectionProperty->getValue($connection);
             $this->assertInstanceOf(StreamConnection::class, $streamConnection);
             $this->assertSame(
@@ -243,8 +244,8 @@ class HeartbeatTest extends E2ETestCase
                 },
             );
 
-            // The first send reads the publisher declaration, so the library
-            // reads nothing after this point until waitForConfirms().
+            // createProducer() read the publisher declaration response. send()
+            // only writes, so the library reads nothing until waitForConfirms().
             $producer->send('message-0');
             $silentStart = microtime(true);
 
