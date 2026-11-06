@@ -94,6 +94,16 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             singleActiveConsumer: true,
         );
 
+        // The broker may split the partition 1 messages into more than one chunk, and each
+        // chunk reaches A at its own time. Wait without reading until no frame arrives for
+        // one second, so A holds every chunk that the broker sends. Reading then leaves
+        // unread messages, whatever the chunk layout. readLoop() only buffers, so no message
+        // is consumed here.
+        $deadline = microtime(true) + 20.0;
+        do {
+            $frames = $connectionA->readLoop(maxFrames: 1, timeout: 1.0);
+        } while ($frames > 0 && microtime(true) < $deadline);
+
         // A reads partition 1 messages until it has processed $autoCommit of them. Auto-commit
         // then stores an offset in the same readOne() call. A reads no further, so the
         // rest of the partition 1 messages stay unread.
