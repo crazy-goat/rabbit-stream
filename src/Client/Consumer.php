@@ -637,7 +637,10 @@ class Consumer implements ConsumerInterface
                             $this->unreadCount++;
                         }
                     }
-                    $this->observeChunkSize($chunkLength);
+                    // A lost chunk must not change the adaptive credit state (#884).
+                    if (!$this->subscriptionLost) {
+                        $this->observeChunkSize($chunkLength);
+                    }
                 } catch (Throwable $exception) {
                     $parseException = $exception;
                     throw $exception;
