@@ -292,7 +292,7 @@ Beyond depth, a payload is rejected (with `DeserializationException`) when:
 | A compound's `count` fits the bytes actually available | Same, for a `count` that simply lies |
 | A compound's elements consume exactly its declared `size` | A lying `size` otherwise desynchronises everything decoded after it |
 | A map's `count` is even | Keys and values are counted separately |
-| A map key is an int or string that does not collide with an earlier key | A non-scalar, float/bool or colliding key would otherwise overwrite an earlier entry silently |
+| A map key is an int or string that does not collide with an earlier key | A non-scalar or float/bool key would be lost or retyped, and a colliding key would overwrite an earlier entry silently |
 | A Data section (0x75) carries binary | Anything else used to be dropped silently, leaving an empty body |
 | Every variable-width length fits the frame | Bounds are compared as subtractions, so a 32-bit length cannot overflow the check |
 
