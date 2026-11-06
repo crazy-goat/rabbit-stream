@@ -277,9 +277,10 @@ $priority = $headers['priority'] ?? 'normal';
 
 ```php
 $message = $consumer->readOne();
+$body = $message->getBody();
 
-if ($message->getContentType() === 'application/json') {
-    $data = json_decode($message->getBody(), true);
+if ($message->getContentType() === 'application/json' && is_string($body)) {
+    $data = json_decode($body, true);
     
     // Process with metadata
     $metadata = [

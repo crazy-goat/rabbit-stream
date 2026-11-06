@@ -575,7 +575,10 @@ $response = $connection->readMessage(5.0);
 ```php
 use CrazyGoat\RabbitStream\Request\DeclarePublisherRequestV1;
 use CrazyGoat\RabbitStream\Request\PublishRequestV1;
+use CrazyGoat\RabbitStream\VO\PublishedMessage;
 
+// $connection is the StreamConnection from the previous example.
+// The stream 'my-stream' must exist before DeclarePublisher (see createStream()).
 // Register publisher with callbacks
 $connection->registerPublisher(
     publisherId: 1,
@@ -590,11 +593,11 @@ $connection->registerPublisher(
 );
 
 // Declare publisher
-$connection->sendMessage(new DeclarePublisherRequestV1(1, 'my-stream'));
+$connection->sendMessage(new DeclarePublisherRequestV1(1, null, 'my-stream'));
 $connection->readMessage(5.0);
 
-// Publish messages
-$connection->sendMessage(new PublishRequestV1(1, [new Message('hello')]));
+// Publish messages: each PublishedMessage has a publishing ID and a body
+$connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(1, 'hello')));
 
 // Process confirmations
 $connection->readLoop(maxFrames: 1, timeout: 5.0);

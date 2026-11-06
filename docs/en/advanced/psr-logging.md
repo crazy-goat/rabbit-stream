@@ -78,7 +78,11 @@ $this->logger->debug(sprintf(
 
 ### Using Monolog
 
-Monolog is the most popular PSR-3 logger for PHP:
+Monolog is the most popular PSR-3 logger for PHP. Install it first. The library requires only `psr/log`:
+
+```bash
+composer require monolog/monolog
+```
 
 ```php
 <?php

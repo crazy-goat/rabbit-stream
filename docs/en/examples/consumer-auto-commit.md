@@ -476,7 +476,11 @@ Since auto-commit provides at-least-once semantics, your processing should be id
 ```php
 function processMessage(Message $message): void
 {
-    $data = json_decode($message->getBody(), true);
+    $body = $message->getBody();
+    if (!is_string($body)) {
+        throw new \UnexpectedValueException('The message body is not a string.');
+    }
+    $data = json_decode($body, true);
     
     // Use idempotent operations
     // Example: UPSERT instead of INSERT

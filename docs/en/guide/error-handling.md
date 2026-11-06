@@ -189,6 +189,7 @@ not advertise `PLAIN`, the only mechanism this client implements. The client
 aborts before sending credentials:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 
 try {
@@ -211,6 +212,7 @@ authenticate with `AUTHENTICATION_FAILURE`, which surfaces as a
 tell "bad password" apart from "the server cannot authenticate us at all":
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
@@ -531,6 +533,7 @@ function connectWithRetry(string $host, int $port, string $user, string $pass): 
 Handle various authentication scenarios:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
