@@ -145,6 +145,7 @@ class OpenResponseV1Test extends TestCase
         yield 'just above range' => ['65536'];
         yield 'far above range' => ['99999999999999999999'];
         yield 'six digits' => ['100000'];
+        yield 'trailing newline' => ["5552\n"];
     }
 
     /** @dataProvider malformedPortProvider */

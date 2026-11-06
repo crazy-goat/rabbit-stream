@@ -62,7 +62,7 @@ class OpenResponseV1 implements
     {
         $port = $this->getConnectionPropertyValue('advertised_port');
 
-        if ($port === null || preg_match('/^[0-9]{1,5}$/', $port) !== 1) {
+        if ($port === null || preg_match('/^[0-9]{1,5}\z/', $port) !== 1) {
             return null;
         }
 
