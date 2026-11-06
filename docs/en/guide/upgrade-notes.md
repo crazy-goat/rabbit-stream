@@ -27,7 +27,7 @@ Check the requirements of the new version before you upgrade. The library needs 
 | 1.5.0 | `ConnectionInterface::createConsumer()` and `createSuperStreamConsumer()` gain the optional parameter `maxBufferSize`. (#435) | If your own class implements `ConnectionInterface`, update both method signatures. |
 | 1.4.0 | `queryOffset()` returns `null` when no offset is stored. The broker answer `NO_OFFSET` was an error before. (#467) | Treat a `null` result as "no stored offset". |
 | 1.3.0 | `KeyEnum::fromStreamCode()` no longer maps an unknown response code of `0x8000` or more to a request key. (#347) | Do not rely on the old mapping for unknown codes. |
-| 1.3.0 | `Connection::create()` throws the library's `InvalidArgumentException` for an invalid argument, not the global `\InvalidArgumentException`. (#465) | Catch `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`. |
+| 1.3.0 | `Connection::create()` throws the library's `InvalidArgumentException` for an invalid argument, not the global `\InvalidArgumentException`. (#465) | No action for code that catches the global `\InvalidArgumentException`. The library class extends it. To catch only the library class, catch `CrazyGoat\RabbitStream\Exception\InvalidArgumentException`. |
 | 1.2.0 | `OpenRequest` is renamed to `OpenRequestV1`. (#195) | Change the class name in your code. |
 | 1.1.0 | `CommandTrait::assertResponseCodeOk()` replaces `isResponseCodeOk()`. (#109) | No action for code outside the library. The trait method is private. |
 | 1.0.0 | `ReadBuffer::gatString()` is renamed to `getString()`. | Replace the old method name. |

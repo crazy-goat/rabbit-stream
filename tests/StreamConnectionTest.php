@@ -2219,7 +2219,7 @@ class StreamConnectionTest extends TestCase
         $this->injectSocket($connection, $clientSocket);
 
         $start = microtime(true);
-        // No frame is sent: readLoop must poll with socket_select until the
+        // No frame is sent: readLoop must poll with stream_select until the
         // deadline. Regression for #382: the seconds were clamped to 1 while
         // the microseconds were derived from the UNCLAMPED remainder
         // (2.5s -> sec = 1, usec = 1_500_000), which select(2) rejects with

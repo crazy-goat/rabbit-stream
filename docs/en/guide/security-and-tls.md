@@ -53,6 +53,8 @@ $connection = Connection::create(
 
 The client completes the TLS handshake, with the client certificate and the key passphrase, within `socketTimeout`. After the handshake, the client sends the SASL messages over the encrypted connection. The E2E test `tests/E2E/TlsConnectionE2ETest.php` checks this flow against a broker with mutual TLS.
 
+The client certificate does not replace the PLAIN login. The broker checks the certificate in the TLS handshake, then checks the PLAIN login. The E2E test `testPublishAndConsumeOverMutualTls` in `tests/E2E/TlsConnectionE2ETest.php` covers both checks.
+
 ### TlsConfig Options
 
 | Option | Default | Meaning |
