@@ -608,6 +608,14 @@ class Consumer implements ConsumerInterface
         $this->connection->registerSubscriber(
             $this->subscriptionId,
             function ($deliverResponse): void {
+                // A chunk that arrives while the subscription is lost belongs to the old
+                // subscription. The re-subscribe resumes from the offset that the broker
+                // sends again, so the chunk is dropped unparsed: it adds no message to the
+                // buffer, does not change the resume-offset filter, and a corrupt stale
+                // chunk does not throw (#993).
+                if ($this->subscriptionLost) {
+                    return;
+                }
                 // The chunk is atomic on the wire and is always accepted in
                 // full — messages are never dropped, even past maxBufferSize.
                 // parseMessages() yields Message objects directly, without an
@@ -652,31 +660,24 @@ class Consumer implements ConsumerInterface
                             $this->unreadCount++;
                         }
                     }
-                    // A lost chunk must not change the adaptive credit state (#884).
-                    if (!$this->subscriptionLost) {
-                        $this->observeChunkSize($chunkLength);
-                    }
+                    $this->observeChunkSize($chunkLength);
                 } catch (Throwable $exception) {
                     $parseException = $exception;
                     throw $exception;
                 } finally {
-                    // A chunk from a lost subscription carries no credit: the broker dropped
-                    // the subscription with its credit, and onStreamUnavailable() already reset
-                    // the counters. Counting it again would send Credit for a dead subscription
-                    // and drive creditsInFlight below zero (#884).
-                    if (!$this->subscriptionLost) {
-                        // The broker has spent this credit by delivering the chunk even
-                        // when parsing fails, so always replenish the credit window.
-                        $this->creditsInFlight--;
-                        if ($this->pendingCredits < self::MAX_CREDIT) {
-                            $this->pendingCredits++;
-                        }
-                        try {
-                            $this->sendPendingCredits();
-                        } catch (Throwable $creditException) {
-                            if (!$parseException instanceof Throwable) {
-                                throw $creditException;
-                            }
+                    // A chunk from a lost subscription never reaches this block (see the
+                    // guard at the top of the callback), so it carries no credit (#884, #993).
+                    // The broker has spent this credit by delivering the chunk even
+                    // when parsing fails, so always replenish the credit window.
+                    $this->creditsInFlight--;
+                    if ($this->pendingCredits < self::MAX_CREDIT) {
+                        $this->pendingCredits++;
+                    }
+                    try {
+                        $this->sendPendingCredits();
+                    } catch (Throwable $creditException) {
+                        if (!$parseException instanceof Throwable) {
+                            throw $creditException;
                         }
                     }
                 }
