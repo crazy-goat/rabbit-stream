@@ -36,6 +36,22 @@ use CrazyGoat\RabbitStream\Platform;
 class AmqpDecoder
 {
     /**
+     * Symbolic section descriptors (AMQP 1.0 Part 3) and their numeric codes.
+     * They map to the same handling as the numeric codes 0x70-0x78.
+     */
+    private const SECTION_SYMBOLS = [
+        'amqp:header:list' => 0x70,
+        'amqp:delivery-annotations:map' => 0x71,
+        'amqp:message-annotations:map' => 0x72,
+        'amqp:properties:list' => 0x73,
+        'amqp:application-properties:map' => 0x74,
+        'amqp:data:binary' => 0x75,
+        'amqp:amqp-sequence:list' => 0x76,
+        'amqp:amqp-value:*' => 0x77,
+        'amqp:footer:map' => 0x78,
+    ];
+
+    /**
      * Default maximum nesting depth accepted while decoding (#397). Public so the
      * callers that thread an operator-supplied limit down to here — Consumer,
      * OsirisChunkParser, Message — can spell their own default as this one.
@@ -274,7 +290,7 @@ class AmqpDecoder
             );
 
             // Match descriptor to section
-            switch ($descriptor) {
+            switch (self::sectionCode($descriptor)) {
                 case 0x70: // Header
                     $sections['header'] = $value;
                     break;
@@ -338,6 +354,27 @@ class AmqpDecoder
         }
 
         return $sections;
+    }
+
+    /**
+     * Map a section descriptor to its numeric code (0x70-0x78).
+     *
+     * Only an int (ulong) or a symbol name matches. Any other type, such as a
+     * boolean or a string that looks like a number, matches no section.
+     *
+     * @return int|null the section code, or null when the descriptor names no known section
+     */
+    private static function sectionCode(mixed $descriptor): ?int
+    {
+        if (is_int($descriptor)) {
+            return $descriptor;
+        }
+
+        if (is_string($descriptor)) {
+            return self::SECTION_SYMBOLS[$descriptor] ?? null;
+        }
+
+        return null;
     }
 
     /**

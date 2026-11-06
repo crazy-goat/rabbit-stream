@@ -505,4 +505,123 @@ class AmqpDecoderMessageTest extends TestCase
         $this->assertSame('With list0 header', $sections['body']);
         $this->assertSame([], $sections['header']);
     }
+
+    /**
+     * Helper to build a described section with a symbolic descriptor (0xa3 sym8).
+     */
+    private function buildSymbolicSection(string $name, string $valueData): string
+    {
+        return "\x00\xa3" . pack('C', strlen($name)) . $name . $valueData;
+    }
+
+    /**
+     * @return array<string, array{string, int}>
+     */
+    public static function sectionSymbolProvider(): array
+    {
+        return [
+            'header' => ['amqp:header:list', 0x70],
+            'delivery-annotations' => ['amqp:delivery-annotations:map', 0x71],
+            'message-annotations' => ['amqp:message-annotations:map', 0x72],
+            'properties' => ['amqp:properties:list', 0x73],
+            'application-properties' => ['amqp:application-properties:map', 0x74],
+            'data' => ['amqp:data:binary', 0x75],
+            'amqp-sequence' => ['amqp:amqp-sequence:list', 0x76],
+            'amqp-value' => ['amqp:amqp-value:*', 0x77],
+            'footer' => ['amqp:footer:map', 0x78],
+        ];
+    }
+
+    public function testDecodeDataSectionWithSymbolicDescriptorKeepsBody(): void
+    {
+        // Repro from #925: a Data section with the symbolic descriptor amqp:data:binary
+        $message = $this->buildSymbolicSection('amqp:data:binary', "\xb0\x00\x00\x00\x05hello");
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame('hello', $sections['body']);
+    }
+
+    /**
+     * @dataProvider sectionSymbolProvider
+     */
+    public function testSymbolicSectionDescriptorDecodesLikeNumericCode(string $name, int $code): void
+    {
+        // Same value bytes for both forms; only the descriptor differs
+        $valueData = "\xa0\x02hi";
+        $numeric = "\x00\x53" . pack('C', $code) . $valueData;
+        $symbolic = $this->buildSymbolicSection($name, $valueData);
+
+        $this->assertSame(
+            AmqpDecoder::decodeMessage($numeric),
+            AmqpDecoder::decodeMessage($symbolic)
+        );
+    }
+
+    public function testSymbolicHeaderDescriptorSetsHeader(): void
+    {
+        $message = $this->buildSymbolicSection('amqp:header:list', "\x45");
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame([], $sections['header']);
+    }
+
+    public function testUnknownSymbolicDescriptorIsSkipped(): void
+    {
+        $message = $this->buildSymbolicSection('amqp:unknown:list', "\x52\x01")
+            . $this->buildDataSection('Body');
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame('Body', $sections['body']);
+    }
+
+    /**
+     * Descriptors that equal 0x70 under loose PHP comparison, but are not the Header descriptor.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function looseHeaderDescriptorProvider(): array
+    {
+        return [
+            'boolean true' => ["\x41"],
+            'string "112"' => ["\xa1\x03112"],
+            'double 112.0' => ["\x82" . pack('E', 112.0)],
+        ];
+    }
+
+    /**
+     * @dataProvider looseHeaderDescriptorProvider
+     */
+    public function testLooseDescriptorDoesNotReplaceHeader(string $descriptor): void
+    {
+        // A real Header (list0) first, then a fake section with a loose descriptor and ubyte 7
+        $realHeader = "\x00\x53\x70\x45";
+        $fakeSection = "\x00" . $descriptor . "\x50\x07";
+
+        $sections = AmqpDecoder::decodeMessage($realHeader . $fakeSection);
+
+        $this->assertSame([], $sections['header']);
+    }
+
+    /**
+     * @dataProvider looseHeaderDescriptorProvider
+     */
+    public function testLooseDescriptorWithoutHeaderLeavesHeaderNull(string $descriptor): void
+    {
+        $sections = AmqpDecoder::decodeMessage("\x00" . $descriptor . "\x45");
+
+        $this->assertNull($sections['header']);
+    }
+
+    public function testLooseDescriptorDoesNotSetBody(): void
+    {
+        // The value is binary, so only a real Data section could set the body
+        $message = "\x00\xa1\x03112" . "\xa0\x02hi";
+
+        $sections = AmqpDecoder::decodeMessage($message);
+
+        $this->assertSame('', $sections['body']);
+    }
 }
