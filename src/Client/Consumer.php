@@ -295,7 +295,10 @@ class Consumer implements ConsumerInterface
      *
      * Always true for a non-single-active-consumer subscription; for a
      * single-active-consumer subscription it follows the broker's ConsumerUpdate
-     * and may be false while another group member holds the active slot.
+     * and may be false while another group member holds the active slot. While it
+     * is false, readOne() and read() return no message. On deactivation the
+     * unread messages of the lost partition are dropped, and the position is
+     * stored only when it is ahead of the stored offset.
      *
      * @return bool True when the broker has this consumer active, false while a
      *                            single-active-consumer handover has it paused.
@@ -464,19 +467,35 @@ class Consumer implements ConsumerInterface
      *  - activation (active=true): resume at the stored offset (which is the
      *    next offset to consume, see storeOffset()), or at the consumer's
      *    initial OffsetSpec when nothing is stored yet.
-     *  - deactivation (active=false): store the last processed offset (if
-     *    auto-commit is enabled and at least one message was processed) so the
-     *    successor resumes without gaps, then reply "none" (keep position,
-     *    irrelevant once inactive).
+     *  - deactivation (active=false): store this member's position when it is
+     *    ahead of the stored offset (see storeOwnPositionIfAhead()), drop the
+     *    unread messages of the partition, and reply "none".
      *
      * Re-entrancy: this runs inside StreamConnection::readLoop()'s server-push
      * dispatch and queryOffset() performs a nested round trip. That is safe
      * because Consumer uses StreamConnection::request(), which matches replies
      * by correlation ID and parks responses that belong to an outer request.
+     * The activation path already relies on this.
      */
     private function defaultConsumerUpdateHandler(ConsumerUpdateResponseV1 $query): ?OffsetSpec
     {
         $this->active = $query->isActive();
+
+        if (!$this->active) {
+            // Save the position first. The state is cleared before the store, so a
+            // failing queryOffset() cannot leave a stale buffer or stale counters.
+            $next = $this->lastOffset + 1;
+            $processed = $this->messagesProcessed;
+            $this->buffer = [];
+            $this->bufferHead = 0;
+            $this->unreadCount = 0;
+            // The position of this member is stale once it is demoted. Without this
+            // reset, a close() after reactivation would store it (see close()).
+            $this->messagesProcessed = 0;
+            $this->hasProcessedMessage = false;
+            $this->lastOffset = 0;
+            $this->storeOwnPositionIfAhead($next, $processed);
+        }
 
         if ($this->consumerUpdateCallback instanceof \Closure) {
             $offset = ($this->consumerUpdateCallback)($this->active, $this);
@@ -485,9 +504,6 @@ class Consumer implements ConsumerInterface
         }
 
         if (!$this->active) {
-            if ($this->autoCommit > 0 && $this->hasProcessedMessage) {
-                $this->storeOffset($this->lastOffset + 1);
-            }
             return null;
         }
 
@@ -500,6 +516,32 @@ class Consumer implements ConsumerInterface
         $resume = $offset === null ? $this->offset : OffsetSpec::offset($offset);
         $this->setDeliveryOffsetFilter($resume);
         return $resume;
+    }
+
+    /**
+     * Store the position of this member when it is ahead of the offset stored on the broker.
+     *
+     * Runs in the deactivation branch of defaultConsumerUpdateHandler(), after the
+     * state is cleared and before the ConsumerUpdate reply is sent. The broker
+     * activates the successor only after it gets that reply, so the store reaches
+     * the broker before the successor resumes. The store is monotonic: a position
+     * that is not ahead of the stored offset is never written. A missing stored
+     * offset counts as behind, so the position is written. If queryOffset() throws,
+     * no store happens; the caller has already cleared the state.
+     *
+     * @param int $next      Next offset to consume: lastOffset + 1 before the clear.
+     * @param int $processed Messages processed since the last auto-commit, before the clear.
+     */
+    private function storeOwnPositionIfAhead(int $next, int $processed): void
+    {
+        if ($this->autoCommit <= 0 || $this->name === null || $processed === 0) {
+            return;
+        }
+
+        $stored = $this->queryOffset();
+        if ($stored === null || $next > $stored) {
+            $this->storeOffset($next);
+        }
     }
 
     private function setDeliveryOffsetFilter(?OffsetSpec $offset): void
@@ -586,9 +628,14 @@ class Consumer implements ConsumerInterface
                     // entry has parsed successfully. A malformed tail must not make
                     // already-yielded messages visible as a partial chunk.
                     $this->deliveryOffsetFilter = $deliveryOffsetFilter;
-                    foreach ($messagesToBuffer as $message) {
-                        $this->buffer[] = $message;
-                        $this->unreadCount++;
+                    // A demoted member drops the chunk: the broker has given the
+                    // partition to another member. The credit is still counted below,
+                    // but sendPendingCredits() sends nothing while the member is inactive.
+                    if ($this->active) {
+                        foreach ($messagesToBuffer as $message) {
+                            $this->buffer[] = $message;
+                            $this->unreadCount++;
+                        }
                     }
                     $this->observeChunkSize($chunkLength);
                 } catch (Throwable $exception) {
@@ -681,7 +728,9 @@ class Consumer implements ConsumerInterface
      * (heartbeats, a producer's publish confirms on the same connection,
      * ConsumerUpdate) are handled transparently and do not end the wait. When
      * nothing arrived within $timeout it returns an empty array — never null;
-     * use readOne() for the single-message form.
+     * use readOne() for the single-message form. While isActive() is false it
+     * waits up to $timeout for the broker to activate this consumer, then returns
+     * an empty array.
      *
      * @param float $timeout Seconds to wait for at least one message before
      *                            returning whatever the buffer holds; `0` returns
@@ -729,6 +778,9 @@ class Consumer implements ConsumerInterface
     {
         $deadline = microtime(true) + $timeout;
         while (!$this->hasUnread() && $timeout > 0) {
+            // Credit held back while the buffer was full or the member was inactive
+            // must reach the broker before the wait, or nothing is delivered.
+            $this->sendPendingCredits();
             if (!$this->resubscribeIfLost()) {
                 // Stream still gone: keep servicing the socket until the next
                 // attempt is due (or the caller's deadline passes).
@@ -762,7 +814,8 @@ class Consumer implements ConsumerInterface
     /**
      * Non-blocking drain of whatever messages are already buffered, without
      * reading any incoming frames (no readLoop() call; it may still send a
-     * withheld-credit frame). Returns an empty array if nothing is buffered —
+     * withheld-credit frame). While isActive() is false it returns an empty array
+     * and sends no credit. Returns an empty array if nothing is buffered —
      * mirrors the tail of read() exactly, so read() itself is defined in terms
      * of this method.
      *
@@ -775,7 +828,8 @@ class Consumer implements ConsumerInterface
      */
     public function drain(): array
     {
-        if ($this->unreadCount === 0) {
+        if ($this->unreadCount === 0 || !$this->active) {
+            $this->sendPendingCredits();
             return [];
         }
 
@@ -807,7 +861,9 @@ class Consumer implements ConsumerInterface
      * removes and returns the oldest message. Frames other than Deliver
      * (heartbeats, a producer's publish confirms, ConsumerUpdate) are handled
      * transparently and do not end the wait. Unlike read(), which returns the
-     * whole batch, this returns one message or null on timeout.
+     * whole batch, this returns one message or null on timeout. While isActive()
+     * is false it waits up to $timeout for the broker to activate this consumer,
+     * then returns null.
      *
      * @param float $timeout Seconds to wait for a message before giving up; `0`
      *                            returns immediately with whatever is already
@@ -838,7 +894,10 @@ class Consumer implements ConsumerInterface
         $this->waitForMessages($timeout);
         $this->throwCreditError();
 
-        if ($this->unreadCount === 0) {
+        // A paused single-active-consumer member returns nothing until the broker
+        // activates it again.
+        if ($this->unreadCount === 0 || !$this->active) {
+            $this->sendPendingCredits();
             return null;
         }
 
@@ -946,7 +1005,9 @@ class Consumer implements ConsumerInterface
         }
         $this->closed = true;
 
-        if ($this->autoCommit > 0 && $this->name !== null && $this->messagesProcessed > 0) {
+        // A paused member stores nothing: its position may be older than the one
+        // the active member has already stored (see defaultConsumerUpdateHandler()).
+        if ($this->autoCommit > 0 && $this->name !== null && $this->messagesProcessed > 0 && $this->active) {
             $this->storeOffset($this->lastOffset + 1);
         }
 
@@ -986,7 +1047,7 @@ class Consumer implements ConsumerInterface
 
     private function maybeAutoCommit(): void
     {
-        if ($this->autoCommit <= 0 || $this->name === null) {
+        if ($this->autoCommit <= 0 || $this->name === null || !$this->active) {
             return;
         }
         if ($this->messagesProcessed >= $this->autoCommit) {
@@ -1046,8 +1107,11 @@ class Consumer implements ConsumerInterface
 
     private function sendPendingCredits(): void
     {
+        // The broker answers a Credit for an inactive single-active-consumer
+        // subscription with PRECONDITION_FAILED. The credit waits until activation.
         if (
             $this->creditError instanceof ProtocolException
+            || !$this->active
             || $this->pendingCredits <= 0
         ) {
             return;
