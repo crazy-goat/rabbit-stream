@@ -442,12 +442,18 @@ Default behavior (used when no callback is registered):
   consumer's `name` and replies `OffsetSpec::offset($stored)`; if `null` is
   returned (nothing stored yet, `NO_OFFSET`), replies with the consumer's
   initial `OffsetSpec`.
-- **Deactivation** (`$active === false`): stores no offset. The next active
-  consumer resumes from the last stored offset; replies `null` (keep position).
+- **Deactivation** (`$active === false`): stores the consumer's position
+  (`lastProcessedOffset + 1`) only when `autoCommit` is enabled, a `name` is
+  set, a message was processed since the last auto-commit, and the position is
+  ahead of the stored offset
+  (a missing stored offset counts as behind). The store is sent before the
+  reply, so the next active consumer resumes at or after this position. Replies
+  `null` (keep position).
 
 On deactivation the consumer drops its unread messages before the default
-logic or the callback runs. This also applies when a callback is registered.
-The library stores no offset in that case; the callback decides what to reply.
+logic or the callback runs, and it runs the store described above before the
+callback. Both apply when a callback is registered. The callback decides only
+the reply.
 
 ```php
 $consumer->onConsumerUpdate(function (bool $active, Consumer $consumer): ?OffsetSpec {

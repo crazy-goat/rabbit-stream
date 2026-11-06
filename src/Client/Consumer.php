@@ -287,8 +287,9 @@ class Consumer implements ConsumerInterface
      * Always true for a non-single-active-consumer subscription; for a
      * single-active-consumer subscription it follows the broker's ConsumerUpdate
      * and may be false while another group member holds the active slot. While it
-     * is false, readOne() and read() return no message and nothing is stored
-     * for this consumer; the unread messages of the lost partition were dropped.
+     * is false, readOne() and read() return no message. On deactivation the
+     * unread messages of the lost partition are dropped, and the position is
+     * stored only when it is ahead of the stored offset.
      *
      * @return bool True when the broker has this consumer active, false while a
      *                            single-active-consumer handover has it paused.
@@ -457,21 +458,22 @@ class Consumer implements ConsumerInterface
      *  - activation (active=true): resume at the stored offset (which is the
      *    next offset to consume, see storeOffset()), or at the consumer's
      *    initial OffsetSpec when nothing is stored yet.
-     *  - deactivation (active=false): drop the unread messages of the partition
-     *    and store nothing. The broker may already have activated the successor,
-     *    and a late store from this member would move its stored offset back.
-     *    The successor resumes at the last stored offset; the reply is "none".
+     *  - deactivation (active=false): store this member's position when it is
+     *    ahead of the stored offset (see storeOwnPositionIfAhead()), drop the
+     *    unread messages of the partition, and reply "none".
      *
      * Re-entrancy: this runs inside StreamConnection::readLoop()'s server-push
      * dispatch and queryOffset() performs a nested round trip. That is safe
      * because Consumer uses StreamConnection::request(), which matches replies
      * by correlation ID and parks responses that belong to an outer request.
+     * The activation path already relies on this.
      */
     private function defaultConsumerUpdateHandler(ConsumerUpdateResponseV1 $query): ?OffsetSpec
     {
         $this->active = $query->isActive();
 
         if (!$this->active) {
+            $this->storeOwnPositionIfAhead();
             $this->buffer = [];
             $this->bufferHead = 0;
             $this->unreadCount = 0;
@@ -500,6 +502,28 @@ class Consumer implements ConsumerInterface
         $resume = $offset === null ? $this->offset : OffsetSpec::offset($offset);
         $this->setDeliveryOffsetFilter($resume);
         return $resume;
+    }
+
+    /**
+     * Store the position of this member when it is ahead of the offset stored on the broker.
+     *
+     * Runs in the deactivation branch of defaultConsumerUpdateHandler(), before the
+     * ConsumerUpdate reply is sent. The broker activates the successor only after it
+     * gets that reply, so the store reaches the broker before the successor resumes.
+     * The store is monotonic: a position that is not ahead of the stored offset is
+     * never written. A missing stored offset counts as behind, so the position is written.
+     */
+    private function storeOwnPositionIfAhead(): void
+    {
+        if ($this->autoCommit <= 0 || $this->name === null || $this->messagesProcessed === 0) {
+            return;
+        }
+
+        $next = $this->lastOffset + 1;
+        $stored = $this->queryOffset();
+        if ($stored === null || $next > $stored) {
+            $this->storeOffset($next);
+        }
     }
 
     private function setDeliveryOffsetFilter(?OffsetSpec $offset): void

@@ -1776,9 +1776,14 @@ class ConsumerTest extends TestCase
         $this->assertSame([], $consumer->read(timeout: 0.0));
     }
 
-    public function testDeactivationDoesNotStoreOffset(): void
+    /**
+     * A single-active consumer that read one message at $readOffset and is then demoted.
+     *
+     * @return array{Consumer, CapturedObjects<StoreOffsetRequestV1>}
+     */
+    private function consumerReadingOneMessageThenDemoted(?int $storedOffset, int $readOffset): array
     {
-        [$connection, $stored] = $this->connectionCapturingStoredOffsets();
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets($storedOffset);
         $consumer = new Consumer(
             $connection,
             'test-stream',
@@ -1789,16 +1794,79 @@ class ConsumerTest extends TestCase
             singleActiveConsumer: true,
         );
         $this->setActive($consumer, true);
-        $this->setBuffer($consumer, [new Message(41, 0, 'payload')]);
+        $this->setBuffer($consumer, [new Message($readOffset, 0, 'payload')]);
         $consumer->read(timeout: 0.0);
+
+        return [$consumer, $stored];
+    }
+
+    public function testDeactivationStoresPositionAheadOfStoredOffset(): void
+    {
+        [$consumer, $stored] = $this->consumerReadingOneMessageThenDemoted(storedOffset: 40, readOffset: 41);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertSame([42], $this->storedOffsetValues($stored));
+    }
+
+    public function testDeactivationStoresPositionWhenNothingIsStored(): void
+    {
+        [$consumer, $stored] = $this->consumerReadingOneMessageThenDemoted(storedOffset: null, readOffset: 41);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertSame([42], $this->storedOffsetValues($stored));
+    }
+
+    public function testDeactivationDoesNotStoreOlderPosition(): void
+    {
+        [$consumer, $stored] = $this->consumerReadingOneMessageThenDemoted(storedOffset: 51, readOffset: 41);
 
         $this->invokeConsumerUpdate($consumer, false);
 
         $this->assertSame(
             [],
             $this->storedOffsetValues($stored),
-            'A demoted member must not write its old position over the new member'
+            'A demoted member must not move the stored offset back to an older position'
         );
+    }
+
+    public function testDeactivationDoesNotStoreEqualPosition(): void
+    {
+        [$consumer, $stored] = $this->consumerReadingOneMessageThenDemoted(storedOffset: 42, readOffset: 41);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertSame([], $this->storedOffsetValues($stored));
+    }
+
+    public function testDeactivationStoresNothingWhenNothingWasProcessed(): void
+    {
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets(storedOffset: 40);
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 5,
+            singleActiveConsumer: true,
+        );
+        $this->setActive($consumer, true);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertSame([], $this->storedOffsetValues($stored));
+    }
+
+    public function testDeactivationStoresPositionWithCallbackRegistered(): void
+    {
+        [$consumer, $stored] = $this->consumerReadingOneMessageThenDemoted(storedOffset: 40, readOffset: 41);
+        $consumer->onConsumerUpdate(static fn(bool $active): ?OffsetSpec => null);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertSame([42], $this->storedOffsetValues($stored));
     }
 
     public function testReadOneReturnsNoMessageWhileInactive(): void
@@ -2101,14 +2169,21 @@ class ConsumerTest extends TestCase
     /**
      * @return array{StreamConnection, CapturedObjects<StoreOffsetRequestV1>}
      */
-    private function connectionCapturingStoredOffsets(): array
+    private function connectionCapturingStoredOffsets(?int $storedOffset = null): array
     {
         /** @var CapturedObjects<StoreOffsetRequestV1> $stored */
         $stored = new CapturedObjects();
         $connection = $this->createMock(StreamConnection::class);
         $connection->expects($this->any())->method('registerSubscriber');
         $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
-        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(static function (object $request) use ($storedOffset): object {
+                if ($request instanceof QueryOffsetRequestV1) {
+                    return QueryOffsetResponseV1::fromArray(['correlationId' => 1, 'offset' => $storedOffset]);
+                }
+                return new \stdClass();
+            });
         $connection->expects($this->any())
             ->method('sendMessage')
             ->willReturnCallback(function (object $request) use ($stored): void {
