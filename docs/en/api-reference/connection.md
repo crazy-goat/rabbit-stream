@@ -866,7 +866,7 @@ public function createConsumer(
 |-----------|------|----------|-------------|
 | `$stream` | `string` | Yes | Name of the stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification (see `OffsetSpec` factory methods) |
-| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. Maximum 255 bytes. A longer name throws `InvalidArgumentException`. |
+| `$name` | `?string` | No | Consumer name for offset tracking. Required for `storeOffset()`, `queryOffset()`, and `singleActiveConsumer`. Maximum 255 bytes. A longer name throws `InvalidArgumentException` at creation when `$singleActiveConsumer` is set or `$autoCommit` is above 0, and at `storeOffset()`/`queryOffset()` otherwise. |
 | `$autoCommit` | `int` | No | Auto-commit interval (number of messages). `0` disables auto-commit. |
 | `$initialCredit` | `int` | No | Initial (and minimum) number of chunks in flight, 1–32767. Default: `10` |
 | `$filterValues` | `array<int, string>` | No | Broker-side stream filtering values (`filter.0`, `filter.1`, ... properties). Chunk-granular — see the [Consumer API reference](consumer.md). |
@@ -1016,7 +1016,7 @@ public function createSuperStreamConsumer(
 |-----------|------|----------|-------------|
 | `$superStream` | `string` | Yes | Name of the super stream to consume from |
 | `$offset` | `OffsetSpec` | Yes | Starting offset specification, applied to every partition |
-| `$name` | `?string` | No | Consumer name, shared by every partition's subscription. Required for `singleActiveConsumer` — the broker groups the per-partition subscriptions into one single-active-consumer group *per partition* using this shared name. Maximum 255 bytes. A longer name throws `InvalidArgumentException`. |
+| `$name` | `?string` | No | Consumer name, shared by every partition's subscription. Required for `singleActiveConsumer` — the broker groups the per-partition subscriptions into one single-active-consumer group *per partition* using this shared name. Maximum 255 bytes. A longer name throws `InvalidArgumentException` at creation when `$singleActiveConsumer` is set or `$autoCommit` is above 0, and at `storeOffset()`/`queryOffset()` otherwise. |
 | `$autoCommit` | `int` | No | Auto-commit interval (messages), passed through to every partition's `Consumer` |
 | `$initialCredit` | `int` | No | Initial flow control credits, passed through to every partition's `Consumer` |
 | `$singleActiveConsumer` | `bool` | No | Enables single active consumer per partition. Requires `$name`. |
