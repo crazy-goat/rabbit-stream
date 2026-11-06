@@ -3409,6 +3409,46 @@ class StreamConnectionTest extends TestCase
         fclose($serverSocket);
     }
 
+    public function testReadLoopDoesNotCloseConnectionWhenInboundFrameWaitsUnread(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+
+        // The application has not read for longer than two heartbeat intervals,
+        // while the broker sent a frame that still waits unread in the socket.
+        (new \ReflectionProperty($connection, 'lastReadAt'))->setValue($connection, microtime(true) - 5.0);
+        fwrite($serverSocket, $this->buildFrame(0x0017, 1));
+
+        self::assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 1.0));
+        self::assertTrue($connection->isConnected());
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testReadLoopReportsPeerCloseWhenSilenceCheckFindsReadableSocket(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+
+        // The peer closed the socket. The readable end-of-file is a read error,
+        // not a silent peer, so the read path must report it.
+        (new \ReflectionProperty($connection, 'lastReadAt'))->setValue($connection, microtime(true) - 5.0);
+        fclose($serverSocket);
+
+        try {
+            $connection->readLoop(timeout: 1.0);
+            self::fail('Expected ConnectionException after the peer closed the socket');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('closed by peer', $exception->getMessage());
+        }
+        self::assertFalse($connection->isConnected());
+    }
+
     public function testZeroHeartbeatIntervalKeepsIdleConnectionOpenWithoutSendingFrames(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
