@@ -38,6 +38,9 @@ class StreamConnection
     private int $heartbeatInterval = 0;
     private float $lastReadAt = 0.0;
     private float $lastWriteAt = 0.0;
+    /** Closing code and reason of the broker's last Close frame; read when the read throws. */
+    private ?int $serverCloseCode = null;
+    private ?string $serverCloseReason = null;
     /**
      * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
      * used for BOTH transports because TLS in PHP is only available through
@@ -57,6 +60,47 @@ class StreamConnection
     }
 
     /**
+     * The reason of a failed stream_socket_client() call.
+     *
+     * The socket error text is used when PHP set it. Otherwise the PHP warnings
+     * carry the reason, for example a TLS peer name that did not match. The OpenSSL
+     * errors follow, for example a wrong key passphrase (GitHub #928). Whitespace runs
+     * become one space, so the message stays on one line.
+     *
+     * @param list<string> $warnings      The PHP warnings that the call emitted
+     * @param list<string> $opensslErrors The OpenSSL errors that the call left in the queue
+     */
+    private function describeConnectFailure(
+        ?string $errorMessage,
+        ?int $errorCode,
+        array $warnings,
+        array $opensslErrors
+    ): string {
+        $code = $errorCode ?? 0;
+        $reasons = [];
+        if ($errorMessage !== null && $errorMessage !== '') {
+            $reasons[] = "{$errorMessage} ({$code})";
+        } else {
+            foreach ($warnings as $warning) {
+                $reasons[] = (string) preg_replace('/^stream_socket_client\(\): /', '', $warning);
+            }
+        }
+        foreach (array_slice(array_unique($opensslErrors), 0, self::MAX_OPENSSL_REASONS) as $opensslError) {
+            $reasons[] = $opensslError;
+        }
+
+        $reasons = array_values(array_unique(array_map(
+            static fn (string $reason): string => trim((string) preg_replace('/\s+/', ' ', $reason)),
+            $reasons
+        )));
+        if ($reasons === []) {
+            return "unknown error ({$code})";
+        }
+
+        return implode('; ', $reasons);
+    }
+
+    /**
      * The open connection stream, or an exception if it is gone.
      *
      * @return resource
@@ -64,14 +108,30 @@ class StreamConnection
     private function requireStream()
     {
         if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            // Build the exception before the state change: it names a server close only when already closed.
+            $exception = $this->notConnectedException('Cannot use socket: socket is not connected');
             if ($this->connected) {
                 $this->connected = false;
                 $this->notifyConnectionLost('Connection stream is not available');
             }
-            throw new ConnectionException('Cannot use socket: socket is not connected');
+            throw $exception;
         }
 
         return $this->stream;
+    }
+
+    /**
+     * The exception for a call on a closed connection. After a server-initiated Close, it names the
+     * closing code and the reason; otherwise it has the plain message. While the connection is still
+     * open (handleServerClose() writes its CloseResponse then), it has the plain message too.
+     */
+    private function notConnectedException(string $plainMessage): ConnectionException
+    {
+        if ($this->connected || $this->serverCloseCode === null) {
+            return new ConnectionException($plainMessage);
+        }
+
+        return ConnectionException::serverClosed($this->serverCloseCode, $this->serverCloseReason ?? '');
     }
     private int $correlationId = 0;
     /**
@@ -274,16 +334,21 @@ class StreamConnection
     /**
      * Hard upper bound on {@see $abandonedCorrelationIds}.
      *
-     * The set is only pruned when a matching late reply finally arrives. Ids are
-     * only reused after the counter wraps (see {@see nextCorrelationId()}), so
-     * without a bound a caller that abandons requests could grow it without
-     * limit. In practice only the single ExchangeCommandVersions handshake can
-     * abandon an id — and only on a
-     * read-side timeout — so this cap is never reached in normal use; it exists
-     * so the state cannot grow without bound. Oldest-first eviction is safe
-     * because the oldest id is the least likely to still have a reply in flight.
+     * Every {@see request()} whose read times out abandons its correlation id.
+     * A write timeout does not: the request never reached the broker. An id
+     * leaves the set when its late reply arrives or when {@see close()} runs.
+     * A caller that keeps timing out on replies that never come would otherwise
+     * grow the set without limit, so the cap applies. Oldest-first eviction
+     * drops the id least likely to still have a reply in flight. A late reply
+     * for an evicted id is still dropped by {@see request()} when no in-flight
+     * request waits for it.
      */
     private const MAX_ABANDONED_CORRELATION_IDS = 64;
+
+    /**
+     * The most OpenSSL errors that a failed TLS connect puts in its exception message (GitHub #928).
+     */
+    private const MAX_OPENSSL_REASONS = 5;
 
     /**
      * Highest correlation id the wire format carries (uint32). After this id the
@@ -358,6 +423,9 @@ class StreamConnection
      */
     public function connect(): void
     {
+        // A new connection has no close from an earlier connection.
+        $this->serverCloseCode = null;
+        $this->serverCloseReason = null;
         $useTls = $this->tls instanceof TlsConfig;
         $scheme = $useTls ? 'ssl' : 'tcp';
         $options = [];
@@ -371,18 +439,63 @@ class StreamConnection
         }
         $context = stream_context_create($options);
 
-        $stream = @stream_socket_client(
-            sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
-            $errorCode,
-            $errorMessage,
-            $this->socketTimeout,
-            STREAM_CLIENT_CONNECT,
-            $context
+        // Clear the OpenSSL errors that the application left in the queue, so that the
+        // reason of this connect is the only one that the failure message can report.
+        // The queue is bounded, and each openssl_error_string() call takes one entry (GitHub #928).
+        if ($useTls && function_exists('openssl_error_string')) {
+            while (openssl_error_string() !== false) {
+                // Discard each queued error.
+            }
+        }
+
+        // A failed TLS handshake leaves $errorMessage empty. PHP reports the reason only
+        // as warnings and notices, so a temporary handler collects them (GitHub #928).
+        // Other levels go to the previous handler.
+        $warnings = [];
+        $previousHandler = set_error_handler(
+            static function (
+                int $number,
+                string $message,
+                string $file = '',
+                int $line = 0
+            ) use (
+                &$warnings,
+                &$previousHandler
+            ): bool {
+                if (($number & (E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE)) === 0) {
+                    if ($previousHandler === null) {
+                        return false;
+                    }
+                    return (bool) $previousHandler($number, $message, $file, $line);
+                }
+                $warnings[] = $message;
+                return true;
+            }
         );
+        $opensslErrors = [];
+        try {
+            $stream = stream_socket_client(
+                sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
+                $errorCode,
+                $errorMessage,
+                $this->socketTimeout,
+                STREAM_CLIENT_CONNECT,
+                $context
+            );
+        } finally {
+            restore_error_handler();
+            // Take every queued OpenSSL error, so that stale errors do not reach a later
+            // openssl_error_string() call of the application. The reason is kept (GitHub #928).
+            if ($useTls && function_exists('openssl_error_string')) {
+                while (($opensslError = openssl_error_string()) !== false) {
+                    $opensslErrors[] = $opensslError;
+                }
+            }
+        }
         if ($stream === false) {
             throw new ConnectionException(
                 "Cannot connect to {$scheme}://{$this->host}:{$this->port}: " .
-                "{$errorMessage} ({$errorCode})"
+                $this->describeConnectFailure($errorMessage, $errorCode, $warnings, $opensslErrors)
             );
         }
 
@@ -629,8 +742,10 @@ class StreamConnection
         $this->connected = false;
         // A closed connection cannot read a late reply, so the abandoned-id set
         // has no further use and must not be carried by a reused instance (R2-3).
-        // It is cleared before the handlers run: they may throw.
+        // It is cleared before the handlers run: they may throw. The same holds
+        // for parked replies: no caller can take them after close().
         $this->abandonedCorrelationIds = [];
+        $this->pendingResponses = [];
         if ($wasConnected) {
             $this->notifyConnectionLost('Connection was closed');
         }
@@ -864,8 +979,9 @@ class StreamConnection
      * desynchronising the stream. Recording the id here makes
      * {@see readResponse()} discard the late frame instead (GitHub #381).
      *
-     * This is an internal wiring seam for the handshake; callers outside the
-     * client layer have no reason to use it.
+     * {@see request()} calls this when its read times out, and {@see readResponse()}
+     * calls it when a server-push handler throws while a request waits. Callers
+     * outside this class have no reason to use it.
      *
      * The set is bounded by {@see MAX_ABANDONED_CORRELATION_IDS}: once full, the
      * oldest id is evicted so a caller that abandons many requests cannot grow
@@ -1482,7 +1598,7 @@ class StreamConnection
 
         while (true) {
             if (!$this->connected) {
-                throw new ConnectionException("Connection closed");
+                throw $this->notConnectedException('Connection closed');
             }
 
             // A nested request() (issued from a server-push handler dispatched
@@ -1533,7 +1649,7 @@ class StreamConnection
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
-                    throw new ConnectionException("Connection closed by server");
+                    throw $this->notConnectedException('Connection closed by server');
                 }
 
                 continue;
@@ -1541,6 +1657,21 @@ class StreamConnection
 
             $payload = $frame->getRemainingBytes();
             $correlationId = $this->readCorrelationId($key, $payload);
+            if ($correlationId !== null && $this->isLateReply($correlationId, $expectedCorrelationId)) {
+                // Dropped before deserialize(): a malformed late reply must not
+                // fail the next caller. Dropping it also keeps the next caller from
+                // misattributing it as their own response, including error replies.
+                unset($this->abandonedCorrelationIds[$correlationId]);
+                $this->logger->warning(
+                    'Discarding a late reply for a request that no caller waits for',
+                    [
+                        'correlationId' => $correlationId,
+                        'key' => $key,
+                    ]
+                );
+                continue;
+            }
+
             try {
                 $result = $this->serializer->deserialize($payload);
             } catch (ProtocolException $exception) {
@@ -1548,21 +1679,6 @@ class StreamConnection
                     throw $exception;
                 }
                 $result = $exception;
-            }
-
-            if ($correlationId !== null && isset($this->abandonedCorrelationIds[$correlationId])) {
-                // Reply to a request that already timed out (see
-                // abandonCorrelation()): dropping it keeps the next caller from
-                // misattributing it as their own response, including error replies.
-                unset($this->abandonedCorrelationIds[$correlationId]);
-                $this->logger->warning(
-                    'Discarding a late reply for a request that already timed out',
-                    [
-                        'correlationId' => $correlationId,
-                        'response' => $result instanceof ProtocolException ? 'error' : $result::class,
-                    ]
-                );
-                continue;
             }
 
             if ($expectedCorrelationId === null) {
@@ -1588,6 +1704,23 @@ class StreamConnection
 
             return $this->unwrapPendingResponse($result);
         }
+    }
+
+    /**
+     * Tell whether a correlated reply can never reach a caller, so it is dropped.
+     *
+     * A reply is late when its request timed out and its id is still abandoned.
+     * In request() mode a reply is also late when no in-flight request holds its
+     * id: nobody can take it from pendingResponses, so parking it would leak it.
+     * readMessage() takes the next reply of any id, so it never drops by this rule.
+     */
+    private function isLateReply(int $correlationId, ?int $expectedCorrelationId): bool
+    {
+        if (isset($this->abandonedCorrelationIds[$correlationId])) {
+            return true;
+        }
+
+        return $expectedCorrelationId !== null && !isset($this->inFlightCorrelationIds[$correlationId]);
     }
 
     /**
@@ -1935,6 +2068,8 @@ class StreamConnection
         $correlationId = $frame->getUint32();
         $closingCode = $frame->getUint16();
         $closingReason = $frame->getString();
+        $this->serverCloseCode = $closingCode;
+        $this->serverCloseReason = $closingReason ?? '';
         if ($this->debugLogging) {
             $this->logger->debug(sprintf(
                 'Server-initiated close: code=%d, reason=%s',
@@ -2142,6 +2277,7 @@ class StreamConnection
      * @param float $timeout Seconds to wait for data (0.0 = non-blocking poll); stop() is observed within one second
      * @return ReadBuffer|null Parsed frame buffer, or null if no data arrived within the timeout
      * @throws ConnectionException If the socket is not connected, frame exceeds max size, or read error occurs
+     * @throws DeserializationException If the frame size is below 2 (the connection is closed)
      */
     public function readFrame(float $timeout = 30.0): ?ReadBuffer
     {
@@ -2218,6 +2354,7 @@ class StreamConnection
      *
      * @return ReadBuffer|null Parsed frame buffer, or null if no data arrived
      * @throws ConnectionException If the socket is not connected, frame exceeds max size, or read error occurs
+     * @throws DeserializationException If the frame size is below 2 (the connection is closed)
      */
     private function readFrameNoWait(): ?ReadBuffer
     {
@@ -2237,6 +2374,9 @@ class StreamConnection
         $size = $sizeUnpacked[1];
 
         if ($size < 2) {
+            // The body bytes of this frame are still in the socket, so the byte
+            // stream cannot be resynchronised. Close, as the cap branch does.
+            $this->close();
             throw new DeserializationException("Frame size {$size} is too small to contain a key");
         }
 
@@ -2272,12 +2412,10 @@ class StreamConnection
                 );
             }
 
-            $remainingData = $this->readBytes($size - 2, mustComplete: true);
-            if ($remainingData === null) {
+            $frameData = $this->readBytes($size, mustComplete: true, prefix: $keyData);
+            if ($frameData === null) {
                 throw new ConnectionException("Failed to read frame data");
             }
-
-            $frameData = $keyData . $remainingData;
         }
 
         $this->debugFrame('Socket <-', $frameData, keyOffset: 0);
@@ -2361,14 +2499,17 @@ class StreamConnection
      *    connection permanently (GitHub #390). The connection is now closed with
      *    an explicit error instead.
      *
-     * @param int  $length       Number of bytes to read (0 returns '')
-     * @param bool $mustComplete True when the caller is already mid-frame, so a
-     *                           short read is unrecoverable rather than benign
+     * @param int    $length       Number of bytes to read, including $prefix (0 returns '')
+     * @param bool   $mustComplete True when the caller is already mid-frame, so a
+     *                             short read is unrecoverable rather than benign
+     * @param string $prefix       Bytes already read that start the result (GitHub #940).
+     *                             They are not read again, and the result is built in one
+     *                             string, so a large frame is not copied to join them.
      * @return ?string The bytes read, or null if no byte arrived at a frame boundary
      * @throws ConnectionException If the connection is not connected, the peer closed it,
      *                             the read fails, or an incomplete frame timed out
      */
-    private function readBytes(int $length, bool $mustComplete = false): ?string
+    private function readBytes(int $length, bool $mustComplete = false, string $prefix = ''): ?string
     {
         $stream = $this->requireStream();
 
@@ -2376,8 +2517,8 @@ class StreamConnection
             return '';
         }
 
-        $data = '';
-        $remaining = $length;
+        $data = $prefix;
+        $remaining = $length - strlen($prefix);
         $deadline = microtime(true) + $this->socketTimeout;
 
         while ($remaining > 0) {

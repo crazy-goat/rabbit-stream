@@ -15,6 +15,7 @@ $forbiddenTokens = [
     'SO_RCVTIMEO',
     'SO_SNDTIMEO',
     'socket_last_error',
+    'socket_select',
 ];
 $pattern = '/\\b(?:' . implode('|', array_map(
     static fn (string $token): string => preg_quote($token, '/'),

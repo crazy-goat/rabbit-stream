@@ -191,8 +191,20 @@ public function read(float $timeout = 5.0): array
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is lost
-- `TimeoutException` - Never thrown because `$timeout` elapsed (that returns an empty array). Only if a write it must make (credit, heartbeat echo, server-close acknowledgement, ConsumerUpdate reply, auto-commit `StoreOffset`) does not start within the socket timeout, or a re-subscribe `Subscribe`/`StreamStats` request gets no reply in time
+- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected a credit grant that the consumer sent earlier, or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
+- `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response, or the `queryOffset()` reply of a single-active-consumer handler is not a QueryOffset response
+- `ConnectionException` - If the socket is not connected, or a read or write fails while the consumer sends one of these frames:
+  - credit
+  - auto-commit `StoreOffset`
+  - a heartbeat echo
+  - a server-close acknowledgement
+  - a ConsumerUpdate reply
+  - a re-subscribe request
+- `DeserializationException` - If a delivered chunk or server-push frame cannot be deserialized
+- `TimeoutException` - If a write does not start within the socket timeout, or a re-subscribe request gets no reply in time
+- `InvalidArgumentException` - If the re-subscribe `Subscribe` frame exceeds the negotiated outgoing frame size
+
+A `$timeout` that elapses is not an exception. The method returns an empty array.
 
 #### Example
 
@@ -239,8 +251,20 @@ public function readOne(float $timeout = 5.0): ?Message
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is lost
-- `TimeoutException` - Never thrown because `$timeout` elapsed (that returns `null`). Only if a write it must make (credit, heartbeat echo, server-close acknowledgement, ConsumerUpdate reply, auto-commit `StoreOffset`) does not start within the socket timeout, or a re-subscribe `Subscribe`/`StreamStats` request gets no reply in time
+- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected a credit grant that the consumer sent earlier, or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
+- `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response, or the `queryOffset()` reply of a single-active-consumer handler is not a QueryOffset response
+- `ConnectionException` - If the socket is not connected, or a read or write fails while the consumer sends one of these frames:
+  - credit
+  - auto-commit `StoreOffset`
+  - a heartbeat echo
+  - a server-close acknowledgement
+  - a ConsumerUpdate reply
+  - a re-subscribe request
+- `DeserializationException` - If a delivered chunk or server-push frame cannot be deserialized
+- `TimeoutException` - If a write does not start within the socket timeout, or a re-subscribe request gets no reply in time
+- `InvalidArgumentException` - If the re-subscribe `Subscribe` frame exceeds the negotiated outgoing frame size
+
+A `$timeout` that elapses is not an exception. The method returns `null`.
 
 #### Example
 
@@ -299,9 +323,16 @@ public function drain(): array
 
 `Message[]` - every currently-buffered message, or an empty array if none are buffered
 
+#### Exceptions
+
+- `ConnectionException` - If the socket is not connected, or a write fails while the consumer sends withheld credit or auto-commit `StoreOffset`
+- `TimeoutException` - If a withheld credit or auto-commit `StoreOffset` write does not start within the socket timeout
+
 #### Notes
 
-- Performs **no connection I/O** (no `readLoop()` call) — mirrors the tail of `read()` exactly
+- Does not read frames from the socket (no `readLoop()` call)
+- Can write withheld credit and auto-commit `StoreOffset` frames, so it can raise `ConnectionException` or `TimeoutException`
+- Mirrors the tail of `read()` exactly
 - Used internally by `SuperStreamConsumer::read()` to collect each partition's buffered messages after one shared bounded read pass
 
 ---
@@ -330,6 +361,8 @@ public function storeOffset(int $offset): void
 
 - `ProtocolException` - If called on an unnamed consumer (no name provided in constructor)
 - `InvalidArgumentException` - If the consumer name is longer than 255 bytes, or the serialized `StoreOffset` request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected or the write fails
+- `TimeoutException` - If the write does not complete within the socket timeout
 
 #### Example
 
@@ -380,10 +413,12 @@ a normal first-run outcome, not an error.
 
 #### Exceptions
 
-- `ProtocolException` - If called on an unnamed consumer, or if the broker returns
-  any non-OK response code **other than** `NO_OFFSET`
+- `ProtocolException` - If called on an unnamed consumer, or if the broker returns any non-OK response code **other than** `NO_OFFSET`
 - `UnexpectedResponseException` - If the server returns an unexpected response
 - `InvalidArgumentException` - If the consumer name is longer than 255 bytes, or the serialized `QueryOffset` request exceeds the negotiated outgoing frame size
+- `ConnectionException` - If the socket is not connected or the request fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -428,7 +463,7 @@ consumer, tracks the broker's most recent `ConsumerUpdate` activation state —
 starts `false` and flips to `true`/`false` as the broker activates/deactivates
 it. While the value is `false`, `read()`, `readOne()` and `drain()` return no messages. They send no credit.
 
-### onConsumerUpdate()
+### Consumer::onConsumerUpdate()
 
 ```php
 public function onConsumerUpdate(callable $callback): void
@@ -509,6 +544,15 @@ offset shows it was recreated from scratch.
 
 See [Consuming → Stream Deleted or Leader Moved](../guide/consuming.md#9-stream-deleted-or-leader-moved-metadataupdate).
 
+#### Exceptions
+
+- `ProtocolException` - If the broker rejects the re-subscribe with an error other than `STREAM_NOT_EXIST` or `STREAM_NOT_AVAILABLE`
+- `UnexpectedResponseException` - If the StreamStats reply used to pick the resume offset is not a StreamStats response
+- `ConnectionException` - If the socket is not connected, or a re-subscribe write or read fails
+- `DeserializationException` - If a re-subscribe response frame cannot be deserialized
+- `TimeoutException` - If a re-subscribe response does not arrive in time
+- `InvalidArgumentException` - If the re-subscribe `Subscribe` frame exceeds the negotiated outgoing frame size
+
 ---
 
 ## Lifecycle Methods
@@ -531,7 +575,11 @@ None
 
 #### Exceptions
 
-- `ConnectionException` - If the connection is already closed
+- `ProtocolException` - If the broker rejects the Unsubscribe with a non-OK response code
+- `ConnectionException` - If the socket is not connected or the exchange fails
+- `DeserializationException` - If the Unsubscribe response frame cannot be deserialized
+- `TimeoutException` - If the Unsubscribe response does not arrive in time
+- `InvalidArgumentException` - If the auto-commit `StoreOffset` frame or the Unsubscribe frame exceeds the negotiated outgoing frame size
 
 #### Example
 
