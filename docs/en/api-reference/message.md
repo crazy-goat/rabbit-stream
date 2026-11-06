@@ -73,14 +73,14 @@ public function __construct(
 
 ### Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `$offset` | `int` | Stream offset - the position of this message in the stream |
-| `$timestamp` | `int` | Timestamp of the **chunk** the message was delivered in, in milliseconds since epoch (shared by every message in that chunk) |
-| `$body` | `string\|int\|float\|bool\|array\|null` | The message body content (decoded from AMQP) |
-| `$properties` | `array<string, mixed>` | Standard AMQP 1.0 message properties |
-| `$applicationProperties` | `array<int|string, mixed>` | Custom application-specific headers |
-| `$messageAnnotations` | `array<int|string, mixed>` | AMQP message annotations |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$offset` | `int` | Yes | Stream offset - the position of this message in the stream |
+| `$timestamp` | `int` | Yes | Timestamp of the **chunk** the message was delivered in, in milliseconds since epoch (shared by every message in that chunk) |
+| `$body` | `string\|int\|float\|bool\|array\|null` | No | The message body content (decoded from AMQP) |
+| `$properties` | `array<string, mixed>` | No | Standard AMQP 1.0 message properties |
+| `$applicationProperties` | `array<int|string, mixed>` | No | Custom application-specific headers |
+| `$messageAnnotations` | `array<int|string, mixed>` | No | AMQP message annotations |
 
 ### Notes
 

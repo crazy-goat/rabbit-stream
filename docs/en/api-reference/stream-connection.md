@@ -330,7 +330,7 @@ public function onHeartbeat(?callable $callback = null): void
 
 **Note:** Heartbeats are automatically echoed back to the server. The callback is for application-level notification only.
 
-### onConsumerUpdate()
+### StreamConnection::onConsumerUpdate()
 
 Registers a callback for consumer update query frames.
 
@@ -359,7 +359,17 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 
 **Returns:** the number of frames dispatched; `0` means the loop ended on timeout, `stop()` or disconnect.
 
-**Throws:** `ConnectionException` if the socket is not connected, if a `stream_select()` fails for a reason other than an interruption by a signal, or if signal interruptions outrun the retry bound below.
+**Throws:**
+- `ConnectionException` if one of these cases occurs:
+  - the socket is not connected, or `stream_select()` fails for a reason other than an interruption by a signal
+  - signal interruptions outrun the retry bound below
+  - a read fails, or the peer closes the connection
+  - no inbound data arrives for two heartbeat intervals. The connection then closes.
+  - a frame is incomplete and its read times out. The connection then closes.
+  - a heartbeat write times out during an incomplete frame. The connection then closes.
+- `DeserializationException` if a server-push frame cannot be deserialized
+- `InvalidArgumentException` if a registered `ConsumerUpdate` handler returns an offset type outside the range 0 to 5
+- `TimeoutException` if a reply this loop must send cannot be written within the socket timeout
 
 A signal delivered while the loop waits (`SIGTERM` from a graceful shutdown, `SIGALRM` from a watchdog, …) interrupts `select(2)` with `EINTR`. The loop retries that wait instead of failing, so a handler that calls `stop()` shuts the loop down cleanly. The retry is bounded: a wait that completes resets the count, and an unbroken run of more than 1,000,000 interruptions raises `ConnectionException`. It takes roughly 16,700 signals per second, sustained for a minute, to reach that bound, so no ordinary watchdog, supervisor or shutdown handler can. Each retry blocks in `select(2)` until the next signal rather than spinning, so the wait costs 0.4% of a core at ~875 signals per second and 2.7% at ~14,900/s, rising to 15.8% at a pegged ~136,000/s storm — which the bound then trips after 7.4s. With `$timeout = null` this bound is the only thing that can end the loop, because the loop has no deadline of its own.
 
