@@ -306,7 +306,7 @@ The `readMessage()` method handles server-push frames transparently using an int
           │
           ▼
    ┌─────────────┐     No     ┌─────────────┐
-   │ socket_     │ ─────────► │  Timeout    │
+   │ stream_     │ ─────────► │  Timeout    │
    │ select()    │            │  Exception  │
    └──────┬──────┘            └─────────────┘
           │ Yes

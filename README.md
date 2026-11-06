@@ -52,7 +52,7 @@ $connection = Connection::create(
     tls: new TlsConfig(
         cafile: '/etc/ssl/ca.pem', // optional: custom CA bundle
         // localCert: '/etc/ssl/client.crt',   // optional: client certificate
-        // localPk: '/etc/ssl/client.key',     // (e.g. for EXTERNAL SASL)
+        // localPk: '/etc/ssl/client.key',     // optional: private key of the client certificate
     ),
 );
 ```
@@ -65,6 +65,10 @@ do not show it. Code that read `$tls->passphrase` must call `getPassphrase()`.
 `connect()` completes the TLS handshake, including the client certificate and the key
 passphrase, within `socketTimeout`. The E2E test `tests/E2E/TlsConnectionE2ETest.php` runs
 against a broker with a TLS stream listener and mutual TLS (`./run-e2e.sh` sets it up).
+
+The client certificate does not replace the PLAIN login. The broker checks the certificate
+in the TLS handshake, then checks the PLAIN login. The E2E test
+`testPublishAndConsumeOverMutualTls` covers both checks.
 
 Peer certificate and hostname verification are **on by default**
 (`verify_peer`/`verify_peer_name`). For a self-signed development broker you can

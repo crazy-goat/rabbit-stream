@@ -66,6 +66,32 @@ class CheckStaleSocketsTest extends TestCase
         $this->assertStringContainsString('docs/en/plans/transport.md:1: forbidden token socket_recv', $stderr);
     }
 
+    public function testFailsOnSocketSelectInEnglishDocs(): void
+    {
+        $root = $this->makeTempRoot([
+            'docs/en/guide/flow-control.md' => "   │ socket_select() │\n",
+            'src/StreamConnection.php' => '<?php echo "clean";',
+        ]);
+
+        [$exit, , $stderr] = $this->runGate($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('docs/en/guide/flow-control.md:1: forbidden token socket_select', $stderr);
+    }
+
+    public function testAllowsStreamSelectInEnglishDocs(): void
+    {
+        $root = $this->makeTempRoot([
+            'docs/en/guide/flow-control.md' => 'The library calls stream_select().',
+            'src/StreamConnection.php' => '<?php echo "clean";',
+        ]);
+
+        [$exit, $stdout, $stderr] = $this->runGate($root);
+
+        $this->assertSame(0, $exit, $stderr);
+        $this->assertStringContainsString('No stale ext-sockets references', $stdout);
+    }
+
     public function testFailsOnForbiddenTokensInReadmeAgentsAndExamples(): void
     {
         $root = $this->makeTempRoot([
