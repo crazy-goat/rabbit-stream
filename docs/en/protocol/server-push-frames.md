@@ -228,7 +228,9 @@ CorrelationId**.
 **Behavior:**
 1. Server sends heartbeat at intervals (heartbeat/2 seconds)
 2. Client must echo identical frame back immediately
-3. If no frames received within heartbeat interval, connection is dead
+3. The client closes the connection after two heartbeat intervals without inbound data.
+
+Every byte the client receives counts as inbound data. This includes data that waits unread in the socket. The client checks this rule only inside a library call. Between library calls, the client does not check it.
 
 **Automatic Handling:**
 ```php

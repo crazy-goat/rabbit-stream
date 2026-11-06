@@ -1721,12 +1721,9 @@ class StreamConnectionTest extends TestCase
 
         $this->assertInstanceOf(InvalidArgumentException::class, $caught);
         $this->assertConsumerUpdateNoneReply($serverSocket, $correlationId);
-        $errorRecords = array_values(array_filter(
-            $logger->records,
-            static fn (array $record): bool => $record['level'] === 'error'
-        ));
-        $this->assertCount(1, $errorRecords);
-        $this->assertSame($caught, $errorRecords[0]['context']['exception']);
+        $errorContexts = $logger->errorContexts();
+        $this->assertCount(1, $errorContexts);
+        $this->assertSame($caught, $errorContexts[0]['exception']);
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -1759,12 +1756,9 @@ class StreamConnectionTest extends TestCase
         $this->assertInstanceOf(RuntimeException::class, $caught);
         $this->assertSame('handler failed', $caught->getMessage());
         $this->assertConsumerUpdateNoneReply($serverSocket, $correlationId);
-        $errorRecords = array_values(array_filter(
-            $logger->records,
-            static fn (array $record): bool => $record['level'] === 'error'
-        ));
-        $this->assertCount(1, $errorRecords);
-        $this->assertSame($caught, $errorRecords[0]['context']['exception']);
+        $errorContexts = $logger->errorContexts();
+        $this->assertCount(1, $errorContexts);
+        $this->assertSame($caught, $errorContexts[0]['exception']);
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -4060,11 +4054,7 @@ class StreamConnectionTest extends TestCase
         // The destructor calls close(). The exception must not leave the destructor.
         unset($connection);
 
-        $messages = array_column(
-            array_filter($logger->records, static fn (array $record): bool => $record['level'] === 'error'),
-            'message'
-        );
-        $this->assertContains('Failed to close connection in destructor', $messages);
+        $this->assertContains('Failed to close connection in destructor', $logger->errorMessages());
 
         fclose($serverSocket);
     }
