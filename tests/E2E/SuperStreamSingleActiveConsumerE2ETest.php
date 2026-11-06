@@ -73,9 +73,12 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         $admin->createSuperStream($this->superStream, $partitions, ['k0', 'k1']);
         foreach ($partitions as $i => $partition) {
             $producer = $admin->createProducer($partition);
-            for ($m = 0; $m < 10; $m++) {
-                $producer->send("p{$i}-m{$m}");
-            }
+            // One batch per partition. The broker stores it as one chunk, so the
+            // consumer holds unread messages when autoCommit stores an offset.
+            $producer->sendBatch(array_map(
+                static fn (int $m): string => "p{$i}-m{$m}",
+                range(0, 9),
+            ));
             $producer->waitForConfirms(timeout: 5.0);
             $producer->close();
         }
