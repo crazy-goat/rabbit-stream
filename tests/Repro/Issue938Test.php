@@ -31,6 +31,7 @@ final class Issue938Test extends TestCase
         self::assertStringContainsString('(select(2) limit, usually 1024)', $message);
         self::assertStringContainsString('lower the number of open descriptors in the process', $message);
         self::assertStringContainsString('PHP warning: stream_select(): You MUST recompile PHP', $message);
+        self::assertStringNotContainsString("\n", $message);
     }
 
     public function testFailureMessageAppendsWarningTextForOtherFailures(): void
