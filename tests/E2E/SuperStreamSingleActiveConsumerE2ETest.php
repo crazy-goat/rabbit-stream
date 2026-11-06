@@ -127,7 +127,17 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             $lastRead = $message?->getOffset();
         }
         $this->assertSame(9, $lastRead, 'B must read partition 1 up to offset 9');
+        // B's last StoreOffset has no reply, so poll until the stored value stops changing.
         $storedByB = $admin->queryOffset($group, $partitions[1]);
+        $deadline = microtime(true) + 5.0;
+        while (microtime(true) < $deadline) {
+            usleep(200_000);
+            $current = $admin->queryOffset($group, $partitions[1]);
+            if ($current === $storedByB) {
+                break;
+            }
+            $storedByB = $current;
+        }
         $this->assertGreaterThan(3, $storedByB, 'B must store progress beyond the offset A stored');
 
         // A reads after its demotion. Each read must leave the stored offset unchanged.

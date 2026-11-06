@@ -11,6 +11,7 @@ use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
+use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Request\CreditRequestV1;
 use CrazyGoat\RabbitStream\Request\QueryOffsetRequestV1;
 use CrazyGoat\RabbitStream\Request\StoreOffsetRequestV1;
@@ -1847,6 +1848,71 @@ class ConsumerTest extends TestCase
         $this->invokeConsumerUpdate($consumer, false);
 
         $this->assertSame(0, (new \ReflectionProperty($consumer, 'lastOffset'))->getValue($consumer));
+    }
+
+    public function testFailedQueryOffsetOnDeactivationLeavesNoStaleStateAfterReactivation(): void
+    {
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())->method('readMessage')->willReturn(new \stdClass());
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(static function (object $request): object {
+                if ($request instanceof QueryOffsetRequestV1) {
+                    throw new TimeoutException('QueryOffset timed out');
+                }
+                return new \stdClass();
+            });
+        /** @var CapturedObjects<StoreOffsetRequestV1> $stored */
+        $stored = new CapturedObjects();
+        $connection->expects($this->any())
+            ->method('sendMessage')
+            ->willReturnCallback(static function (object $request) use ($stored): void {
+                if ($request instanceof StoreOffsetRequestV1) {
+                    $stored->add($request);
+                }
+            });
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 5,
+            singleActiveConsumer: true,
+        );
+        $this->setActive($consumer, true);
+        $this->setBuffer($consumer, [
+            new Message(3, 0, 'p1-m3'),
+            new Message(4, 0, 'p1-m4'),
+            new Message(5, 0, 'p1-m5'),
+        ]);
+        $this->assertSame(3, $consumer->readOne(timeout: 0.0)?->getOffset());
+
+        try {
+            $this->invokeConsumerUpdate($consumer, false);
+            $this->fail('The failing queryOffset() must reach the caller');
+        } catch (TimeoutException) {
+            // Expected: the store fails after the state is cleared.
+        }
+
+        $this->assertFalse($consumer->hasUnread(), 'A failed deactivation must not keep stale messages');
+        $this->assertSame([], $consumer->read(timeout: 0.0));
+        $this->assertSame(
+            0,
+            (new \ReflectionProperty($consumer, 'messagesProcessed'))->getValue($consumer),
+            'The counters are reset even when the store fails'
+        );
+
+        $this->setActive($consumer, true);
+        $this->assertNull($consumer->readOne(timeout: 0.0), 'The stale message 4 must not return after reactivation');
+        $consumer->close();
+
+        $this->assertSame(
+            [],
+            $this->storedOffsetValues($stored),
+            'Neither close() nor the failed deactivation may store a position behind the successor'
+        );
     }
 
     public function testDeactivationStoresNothingWhenNothingWasProcessed(): void

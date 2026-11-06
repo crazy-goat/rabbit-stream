@@ -473,7 +473,10 @@ class Consumer implements ConsumerInterface
         $this->active = $query->isActive();
 
         if (!$this->active) {
-            $this->storeOwnPositionIfAhead();
+            // Save the position first. The state is cleared before the store, so a
+            // failing queryOffset() cannot leave a stale buffer or stale counters.
+            $next = $this->lastOffset + 1;
+            $processed = $this->messagesProcessed;
             $this->buffer = [];
             $this->bufferHead = 0;
             $this->unreadCount = 0;
@@ -482,6 +485,7 @@ class Consumer implements ConsumerInterface
             $this->messagesProcessed = 0;
             $this->hasProcessedMessage = false;
             $this->lastOffset = 0;
+            $this->storeOwnPositionIfAhead($next, $processed);
         }
 
         if ($this->consumerUpdateCallback instanceof \Closure) {
@@ -508,19 +512,23 @@ class Consumer implements ConsumerInterface
     /**
      * Store the position of this member when it is ahead of the offset stored on the broker.
      *
-     * Runs in the deactivation branch of defaultConsumerUpdateHandler(), before the
-     * ConsumerUpdate reply is sent. The broker activates the successor only after it
-     * gets that reply, so the store reaches the broker before the successor resumes.
-     * The store is monotonic: a position that is not ahead of the stored offset is
-     * never written. A missing stored offset counts as behind, so the position is written.
+     * Runs in the deactivation branch of defaultConsumerUpdateHandler(), after the
+     * state is cleared and before the ConsumerUpdate reply is sent. The broker
+     * activates the successor only after it gets that reply, so the store reaches
+     * the broker before the successor resumes. The store is monotonic: a position
+     * that is not ahead of the stored offset is never written. A missing stored
+     * offset counts as behind, so the position is written. If queryOffset() throws,
+     * no store happens; the caller has already cleared the state.
+     *
+     * @param int $next      Next offset to consume: lastOffset + 1 before the clear.
+     * @param int $processed Messages processed since the last auto-commit, before the clear.
      */
-    private function storeOwnPositionIfAhead(): void
+    private function storeOwnPositionIfAhead(int $next, int $processed): void
     {
-        if ($this->autoCommit <= 0 || $this->name === null || $this->messagesProcessed === 0) {
+        if ($this->autoCommit <= 0 || $this->name === null || $processed === 0) {
             return;
         }
 
-        $next = $this->lastOffset + 1;
         $stored = $this->queryOffset();
         if ($stored === null || $next > $stored) {
             $this->storeOffset($next);
