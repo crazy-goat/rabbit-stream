@@ -3,7 +3,7 @@
 /**
  * Check project class references and constructor named arguments in docs PHP fences.
  *
- * Usage: php bin/check-docs-symbols.php [docs-root]
+ * Usage: php bin/check-docs-symbols.php [docs-root [composer-json]]
  * Mark an intentionally illustrative PHP fence with `<!-- docs-lint: ignore -->`
  * immediately before its opening fence, or add `docs-lint-ignore` to the fence tag.
  */
@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 $repositoryRoot = dirname(__DIR__);
 $docsRoot = $argv[1] ?? $repositoryRoot . '/docs/en';
+$composerFile = $argv[2] ?? $repositoryRoot . '/composer.json';
 $sourceRoot = $repositoryRoot . '/src';
 $autoload = $repositoryRoot . '/vendor/autoload.php';
 if (is_file($autoload)) {
@@ -19,17 +20,30 @@ if (is_file($autoload)) {
 }
 
 if (!is_dir($docsRoot)) {
-    fwrite(STDERR, "Usage: php bin/check-docs-symbols.php [docs-root]\n");
+    fwrite(STDERR, "Usage: php bin/check-docs-symbols.php [docs-root [composer-json]]\n");
     exit(2);
 }
 
 // The test namespace is the autoload-dev PSR-4 prefix in composer.json, so a rename there needs no edit here.
-$composerConfig = json_decode((string) file_get_contents($repositoryRoot . '/composer.json'), true);
-$autoloadDev = is_array($composerConfig) ? ($composerConfig['autoload-dev'] ?? null) : null;
+$composerJson = is_file($composerFile) && is_readable($composerFile) ? file_get_contents($composerFile) : false;
+if ($composerJson === false) {
+    fwrite(STDERR, "Cannot read composer file: $composerFile\n");
+    exit(2);
+}
+$composerConfig = json_decode($composerJson, true);
+if (json_last_error() !== JSON_ERROR_NONE) {
+    fwrite(STDERR, "composer file is not valid JSON: $composerFile: " . json_last_error_msg() . "\n");
+    exit(2);
+}
+if (!is_array($composerConfig)) {
+    fwrite(STDERR, "composer file is not a JSON object: $composerFile\n");
+    exit(2);
+}
+$autoloadDev = $composerConfig['autoload-dev'] ?? null;
 $testPsr4 = is_array($autoloadDev) ? ($autoloadDev['psr-4'] ?? null) : null;
 $testPrefix = is_array($testPsr4) ? array_key_first($testPsr4) : null;
 if (!is_string($testPrefix) || $testPrefix === '') {
-    fwrite(STDERR, "composer.json has no autoload-dev PSR-4 prefix for the test namespace.\n");
+    fwrite(STDERR, "composer file has no autoload-dev PSR-4 prefix for the test namespace: $composerFile\n");
     exit(2);
 }
 $testNamespace = rtrim($testPrefix, '\\');

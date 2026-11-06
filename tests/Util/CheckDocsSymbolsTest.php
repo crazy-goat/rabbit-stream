@@ -208,12 +208,105 @@ class CheckDocsSymbolsTest extends TestCase
         $this->assertSame(0, $exit, $stderr);
     }
 
+    public function testAllowsImportFromCustomTestPrefixInComposerJson(): void
+    {
+        $composer = $this->makeComposer('{"autoload-dev": {"psr-4": {"Foo\\\\Tests\\\\": "tests/"}}}');
+        $docs = $this->makeDocs([
+            'guide/example.md' => "```php\nuse Foo\\Tests\\Request\\SomeTest;\n```\n",
+        ]);
+
+        [$exit, $stdout, $stderr] = $this->runGate($docs, $composer);
+
+        $this->assertSame(0, $exit, $stderr);
+        $this->assertStringContainsString('All class references and named constructor arguments', $stdout);
+    }
+
+    public function testDefaultTestNamespaceIsNotAllowedWhenComposerJsonNamesAnotherPrefix(): void
+    {
+        $composer = $this->makeComposer('{"autoload-dev": {"psr-4": {"Foo\\\\Tests\\\\": "tests/"}}}');
+        $docs = $this->makeDocs([
+            'guide/example.md' => "```php\nuse CrazyGoat\\RabbitStream\\Tests\\Request\\SomeTest;\n```\n",
+        ]);
+
+        [$exit, , $stderr] = $this->runGate($docs, $composer);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString(
+            'guide/example.md:2: unknown class CrazyGoat\\RabbitStream\\Tests\\Request\\SomeTest',
+            $stderr
+        );
+    }
+
+    public function testFailsWhenComposerJsonIsMissing(): void
+    {
+        $missing = $this->makeDocs(['marker.txt' => '']) . '/composer.json';
+        $docs = $this->makeDocs(['guide/example.md' => "# Example\n"]);
+
+        [$exit, , $stderr] = $this->runGate($docs, $missing);
+
+        $this->assertSame(2, $exit);
+        $this->assertStringContainsString('Cannot read composer file: ' . $missing, $stderr);
+        $this->assertStringNotContainsString('Warning', $stderr);
+    }
+
+    public function testFailsWhenComposerJsonIsNotValidJson(): void
+    {
+        $composer = $this->makeComposer('{"autoload-dev": ');
+        $docs = $this->makeDocs(['guide/example.md' => "# Example\n"]);
+
+        [$exit, , $stderr] = $this->runGate($docs, $composer);
+
+        $this->assertSame(2, $exit);
+        $this->assertStringContainsString('composer file is not valid JSON: ' . $composer, $stderr);
+        $this->assertStringNotContainsString('no autoload-dev PSR-4 prefix', $stderr);
+    }
+
+    public function testFailsWhenComposerJsonIsNotAnObject(): void
+    {
+        $composer = $this->makeComposer('"just a string"');
+        $docs = $this->makeDocs(['guide/example.md' => "# Example\n"]);
+
+        [$exit, , $stderr] = $this->runGate($docs, $composer);
+
+        $this->assertSame(2, $exit);
+        $this->assertStringContainsString('composer file is not a JSON object: ' . $composer, $stderr);
+    }
+
+    public function testFailsWhenComposerJsonHasNoAutoloadDevPrefix(): void
+    {
+        $composer = $this->makeComposer('{"autoload": {"psr-4": {"Foo\\\\": "src/"}}}');
+        $docs = $this->makeDocs(['guide/example.md' => "# Example\n"]);
+
+        [$exit, , $stderr] = $this->runGate($docs, $composer);
+
+        $this->assertSame(2, $exit);
+        $this->assertStringContainsString(
+            'composer file has no autoload-dev PSR-4 prefix for the test namespace: ' . $composer,
+            $stderr
+        );
+    }
+
+    public function testFailsWhenComposerJsonPrefixIsEmpty(): void
+    {
+        $composer = $this->makeComposer('{"autoload-dev": {"psr-4": {"": "tests/"}}}');
+        $docs = $this->makeDocs(['guide/example.md' => "# Example\n"]);
+
+        [$exit, , $stderr] = $this->runGate($docs, $composer);
+
+        $this->assertSame(2, $exit);
+        $this->assertStringContainsString('has no autoload-dev PSR-4 prefix', $stderr);
+    }
+
     /** @return array{int, string, string} */
-    private function runGate(string $docs): array
+    private function runGate(string $docs, ?string $composer = null): array
     {
         $script = dirname(__DIR__, 2) . '/bin/check-docs-symbols.php';
+        $command = [PHP_BINARY, $script, $docs];
+        if ($composer !== null) {
+            $command[] = $composer;
+        }
         $process = proc_open(
-            [PHP_BINARY, $script, $docs],
+            $command,
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes
         );
@@ -227,6 +320,11 @@ class CheckDocsSymbolsTest extends TestCase
         fclose($pipes[2]);
 
         return [proc_close($process), $stdout, $stderr];
+    }
+
+    private function makeComposer(string $contents): string
+    {
+        return $this->makeDocs(['composer.json' => $contents]) . '/composer.json';
     }
 
     /**
