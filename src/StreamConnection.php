@@ -274,15 +274,31 @@ class StreamConnection
     /**
      * Hard upper bound on {@see $abandonedCorrelationIds}.
      *
-     * The set is only pruned when a matching late reply finally arrives, and
-     * correlation ids are monotonic (never reused), so without a bound a caller
-     * that abandons requests could grow it without limit. In practice only the
-     * single ExchangeCommandVersions handshake can abandon an id — and only on a
+     * The set is only pruned when a matching late reply finally arrives. Ids are
+     * only reused after the counter wraps (see {@see nextCorrelationId()}), so
+     * without a bound a caller that abandons requests could grow it without
+     * limit. In practice only the single ExchangeCommandVersions handshake can
+     * abandon an id — and only on a
      * read-side timeout — so this cap is never reached in normal use; it exists
      * so the state cannot grow without bound. Oldest-first eviction is safe
      * because the oldest id is the least likely to still have a reply in flight.
      */
     private const MAX_ABANDONED_CORRELATION_IDS = 64;
+
+    /**
+     * Highest correlation id the wire format carries (uint32). After this id the
+     * counter wraps to 1, so it never leaves the uint32 range (GitHub #942).
+     */
+    private const MAX_CORRELATION_ID = 4294967295;
+
+    /**
+     * Correlation ids of requests that {@see request()} is still waiting for.
+     * {@see nextCorrelationId()} skips them, so a wrapped counter never hands out
+     * an id that is still in use. Filled and emptied by {@see request()}.
+     *
+     * @var array<int, true>
+     */
+    private array $inFlightCorrelationIds = [];
 
     /**
      * Correlation ids of requests that already timed out and whose reply, if it
@@ -1088,7 +1104,7 @@ class StreamConnection
             // one id before the guard below rejects it; that gap is harmless
             // (ids only need to be unique per in-flight request) and is
             // preferable to serializing twice or breaking correlation.
-            $this->correlationId++;
+            $this->correlationId = $this->nextCorrelationId();
             $request->withCorrelationId($this->correlationId);
         }
 
@@ -1324,17 +1340,57 @@ class StreamConnection
             throw new InvalidArgumentException('request() requires a correlated request; use sendMessage()');
         }
         $this->sendMessage($request, $timeout);
+        $correlationId = $request->getCorrelationId();
+        $this->inFlightCorrelationIds[$correlationId] = true;
 
         try {
-            return $this->readResponse($timeout, $request->getCorrelationId());
+            return $this->readResponse($timeout, $correlationId);
         } catch (TimeoutException $exception) {
             // sendMessage() runs outside this try, so a write timeout is not
             // abandoned: the request did not reach the broker. A read timeout
             // can still leave a reply in flight, which must be discarded.
-            $this->abandonCorrelation($request->getCorrelationId());
+            $this->abandonCorrelation($correlationId);
 
             throw $exception;
+        } finally {
+            // Runs after abandonCorrelation(), so the id is never free for reuse
+            // while a late reply for it can still arrive.
+            unset($this->inFlightCorrelationIds[$correlationId]);
         }
+    }
+
+    /**
+     * Return the next correlation id that no in-flight request, abandoned
+     * request or parked response uses.
+     *
+     * The counter wraps from {@see MAX_CORRELATION_ID} to 1. The ids to skip are
+     * finite, so the loop always ends.
+     */
+    private function nextCorrelationId(): int
+    {
+        $candidate = $this->correlationId;
+        do {
+            $candidate = $candidate >= self::MAX_CORRELATION_ID ? 1 : $candidate + 1;
+        } while ($this->isCorrelationIdBusy($candidate));
+
+        return $candidate;
+    }
+
+    private function isCorrelationIdBusy(int $correlationId): bool
+    {
+        $isInUse = isset($this->inFlightCorrelationIds[$correlationId])
+            || isset($this->abandonedCorrelationIds[$correlationId]);
+        if ($isInUse) {
+            return true;
+        }
+
+        foreach ($this->pendingResponses as $pending) {
+            if ($pending['correlationId'] === $correlationId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function maintainHeartbeat(): void
