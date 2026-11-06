@@ -50,6 +50,19 @@ class CheckApiSignatureTest extends TestCase
         }
         PHP;
 
+    private const STREAM_V1 = <<<'PHP'
+        <?php
+
+        namespace CrazyGoat\RabbitStream\Api;
+
+        class Stream
+        {
+            public function __construct(string $name)
+            {
+            }
+        }
+        PHP;
+
     /** @var list<string> */
     private array $tempDirs = [];
 
@@ -211,6 +224,76 @@ class CheckApiSignatureTest extends TestCase
         $this->assertSame(2, $exit);
         $this->assertStringContainsString('No release tag', $stderr);
         $this->assertStringContainsString('git fetch --tags --unshallow', $stderr);
+    }
+
+    public function testPassesWhenAnOptionalConstructorParameterIsAppended(): void
+    {
+        $withOptional = str_replace(
+            '__construct(string $name)',
+            '__construct(string $name, int $limit = 5)',
+            self::STREAM_V1
+        );
+        $this->assertStringContainsString('int $limit = 5', $withOptional);
+        $root = $this->makeRepository(
+            ['Api/Stream.php' => self::STREAM_V1],
+            ['Api/Stream.php' => $withOptional],
+        );
+
+        [$exit, $stdout, $stderr] = $this->runCheck($root);
+
+        $this->assertSame(0, $exit, $stderr);
+        $this->assertStringContainsString('0 break(s), 0 allowed.', $stdout);
+    }
+
+    public function testFailsWhenARequiredConstructorParameterIsAppended(): void
+    {
+        $withRequired = str_replace(
+            '__construct(string $name)',
+            '__construct(string $name, int $limit)',
+            self::STREAM_V1
+        );
+        $root = $this->makeRepository(
+            ['Api/Stream.php' => self::STREAM_V1],
+            ['Api/Stream.php' => $withRequired],
+        );
+
+        [$exit, , $stderr] = $this->runCheck($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('BREAK changed M|CrazyGoat\RabbitStream\Api\Stream::__construct', $stderr);
+    }
+
+    public function testFailsWhenAConstructorParameterIsRenamed(): void
+    {
+        $renamed = str_replace('__construct(string $name)', '__construct(string $title)', self::STREAM_V1);
+        $root = $this->makeRepository(
+            ['Api/Stream.php' => self::STREAM_V1],
+            ['Api/Stream.php' => $renamed],
+        );
+
+        [$exit, , $stderr] = $this->runCheck($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('BREAK changed M|CrazyGoat\RabbitStream\Api\Stream::__construct', $stderr);
+    }
+
+    public function testFailsWhenAnOptionalParameterIsAppendedToANormalMethod(): void
+    {
+        $withOptional = str_replace(
+            'send(string $stream, int $count = 1)',
+            'send(string $stream, int $count = 1, int $limit = 5)',
+            self::CLIENT_V1,
+        );
+        $this->assertStringContainsString('int $limit = 5', $withOptional);
+        $root = $this->makeRepository(
+            ['Api/Client.php' => self::CLIENT_V1],
+            ['Api/Client.php' => $withOptional],
+        );
+
+        [$exit, , $stderr] = $this->runCheck($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('BREAK changed M|CrazyGoat\RabbitStream\Api\Client::send', $stderr);
     }
 
     /** @return array{0: int, 1: string, 2: string} */

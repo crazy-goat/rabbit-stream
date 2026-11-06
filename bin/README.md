@@ -162,6 +162,8 @@ The script fails on these changes:
 - a removed or changed public member (method, property, constant, enum case, type, or an
   interface that a class no longer implements),
 - a new abstract or interface method, because each implementer must change.
+- a changed constructor parameter, except an optional parameter added at the end. The
+  constructor exception does not apply to other methods.
 
 New classes, new optional methods, new constants, properties and enum cases, and new
 interfaces on a class do not fail.

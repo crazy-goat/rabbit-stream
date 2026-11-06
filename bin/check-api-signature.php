@@ -204,7 +204,7 @@ function findBreaks(array $previous, array $current): array
     foreach ($previous as $key => $value) {
         if (!array_key_exists($key, $current)) {
             $breaks[$key] = sprintf('removed %s (was %s)', $key, $value);
-        } elseif ($current[$key] !== $value) {
+        } elseif ($current[$key] !== $value && !isCompatibleConstructor($key, $value, $current[$key])) {
             $breaks[$key] = sprintf('changed %s: %s -> %s', $key, $value, $current[$key]);
         }
     }
@@ -221,6 +221,77 @@ function findBreaks(array $previous, array $current): array
     ksort($breaks);
 
     return $breaks;
+}
+
+/**
+ * A constructor may gain optional parameters at the end. Nothing else may change:
+ * the flags, the return type, the existing parameters (name, type, default, by-ref,
+ * variadic) and their order. PHP does not check constructors for LSP, and a new
+ * optional argument does not break a caller that uses positional or named arguments.
+ */
+function isCompatibleConstructor(string $key, string $previous, string $current): bool
+{
+    if (!str_starts_with($key, 'M|') || !str_ends_with($key, '::__construct')) {
+        return false;
+    }
+
+    [$previousHead, $previousParams] = splitMethodValue($previous);
+    [$currentHead, $currentParams] = splitMethodValue($current);
+    if ($previousHead !== $currentHead || str_contains($previousHead, 'abstract=1')) {
+        return false;
+    }
+
+    $oldParameters = decodeParameters($previousParams);
+    $newParameters = decodeParameters($currentParams);
+    if ($oldParameters === null || $newParameters === null || count($newParameters) < count($oldParameters)) {
+        return false;
+    }
+
+    foreach ($oldParameters as $index => $parameter) {
+        if ($newParameters[$index]['signature'] !== $parameter['signature']) {
+            return false;
+        }
+    }
+
+    foreach (array_slice($newParameters, count($oldParameters)) as $parameter) {
+        if (!$parameter['optional']) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/** @return array{string, string} the flags and the parameter list of a method value */
+function splitMethodValue(string $value): array
+{
+    $parts = explode(';params=', $value, 2);
+
+    return [$parts[0], $parts[1] ?? ''];
+}
+
+/** @return list<array{signature: string, optional: bool}>|null */
+function decodeParameters(string $json): ?array
+{
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) {
+        return null;
+    }
+
+    $parameters = [];
+    foreach ($decoded as $item) {
+        if (
+            !is_array($item)
+            || !isset($item['signature'], $item['optional'])
+            || !is_string($item['signature'])
+            || !is_bool($item['optional'])
+        ) {
+            return null;
+        }
+        $parameters[] = ['signature' => $item['signature'], 'optional' => $item['optional']];
+    }
+
+    return $parameters;
 }
 
 /**
@@ -372,27 +443,30 @@ function describeType(string $name): array
     return $lines;
 }
 
+/** @return string JSON list of {signature, optional}; optional means a default value and not variadic */
 function describeParameters(ReflectionFunctionAbstract $function): string
 {
-    $parts = [];
+    $parameters = [];
     foreach ($function->getParameters() as $parameter) {
-        $part = sprintf(
+        $signature = sprintf(
             '%s%s$%s:%s',
             $parameter->isPassedByReference() ? '&' : '',
             $parameter->isVariadic() ? '...' : '',
             $parameter->getName(),
             (string) ($parameter->getType() ?? 'none')
         );
+        $optional = false;
         if ($parameter->isDefaultValueAvailable()) {
             $default = $parameter->isDefaultValueConstant()
                 ? 'const ' . $parameter->getDefaultValueConstantName()
                 : describeValue($parameter->getDefaultValue());
-            $part .= '=' . $default;
+            $signature .= '=' . $default;
+            $optional = !$parameter->isVariadic();
         }
-        $parts[] = $part;
+        $parameters[] = ['signature' => $signature, 'optional' => $optional];
     }
 
-    return '(' . implode(', ', $parts) . ')';
+    return (string) json_encode($parameters, JSON_UNESCAPED_SLASHES);
 }
 
 function describeValue(mixed $value): string

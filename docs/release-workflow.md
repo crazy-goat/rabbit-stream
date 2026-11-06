@@ -35,6 +35,12 @@ The CI step `api-signature` (`bin/check-api-signature.php`) compares `src/` with
 `vX.Y.Z` tag. It fails when a public member is removed or changed, or when a new abstract
 or interface method is added.
 
+A constructor is an exception. The check passes when a constructor gains optional
+parameters at the end. Each new parameter must have a default value. The check fails when
+a constructor parameter is renamed, when its type or default changes, or when a required
+parameter is added. Other methods keep the strict rule: an optional parameter added to a
+normal method is a break.
+
 To accept an intended break:
 
 1. Run `php bin/check-api-signature.php`. Copy the key from the `BREAK` line. The key starts with `M|`, `P|`, `C|`, `E|`, `T|` or `I|`, and follows `removed`, `changed` or `added required member`. For example: `M|CrazyGoat\RabbitStream\Client\Producer::send`.
