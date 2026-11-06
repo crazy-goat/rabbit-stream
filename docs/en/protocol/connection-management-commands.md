@@ -302,28 +302,31 @@ Resolves an offset specification to a concrete offset value.
 
 **Request Frame Structure:**
 ```
-Key:        0x001f (uint16)
-Version:    1 (uint16)
-CorrelationId: (uint32)
-stream:        string
-reference:     string (offset reference name)
-offsetSpec:    OffsetSpec (variable encoding)
+Key:            0x001f (uint16)
+Version:        1 (uint16)
+CorrelationId:  (uint32)
+stream:         string
+offsetSpec:     OffsetSpecification (uint16 type, then offset value if the type needs one)
+properties:     int32 count, then count pairs of Key (string) and Value (string)
 ```
 
 **Request Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
 | `stream` | string | Stream name |
-| `reference` | string | Offset reference (consumer group) |
 | `offsetSpec` | OffsetSpec | Offset specification to resolve |
+| `properties` | map of string to string | Request properties. The client sends an empty map by default. |
+
+The client sends the properties in the order of the PHP array. The supported properties are `filter.` (prefix for filter values, for example `filter.0`), `match-unfiltered` and `chunk_selector`.
 
 **Response Frame Structure:**
 ```
-Key:        0x801f (uint16)
-Version:    1 (uint16)
-CorrelationId: (uint32) - matches request
-ResponseCode:  uint16 (0x0001 = OK)
-offset:        uint64 (resolved offset value)
+Key:            0x801f (uint16)
+Version:        1 (uint16)
+CorrelationId:  (uint32) - matches request
+ResponseCode:   uint16 (0x0001 = OK)
+OffsetType:     uint16 (always 4 = offset)
+offset:         uint64 (resolved offset value)
 ```
 
 **Response Fields:**
