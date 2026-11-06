@@ -1159,12 +1159,38 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame(4, $pos);
     }
 
-    public function testDecodeArray8WithIntAndString(): void
+    public function testDecodeArray8OfSmallints(): void
     {
-        // size=7 (count byte + 6 content bytes), count=2: smalluint 1 (0x52 0x01), str8 "hi" (0xa1 0x02 'hi')
-        [$value, $pos] = AmqpDecoder::decodeValue("\xe0\x07\x02\x52\x01\xa1\x02hi", 0);
-        $this->assertSame([1, 'hi'], $value);
-        $this->assertSame(9, $pos);
+        // AMQP 1.0 layout: size=4 (count byte + constructor + 2 element bodies),
+        // count=2, one constructor smallint (0x54) for both elements, values 65 and 66
+        [$value, $pos] = AmqpDecoder::decodeValue("\xe0\x04\x02\x54\x41\x42", 0);
+        $this->assertSame([65, 66], $value);
+        $this->assertSame(6, $pos);
+    }
+
+    public function testDecodeArray8OfStrings(): void
+    {
+        // size=8, count=2, one constructor str8 (0xa1) for both elements: "hi" and "yo"
+        [$value, $pos] = AmqpDecoder::decodeValue("\xe0\x08\x02\xa1\x02hi\x02yo", 0);
+        $this->assertSame(['hi', 'yo'], $value);
+        $this->assertSame(10, $pos);
+    }
+
+    public function testDecodeArray32OfSmallints(): void
+    {
+        // array32, same single-constructor layout: size=7 (count, constructor, 2 bytes),
+        // count=2, constructor 0x54
+        [$value, $pos] = AmqpDecoder::decodeValue("\xf0\x00\x00\x00\x07\x00\x00\x00\x02\x54\x41\x42", 0);
+        $this->assertSame([65, 66], $value);
+        $this->assertSame(12, $pos);
+    }
+
+    public function testDecodeArray8OfNullsTakesNoBytesPerElement(): void
+    {
+        // null constructor (0x40) has no body: count=5 needs no element bytes
+        [$value, $pos] = AmqpDecoder::decodeValue("\xe0\x02\x05\x40", 0);
+        $this->assertSame([null, null, null, null, null], $value);
+        $this->assertSame(4, $pos);
     }
 
     public function testDecodeArray8Empty(): void
@@ -1192,17 +1218,16 @@ class AmqpDecoderTest extends TestCase
         $this->assertSame(9, $pos);
     }
 
-    public function testDecodeArray8WithNestedValues(): void
+    public function testDecodeArray8OfLists(): void
     {
-        // array8 containing a list8 and a map8:
-        // list8 [1, 2] = c0 05 02 52 01 52 02 (7 bytes)
-        // map8 {3: 4}   = c1 05 02 53 03 53 04 (7 bytes)
-        $inner = "\xc0\x05\x02\x52\x01\x52\x02" . "\xc1\x05\x02\x53\x03\x53\x04";
-        $size = 1 + strlen($inner);
-        $data = "\xe0" . chr($size) . "\x02" . $inner;
+        // array8 of two list8 values: one constructor list8 (0xc0) for both, then the bodies
+        // list8 body = size (1) + count (1) + elements: [1, 2] = 05 02 52 01 52 02 (6 bytes)
+        // list8 body [3, 4] = 05 02 52 03 52 04 (6 bytes)
+        $body = "\x05\x02\x52\x01\x52\x02" . "\x05\x02\x52\x03\x52\x04";
+        $data = "\xe0" . chr(2 + strlen($body)) . "\x02\xc0" . $body;
         [$value, $pos] = AmqpDecoder::decodeValue($data, 0);
-        $this->assertSame([[1, 2], [3 => 4]], $value);
-        $this->assertSame(17, $pos);
+        $this->assertSame([[1, 2], [3, 4]], $value);
+        $this->assertSame(16, $pos);
     }
 
     public function testDecodeArray8OfArrays(): void
@@ -1218,12 +1243,13 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeArray32HonestLargeFrameThrowsBeforeAllocating(): void
     {
         // Mirrors the #449 list32 PoC: an *honest* array32 whose count truthfully
-        // equals the available bytes, above MAX_COMPOUND_ELEMENTS. The
-        // available-bytes guard does NOT fire (count == available); the element
-        // cap does — before the loop allocates the multi-hundred-MB array.
+        // equals the available bytes, above MAX_COMPOUND_ELEMENTS. The constructor is
+        // a smalluint (0x52), so each element is 1 body byte. The available-bytes
+        // guard does NOT fire (count == available); the element cap does, before the
+        // loop allocates the multi-hundred-MB array.
         $count = 131073; // MAX_COMPOUND_ELEMENTS (131072) + 1
-        $content = str_repeat("\x40", $count);
-        $size = $count + 4; // 4 count bytes + count content bytes
+        $content = "\x52" . str_repeat("\x00", $count);
+        $size = 4 + 1 + $count; // 4 count bytes + constructor + count body bytes
         $payload = "\xf0" . pack('N', $size) . pack('N', $count) . $content;
         $baseline = memory_get_usage(true);
 
@@ -1245,19 +1271,18 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeArray32AtElementCapDecodes(): void
     {
         // Boundary: an honest array32 with exactly MAX_COMPOUND_ELEMENTS elements
-        // must be accepted — only count > 131072 is rejected. Each element is a
-        // 1-byte null (0x40), so the fixture is ~128 KB and the decode is bounded
-        // by the available-bytes guard (count == available).
+        // must be accepted — only count > 131072 is rejected. The constructor is a
+        // smalluint (0x52), so each element is one body byte (0).
         $count = 131072; // exactly MAX_COMPOUND_ELEMENTS
-        $content = str_repeat("\x40", $count);
-        $size = $count + 4; // 4 count bytes + count content bytes
+        $content = "\x52" . str_repeat("\x00", $count);
+        $size = 4 + 1 + $count; // 4 count bytes + constructor + count body bytes
         $payload = "\xf0" . pack('N', $size) . pack('N', $count) . $content;
         $baseline = memory_get_usage(true);
 
         [$value, $pos] = AmqpDecoder::decodeValue($payload, 0);
         assert(is_array($value));
         $this->assertCount($count, $value);
-        $this->assertNull($value[0]);
+        $this->assertSame(0, $value[0]);
         $this->assertSame(strlen($payload), $pos);
 
         // A truthful frame at the cap decodes with bounded memory (~128 KB input
@@ -1269,29 +1294,28 @@ class AmqpDecoderTest extends TestCase
     {
         $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Array32 count 4 exceeds available bytes 1');
-        // declares count=4 but only 1 content byte
-        AmqpDecoder::decodeValue("\xf0\x00\x00\x00\x05\x00\x00\x00\x04\x40", 0);
+        // declares count=4, constructor smallint (0x52), but only 1 byte after the constructor
+        AmqpDecoder::decodeValue("\xf0\x00\x00\x00\x06\x00\x00\x00\x04\x52\x01", 0);
     }
 
     public function testDecodeArray32MultiByteElementsOverrunStillThrows(): void
     {
-        // Multi-byte-element variant of the available-bytes guard: with 2-byte
-        // elements a count can sit at or under the available-byte total while the
-        // elements still cannot fit (3 × 2 = 6 bytes needed, 4 declared). The
-        // up-front guard does not fire (3 <= 4); the per-element loop guard
-        // rejects the frame before the third element is read.
+        // Multi-byte-element variant of the overrun guard: constructor short (0x61)
+        // takes 2 bytes per element. Content after the constructor is 3 bytes, so the
+        // up-front guard does not fire (count 3 <= 3 bytes). The second element
+        // needs bytes 12 and 13, past the content end at 13, so the per-element guard fires.
         $this->expectException(DeserializationException::class);
         $this->expectExceptionMessage('Array32 count exceeds available data');
-        // size=8 (count bytes + 4 content bytes), count=3, elements: two smalluints so far
-        AmqpDecoder::decodeValue("\xf0\x00\x00\x00\x08\x00\x00\x00\x03\x52\x01\x52\x02", 0);
+        // size=8 (count bytes + 4 content bytes), count=3, constructor short, two shorts
+        AmqpDecoder::decodeValue("\xf0\x00\x00\x00\x08\x00\x00\x00\x03\x61\x00\x01\x00\x02", 0);
     }
 
     public function testDecodeArray8CountExceedsSizeThrows(): void
     {
         $this->expectException(DeserializationException::class);
-        $this->expectExceptionMessage('Array8 count exceeds available data');
-        // size=2 (count byte + 1 content byte), count=2 — only room for one element
-        AmqpDecoder::decodeValue("\xe0\x02\x02\x40\x41", 0);
+        $this->expectExceptionMessage('Array8 count 2 exceeds available bytes 0');
+        // size=2 (count byte + constructor), count=2 — no bytes left for the elements
+        AmqpDecoder::decodeValue("\xe0\x02\x02\x52\x41", 0);
     }
 
     public function testDecodeArray8SizeMismatchThrows(): void
@@ -1323,8 +1347,8 @@ class AmqpDecoderTest extends TestCase
     public function testDecodeMessageBodyAsArray(): void
     {
         // AmqpValue body wrapping an array8 of two strings
-        $array = "\xe0\x07\x02\xa1\x01a\xa1\x01b";
-        $body = "\x00\x53\x76" . $array; // AmqpValue section carrying an array8
+        $array = "\xe0\x06\x02\xa1\x01a\x01b";
+        $body = "\x00\x53\x77" . $array; // AmqpValue (0x77) section carrying an array8
         $decoded = AmqpDecoder::decodeMessage($body);
         $this->assertSame(['a', 'b'], $decoded['body']);
     }
