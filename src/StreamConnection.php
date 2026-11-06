@@ -60,20 +60,35 @@ class StreamConnection
      * The reason of a failed stream_socket_client() call.
      *
      * The socket error text is used when PHP set it. Otherwise the PHP warnings
-     * carry the reason, for example a TLS peer name that did not match (GitHub #928).
+     * carry the reason, for example a TLS peer name that did not match. The OpenSSL
+     * errors follow, for example a wrong key passphrase (GitHub #928). Whitespace runs
+     * become one space, so the message stays on one line.
      *
-     * @param list<string> $warnings The PHP warnings that the call emitted
+     * @param list<string> $warnings      The PHP warnings that the call emitted
+     * @param list<string> $opensslErrors The OpenSSL errors that the call left in the queue
      */
-    private function describeConnectFailure(?string $errorMessage, ?int $errorCode, array $warnings): string
-    {
+    private function describeConnectFailure(
+        ?string $errorMessage,
+        ?int $errorCode,
+        array $warnings,
+        array $opensslErrors
+    ): string {
         $code = $errorCode ?? 0;
+        $reasons = [];
         if ($errorMessage !== null && $errorMessage !== '') {
-            return "{$errorMessage} ({$code})";
+            $reasons[] = "{$errorMessage} ({$code})";
+        } else {
+            foreach ($warnings as $warning) {
+                $reasons[] = (string) preg_replace('/^stream_socket_client\(\): /', '', $warning);
+            }
+        }
+        foreach (array_slice(array_unique($opensslErrors), 0, self::MAX_OPENSSL_REASONS) as $opensslError) {
+            $reasons[] = $opensslError;
         }
 
         $reasons = array_values(array_unique(array_map(
-            static fn (string $warning): string => (string) preg_replace('/^stream_socket_client\(\): /', '', $warning),
-            $warnings
+            static fn (string $reason): string => trim((string) preg_replace('/\s+/', ' ', $reason)),
+            $reasons
         )));
         if ($reasons === []) {
             return "unknown error ({$code})";
@@ -311,6 +326,11 @@ class StreamConnection
     private const MAX_ABANDONED_CORRELATION_IDS = 64;
 
     /**
+     * The most OpenSSL errors that a failed TLS connect puts in its exception message (GitHub #928).
+     */
+    private const MAX_OPENSSL_REASONS = 5;
+
+    /**
      * Correlation ids of requests that already timed out and whose reply, if it
      * ever arrives, must be discarded rather than handed to another caller.
      * Filled by {@see abandonCorrelation()}, consumed by {@see readResponse()}
@@ -382,14 +402,30 @@ class StreamConnection
         $context = stream_context_create($options);
 
         // A failed TLS handshake leaves $errorMessage empty. PHP reports the reason only
-        // as warnings, so a temporary handler collects them (GitHub #928).
+        // as warnings and notices, so a temporary handler collects them (GitHub #928).
+        // Other levels go to the previous handler.
         $warnings = [];
-        set_error_handler(
-            static function (int $number, string $message) use (&$warnings): bool {
+        $previousHandler = set_error_handler(
+            static function (
+                int $number,
+                string $message,
+                string $file = '',
+                int $line = 0
+            ) use (
+                &$warnings,
+                &$previousHandler
+            ): bool {
+                if (($number & (E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE)) === 0) {
+                    if ($previousHandler === null) {
+                        return false;
+                    }
+                    return (bool) $previousHandler($number, $message, $file, $line);
+                }
                 $warnings[] = $message;
                 return true;
             }
         );
+        $opensslErrors = [];
         try {
             $stream = stream_socket_client(
                 sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
@@ -401,18 +437,18 @@ class StreamConnection
             );
         } finally {
             restore_error_handler();
-            // Clear the OpenSSL error queue, so that stale errors do not reach a later
-            // openssl_error_string() call of the application (GitHub #928).
+            // Take every queued OpenSSL error, so that stale errors do not reach a later
+            // openssl_error_string() call of the application. The reason is kept (GitHub #928).
             if ($useTls && function_exists('openssl_error_string')) {
-                while (openssl_error_string() !== false) {
-                    // Discard each queued error.
+                while (($opensslError = openssl_error_string()) !== false) {
+                    $opensslErrors[] = $opensslError;
                 }
             }
         }
         if ($stream === false) {
             throw new ConnectionException(
                 "Cannot connect to {$scheme}://{$this->host}:{$this->port}: " .
-                $this->describeConnectFailure($errorMessage, $errorCode, $warnings)
+                $this->describeConnectFailure($errorMessage, $errorCode, $warnings, $opensslErrors)
             );
         }
 

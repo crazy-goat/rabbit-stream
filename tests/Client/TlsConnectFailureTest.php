@@ -12,12 +12,14 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * A failed TLS handshake must name its reason in the ConnectionException message (GitHub #928).
- * PHP reports that reason only as warnings, so the test runs a real TLS listener in a child
- * process. The certificate is for broker.test and the client connects to 127.0.0.1, so the
- * peer name check fails.
+ * PHP reports that reason only as warnings, and OpenSSL reports the key errors in its queue.
+ * The test runs a real TLS listener in a child process. The certificate is for broker.test and
+ * the client connects to 127.0.0.1, so the peer name check fails.
  */
 final class TlsConnectFailureTest extends TestCase
 {
+    private const PASSPHRASE = 'secret-pass-928';
+
     private string $dir = '';
 
     /** @var resource|null */
@@ -40,6 +42,12 @@ final class TlsConnectFailureTest extends TestCase
             proc_close($this->server);
         }
         $this->server = null;
+
+        // setUp() skips before it creates the directory, so the path is empty then.
+        // Delete only a directory that this test created in the temp directory.
+        if ($this->dir === '' || !str_starts_with($this->dir, sys_get_temp_dir() . '/')) {
+            return;
+        }
 
         foreach (glob($this->dir . '/*') ?: [] as $file) {
             unlink($file);
@@ -70,25 +78,76 @@ final class TlsConnectFailureTest extends TestCase
         }
     }
 
-    public function testFailedTlsConnectClearsTheOpenSslErrorQueue(): void
+    public function testWrongPassphraseReasonIsInMessageWithoutThePassphrase(): void
     {
         $port = $this->startTlsServer();
+        $this->writeEncryptedClientKey();
 
         $connection = new StreamConnection(
             '127.0.0.1',
             $port,
             socketTimeout: 3.0,
-            tls: new TlsConfig(cafile: $this->dir . '/cert.pem')
+            tls: $this->wrongPassphraseConfig()
         );
 
         try {
             $connection->connect();
-            self::fail('Expected ConnectionException: the peer name does not match');
+            self::fail('Expected ConnectionException: the key passphrase is wrong');
+        } catch (ConnectionException $e) {
+            $message = $e->getMessage();
+            self::assertStringStartsWith("Cannot connect to ssl://127.0.0.1:{$port}: ", $message);
+            // The OpenSSL reason is only in the error queue, not in a PHP warning.
+            self::assertStringContainsString('bad decrypt', $message);
+            self::assertStringNotContainsString(self::PASSPHRASE, $message);
+            self::assertStringNotContainsString("\n", $message);
+        }
+    }
+
+    public function testFailedTlsConnectClearsTheOpenSslErrorQueue(): void
+    {
+        $port = $this->startTlsServer();
+        $this->writeEncryptedClientKey();
+
+        $connection = new StreamConnection(
+            '127.0.0.1',
+            $port,
+            socketTimeout: 3.0,
+            tls: $this->wrongPassphraseConfig()
+        );
+
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException: the key passphrase is wrong');
         } catch (ConnectionException) {
             // Expected: the reason is checked in the test above.
         }
 
         self::assertFalse(openssl_error_string(), 'A failed TLS connect left OpenSSL errors in the queue');
+    }
+
+    private function wrongPassphraseConfig(): TlsConfig
+    {
+        return new TlsConfig(
+            cafile: $this->dir . '/cert.pem',
+            localCert: $this->dir . '/cert.pem',
+            localPk: $this->dir . '/ckey.pem',
+            passphrase: 'wrong-' . self::PASSPHRASE,
+        );
+    }
+
+    /**
+     * Write a client key that is encrypted with PASSPHRASE. The test connects with another
+     * passphrase, so PHP cannot load the key.
+     */
+    private function writeEncryptedClientKey(): void
+    {
+        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        self::assertNotFalse($key, 'Cannot create a client key');
+        self::assertTrue(
+            openssl_pkey_export_to_file($key, $this->dir . '/ckey.pem', self::PASSPHRASE),
+            'Cannot write the client key'
+        );
+        $this->drainOpenSslErrors();
     }
 
     /**
@@ -108,6 +167,9 @@ final class TlsConnectFailureTest extends TestCase
         self::assertNotFalse($cert, 'Cannot sign the certificate');
         self::assertTrue(openssl_x509_export_to_file($cert, $certFile));
         self::assertTrue(openssl_pkey_export_to_file($key, $keyFile));
+        // Key generation leaves OpenSSL errors in the queue. Clear them, so that a test
+        // sees only the errors of its own connect.
+        $this->drainOpenSslErrors();
 
         $script = $this->dir . '/server.php';
         file_put_contents($script, <<<'PHP'
@@ -147,5 +209,12 @@ final class TlsConnectFailureTest extends TestCase
         self::assertSame("ready\n", fgets($pipes[1]), 'The TLS test server did not start');
 
         return $port;
+    }
+
+    private function drainOpenSslErrors(): void
+    {
+        while (openssl_error_string() !== false) {
+            // Discard each queued error.
+        }
     }
 }
