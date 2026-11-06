@@ -43,25 +43,28 @@ code throws the specific exception class; `fromStreamBuffer()` still returns
 `null` for *graceful* parse failure and throws only for hard protocol errors
 via `assertResponseCodeOk()`. Do not reintroduce bare `\Exception`.
 
-### Pre-push hook runs `composer lint`; lint is a gate, never lowered
+### Pre-push hook runs `bin/lint.sh`; lint is a gate, never lowered
 <!-- id=DEC-003 date=2025-05-20 tags=ci,git-hooks,lint,policy trigger="when adding or editing .git/hooks/pre-push, bin/install-hooks.sh, or the lint scripts" hits=1 status=active -->
 
-`.git/hooks/pre-push` runs `composer lint` (PHPCS PSR-12 + Rector dry-run +
-PHPStan level 9 + `bin/kb-lint.php`) before every push. To skip in an
-emergency: `git push --no-verify` — CI will still say no, that is the point.
-`composer lint` is also a required CI check on `main` (branch protection:
-`lint`, `unit-tests (PHP 8.1-8.4)`, `e2e-tests`). Lowering a gate — disabling
-a linter rule, relaxing the PHPStan level — to make a round or a CI run green
-is forbidden; a metric improved by weakening its own check measures nothing.
+The pre-push hook (`bin/hooks/pre-push`, installed by `bin/install-hooks.sh`)
+runs `bin/lint.sh` before every push. `bin/lint.sh` lists every lint step.
+To skip the hook in an emergency, run `git push --no-verify`. CI runs the same
+script, so the failure moves to CI.
 
-### Branch naming: `feature/issue-NNN-<slug>` on `main` (not `master`)
+The only required check on `main` is `ci-ok`. For code changes, `ci-ok`
+needs the jobs `lint`, `unit-tests` (PHP 8.1 to 8.5) and `e2e-tests` to
+succeed (`.github/workflows/ci.yml`).
+
+Do not lower a gate, for example by disabling a linter rule or by relaxing
+the PHPStan level, to make a round or a CI run green. A metric that improves
+because its own check became weaker measures nothing.
+
+### Branch naming: `<type>/issue-<N>-<slug>` on `main` (not `master`)
 <!-- id=DEC-004 date=2025-05-20 tags=naming,conventions trigger="when creating a feature branch" hits=0 status=active -->
 
-This repository's default branch is **`main`** and its existing feature
-branches all follow `feature/issue-NNN-<slug>`
-(`feature/issue-9-delete-publisher`, `feature/issue-347-keyenum-fallback`).
-Do **not** use `feat/`/`fix/` prefixes — the type lives in the commit message
-(`feat`/`fix`/`docs`/…) and in issue labels, not in the branch name. A
-`process/` prefix is reserved for changes to the workflow itself
-(`docs/workflow.md`, `.github/workflows/*`, `composer.json` scripts,
-`run-e2e.sh`, the git hooks).
+The default branch is **`main`**. `bin/worktree.sh <N>` creates the branch
+`<type>/issue-<N>-<slug>` from `origin/main`. The `<type>` is one of `feat`,
+`fix`, `docs`, `refactor`, `test` or `chore`. The script takes the type from
+the second argument, or from the `type:*` label of the issue when no argument
+is given. Use no other prefix. `bin/worktree-done.sh` finds the worktree by
+the `/issue-<N>-` part of the branch name.
