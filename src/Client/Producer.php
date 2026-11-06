@@ -903,8 +903,9 @@ class Producer implements ProducerInterface
      * Grows on each successful send/sendBatch/sendWithFilter and shrinks as
      * PublishConfirm/PublishError frames are dispatched (via waitForConfirms(),
      * readLoop(), the maxPendingConfirms back-pressure drain or close()). On
-     * connection loss or a failed DeletePublisher in close(), any remaining ids
-     * are reported failed and removed from this count; see
+     * connection loss, publisher loss (the stream was deleted or the broker
+     * forgot the publisher) or a failed DeletePublisher in close(), any
+     * remaining ids are reported failed and removed from this count; see
      * getLostConfirmCount() for cumulative loss accounting.
      *
      * @return int Current number of outstanding (unconfirmed) publishes.

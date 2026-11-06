@@ -133,9 +133,9 @@ interface ProducerInterface
     /**
      * Number of publishes whose outcomes became unknowable to this producer.
      *
-     * Includes publishes lost on connection or broker failure, on a failed
-     * DeletePublisher exchange in close(), or on a bounded close confirm-drain
-     * timeout.
+     * Includes publishes lost on connection loss, publisher loss (the stream was
+     * deleted or the broker forgot the publisher), a failed DeletePublisher
+     * exchange in close(), or a bounded close confirm-drain timeout.
      *
      * @return int Cumulative number of publishes reported lost.
      */

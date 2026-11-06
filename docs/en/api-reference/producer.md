@@ -242,6 +242,7 @@ None
 - `DeserializationException` - If a response or server-push frame read while draining confirms cannot be deserialized
 - `ProtocolException` - If the `DeletePublisher` response has an unexpected version or command
 - `TimeoutException` - If the `DeletePublisher` response does not arrive in time
+- An exception thrown by a user callback during the `DeletePublisher` exchange also reaches the caller. `close()` rethrows that exception.
 
 #### Example
 
@@ -419,8 +420,9 @@ echo $producer->getPendingConfirms(); // 0
 ### getLostConfirmCount()
 
 Cumulative number of publishes whose outcomes became unknowable to this producer.
-This includes publishes lost on connection or broker failure, publishes failed by
-a failed `DeletePublisher` exchange in `close()`, and publishes whose confirms were
+This includes publishes lost on connection loss, publisher loss (the stream was
+deleted or the broker forgot the publisher), a failed `DeletePublisher` exchange in
+`close()`, and publishes whose confirms were
 abandoned by the bounded `close()` drain timeout (since #522).
 
 ```php
@@ -459,8 +461,11 @@ if ($producer->getLostConfirmCount() > 0) {
   the number of affected publishing ids, and a bounded prefix of them (at most
   10 ids in the log context, regardless of how many were outstanding), so
   operators can tell "the broker stopped confirming" from "everything drained".
-- A failed `DeletePublisher` exchange in `close()` also counts here. Those ids
-  are reported through `onConfirm` and removed from `getPendingConfirms()`.
+- Connection-loss, publisher-loss and failed-`DeletePublisher` ids are reported
+  through `onConfirm` as failed and removed from `getPendingConfirms()`. Connection
+  loss and a failed `DeletePublisher` use `Producer::CONNECTION_LOST_ERROR_CODE`
+  (`0x10000`); publisher loss uses the broker response code. Each of these ids is
+  also counted here.
 - The counter is not reset by `close()`; `close()` is idempotent, so it cannot
   double-count.
 - After a drain timeout, the stranded ids are still visible through
