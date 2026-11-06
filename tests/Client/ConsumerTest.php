@@ -33,6 +33,9 @@ use PHPUnit\Framework\TestCase;
 
 class ConsumerTest extends TestCase
 {
+    /** Set while a test builds a consumer that reuses a closed consumer's subscription id (#885). */
+    private bool $lateCreditErrorDuringSubscribe = false;
+
     private function makeConnection(): StreamConnection
     {
         $connection = $this->createMock(StreamConnection::class);
@@ -266,6 +269,58 @@ class ConsumerTest extends TestCase
 
         // A stale error must not prevent normal reads after the subscription is restored.
         $this->assertSame([], $consumer->read(timeout: 0.0));
+    }
+
+    public function testLateCreditErrorForClosedConsumerDoesNotReachConsumerThatReusesTheId(): void
+    {
+        $metadataHandler = null;
+        $creditErrorHandler = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())->method('registerSubscriber');
+        $connection->expects($this->any())
+            ->method('registerCreditErrorHandler')
+            ->willReturnCallback(function (int $id, callable $handler) use (&$creditErrorHandler): void {
+                $creditErrorHandler = $handler;
+            });
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(
+                function (string $stream, string $handlerId, callable $callback) use (&$metadataHandler): void {
+                    $metadataHandler = $callback;
+                }
+            );
+        $connection->expects($this->any())->method('request')
+            ->willReturnCallback(function (object $request) use (&$creditErrorHandler): object {
+                if ($request instanceof SubscribeRequestV1 && $this->lateCreditErrorDuringSubscribe) {
+                    // The first consumer sent a Credit before it was lost and closed. The broker
+                    // answers that Credit before it answers the Subscribe of the consumer that
+                    // reuses subscription id 1, so the stale error arrives during that Subscribe.
+                    $this->assertIsCallable($creditErrorHandler);
+                    $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x04, 'subscriptionId' => 1]));
+                }
+                return new \stdClass();
+            });
+
+        $first = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $this->assertIsCallable($metadataHandler);
+        $metadataHandler();
+        $first->close();
+
+        $this->lateCreditErrorDuringSubscribe = true;
+        $second = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        $this->lateCreditErrorDuringSubscribe = false;
+
+        $this->assertSame([], $second->read(timeout: 0.0));
+
+        // A rejected credit on the live subscription of the second consumer is still an error.
+        $this->assertIsCallable($creditErrorHandler);
+        $creditErrorHandler(CreditResponseV1::fromArray(['responseCode' => 0x04, 'subscriptionId' => 1]));
+        try {
+            $second->read(timeout: 0.0);
+            self::fail('A credit error on the live subscription must still be raised');
+        } catch (ProtocolException $exception) {
+            $this->assertSame(ResponseCodeEnum::SUBSCRIPTION_ID_NOT_EXIST, $exception->getResponseCode());
+        }
     }
 
     public function testStaleCreditErrorWhileResubscribingIsIgnoredAndLaterCreditErrorIsRaised(): void
