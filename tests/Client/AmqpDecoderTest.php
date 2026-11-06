@@ -907,6 +907,21 @@ class AmqpDecoderTest extends TestCase
         AmqpDecoder::decodeValue("\xc1\x04\x02\x40\x52\x01", 0);
     }
 
+    public function testUnsupportedMapKeyMessageDescribesCurrentRule(): void
+    {
+        // The message must not claim that the key is mapped to '' (the rule was changed by #525).
+        try {
+            AmqpDecoder::decodeValue("\xc1\x04\x02\x40\x52\x01", 0);
+            $this->fail('A null map key must be rejected');
+        } catch (DeserializationException $e) {
+            $this->assertSame(
+                'Map8 key of type null cannot be represented as a PHP array key '
+                . '(only int and string keys are supported)',
+                $e->getMessage()
+            );
+        }
+    }
+
     public function testMap8WithListKeyIsRejected(): void
     {
         // list0 (0x45) as a key: a non-scalar AMQP value, previously stored under ''.
