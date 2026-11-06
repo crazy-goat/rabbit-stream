@@ -475,6 +475,10 @@ class Consumer implements ConsumerInterface
             $this->buffer = [];
             $this->bufferHead = 0;
             $this->unreadCount = 0;
+            // The position of this member is stale once it is demoted. Without this
+            // reset, a close() after reactivation would store it (see close()).
+            $this->messagesProcessed = 0;
+            $this->hasProcessedMessage = false;
         }
 
         if ($this->consumerUpdateCallback instanceof \Closure) {
@@ -583,7 +587,8 @@ class Consumer implements ConsumerInterface
                     // already-yielded messages visible as a partial chunk.
                     $this->deliveryOffsetFilter = $deliveryOffsetFilter;
                     // A demoted member drops the chunk: the broker has given the
-                    // partition to another member. The credit is still replenished below.
+                    // partition to another member. The credit is still counted below,
+                    // but sendPendingCredits() sends nothing while the member is inactive.
                     if ($this->active) {
                         foreach ($messagesToBuffer as $message) {
                             $this->buffer[] = $message;
@@ -681,7 +686,9 @@ class Consumer implements ConsumerInterface
      * (heartbeats, a producer's publish confirms on the same connection,
      * ConsumerUpdate) are handled transparently and do not end the wait. When
      * nothing arrived within $timeout it returns an empty array — never null;
-     * use readOne() for the single-message form.
+     * use readOne() for the single-message form. While isActive() is false it
+     * waits up to $timeout for the broker to activate this consumer, then returns
+     * an empty array.
      *
      * @param float $timeout Seconds to wait for at least one message before
      *                            returning whatever the buffer holds; `0` returns
@@ -729,6 +736,9 @@ class Consumer implements ConsumerInterface
     {
         $deadline = microtime(true) + $timeout;
         while (!$this->hasUnread() && $timeout > 0) {
+            // Credit held back while the buffer was full or the member was inactive
+            // must reach the broker before the wait, or nothing is delivered.
+            $this->sendPendingCredits();
             if (!$this->resubscribeIfLost()) {
                 // Stream still gone: keep servicing the socket until the next
                 // attempt is due (or the caller's deadline passes).
@@ -762,7 +772,8 @@ class Consumer implements ConsumerInterface
     /**
      * Non-blocking drain of whatever messages are already buffered, without
      * reading any incoming frames (no readLoop() call; it may still send a
-     * withheld-credit frame). Returns an empty array if nothing is buffered —
+     * withheld-credit frame). While isActive() is false it returns an empty array
+     * and sends no credit. Returns an empty array if nothing is buffered —
      * mirrors the tail of read() exactly, so read() itself is defined in terms
      * of this method.
      *
@@ -776,6 +787,7 @@ class Consumer implements ConsumerInterface
     public function drain(): array
     {
         if ($this->unreadCount === 0 || !$this->active) {
+            $this->sendPendingCredits();
             return [];
         }
 
@@ -807,7 +819,9 @@ class Consumer implements ConsumerInterface
      * removes and returns the oldest message. Frames other than Deliver
      * (heartbeats, a producer's publish confirms, ConsumerUpdate) are handled
      * transparently and do not end the wait. Unlike read(), which returns the
-     * whole batch, this returns one message or null on timeout.
+     * whole batch, this returns one message or null on timeout. While isActive()
+     * is false it waits up to $timeout for the broker to activate this consumer,
+     * then returns null.
      *
      * @param float $timeout Seconds to wait for a message before giving up; `0`
      *                            returns immediately with whatever is already
@@ -841,6 +855,7 @@ class Consumer implements ConsumerInterface
         // A paused single-active-consumer member returns nothing until the broker
         // activates it again.
         if ($this->unreadCount === 0 || !$this->active) {
+            $this->sendPendingCredits();
             return null;
         }
 
@@ -1046,8 +1061,11 @@ class Consumer implements ConsumerInterface
 
     private function sendPendingCredits(): void
     {
+        // The broker answers a Credit for an inactive single-active-consumer
+        // subscription with PRECONDITION_FAILED. The credit waits until activation.
         if (
             $this->creditError instanceof ProtocolException
+            || !$this->active
             || $this->pendingCredits <= 0
         ) {
             return;

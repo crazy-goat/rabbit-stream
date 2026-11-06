@@ -648,8 +648,9 @@ stored offset (or its initial `OffsetSpec` if nothing was stored yet). When
 it is deactivated, it drops its unread messages and stores no offset. The
 next active consumer resumes from the last stored offset. Messages that this
 consumer processed after its last stored offset can come again, so make
-your processing safe to repeat. While `isActive()` is `false`, `read()` and
-`readOne()` return no messages. Override this with `onConsumerUpdate()`:
+your processing safe to repeat. While `isActive()` is `false`, `read()`,
+`readOne()` and `drain()` return no messages. Override this with
+`onConsumerUpdate()`:
 
 ```php
 $consumer->onConsumerUpdate(function (bool $active, $consumer): ?OffsetSpec {

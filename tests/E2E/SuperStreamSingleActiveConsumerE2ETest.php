@@ -95,6 +95,12 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         }
         $this->assertNotNull($admin->queryOffset($group, $partitions[1]), 'A must store an offset of partition 1');
 
+        // A keeps partition 1 messages unread. Without them the old code has nothing to return.
+        $this->assertTrue(
+            $a->getConsumers()[$partitions[1]]->hasUnread(),
+            'A must hold unread partition 1 messages before the handover'
+        );
+
         $b = $connectionB->createSuperStreamConsumer(
             $this->superStream,
             OffsetSpec::first(),
@@ -103,8 +109,8 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             singleActiveConsumer: true,
         );
 
-        // Wait until the broker has moved partition 1 from A to B. The read of
-        // A's connection dispatches the ConsumerUpdate that demotes A.
+        // Wait until the broker has moved partition 1 from A to B. The read on A's
+        // connection dispatches the ConsumerUpdate that demotes A.
         $deadline = microtime(true) + 20.0;
         while (microtime(true) < $deadline && ($a->isActive($partitions[1]) || !$b->isActive($partitions[1]))) {
             $connectionA->queryOffset($group, $partitions[0]);
@@ -113,29 +119,44 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         $this->assertFalse($a->isActive($partitions[1]), 'A must be demoted on partition 1');
         $this->assertTrue($b->isActive($partitions[1]), 'B must be active on partition 1');
 
-        $storedBefore = $admin->queryOffset($group, $partitions[1]);
+        // B reads partition 1 up to offset 9 and stores its progress.
+        $deadline = microtime(true) + 20.0;
+        $lastRead = null;
+        while ($lastRead !== 9 && microtime(true) < $deadline) {
+            $message = $b->readOne(timeout: 0.5);
+            $lastRead = $message?->getOffset();
+        }
+        $this->assertSame(9, $lastRead, 'B must read partition 1 up to offset 9');
+        $storedByB = $admin->queryOffset($group, $partitions[1]);
+        $this->assertSame($storedByB, 9, 'B must store offset 9 for partition 1');
 
-        // A must not return a message of partition 1 after its demotion.
+        // A reads after its demotion. Each read must leave the stored offset unchanged.
+        $streamsReturnedByA = [];
         for ($i = 0; $i < 12; $i++) {
             $message = $a->readOne(timeout: 0.5);
-            if (!$message instanceof Message) {
-                continue;
-            }
-            $this->assertNotSame(
-                $partitions[1],
-                $message->getStream(),
-                'Demoted member returned a message of the lost partition'
+            $this->assertSame(
+                $storedByB,
+                $admin->queryOffset($group, $partitions[1]),
+                'A read must not move the stored offset of partition 1'
             );
+            if ($message instanceof Message) {
+                $streamsReturnedByA[] = $message->getStream();
+            }
         }
+        $this->assertNotContains(
+            $partitions[1],
+            $streamsReturnedByA,
+            'Demoted member returned a message of the lost partition'
+        );
 
-        // B reads on and stores its progress. A's stale position must not replace it.
-        for ($i = 0; $i < 12; $i++) {
-            $b->readOne(timeout: 0.5);
-        }
-        $storedAfter = $admin->queryOffset($group, $partitions[1]);
-        $this->assertGreaterThanOrEqual($storedBefore, $storedAfter);
+        // A closes. Its stale position must not replace the offset that B stored.
+        $a->close();
+        $this->assertSame(
+            $storedByB,
+            $admin->queryOffset($group, $partitions[1]),
+            'The demoted member must not move the stored offset of partition 1 back'
+        );
 
         $b->close();
-        $a->close();
     }
 }
