@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Consumer: a chunk that arrives after the subscription was lost is dropped and no longer causes duplicate messages (#993)** — the deliver callback parsed and buffered a Deliver chunk of the old subscription after a MetadataUpdate. The re-subscribe resumes at the same offsets, so the user read those messages twice. A stale chunk that arrived during the re-subscribe request could also clear the resume-offset filter, so messages before the resume offset reached the user. The callback now drops a chunk while the subscription is lost, without parsing it. A corrupt stale chunk no longer throws. `tests/Client/ConsumerTest.php` covers the duplicate messages and the resume-offset filter.
+
 ## [1.14.0] - 2026-11-06
 
 ### Changed
