@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - **Consumer: a chunk that arrives after the subscription was lost is dropped and no longer causes duplicate messages (#993)** — the deliver callback parsed and buffered a Deliver chunk of the old subscription after a MetadataUpdate. The re-subscribe resumes at the same offsets, so the user read those messages twice. A stale chunk that arrived during the re-subscribe request could also clear the resume-offset filter, so messages before the resume offset reached the user. The callback now drops a chunk while the subscription is lost, without parsing it. A corrupt stale chunk no longer throws. `tests/Client/ConsumerTest.php` covers the duplicate messages and the resume-offset filter.
+- **Heartbeat: a stalled mid-frame read closes after two heartbeat intervals (#968)** — a read that waited in the middle of a frame ended only at `socketTimeout` (30 s by default). The heartbeat did not apply there, so a peer that stopped mid-frame was detected late, and no outbound heartbeat was sent during a long read. Now each received byte counts as inbound activity. A mid-frame read closes with "missing inbound frames" when no byte arrives for two heartbeat intervals, and it sends an idle heartbeat when one is due. A slow frame that keeps arriving stays open. The read still ends at `socketTimeout`. `tests/StreamConnectionTest.php` covers the stalled peer, a slow frame within the heartbeat budget, and the outbound heartbeat during a slow read.
 
 ## [1.14.0] - 2026-11-06
 

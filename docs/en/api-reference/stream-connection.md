@@ -99,8 +99,11 @@ peer is detected by the next read or write; a timed-out read alone does not
 mark a still-valid stream as disconnected. When created through `Connection::create()`,
 the negotiated heartbeat is retained: active library I/O sends an idle heartbeat
 once per interval and closes the connection after two intervals without inbound
-frames. Heartbeats are not maintained while application code runs outside a library
-call. A negotiated interval of zero disables heartbeat handling.
+data. Inbound data is any byte received, so a slow frame that keeps arriving is
+not a silent peer. A read that waits in the middle of a frame also applies this
+rule, and it sends an idle heartbeat while it waits. The read still ends at
+`socketTimeout`. Heartbeats are not maintained while application code runs outside
+a library call. A negotiated interval of zero disables heartbeat handling.
 
 ## Frame I/O Methods
 
