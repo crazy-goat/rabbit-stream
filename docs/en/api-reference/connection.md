@@ -429,11 +429,13 @@ public function getStreamStats(string $name): array
 
 #### Return Value
 
-`array<string, int>` - Associative array of statistics. Common keys include:
-- `publishers` - Number of active publishers
-- `consumers` - Number of active consumers
-- `messages` - Total number of messages in the stream
-- `bytes` - Total size of the stream in bytes
+`array<string, int>` - Associative array of statistics. The broker sends these keys:
+- `first_chunk_id` - ID of the first chunk in the stream
+- `last_chunk_id` - ID of the last chunk in the stream
+- `committed_chunk_id` - ID of the last committed chunk
+- `committed_offset` - Offset of the last committed message in the stream
+
+An empty stream returns `-1` for each key.
 
 #### Exceptions
 
@@ -444,10 +446,9 @@ public function getStreamStats(string $name): array
 
 ```php
 $stats = $connection->getStreamStats('my-stream');
-echo "Messages: {$stats['messages']}\n";
-echo "Size: {$stats['bytes']} bytes\n";
-echo "Publishers: {$stats['publishers']}\n";
-echo "Consumers: {$stats['consumers']}\n";
+echo "First chunk ID: {$stats['first_chunk_id']}\n";
+echo "Last chunk ID: {$stats['last_chunk_id']}\n";
+echo "Committed offset: {$stats['committed_offset']}\n";
 ```
 
 ---
@@ -1360,7 +1361,7 @@ if (!$connection->streamExists($streamName)) {
 
 // Get stream statistics
 $stats = $connection->getStreamStats($streamName);
-echo "Stream has {$stats['messages']} messages\n";
+echo "Last chunk ID: {$stats['last_chunk_id']}\n";
 
 // Cleanup when needed
 // $connection->deleteStream($streamName);

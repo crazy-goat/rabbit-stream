@@ -406,8 +406,9 @@ super stream as a whole.
 
 ## Monitoring Partition Balance
 
-Check that messages are evenly distributed across partitions using
-`Connection::getStreamStats()` per partition:
+Compare the chunk IDs of each partition with `Connection::getStreamStats()`.
+The broker does not send a message count. A chunk holds several messages, so
+a chunk ID shows how far a partition grew, not how many messages it holds:
 
 ```php
 function checkPartitionBalance(Connection $connection, array $partitions): array
@@ -418,9 +419,8 @@ function checkPartitionBalance(Connection $connection, array $partitions): array
         $raw = $connection->getStreamStats($partition);
 
         $stats[$partition] = [
-            'first_offset' => $raw['first_offset'] ?? 0,
-            'last_offset' => $raw['last_offset'] ?? 0,
-            'message_count' => ($raw['last_offset'] ?? 0) - ($raw['first_offset'] ?? 0) + 1,
+            'first_chunk_id' => $raw['first_chunk_id'],
+            'last_chunk_id' => $raw['last_chunk_id'],
         ];
     }
 
@@ -430,7 +430,7 @@ function checkPartitionBalance(Connection $connection, array $partitions): array
 // Usage
 $stats = checkPartitionBalance($connection, $connection->partitions('orders'));
 foreach ($stats as $partition => $info) {
-    echo "$partition: {$info['message_count']} messages\n";
+    echo "$partition: last chunk {$info['last_chunk_id']}\n";
 }
 ```
 

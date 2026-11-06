@@ -158,26 +158,20 @@ foreach ($stats as $key => $value) {
 
 ### Available Statistics
 
+The broker sends these keys:
+
 | Statistic | Description |
 |-----------|-------------|
-| `first_offset` | Offset of the first message in the stream |
-| `last_offset` | Offset of the last message in the stream |
+| `first_chunk_id` | ID of the first chunk in the stream |
+| `last_chunk_id` | ID of the last chunk in the stream |
 | `committed_chunk_id` | ID of the last committed chunk |
 | `committed_offset` | Offset of the last committed message in the stream |
-| `chunk_count` | Total number of chunks in the stream |
 
-### Calculating Message Count
+An empty stream returns `-1` for each key.
 
-```php
-$stats = $connection->getStreamStats('my-stream');
+### Message Count
 
-$firstOffset = $stats['first_offset'] ?? 0;
-$lastOffset = $stats['last_offset'] ?? 0;
-$messageCount = $lastOffset - $firstOffset + 1;
-
-echo "Stream contains $messageCount messages\n";
-echo "Number of chunks: " . ($stats['chunk_count'] ?? 0) . "\n";
-```
+The broker does not send a message count. A chunk holds one or more messages, and a chunk ID is not a message offset. Do not calculate a message count from these values.
 
 ## Stream Metadata
 
@@ -332,9 +326,9 @@ try {
     
     // 4. Get statistics
     $stats = $connection->getStreamStats($streamName);
-    echo "First offset: {$stats['first_offset']}\n";
-    echo "Last offset: {$stats['last_offset']}\n";
-    echo "Chunk count: {$stats['chunk_count']}\n";
+    echo "First chunk ID: {$stats['first_chunk_id']}\n";
+    echo "Last chunk ID: {$stats['last_chunk_id']}\n";
+    echo "Committed offset: {$stats['committed_offset']}\n";
     
     // 5. Delete stream
     echo "Deleting stream...\n";

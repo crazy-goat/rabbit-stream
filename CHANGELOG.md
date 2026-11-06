@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Docs: the stream statistics examples read only the keys the broker sends (#907)** — the guides, API reference, protocol page, examples and the `getStreamStats()` PHPDoc named `first_offset`, `last_offset`, `chunk_count`, `messages`, `bytes`, `publishers` and `consumers`. RabbitMQ 4.x sends `first_chunk_id`, `last_chunk_id`, `committed_chunk_id` and `committed_offset`. The `?? 0` defaults printed `0` for each missing key, and the message count formula printed `1` for every stream. The examples now read the four keys, and the message count formula is removed. No code or public API changed.
+
 ### Fixed
 - **Message: `getCreationTime()` returns `null` for a value that is not an AMQP timestamp (#943)** — the method cast any scalar to int. A double out of the int range gave a PHP warning and a wrong int, a string such as `"abc"` gave `0`, and a bool gave `1`. Now only an int (the decoded AMQP `timestamp`) gives a value. Any other type gives `null`. The return type is still `?int`, so the public API does not change. `tests/Client/MessageTest.php` covers a numeric string, a non-numeric string, a float, a float out of the int range and a bool.
 - **Consumer: a chunk that arrives after the subscription was lost is dropped and no longer causes duplicate messages (#993)** — the deliver callback parsed and buffered a Deliver chunk of the old subscription after a MetadataUpdate. The re-subscribe resumes at the same offsets, so the user read those messages twice. A stale chunk that arrived during the re-subscribe request could also clear the resume-offset filter, so messages before the resume offset reached the user. The callback now drops a chunk while the subscription is lost, without parsing it. A corrupt stale chunk no longer throws. `tests/Client/ConsumerTest.php` covers the duplicate messages and the resume-offset filter.
