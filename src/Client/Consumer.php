@@ -579,6 +579,18 @@ class Consumer implements ConsumerInterface
                 if ($this->awaitingSubscribeResponse) {
                     return false;
                 }
+                // The broker answers a Credit with PRECONDITION_FAILED when the single active
+                // consumer is inactive. It keeps that credit and grants it again at activation,
+                // so the counters stay valid and no credit is lost (#982). The broker sends
+                // ConsumerUpdate(active=false) before this answer, so an answer that arrives
+                // while the member is active has another cause and is still raised.
+                if (
+                    $this->singleActiveConsumer
+                    && !$this->active
+                    && $response->getResponseCode() === ResponseCodeEnum::PRECONDITION_FAILED->value
+                ) {
+                    return false;
+                }
                 // While the subscription is lost or being re-subscribed, the broker no longer
                 // knows it. A SUBSCRIPTION_ID_NOT_EXIST answer then belongs to a Credit sent
                 // before the stream was deleted, so it is stale and must not poison the

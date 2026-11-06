@@ -76,8 +76,8 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         $admin->createSuperStream($this->superStream, $partitions, ['k0', 'k1']);
         foreach ($partitions as $i => $partition) {
             $producer = $admin->createProducer($partition);
-            // One batch per partition. The broker normally stores one Publish frame as
-            // one chunk, so the consumer holds unread messages when autoCommit stores an offset.
+            // One batch per partition. The chunk layout does not matter: the pump before the
+            // hasUnread() assertion dispatches frames until A holds unread partition 1 messages.
             $producer->sendBatch(array_map(
                 static fn (int $m): string => "p{$i}-m{$m}",
                 range(0, 9),
@@ -113,6 +113,15 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             usleep(50_000);
         }
         $this->assertNotNull($admin->queryOffset($group, $partitions[1]), 'A must store an offset of partition 1');
+
+        // The broker may store partition 1 in more than one chunk, and SuperStreamConsumer reads
+        // A's socket only while no partition has unread messages. Later chunks can wait on the
+        // socket, so pump it without reading until A holds an unread partition 1 message.
+        // readLoop() only dispatches frames into the buffers; it pops no message.
+        $deadline = microtime(true) + 20.0;
+        while (!$a->getConsumers()[$partitions[1]]->hasUnread() && microtime(true) < $deadline) {
+            $connectionA->readLoop(maxFrames: 1, timeout: 0.2);
+        }
 
         // A keeps partition 1 messages unread. Without them the old code has nothing to return.
         $this->assertTrue(
