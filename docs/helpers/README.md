@@ -26,7 +26,7 @@ which runs inside `composer lint`.
    `review-critical` **propose** candidate entries in their report — title,
    suggested tags, trigger, one paragraph — and the retro step decides what
    lands and commits it. Two writers gave us duplicates, unlabelled entries
-   and a file nobody could load selectively; the retro step (step 14 of
+   and a file nobody could load selectively; the retro step (step 7 of
    `docs/workflow.md`) is the single writer. A subagent that "just appends"
    outside that step is doing the wrong thing.
 3. **One topic per entry.** The problem, the solution/decision, optionally an

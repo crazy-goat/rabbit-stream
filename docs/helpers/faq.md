@@ -11,17 +11,20 @@ subagents *propose* candidate entries in their report — they never append
 ## Tag index
 
 <!-- kb-index:start -->
-- `conventions` — FAQ-008
+- `conventions` — FAQ-008, FAQ-009
+- `credit` — FAQ-010
 - `docblocks` — FAQ-008
 - `documentation` — FAQ-007
-- `e2e` — FAQ-001, FAQ-002, FAQ-004
+- `e2e` — FAQ-001, FAQ-002, FAQ-004, FAQ-011
 - `exceptions` — FAQ-007
 - `gh` — FAQ-003
 - `lint` — FAQ-008
 - `offset` — FAQ-004
-- `protocol` — FAQ-002, FAQ-004, FAQ-005, FAQ-006, FAQ-007
+- `protocol` — FAQ-002, FAQ-004, FAQ-005, FAQ-006, FAQ-007, FAQ-010, FAQ-011
 - `rector` — FAQ-008
+- `single-active-consumer` — FAQ-010
 - `socket` — FAQ-002, FAQ-005
+- `tests` — FAQ-009
 <!-- kb-index:end -->
 
 ## Pitfalls
@@ -145,3 +148,20 @@ type and the tag has **no description**;
 gate that only asserts tag *presence* therefore passes for a tag Rector then
 removes. Give every `@return` a one-line description and omit `@return void`
 entirely (`tests/Client/ConnectionDocblockTest.php`, #414).
+
+### Connection destructor sends Close, and constructor paths need typed mock replies
+<!-- id=FAQ-009 date=2026-11-06 tags=tests,conventions trigger="when mocking StreamConnection under a Connection, Producer or Consumer in a unit test" hits=0 status=active -->
+
+`Connection::__destruct()` sends a Close request when the test ends. A `$mock->expects($this->never())->method('request')` assertion counts that call, so the test fails. Record the frames instead and assert on the recorded list. See `recordingMock()` in `tests/Client/ReferenceLimitTest.php`.
+
+A mock that answers `request()` must also return a typed reply for each request that the constructor or offset path sends: `QueryOffsetResponseV1`, `QueryPublisherSequenceResponseV1`, `PartitionsResponseV1`. A plain `CloseResponseV1` reply makes the code throw `UnexpectedResponseException`, which hides the error that the test expects.
+
+### Single-active-consumer deactivation is a step-down handshake
+<!-- id=FAQ-010 date=2026-11-06 tags=protocol,single-active-consumer,credit trigger="when changing the ConsumerUpdate handler, Credit sending or offset stores of a single active consumer" hits=0 status=active -->
+
+Every `active=false` ConsumerUpdate from the coordinator has `stepping_down => true`. The broker activates the successor only after it gets the reply of the demoted member (`rabbit_stream_sac_coordinator.erl` `notify_csr_effect/5`, `rabbit_stream_reader.erl:2871-2876`). So a StoreOffset that the handler sends on the same socket before the reply reaches the broker first. Exception: the coordinator can presume a member down (network partition), and that member can get the notice after a successor is active. So stores must be monotonic. The broker closes the log before it sends the notice. It answers a Credit for an inactive subscription with PRECONDITION_FAILED and keeps the credit (`rabbit_stream_reader.erl:2249-2264`). Do not send Credit while inactive. See #934, PR #978.
+
+### Tests that need unread buffered messages: publish with one sendBatch() and do not poll with readOne()
+<!-- id=FAQ-011 date=2026-11-06 tags=e2e,protocol trigger="when an E2E test needs a Consumer to hold unread buffered messages (hasUnread()) at a given point" hits=0 status=active -->
+
+A Consumer buffers whole chunks. A test holds unread messages only when the messages that it does not read are in a chunk that is already delivered. One `Producer::sendBatch()` call sends one Publish frame, and the broker normally stores one Publish frame as one chunk. This is broker behaviour, not a guarantee: the broker can also merge frames into one chunk (`tests/E2E/LargeMessageE2ETest.php`). Separate `send()` calls with a confirm wait for each message give one message per chunk (FAQ-004: a confirm is a chunk barrier). Then the consumer holds nothing unread after each read. Do not wait for `hasUnread()` in a loop of `readOne()` calls. `readOne()` pops one buffered message per call, so the loop drains each chunk before the check, and no public wait leaves messages unread. Publish the setup data with one `sendBatch()` and `waitForConfirms()`, and assert `hasUnread()` once. See #983 and https://github.com/crazy-goat/rabbit-stream/pull/986.
