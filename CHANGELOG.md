@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Docs: the protocol pages state the heartbeat rule of the client (#969)** — the Server-Push Frames and Connection Management pages said that the connection is dead after one heartbeat interval without frames. The client closes the connection after two heartbeat intervals without inbound data. The pages now say so, that every received byte counts as inbound data (including data that waits unread in the socket), and that the check runs only inside a library call. No code changes.
+
 ### Fixed
 - **Decoder: sections with a symbolic descriptor are read, and the section switch matches strictly (#925)** — `AmqpDecoder` read only the numeric section descriptors (0x70-0x78). A section with a symbolic descriptor, such as `amqp:data:binary`, was skipped with no error, so a Data body became `''`. The symbolic names of the nine AMQP 1.0 sections now map to the same handling as their numeric codes. The section switch also compared loosely, so a boolean `true`, the string `"112"` or the double `112.0` replaced the Header. Only an int or a symbol name now matches a section. An unknown descriptor is still skipped, as before. The body of a message with a symbolic Data section changes from `''` to the data. No public method signature changes. `tests/Client/AmqpDecoderMessageTest.php` covers the symbolic names, the loose descriptors and an unknown symbolic descriptor.
 - **Connection: PeerProperties sends the client's product, version and platform (#921)** — the client sent an empty map, so the broker had no client information. `Connection::create()` now sends `product` (`rabbit-stream`), `version` (the version Composer installed, `unknown` when that is not available) and `platform` (`PHP` and the PHP version). No manual release step is needed. `tests/Client/ConnectionHandshakeTest.php` covers the sent properties.
