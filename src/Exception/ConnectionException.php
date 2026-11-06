@@ -33,4 +33,42 @@ namespace CrazyGoat\RabbitStream\Exception;
  */
 class ConnectionException extends RabbitStreamException
 {
+    private ?int $serverCloseCode = null;
+
+    private ?string $serverCloseReason = null;
+
+    /**
+     * Creates the exception for a connection that the broker closed with a Close frame.
+     *
+     * The message names the closing code and the reason text. Use
+     * {@see getServerCloseCode()} and {@see getServerCloseReason()} to read them.
+     */
+    public static function serverClosed(int $closeCode, string $closeReason): self
+    {
+        $exception = new self(sprintf(
+            'Connection closed by server: code=%d, reason=%s',
+            $closeCode,
+            $closeReason
+        ));
+        $exception->serverCloseCode = $closeCode;
+        $exception->serverCloseReason = $closeReason;
+
+        return $exception;
+    }
+
+    /**
+     * The closing code of the broker's Close frame, or null when the broker did not close the connection.
+     */
+    public function getServerCloseCode(): ?int
+    {
+        return $this->serverCloseCode;
+    }
+
+    /**
+     * The reason text of the broker's Close frame, or null when the broker did not close the connection.
+     */
+    public function getServerCloseReason(): ?string
+    {
+        return $this->serverCloseReason;
+    }
 }

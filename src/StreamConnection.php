@@ -38,6 +38,9 @@ class StreamConnection
     private int $heartbeatInterval = 0;
     private float $lastReadAt = 0.0;
     private float $lastWriteAt = 0.0;
+    /** Closing code and reason of the broker's last Close frame; read when the read throws. */
+    private ?int $serverCloseCode = null;
+    private ?string $serverCloseReason = null;
     /**
      * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
      * used for BOTH transports because TLS in PHP is only available through
@@ -1448,7 +1451,14 @@ class StreamConnection
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
-                    throw new ConnectionException("Connection closed by server");
+                    if ($this->serverCloseCode === null) {
+                        throw new ConnectionException("Connection closed by server");
+                    }
+
+                    throw ConnectionException::serverClosed(
+                        $this->serverCloseCode,
+                        $this->serverCloseReason ?? ''
+                    );
                 }
 
                 continue;
@@ -1850,6 +1860,8 @@ class StreamConnection
         $correlationId = $frame->getUint32();
         $closingCode = $frame->getUint16();
         $closingReason = $frame->getString();
+        $this->serverCloseCode = $closingCode;
+        $this->serverCloseReason = $closingReason ?? '';
         if ($this->debugLogging) {
             $this->logger->debug(sprintf(
                 'Server-initiated close: code=%d, reason=%s',

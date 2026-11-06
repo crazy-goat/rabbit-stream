@@ -201,6 +201,29 @@ class StreamConnectionTest extends TestCase
         fclose($serverSocket);
     }
 
+    public function testServerCloseCodeAndReasonAreKeptOnTheException(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Close frame from the broker: key, version, correlation id, code 320, reason.
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 8) . 'bye fast';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        try {
+            $connection->request(new CreateRequestV1('close-reason'), 2.0);
+            self::fail('Expected ConnectionException after a server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Connection closed by server: code=320, reason=bye fast', $exception->getMessage());
+            self::assertSame(320, $exception->getServerCloseCode());
+            self::assertSame('bye fast', $exception->getServerCloseReason());
+        }
+
+        self::assertFalse($connection->isConnected());
+        fclose($serverSocket);
+    }
+
     public function testReadFrameAcceptsFloatTimeout(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);
