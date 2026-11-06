@@ -32,6 +32,7 @@ Welcome to the RabbitStream documentation! RabbitStream is a PHP library impleme
 - [WriteBuffer](en/api-reference/write-buffer.md) - Binary serialization for requests
 - [ReadBuffer](en/api-reference/read-buffer.md) - Binary deserialization for responses
 - [ResponseBuilder](en/api-reference/response-builder.md) - Response parsing and dispatch
+- [OpenResponseV1](en/api-reference/open-response.md) - Open response, advertised host and port
 - [Enums](en/api-reference/enums.md) - Protocol enums and constants
 - [Value Objects](en/api-reference/value-objects.md) - Data transfer objects
 
