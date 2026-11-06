@@ -401,6 +401,15 @@ class StreamConnection
         }
         $context = stream_context_create($options);
 
+        // Clear the OpenSSL errors that the application left in the queue, so that the
+        // reason of this connect is the only one that the failure message can report.
+        // The queue is bounded, and each openssl_error_string() call takes one entry (GitHub #928).
+        if ($useTls && function_exists('openssl_error_string')) {
+            while (openssl_error_string() !== false) {
+                // Discard each queued error.
+            }
+        }
+
         // A failed TLS handshake leaves $errorMessage empty. PHP reports the reason only
         // as warnings and notices, so a temporary handler collects them (GitHub #928).
         // Other levels go to the previous handler.

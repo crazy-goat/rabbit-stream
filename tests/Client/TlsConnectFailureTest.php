@@ -125,6 +125,33 @@ final class TlsConnectFailureTest extends TestCase
         self::assertFalse(openssl_error_string(), 'A failed TLS connect left OpenSSL errors in the queue');
     }
 
+    public function testOpenSslErrorLeftBeforeConnectIsNotReportedAsItsReason(): void
+    {
+        // A closed port: the connect fails with "Connection refused", and no TLS error occurs.
+        $probe = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+        self::assertIsResource($probe, "Cannot listen: {$errorMessage} ({$errorCode})");
+        $port = (int) substr((string) strrchr((string) stream_socket_get_name($probe, false), ':'), 1);
+        fclose($probe);
+
+        // The application leaves an OpenSSL error in the queue before it calls connect().
+        self::assertFalse(openssl_pkey_get_private('not a key'));
+
+        $connection = new StreamConnection(
+            '127.0.0.1',
+            $port,
+            socketTimeout: 1.0,
+            tls: new TlsConfig()
+        );
+
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException: the port is closed');
+        } catch (ConnectionException $e) {
+            self::assertStringStartsWith("Cannot connect to ssl://127.0.0.1:{$port}: ", $e->getMessage());
+            self::assertStringNotContainsString('error:', $e->getMessage());
+        }
+    }
+
     private function wrongPassphraseConfig(): TlsConfig
     {
         return new TlsConfig(
