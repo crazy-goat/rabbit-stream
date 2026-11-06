@@ -423,7 +423,7 @@ class MessageTest extends TestCase
         $this->assertNull($msg->getCreationTime());
     }
 
-    public function testCreationTimeCastsStringToInt(): void
+    public function testCreationTimeReturnsNullForNumericString(): void
     {
         $msg = new Message(
             offset: 0,
@@ -431,10 +431,21 @@ class MessageTest extends TestCase
             body: '',
             properties: ['creation-time' => '1700000000']
         );
-        $this->assertSame(1700000000, $msg->getCreationTime());
+        $this->assertNull($msg->getCreationTime());
     }
 
-    public function testCreationTimeTruncatesFloat(): void
+    public function testCreationTimeReturnsNullForNonNumericString(): void
+    {
+        $msg = new Message(
+            offset: 0,
+            timestamp: 0,
+            body: '',
+            properties: ['creation-time' => 'abc']
+        );
+        $this->assertNull($msg->getCreationTime());
+    }
+
+    public function testCreationTimeReturnsNullForFloat(): void
     {
         $msg = new Message(
             offset: 0,
@@ -442,7 +453,29 @@ class MessageTest extends TestCase
             body: '',
             properties: ['creation-time' => 1700000000.99]
         );
-        $this->assertSame(1700000000, $msg->getCreationTime());
+        $this->assertNull($msg->getCreationTime());
+    }
+
+    public function testCreationTimeReturnsNullForFloatOutOfIntRange(): void
+    {
+        $msg = new Message(
+            offset: 0,
+            timestamp: 0,
+            body: '',
+            properties: ['creation-time' => 1.3e24]
+        );
+        $this->assertNull($msg->getCreationTime());
+    }
+
+    public function testCreationTimeReturnsNullForBool(): void
+    {
+        $msg = new Message(
+            offset: 0,
+            timestamp: 0,
+            body: '',
+            properties: ['creation-time' => true]
+        );
+        $this->assertNull($msg->getCreationTime());
     }
 
     public function testGroupIdReturnsNullForNonScalarValue(): void

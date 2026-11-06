@@ -2532,6 +2532,83 @@ class ConsumerTest extends TestCase
         $this->assertSame(1, $this->getCreditsInFlight($consumer));
     }
 
+    public function testChunkDeliveredAfterSubscriptionLostBuffersNothingAndIsNotDuplicated(): void
+    {
+        [$consumer, $deliver] = $this->lostConsumerWithAdaptiveWindow();
+
+        // A stale Deliver of the old subscription arrives after the MetadataUpdate.
+        $deliver($this->deliverOf($this->buildChunk(['a', 'b', 'c'], 0)));
+        $this->assertFalse($consumer->hasUnread());
+        $this->assertSame([], $consumer->drain());
+
+        $this->assertTrue($consumer->resubscribeIfLost());
+
+        // The broker resumes at the same offsets and sends them again.
+        $deliver($this->deliverOf($this->buildChunk(['a', 'b', 'c'], 0)));
+        $this->assertSame([0, 1, 2], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->drain()
+        ));
+    }
+
+    public function testStaleChunkDuringResubscribeKeepsResumeOffsetFilter(): void
+    {
+        $deliverCallback = null;
+        $metadataHandler = null;
+        $subscribes = 0;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $callback) use (&$deliverCallback): void {
+                $deliverCallback = $callback;
+            });
+        $connection->expects($this->any())
+            ->method('registerMetadataUpdateHandler')
+            ->willReturnCallback(
+                function (string $stream, string $handlerId, callable $callback) use (&$metadataHandler): void {
+                    $metadataHandler = $callback;
+                }
+            );
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('request')
+            ->willReturnCallback(function (object $request) use (&$subscribes, &$deliverCallback): object {
+                if ($request instanceof StreamStatsRequestV1) {
+                    return new StreamStatsResponseV1([
+                        new Statistic('committed_offset', 109),
+                    ]);
+                }
+                if ($request instanceof SubscribeRequestV1) {
+                    $subscribes++;
+                    if ($subscribes === 2 && $deliverCallback !== null) {
+                        // A stale Deliver of the old subscription arrives inside the re-subscribe request().
+                        $deliverCallback($this->deliverOf($this->buildChunk(['m105', 'm106', 'm107'], 105)));
+                    }
+                }
+                return new \stdClass();
+            });
+
+        $consumer = new Consumer($connection, 'test-stream', 1, OffsetSpec::first());
+        (new \ReflectionProperty($consumer, 'lastOffset'))->setValue($consumer, 104);
+        (new \ReflectionProperty($consumer, 'hasProcessedMessage'))->setValue($consumer, true);
+        $this->assertIsCallable($metadataHandler);
+        $metadataHandler();
+        $this->assertTrue($consumer->resubscribeIfLost());
+        $this->assertSame(2, $subscribes);
+        $this->assertFalse($consumer->hasUnread(), 'The stale chunk must not be buffered');
+
+        // The first chunk of the new subscription starts before the resume offset (105).
+        $this->assertIsCallable($deliverCallback);
+        $deliverCallback($this->deliverOf($this->buildChunk(
+            ['m103', 'm104', 'm105', 'm106', 'm107', 'm108'],
+            103
+        )));
+
+        $this->assertSame([105, 106, 107, 108], array_map(
+            static fn(Message $message): int => $message->getOffset(),
+            $consumer->drain()
+        ));
+    }
+
     /**
      * @return array{0: Consumer, 1: callable, 2: callable, 3: CapturedObjects<object>}
      */
