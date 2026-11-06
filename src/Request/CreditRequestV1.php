@@ -19,8 +19,8 @@ class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, KeyV
     use CommandTrait;
 
     /**
-     * The broker decodes the Credit field as a signed int16, although PROTOCOL.adoc says uint16.
-     * A larger value becomes negative on the broker side and stops delivery silently.
+     * PROTOCOL.adoc and the broker both define the Credit field as a signed int16.
+     * A value above 32767 becomes negative on the broker side and stops delivery with no error.
      */
     public const MAX_CREDIT = 32767;
 
@@ -42,7 +42,7 @@ class CreditRequestV1 implements ToStreamBufferInterface, ToArrayInterface, KeyV
     {
         return self::getKeyVersion()
             ->addUInt8($this->subscriptionId)
-            ->addUInt16($this->credit);
+            ->addInt16($this->credit);
     }
 
     /** @return array<string, int> */

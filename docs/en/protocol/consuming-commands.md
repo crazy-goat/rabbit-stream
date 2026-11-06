@@ -195,7 +195,7 @@ subscriptionId: uint8
 ```
 
 > **Cap: 32767.** RabbitMQ decodes the Credit field as a signed 16-bit integer.
-> A value of 32768 or above becomes negative on the broker side. The broker then stops the subscription and sends no error.
+> A value of 32768 or above becomes negative on the broker side. The broker then stops delivery to the subscription and sends no error.
 > `CreditRequestV1` throws `InvalidArgumentException` for a credit outside 0 to 32767.
 > The high-level `Consumer` caps every credit frame at `Consumer::MAX_CREDIT = 32767`.
 
