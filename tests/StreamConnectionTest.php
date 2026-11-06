@@ -835,6 +835,85 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    public function testCorrelationIdWrapsToOneAfterTheMaximumValue(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        (new \ReflectionProperty($connection, 'correlationId'))->setValue($connection, 4294967295);
+
+        $connection->sendMessage(new CreateRequestV1('wrapped'));
+
+        // The request is written with id 1, not with the out-of-range id 4294967296.
+        $payload = $this->readResponse($serverSocket);
+        $this->assertIsString($payload);
+        $unpacked = unpack('N', $payload, 4);
+        $this->assertIsArray($unpacked);
+        $this->assertSame(1, $unpacked[1]);
+        $this->assertSame(1, (new \ReflectionProperty($connection, 'correlationId'))->getValue($connection));
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testCorrelationIdSkipsAbandonedIdAfterWrap(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        (new \ReflectionProperty($connection, 'correlationId'))->setValue($connection, 4294967295);
+        $connection->abandonCorrelation(1);
+
+        // A late reply for id 1 must not match the next request, so id 2 is used.
+        $connection->sendMessage(new CreateRequestV1('after-wrap'));
+
+        $payload = $this->readResponse($serverSocket);
+        $this->assertIsString($payload);
+        $unpacked = unpack('N', $payload, 4);
+        $this->assertIsArray($unpacked);
+        $this->assertSame(2, $unpacked[1]);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testNestedRequestDoesNotReuseTheInFlightIdAfterWrap(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // The outer request() holds id 1 while it waits. A ConsumerUpdate handler
+        // then moves the counter to its maximum, so the nested request() wraps to
+        // 1. It must skip 1, which is still in flight, and use 2.
+        fwrite($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $inner = null;
+        $connection->registerConsumerUpdateHandler(1, function () use ($connection, &$inner): OffsetSpec {
+            (new \ReflectionProperty($connection, 'correlationId'))->setValue($connection, 4294967295);
+            $inner = $connection->request(new CreateRequestV1('inner'), 1.0);
+            return OffsetSpec::offset(42);
+        });
+
+        $outer = $connection->request(new CreateRequestV1('outer'), 1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $outer);
+        $this->assertSame(1, $outer->getCorrelationId());
+        $this->assertInstanceOf(CreateResponseV1::class, $inner);
+        $this->assertSame(2, $inner->getCorrelationId());
+
+        // Both requests have finished, so no id is left marked as in flight.
+        $this->assertSame([], (new \ReflectionProperty($connection, 'inFlightCorrelationIds'))->getValue($connection));
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
     public function testRequestParksResponsesOfOtherCorrelationIds(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
@@ -859,9 +938,12 @@ class StreamConnectionTest extends TestCase
             // Expected: only request() may consume the parked response.
         }
 
-        $parked = $connection->request(new CreateRequestV1('b'), 1.0);
-        $this->assertInstanceOf(CreateResponseV1::class, $parked);
-        $this->assertSame(2, $parked->getCorrelationId());
+        // Id 2 is still parked, and no request holds it, so the next request does
+        // not reuse it. It gets id 3 and its own reply.
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 3) . pack('n', 1)));
+        $next = $connection->request(new CreateRequestV1('b'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $next);
+        $this->assertSame(3, $next->getCorrelationId());
 
         fclose($serverSocket);
         fclose($clientSocket);
