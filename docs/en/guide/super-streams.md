@@ -407,8 +407,9 @@ super stream as a whole.
 ## Monitoring Partition Balance
 
 Compare the chunk IDs of each partition with `Connection::getStreamStats()`.
-The broker does not send a message count. A chunk holds several messages, so
-a chunk ID shows how far a partition grew, not how many messages it holds:
+The broker does not send a message count. A chunk holds one or more messages.
+The last chunk ID is the offset of the first message in the newest chunk. Compare
+it between partitions only as an approximate size:
 
 ```php
 function checkPartitionBalance(Connection $connection, array $partitions): array

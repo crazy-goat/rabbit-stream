@@ -430,12 +430,12 @@ public function getStreamStats(string $name): array
 #### Return Value
 
 `array<string, int>` - Associative array of statistics. The broker sends these keys:
-- `first_chunk_id` - ID of the first chunk in the stream
-- `last_chunk_id` - ID of the last chunk in the stream
-- `committed_chunk_id` - ID of the last committed chunk
-- `committed_offset` - Offset of the last committed message in the stream
+- `first_chunk_id` - Offset of the first message in the first chunk of the stream
+- `last_chunk_id` - Offset of the first message in the last chunk of the stream
+- `committed_chunk_id` - ID of the last committed chunk. A chunk ID is the offset of the first message in that chunk. A chunk is committed when a quorum of replicas confirms it.
+- `committed_offset` - Offset of the last entry in the committed chunk. This is not a consumer's stored offset. The last entry can be an offset-tracking record, not a user message.
 
-An empty stream returns `-1` for each key.
+A new stream with no messages returns `-1` for each key.
 
 #### Exceptions
 

@@ -775,7 +775,7 @@ $array = $version->toArray();
 
 Stream statistics key-value pair. Located in `src/VO/Statistic.php`.
 
-The `Statistic` value object represents a single stream statistic as a key-value pair, where the value is an integer. The broker sends `-1` for a stream statistic that has no value, such as each key of an empty stream.
+The `Statistic` value object represents a single stream statistic as a key-value pair, where the value is an integer. A new stream with no messages returns `-1` for each statistic key.
 
 ### Constructor
 

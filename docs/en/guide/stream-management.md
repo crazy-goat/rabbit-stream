@@ -162,16 +162,16 @@ The broker sends these keys:
 
 | Statistic | Description |
 |-----------|-------------|
-| `first_chunk_id` | ID of the first chunk in the stream |
-| `last_chunk_id` | ID of the last chunk in the stream |
-| `committed_chunk_id` | ID of the last committed chunk |
-| `committed_offset` | Offset of the last committed message in the stream |
+| `first_chunk_id` | Offset of the first message in the first chunk of the stream |
+| `last_chunk_id` | Offset of the first message in the last chunk of the stream |
+| `committed_chunk_id` | ID of the last committed chunk. A chunk ID is the offset of the first message in that chunk. A chunk is committed when a quorum of replicas confirms it. |
+| `committed_offset` | Offset of the last entry in the committed chunk. This is not a consumer's stored offset. The last entry can be an offset-tracking record, not a user message. |
 
-An empty stream returns `-1` for each key.
+A new stream with no messages returns `-1` for each key.
 
 ### Message Count
 
-The broker does not send a message count. A chunk holds one or more messages, and a chunk ID is not a message offset. Do not calculate a message count from these values.
+A chunk ID is the offset of the first message in that chunk. A chunk holds one or more messages, so `last_chunk_id` is not the offset of the last message. The broker does not send a message count. Do not calculate a message count from these values.
 
 ## Stream Metadata
 
