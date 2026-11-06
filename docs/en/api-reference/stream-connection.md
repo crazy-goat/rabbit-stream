@@ -341,7 +341,11 @@ public function onConsumerUpdate(callable $callback): void
 **Parameters:**
 - `$callback` - Receives `ConsumerUpdateResponseV1`, must return `[int $offsetType, int $offset]`. For the value-less `none`/`first`/`last`/`next` types (0–3), the offset must be `0`.
 
-**Throws:** `InvalidArgumentException` (from the read loop or `readMessage()`) if the callback returns anything other than a two-element list of ints — the return value is validated before the reply is built, so a malformed return fails with a clear message instead of a PHP warning and a `TypeError`. `InvalidArgumentException` is also thrown for an offset type outside 0–5, and for a non-zero offset with a value-less type.
+**Throws:** `InvalidArgumentException` (from the read loop or `readMessage()`) in these cases. Each case sends a `none` reply to the broker before the exception is rethrown:
+- the global callback returns anything other than a two-element list of ints. The return value is checked before the reply is built, so a malformed return fails with a clear message instead of a PHP warning and a `TypeError`.
+- a per-subscription handler returns a value that is neither an `OffsetSpec` nor `null`
+- the offset type is outside 0–5
+- a value-less type (`none`, `first`, `last` or `next`, values 0 to 3) has a non-zero offset
 
 ## Event Loop Methods
 
@@ -367,9 +371,12 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
   - no inbound data arrives for two heartbeat intervals. The connection then closes.
   - a frame is incomplete and its read times out. The connection then closes.
   - a heartbeat write times out during an incomplete frame. The connection then closes.
+  - a frame is larger than the maximum frame size. The connection then closes.
 - `DeserializationException` if a server-push frame cannot be deserialized
-- `InvalidArgumentException` if a registered `ConsumerUpdate` handler returns an offset type outside the range 0 to 5
+- `InvalidArgumentException` if a registered `ConsumerUpdate` callback or handler returns an invalid reply. The cases are listed under `onConsumerUpdate()`.
 - `TimeoutException` if a reply this loop must send cannot be written within the socket timeout
+
+An exception that a `ConsumerUpdate` callback or handler throws reaches the caller of `readLoop()`, after the loop sends a `none` reply.
 
 A signal delivered while the loop waits (`SIGTERM` from a graceful shutdown, `SIGALRM` from a watchdog, …) interrupts `select(2)` with `EINTR`. The loop retries that wait instead of failing, so a handler that calls `stop()` shuts the loop down cleanly. The retry is bounded: a wait that completes resets the count, and an unbroken run of more than 1,000,000 interruptions raises `ConnectionException`. It takes roughly 16,700 signals per second, sustained for a minute, to reach that bound, so no ordinary watchdog, supervisor or shutdown handler can. Each retry blocks in `select(2)` until the next signal rather than spinning, so the wait costs 0.4% of a core at ~875 signals per second and 2.7% at ~14,900/s, rising to 15.8% at a pegged ~136,000/s storm — which the bound then trips after 7.4s. With `$timeout = null` this bound is the only thing that can end the loop, because the loop has no deadline of its own.
 

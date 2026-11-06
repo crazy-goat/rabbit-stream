@@ -1152,9 +1152,12 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
   - no inbound data arrives for two heartbeat intervals. The connection then closes.
   - a frame is incomplete and its read times out. The connection then closes.
   - a heartbeat write times out during an incomplete frame. The connection then closes.
+  - a frame is larger than the maximum frame size. The connection then closes.
 - `DeserializationException` - If a server-push frame cannot be deserialized
-- `InvalidArgumentException` - If a registered `ConsumerUpdate` handler returns an offset type outside the range 0 to 5
+- `InvalidArgumentException` - If a registered `ConsumerUpdate` callback or handler returns an invalid reply, for example an offset type outside 0 to 5
 - `TimeoutException` - If a reply this loop must send (a heartbeat echo, a server-close acknowledgement or a ConsumerUpdate reply) cannot be written within the socket timeout
+
+An exception that a `ConsumerUpdate` callback or handler throws reaches the caller of `readLoop()`, after the loop sends a `none` reply. For example, a single-active-consumer handler of a `Consumer` can raise `ProtocolException` or `UnexpectedResponseException` from its `queryOffset()` call.
 
 #### Example
 

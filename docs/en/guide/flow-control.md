@@ -636,9 +636,9 @@ $consumer = $connection->createConsumer(
 // and use StreamConnection::onConsumerUpdate() if you need a custom reply.
 ```
 
-### Custom ConsumerUpdate Callback
+### Custom ConsumerUpdate Callback with StreamConnection::onConsumerUpdate()
 
-For custom offset selection, register a callback (low-level API):
+For custom offset selection, register a callback with `StreamConnection::onConsumerUpdate()` (low-level API). The callback returns `[int $offsetType, int $offset]`, not an `OffsetSpec`:
 
 ```php
 <?php

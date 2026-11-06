@@ -191,8 +191,8 @@ public function read(float $timeout = 5.0): array
 
 #### Exceptions
 
-- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error
-- `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response
+- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected an earlier credit grant (raised by this call), or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
+- `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response, or the `queryOffset()` reply of a single-active-consumer handler is not a QueryOffset response
 - `ConnectionException` - If the socket is not connected, or a read or write fails while the consumer sends one of these frames:
   - credit
   - auto-commit `StoreOffset`
@@ -251,8 +251,8 @@ public function readOne(float $timeout = 5.0): ?Message
 
 #### Exceptions
 
-- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error
-- `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response
+- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected an earlier credit grant (raised by this call), or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
+- `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response, or the `queryOffset()` reply of a single-active-consumer handler is not a QueryOffset response
 - `ConnectionException` - If the socket is not connected, or a read or write fails while the consumer sends one of these frames:
   - credit
   - auto-commit `StoreOffset`
@@ -579,6 +579,7 @@ None
 - `ConnectionException` - If the socket is not connected or the exchange fails
 - `DeserializationException` - If the Unsubscribe response frame cannot be deserialized
 - `TimeoutException` - If the Unsubscribe response does not arrive in time
+- `InvalidArgumentException` - If the auto-commit `StoreOffset` frame or the Unsubscribe frame exceeds the negotiated outgoing frame size
 
 #### Example
 
