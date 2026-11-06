@@ -1287,6 +1287,103 @@ class ProducerTest extends TestCase
         $this->assertSame(0, $producer->getPendingConfirms(), 'the confirm that raced with close() must be counted');
     }
 
+    public function testCloseReportsInFlightPublishesAsLostWhenDeletePublisherFails(): void
+    {
+        // GitHub #920: a failed DeletePublisher request skipped the drain and
+        // the loss accounting, so in-flight publishes were dropped silently.
+        $connection = $this->createProducerStreamConnectionMock();
+
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->once())
+            ->method('unregisterPublisher')
+            ->with(1);
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function ($request): \stdClass {
+                if ($request instanceof DeletePublisherRequestV1) {
+                    throw new TimeoutException('Read timeout');
+                }
+                return new \stdClass();
+            });
+        // The broker never answers, so the drain must not run.
+        $connection->expects($this->never())->method('readLoop');
+
+        /** @var string[] $seen */
+        $seen = [];
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$seen): void {
+                $seen[] = $status->getPublishingId() . ':' . ($status->isConfirmed() ? 'ok' : 'lost');
+            },
+            logger: $logger,
+        );
+        $producer->sendBatch(['m0', 'm1', 'm2']);
+
+        try {
+            $producer->close();
+            self::fail('The DeletePublisher exception must reach the caller.');
+        } catch (TimeoutException $exception) {
+            $this->assertSame('Read timeout', $exception->getMessage());
+        }
+
+        $this->assertSame(['0:lost', '1:lost', '2:lost'], $seen, 'every in-flight publish must get a result');
+        $this->assertSame(0, $producer->getPendingConfirms(), 'no publish may stay pending after close()');
+        $this->assertSame(3, $producer->getLostConfirmCount(), 'the failed publishes must be counted as lost');
+        $warnings = $logger->warningMessages();
+        $this->assertCount(1, $warnings, 'the lost publishes must be logged in one warning');
+        $this->assertStringContainsString('lost 3 unconfirmed publish(es)', $warnings[0]);
+        $this->assertStringContainsString('DeletePublisher failed in close(): Read timeout', $warnings[0]);
+        $this->assertStringContainsString('test-stream', $warnings[0]);
+        $this->assertTrue($producer->isClosed());
+    }
+
+    public function testCloseKeepsDeletePublisherExceptionWhenLostCallbackAlsoFails(): void
+    {
+        $connection = $this->createProducerStreamConnectionMock();
+
+        $connection->expects($this->any())->method('registerPublisher');
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())
+            ->method('request')
+            ->willReturnCallback(function ($request): \stdClass {
+                if ($request instanceof DeletePublisherRequestV1) {
+                    throw new ConnectionException('socket write failed');
+                }
+                return new \stdClass();
+            });
+
+        $seen = [];
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$seen): void {
+                $seen[] = $status->getPublishingId();
+                throw new \RuntimeException('user callback failed');
+            },
+            logger: $logger,
+        );
+        $producer->send('m0');
+        $producer->send('m1');
+
+        try {
+            $producer->close();
+            self::fail('The DeletePublisher exception must reach the caller, not the callback exception.');
+        } catch (ConnectionException $exception) {
+            $this->assertSame('socket write failed', $exception->getMessage());
+        }
+
+        $this->assertSame([0, 1], $seen, 'a throwing callback must not skip the other lost publishes');
+        $this->assertSame(2, $producer->getLostConfirmCount());
+        $errors = array_filter($logger->records, static fn (array $r): bool => $r['level'] === 'error');
+        $this->assertCount(2, $errors, 'each failed callback must be logged');
+    }
+
     public function testCloseUsesConfiguredConfirmDrainTimeout(): void
     {
         $connection = $this->createProducerStreamConnectionMock();

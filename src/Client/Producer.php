@@ -43,7 +43,8 @@ use Psr\Log\NullLogger;
  * never confirmed by the broker; they are reported to the onConfirm callback
  * as failed so the application can decide whether to resend them. A connection
  * loss uses CONNECTION_LOST_ERROR_CODE (a client-side code outside the broker's
- * 16-bit response-code range); a stream MetadataUpdate uses its response code.
+ * 16-bit response-code range), and so does a failed DeletePublisher exchange in
+ * close() on a live connection; a stream MetadataUpdate uses its response code.
  * A named producer re-reads
  * its publishing sequence from the broker on re-declare, so ids never collide.
  *
@@ -55,7 +56,11 @@ use Psr\Log\NullLogger;
 class Producer implements ProducerInterface
 {
     public const DEFAULT_MAX_PENDING_CONFIRMS = 10000;
-    /** Client-side failure code assigned when connection loss makes a publish outcome unknown. */
+    /**
+     * Client-side failure code assigned when a publish outcome becomes unknown:
+     * a connection loss, or a failed DeletePublisher exchange in close() on a
+     * live connection (GitHub #920).
+     */
     public const CONNECTION_LOST_ERROR_CODE = 0x10000;
     public const DEFAULT_REDECLARE_TIMEOUT = 5.0;
     public const DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT = 2.0;
@@ -81,8 +86,9 @@ class Producer implements ProducerInterface
 
     /**
      * Cumulative number of unconfirmed publishes reported lost after a
-     * connection loss, a broker-side publisher loss, or a bounded close() drain
-     * timeout. Those confirms can no longer be observed by this producer, so
+     * connection loss, a broker-side publisher loss, a failed DeletePublisher
+     * exchange in close(), or a bounded close() drain timeout. Those confirms
+     * can no longer be observed by this producer, so
      * the ids are failed through onConfirm and logged instead of disappearing.
      */
     private int $lostConfirmCount = 0;
@@ -669,7 +675,12 @@ class Producer implements ProducerInterface
      * callback stays registered through the DeletePublisher exchange and any
      * still-in-flight confirms are drained (bounded) before the id is released.
      * If the connection is lost, remaining IDs are immediately reported as failed
-     * and counted by getLostConfirmCount().
+     * and counted by getLostConfirmCount(). The same happens when the
+     * DeletePublisher exchange fails (also when a callback that runs during it
+     * throws, because request() rethrows that exception): the in-flight IDs are
+     * reported as failed (with CONNECTION_LOST_ERROR_CODE), logged once with the
+     * reason "DeletePublisher failed in close()", and the DeletePublisher
+     * exception is rethrown.
      *
      * @throws ConnectionException If the socket is not connected or the
      *                          DeletePublisher write or read fails.
@@ -696,7 +707,14 @@ class Producer implements ProducerInterface
                 // PublishError frames for messages still in flight may arrive
                 // on the socket while we wait, and dropping them would leave
                 // pendingConfirms raised forever (GitHub #474).
-                $this->connection->request(new DeletePublisherRequestV1($this->publisherId));
+                try {
+                    $this->connection->request(new DeletePublisherRequestV1($this->publisherId));
+                } catch (\Throwable $e) {
+                    // The confirms can no longer be drained after a failed
+                    // DeletePublisher, so they are reported as lost (GitHub #920).
+                    $this->failPendingAfterDeleteFailure($e);
+                    throw $e;
+                }
                 $this->drainPendingConfirms();
             }
         } finally {
@@ -708,6 +726,23 @@ class Producer implements ProducerInterface
             if ($this->onClose instanceof \Closure) {
                 ($this->onClose)($this->publisherId);
             }
+        }
+    }
+
+    /**
+     * Report the in-flight publishes as lost after a failed DeletePublisher.
+     * The DeletePublisher exception is the one close() rethrows, so a throwing
+     * user callback is only logged (by failAllPending()) and not rethrown here.
+     */
+    private function failPendingAfterDeleteFailure(\Throwable $cause): void
+    {
+        try {
+            $this->failAllPending(
+                self::CONNECTION_LOST_ERROR_CODE,
+                'DeletePublisher failed in close(): ' . $cause->getMessage()
+            );
+        } catch (\Throwable) {
+            // failAllPending() has already logged the callback exception.
         }
     }
 
