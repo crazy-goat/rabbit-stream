@@ -311,6 +311,18 @@ final class TlsConnectFailureTest extends TestCase
         // server's failed handshake for it ends quickly and the server accepts the next client.
         $deadline = microtime(true) + 5.0;
         while (microtime(true) < $deadline) {
+            if (!proc_get_status($process)['running']) {
+                // The CLI exited at once. For example, LibreSSL on macOS rejects -accept host:port.
+                $stderr = (string) stream_get_contents($pipes[2]);
+                $firstLine = strtok($stderr, "\n");
+                $reason = $firstLine === false ? 'no output' : trim($firstLine);
+                foreach ($pipes as $pipe) {
+                    fclose($pipe);
+                }
+                $this->server = null;
+                proc_close($process);
+                self::markTestSkipped("openssl s_server cannot run: {$reason}");
+            }
             $probeSocket = @stream_socket_client("tcp://127.0.0.1:{$port}", $errorCode, $errorMessage, 0.2);
             if ($probeSocket !== false) {
                 fclose($probeSocket);
@@ -318,7 +330,7 @@ final class TlsConnectFailureTest extends TestCase
             }
             usleep(50000);
         }
-        self::fail('openssl s_server did not start listening');
+        self::fail('openssl s_server is running but did not start listening within 5 seconds');
     }
 
     private function drainOpenSslErrors(): void

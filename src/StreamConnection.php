@@ -2543,7 +2543,7 @@ class StreamConnection
             if ($chunk === false || $chunk === '') {
                 $meta = stream_get_meta_data($stream);
                 // A broker that rejects the client certificate sends a TLS alert before it closes.
-                // The alert text is only in the warning and the OpenSSL queue (GitHub #957).
+                // The alert text is in the fread() warning, and possibly in the OpenSSL queue (GitHub #957).
                 $rejection = $this->tlsRejectionReason($warnings);
                 if ($rejection !== null) {
                     $this->close();
