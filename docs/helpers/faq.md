@@ -36,7 +36,7 @@ subagents *propose* candidate entries in their report — they never append
 
 ## Pitfalls
 
-### E2E tests need the RabbitMQ Stream plugin on port 5552
+### E2E tests need the RabbitMQ Stream plugin: `run-e2e.sh` picks free ports
 <!-- id=FAQ-001 date=2026-11-06 tags=e2e trigger="when touching tests/E2E or running run-e2e.sh" hits=1 status=active -->
 
 `./run-e2e.sh` boots `mirror.gcr.io/library/rabbitmq:4-management` (ECR Public as fallback) via `docker compose`.
@@ -49,8 +49,8 @@ for that. The ports 5552, 5672 and 15672 are only the defaults of a plain
 that you started by hand, or with ports that you exported before
 `./run-e2e.sh`. Then run `docker compose down` to stop the old broker. The
 `EXIT` trap does this, but an interrupted run can leave the broker up. E2E
-tests read `RABBITMQ_HOST` and `RABBITMQ_PORT`, with the default
-`127.0.0.1:5552`. Run E2E **only** for wire-level / protocol changes; pure
+tests read `RABBITMQ_HOST`, `RABBITMQ_PORT` and `RABBITMQ_MANAGEMENT_PORT`,
+with the defaults `127.0.0.1:5552` and `15672`. Run E2E **only** for wire-level / protocol changes; pure
 serialization unit tests never need the broker.
 
 Changed 2026-11-06 (#1073): the text names the free-port selection of
@@ -187,17 +187,20 @@ PHPUnit calls `tearDown()` even when `setUp()` calls `markTestSkipped()`. The
 after-test section of `runBare()` in `vendor/phpunit/phpunit/src/Framework/TestCase.php`
 runs when the requirements are met, and it does not check that `setUp()` finished.
 A `tearDown()` that deletes a directory then fails, or deletes a path that the test
-did not create. Check that the path exists before you delete it, as
-`tests/Client/TlsConnectFailureTest.php` does with `is_dir()`.
+did not create. Before any `glob()`, `unlink()` or `rmdir()`, check that `setUp()`
+set the path: it is not empty, and it is inside `sys_get_temp_dir()`. An
+`is_dir()` check alone is not sufficient: with an empty `$dir`, `glob($dir.'/*')`
+reads `/*`. See the guard at the start of `tearDown()` in
+`tests/Client/TlsConnectFailureTest.php`.
 
-### A "stale" note in an old issue can be wrong: check `tests/E2E/` first
+### A claim in an old issue that a test is missing can be wrong: check `tests/` first
 <!-- id=FAQ-013 date=2026-11-06 tags=documentation,e2e trigger="when you copy a claim about missing tests or old behaviour from an issue into docs" hits=0 status=active -->
 
 An old issue can say that a feature has no test, or that the docs describe
 it. The text can be stale. Search `tests/E2E/` and `tests/` for the feature
-before you copy the claim into the docs. The #910 docs fix changed the TLS and
-SASL text to match the code. The E2E test `testPublishAndConsumeOverMutualTls`
-already covered the mutual TLS path.
+before you copy the claim into the docs. Issue #910 said "Not tested: client
+cert with PLAIN login". The E2E test `testPublishAndConsumeOverMutualTls`
+already covered that path, so the #910 docs fix did not copy the claim.
 
 ### `memory_get_peak_usage(true)` depends on the allocator: compare two paths
 <!-- id=FAQ-014 date=2026-11-06 tags=tests,memory trigger="when a test asserts on memory_get_peak_usage()" hits=0 status=active -->
@@ -226,9 +229,10 @@ or run fewer connections in one process.
 Check every peer-declared size against a fixed limit before you allocate or
 inflate. A limit on one call does not limit the total. A `gzdecode($data, $max)`
 call stops at `$max`, but each sub-batch of one chunk can still use up to its
-own `$max`. Keep a budget for the total of the declared sizes of one chunk, and
-check it before the first inflate. The #915 work does this with a 32 MiB budget
-per chunk (open PR #1068, not yet on `main` at the time of writing).
+own `$max`. Keep a budget for the total of the declared sizes of one chunk. Add
+each declared size to a running total for the chunk, and check the total before
+each inflate. `OsirisChunkParser` does this with a 32 MiB budget per chunk
+(#915, PR #1068).
 
 ### TLS alert tests: use `openssl s_server`, and read the alert from `fread()`
 <!-- id=FAQ-017 date=2026-11-06 tags=tls,tests,e2e trigger="when a test needs the TLS alert from a broker that rejects the client certificate" hits=0 status=active -->
@@ -245,11 +249,9 @@ warning (`tlsRejectionReason()` in `src/StreamConnection.php`, #957). After a
 TLS 1.3 handshake, the alert text is in that warning. It can also be in the
 OpenSSL error queue, so do not rely on the queue alone.
 
-### tyci: `.tyci/` is ignored, and `rebase.sh` can add a merge commit
-<!-- id=FAQ-018 date=2026-11-06 tags=git,tyci,ci trigger="when you add a file under .tyci/, or write a tyci check that compares the reviewed sha with HEAD" hits=0 status=active -->
+### tyci: `rebase.sh` can add a merge commit after the review
+<!-- id=FAQ-018 date=2026-11-06 tags=git,tyci,ci trigger="when you write a tyci check that compares the reviewed sha with HEAD" hits=0 status=active -->
 
-The main clone's `.git/info/exclude` lists `.tyci/` (local model pins, never
-commit). A new file under `.tyci/` stays untracked until you run `git add -f`.
 `.tyci/workflows/issue-to-merge/checks/rebase.sh` merges the default branch
 into the issue branch, and it can add a merge commit. So a check that runs
 after the `update` step cannot require the reviewed sha to equal HEAD.
