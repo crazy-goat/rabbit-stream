@@ -101,14 +101,17 @@ final class FrameSizeReadTest extends TestCase
             (new \ReflectionProperty($connection, 'stream'))->setValue($connection, STDIN);
             (new \ReflectionProperty($connection, 'connected'))->setValue($connection, true);
             if ($argv[2] === 'fast') {
-                $connection->setMaxFrameSize(64 * 1048576);
+                $connection->setMaxFrameSize((int) $argv[3]);
             }
             $frame = $connection->readFrame(10.0);
             echo $frame === null ? "none\n" : 'read peak=' . memory_get_peak_usage(true) . "\n";
             PHP;
 
         $process = proc_open(
-            [PHP_BINARY, '-d', 'memory_limit=-1', '-d', 'display_errors=stderr', '-r', $code, '--', $autoload, $mode],
+            [
+                PHP_BINARY, '-d', 'memory_limit=-1', '-d', 'display_errors=stderr',
+                '-r', $code, '--', $autoload, $mode, (string) $frameSize,
+            ],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
         );
