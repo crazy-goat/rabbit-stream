@@ -73,6 +73,11 @@ handler swallows warnings. The extra work is one short-lived PHP error-handler
 stack entry per select, rather than per-socket errno access. No socket transport
 or TLS behavior changes.
 
+A select that fails on a socket whose descriptor number is at or above
+`FD_SETSIZE` (usually 1024) raises a `ConnectionException`. Its message names the
+descriptor limit and includes the PHP warning. See
+[A socket with a descriptor number of 1024 or higher](../guide/error-handling.md#a-socket-with-a-descriptor-number-of-1024-or-higher).
+
 ### close()
 
 Closes the socket connection and cleans up resources.

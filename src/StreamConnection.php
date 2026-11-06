@@ -437,6 +437,31 @@ class StreamConnection
     }
 
     /**
+     * Build the message of the ConnectionException that a failed stream_select()
+     * raises, from the warning that selectStreams() recorded for it.
+     *
+     * select(2) cannot wait on a socket whose descriptor number is at or above
+     * FD_SETSIZE (usually 1024). PHP reports this with a warning that names
+     * FD_SETSIZE. The message then names the descriptor limit, so the cause is
+     * visible to the application (GitHub #938). The recorded warning text is
+     * appended for every other failure.
+     *
+     * @param string $summary What failed, for example "stream_select failed while writing"
+     */
+    private function selectFailureMessage(string $summary): string
+    {
+        $warning = $this->lastSelectErrorMessage === null ? '' : trim($this->lastSelectErrorMessage);
+
+        if (stripos($warning, 'FD_SETSIZE') !== false) {
+            return $summary . ': the socket descriptor is at or above FD_SETSIZE (select(2) limit, '
+                . 'usually 1024); lower the number of open descriptors in the process. PHP warning: '
+                . $warning;
+        }
+
+        return $warning === '' ? $summary : $summary . '. PHP warning: ' . $warning;
+    }
+
+    /**
      * Run stream_select() while capturing its warning without bypassing the
      * application's error handler. The temporary handler records the warning
      * before delegating; if the application handler swallows it, the result is
@@ -1184,7 +1209,9 @@ class StreamConnection
                     if (!$this->selectWasInterrupted()) {
                         $this->connected = false;
                         $this->notifyConnectionLost('stream_select failed while waiting for write readiness');
-                        throw new ConnectionException("stream_select failed while waiting for write readiness");
+                        throw new ConnectionException(
+                            $this->selectFailureMessage('stream_select failed while waiting for write readiness')
+                        );
                     }
 
                     continue;
@@ -1249,7 +1276,7 @@ class StreamConnection
                 }
                 $this->connected = false;
                 $this->notifyConnectionLost('stream_select failed while writing');
-                throw new ConnectionException('stream_select failed while writing');
+                throw new ConnectionException($this->selectFailureMessage('stream_select failed while writing'));
             }
             if ($ready === 0) {
                 $this->writeTimeout($sent, $total);
@@ -1708,7 +1735,7 @@ class StreamConnection
                     }
                     $this->connected = false;
                     $this->notifyConnectionLost('stream_select failed in readLoop');
-                    throw new ConnectionException('stream_select failed in readLoop');
+                    throw new ConnectionException($this->selectFailureMessage('stream_select failed in readLoop'));
                 }
 
                 // The select itself completed (with data or on timeout), so any
@@ -2150,7 +2177,9 @@ class StreamConnection
                 if (!$this->selectWasInterrupted()) {
                     $this->connected = false;
                     $this->notifyConnectionLost('stream_select failed while waiting for frame data');
-                    throw new ConnectionException('stream_select failed while waiting for frame data');
+                    throw new ConnectionException(
+                        $this->selectFailureMessage('stream_select failed while waiting for frame data')
+                    );
                 }
 
                 $retried = true;
@@ -2404,7 +2433,7 @@ class StreamConnection
                 }
                 $this->connected = false;
                 $this->notifyConnectionLost('stream_select failed while reading');
-                throw new ConnectionException('stream_select failed while reading');
+                throw new ConnectionException($this->selectFailureMessage('stream_select failed while reading'));
             }
             if ($ready === 0) {
                 if (!$midFrame) {
