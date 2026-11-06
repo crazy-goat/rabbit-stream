@@ -232,7 +232,7 @@ if (is_string($body)) {
 }
 
 // JSON decoding
-if ($message->getContentType() === 'application/json') {
+if ($message->getContentType() === 'application/json' && is_string($body)) {
     $data = json_decode($body, true);
     processData($data);
 }
