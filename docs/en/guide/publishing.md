@@ -154,6 +154,8 @@ The `ConfirmationStatus` object provides:
 - `getPublishingId()`: The publishing ID of the message
 - `getErrorCode()`: Error code if the message failed (see [Error Handling](#6-error-handling))
 
+If the callback throws, the library still calls it for every other publishing ID of the same confirm frame. It also calls it for every unconfirmed publish when the connection is lost. The first exception then reaches the code that read the frame, such as `waitForConfirms()` or `readLoop()`.
+
 ### Blocking Wait for Confirms
 
 To wait for all pending confirmations before continuing:

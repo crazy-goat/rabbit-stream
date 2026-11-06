@@ -114,7 +114,9 @@ class Producer implements ProducerInterface
      *                          first send().
      * @param callable|null $onConfirm Called with (ConfirmationStatus $status)
      *                          for each publish as confirms/errors arrive; null
-     *                          to disable the callback.
+     *                          to disable the callback. A throwing callback does
+     *                          not skip the other publishes; the first exception
+     *                          is rethrown to the code that read the frame.
      * @param int $maxPendingConfirms Hard back-pressure cap on outstanding
      *                          (unconfirmed) publishes; sends drain confirms
      *                          until there is room for the next publish or the
@@ -248,11 +250,6 @@ class Producer implements ProducerInterface
 
         $this->pendingConfirms = [];
         $this->lostConfirmCount += $lostCount;
-        if ($this->onConfirm instanceof \Closure) {
-            foreach ($lost as $id) {
-                ($this->onConfirm)(new ConfirmationStatus(false, errorCode: $code, publishingId: $id));
-            }
-        }
 
         $message = sprintf(
             'Producer %d on stream "%s" lost %d unconfirmed publish(es): %s',
@@ -275,6 +272,26 @@ class Producer implements ProducerInterface
             'lostCount' => $lostCount,
             'publishingIds' => array_slice($lost, 0, StreamConnection::MAX_LOGGED_PUBLISHING_IDS),
         ]);
+
+        if ($this->onConfirm instanceof \Closure) {
+            $failure = null;
+            foreach ($lost as $id) {
+                try {
+                    ($this->onConfirm)(new ConfirmationStatus(false, errorCode: $code, publishingId: $id));
+                } catch (\Throwable $exception) {
+                    // A throwing callback must not skip the lost ids after it.
+                    $this->logger->error('Lost publish callback failed', [
+                        'publisherId' => $this->publisherId,
+                        'publishingId' => $id,
+                        'exception' => $exception,
+                    ]);
+                    $failure ??= $exception;
+                }
+            }
+            if ($failure instanceof \Throwable) {
+                throw $failure;
+            }
+        }
     }
 
     /**
@@ -347,6 +364,7 @@ class Producer implements ProducerInterface
         $this->connection->registerPublisher(
             $this->publisherId,
             onConfirm: function (array $publishingIds): void {
+                $failure = null;
                 foreach ($publishingIds as $id) {
                     // A duplicate confirm for an id that is no longer
                     // outstanding is ignored: decrementing a bare counter for
@@ -358,8 +376,22 @@ class Producer implements ProducerInterface
                     }
                     unset($this->pendingConfirms[$id]);
                     if ($this->onConfirm instanceof \Closure) {
-                        ($this->onConfirm)(new ConfirmationStatus(true, publishingId: $id));
+                        try {
+                            ($this->onConfirm)(new ConfirmationStatus(true, publishingId: $id));
+                        } catch (\Throwable $exception) {
+                            // A throwing callback must not skip the confirms
+                            // of the other ids in this frame.
+                            $this->logger->error('Publish confirm callback failed', [
+                                'publisherId' => $this->publisherId,
+                                'publishingId' => $id,
+                                'exception' => $exception,
+                            ]);
+                            $failure ??= $exception;
+                        }
                     }
+                }
+                if ($failure instanceof \Throwable) {
+                    throw $failure;
                 }
             },
             onError: function (array $errors): void {
