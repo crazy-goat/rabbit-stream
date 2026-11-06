@@ -80,6 +80,9 @@ final class FrameSizeReadTest extends TestCase
             $fastPeak / 1048576,
         );
 
+        // A peak below the frame size means that the measure does not see the frame
+        // (for example with USE_ZEND_ALLOC=0), so the comparison would prove nothing.
+        self::assertGreaterThanOrEqual($frameSize, $fastPeak, $message);
         self::assertLessThanOrEqual($fastPeak + $slackBytes, $slowPeak, $message);
     }
 
