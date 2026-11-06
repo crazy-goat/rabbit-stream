@@ -38,6 +38,8 @@ $consumer = $connection->createConsumer(
 
 The Consumer provides two methods for reading messages:
 
+**Note:** The body is not always a string. A message from another AMQP 1.0 client can carry an array, `null`, a `bool`, an `int` or a `float`. Check the type before you print the body. See [`Message::getBody()`](../api-reference/message.md#getbody).
+
 **Read multiple messages:**
 ```php
 // Read up to available messages with 5-second timeout

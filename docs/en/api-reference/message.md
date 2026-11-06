@@ -214,6 +214,8 @@ public function getBody(): string|int|float|bool|array|null
 - The serializer used (if any)
 - The content type of the message
 
+**Note:** The body is not always a string. This library publishes a string, but a message from another AMQP 1.0 client can carry an array, `null`, a `bool`, an `int` or a `float`. If you put such a body in a string, PHP prints `Array` with a warning, an empty string for `null`, or `1` for `true`. Check the type with `is_string()` before you print or decode the body.
+
 #### Example
 
 ```php
