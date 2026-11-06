@@ -9,6 +9,7 @@ use CrazyGoat\RabbitStream\Client\Message;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
 use PHPUnit\Framework\TestCase;
+use Throwable;
 
 class MessageTest extends TestCase
 {
@@ -643,11 +644,11 @@ class MessageTest extends TestCase
     /**
      * Runs $accessor and returns the exception it throws, or null when it does not throw.
      */
-    private function captureDecodeError(callable $accessor): ?\Throwable
+    private function captureDecodeError(callable $accessor): ?Throwable
     {
         try {
             $accessor();
-        } catch (\Throwable $error) {
+        } catch (Throwable $error) {
             return $error;
         }
 
