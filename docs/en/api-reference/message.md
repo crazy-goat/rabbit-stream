@@ -517,7 +517,7 @@ public function getCreationTime(): ?int
 
 #### Return Value
 
-`?int` - Milliseconds since the Unix epoch when the message was created by the producer, or `null`
+`?int` - Milliseconds since the Unix epoch when the message was created by the producer, or `null`. The value is `null` when the property is missing, and also when the broker sends a value of another AMQP type (for example a double or a string). Such a value is not a time, so the method does not convert it.
 
 #### Example
 
