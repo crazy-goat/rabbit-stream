@@ -207,7 +207,7 @@ The Properties section (0x73) contains 13 ordered fields:
 *Note: Fields are positional in the list. Null values are skipped.*
 
 The Properties section must be a list (list0, list8 or list32). A map, a scalar or
-a map or a scalar raises a `DeserializationException`. A null value decodes as no properties.
+a described value raises a `DeserializationException`. A null value decodes as no properties.
 
 ### Complete Message Example
 
