@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Request: `ResolveOffsetSpecRequestV1` sends a properties map (#922)** — the constructor has a new optional third argument, `$properties` (`array<string, string>`, default `[]`). The request writes the map as the properties field of the ResolveOffsetSpec command. The default request sends the same bytes as before: an empty map. `tests/Request/ResolveOffsetSpecRequestV1Test.php` checks the bytes of a request with two properties. No public `Connection` method sends the command yet. That method waits for the maintainer's decision on the release line.
+
 ### Changed
 - **Docs: the message body can be a non-string (#898)** — `Message::getBody()` returns an array, `null`, a `bool`, an `int` or a `float` for an AMQP body from another client. The consuming guide and the `getBody()` reference now say so and show how to check the type. The snippets that print the body are unchanged. No code changes.
 - **Chore: `bin/check-stale-sockets.php` scans `README.md`, `AGENTS.md` and `examples/` (#903)** — the gate scanned only `src/` and `docs/en/`. A stale ext-sockets token in the root documents or in the examples passed the gate. The gate now scans these paths too. It still does not scan `docs/archive/` or `docs/helpers/`. `tests/Util/CheckStaleSocketsTest.php` checks a forbidden token in each new path.

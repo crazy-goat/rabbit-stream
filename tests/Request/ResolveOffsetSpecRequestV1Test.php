@@ -51,4 +51,34 @@ class ResolveOffsetSpecRequestV1Test extends TestCase
 
         $this->assertSame($expected, $bytes);
     }
+
+    public function testSerializesWithProperties(): void
+    {
+        $request = new ResolveOffsetSpecRequestV1(
+            'my-stream',
+            \CrazyGoat\RabbitStream\VO\OffsetSpec::first(),
+            ['match-unfiltered' => 'true', 'filter' => 'abc']
+        );
+        $request->withCorrelationId(7);
+
+        $bytes = $request->toStreamBuffer()->getContents();
+
+        $expected = pack('n', 0x001f)                  // key
+            . pack('n', 1)                             // version
+            . pack('N', 7)                             // correlationId
+            . pack('n', strlen('my-stream'))           // stream length
+            . 'my-stream'                              // stream
+            . pack('n', 0x0001)                        // offsetSpec type (FIRST = 0x0001)
+            . pack('N', 2)                             // properties array length
+            . pack('n', strlen('match-unfiltered'))    // property 1 key length
+            . 'match-unfiltered'                       // property 1 key
+            . pack('n', strlen('true'))                // property 1 value length
+            . 'true'                                   // property 1 value
+            . pack('n', strlen('filter'))              // property 2 key length
+            . 'filter'                                 // property 2 key
+            . pack('n', strlen('abc'))                 // property 2 value length
+            . 'abc';                                   // property 2 value
+
+        $this->assertSame($expected, $bytes);
+    }
 }
