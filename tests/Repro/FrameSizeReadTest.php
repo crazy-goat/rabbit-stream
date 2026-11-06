@@ -52,29 +52,47 @@ final class FrameSizeReadTest extends TestCase
     }
 
     /**
-     * A Deliver frame above the fast-path cap is read in two parts. The parts must
-     * not be joined into a second full copy, so the peak memory stays near one copy.
+     * A Deliver frame above the fast-path cap must not hold a second full copy of
+     * the frame. The fixed read path should peak as the fast path does, which reads
+     * the same frame in one piece. The old join peaked at about twice the frame size.
      *
-     * The frame goes through a pipe, which returns partial reads as a socket does.
-     * A child process reads a 64 MiB frame with a 100 MiB memory_limit. The old join
-     * peaked near 132 MiB, and the fixed read peaks near 70 MiB. A fatal error cannot
-     * be caught in-process, so the child's exit code shows the result.
+     * The peak depends on the allocator, so a fixed memory_limit is not reliable
+     * (the fixed path reached 128 MiB on Linux). Instead the test compares the lowest
+     * peak of three slow-path children (default caps) with the lowest peak of three
+     * fast-path children, both with no memory_limit. The frame goes through a pipe,
+     * which returns partial reads as a socket does.
      */
     public function testLargeDeliverFrameIsNotHeldTwiceInMemory(): void
     {
         // The frame size counts the 2-byte key. 64 MiB is the default Deliver cap.
         $frameSize = 64 * 1024 * 1024;
+        $slackBytes = 4 * 1024 * 1024;
 
-        [$exitCode, $stdout, $stderr] = $this->readFrameInChild($frameSize, '100M');
+        $slowPeaks = [];
+        $fastPeaks = [];
+        for ($run = 0; $run < 3; $run++) {
+            $slowPeaks[] = $this->readPeakInChild($frameSize, 'default');
+            $fastPeaks[] = $this->readPeakInChild($frameSize, 'fast');
+        }
 
-        self::assertSame(0, $exitCode, "The child read failed:\n{$stderr}");
-        self::assertSame("read\n", $stdout);
+        $toMiB = static fn (int $bytes): string => sprintf('%.1f', $bytes / 1048576);
+        $message = sprintf(
+            'Slow path peaks (MiB): %s; fast path peaks (MiB): %s',
+            implode(', ', array_map($toMiB, $slowPeaks)),
+            implode(', ', array_map($toMiB, $fastPeaks)),
+        );
+
+        self::assertLessThanOrEqual(min($fastPeaks) + $slackBytes, min($slowPeaks), $message);
     }
 
     /**
-     * @return array{int, string, string} Exit code, stdout and stderr of the child
+     * Read one frame of $frameSize bytes in a child process and return its peak memory.
+     *
+     * @param string $mode 'default' keeps the default caps (slow path); 'fast' raises the
+     *                     frame cap to $frameSize (one-piece read)
+     * @return int Peak memory in bytes, from memory_get_peak_usage(true) in the child
      */
-    private function readFrameInChild(int $frameSize, string $memoryLimit): array
+    private function readPeakInChild(int $frameSize, string $mode): int
     {
         $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
         $code = <<<'PHP'
@@ -82,12 +100,15 @@ final class FrameSizeReadTest extends TestCase
             $connection = new \CrazyGoat\RabbitStream\StreamConnection('127.0.0.1', 5552);
             (new \ReflectionProperty($connection, 'stream'))->setValue($connection, STDIN);
             (new \ReflectionProperty($connection, 'connected'))->setValue($connection, true);
+            if ($argv[2] === 'fast') {
+                $connection->setMaxFrameSize(64 * 1048576);
+            }
             $frame = $connection->readFrame(10.0);
-            echo $frame === null ? "none\n" : "read\n";
+            echo $frame === null ? "none\n" : 'read peak=' . memory_get_peak_usage(true) . "\n";
             PHP;
 
         $process = proc_open(
-            [PHP_BINARY, '-d', 'memory_limit=' . $memoryLimit, '-r', $code, '--', $autoload],
+            [PHP_BINARY, '-d', 'memory_limit=-1', '-d', 'display_errors=stderr', '-r', $code, '--', $autoload, $mode],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
         );
@@ -108,8 +129,15 @@ final class FrameSizeReadTest extends TestCase
         $stderr = (string) stream_get_contents($pipes[2]);
         fclose($pipes[1]);
         fclose($pipes[2]);
+        $exitCode = proc_close($process);
 
-        return [proc_close($process), $stdout, $stderr];
+        $context = "exit={$exitCode}\nstdout:\n{$stdout}\nstderr:\n{$stderr}";
+        self::assertSame(0, $exitCode, "The child read failed. {$context}");
+        self::assertMatchesRegularExpression('/^read peak=(\d+)$/', trim($stdout), "Unexpected child output. {$context}");
+
+        preg_match('/^read peak=(\d+)$/', trim($stdout), $matches);
+
+        return (int) $matches[1];
     }
 
     /**
