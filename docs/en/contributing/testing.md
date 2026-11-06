@@ -53,7 +53,7 @@ E2E tests need a running RabbitMQ broker. Run this command from the project root
 ./run-e2e.sh
 ```
 
-The script starts its own broker and stops it at exit. The broker has a TLS stream listener with mutual TLS for `tests/E2E/TlsConnectionE2ETest.php`. The script generates the test certificates with `bin/gen-e2e-certs.sh` into a gitignored `.e2e-tls.*` directory and deletes them at exit. That test is skipped when you run the suite without the script, because it needs `RABBITMQ_TLS_PORT`, `RABBITMQ_TLS_CERT_DIR` and `RABBITMQ_TLS_PASSPHRASE`. Do not run `docker compose up -d` before `run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
+The script starts its own broker and stops it at exit. The broker has a TLS stream listener with mutual TLS for `tests/E2E/TlsConnectionE2ETest.php`. The listener comes from `docker-compose.tls.yml` and `docker/rabbitmq-tls.conf`. The script generates the test certificates with `bin/gen-e2e-certs.sh` into a gitignored `.e2e-tls.*` directory and deletes them at exit. That test is skipped when you run the suite without the script, because it needs `RABBITMQ_TLS_PORT`, `RABBITMQ_TLS_CERT_DIR` and `RABBITMQ_TLS_PASSPHRASE`. Do not run `docker compose up -d` before `run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
 
 To run only the PHPUnit suite, start a broker and check its health. In a worktree, load the environment first with `set -a && . ./.env.worktree && set +a`. Then run:
 
@@ -252,16 +252,19 @@ The `run-e2e.sh` script runs the whole E2E flow. Run it from the project root:
 ./run-e2e.sh
 ```
 
+The script needs these tools on the host: Docker, `openssl` and `python3`.
+
 The script runs these steps in order:
 
-1. Load `.env.worktree` when it exists. Pick a free host port for each port variable that is not set.
-2. Pull the RabbitMQ image. Try `mirror.gcr.io` first, then `public.ecr.aws`, with three attempts for each.
-3. If every pull fails, use a copy of the image that is already in the local Docker cache. If no copy is cached, the script stops with an error.
-4. Start the broker with `docker compose up -d`.
-5. Wait until the broker is healthy. The wait is bounded, see below.
-6. Run the E2E suite with `./vendor/bin/phpunit --testsuite e2e --testdox`.
-7. Run the example smoke tests with `bin/run-examples.sh`.
-8. Stop the broker with `docker compose down`. This runs on exit, also after a failure.
+1. Load `.env.worktree` when it exists. Pick a free host port for each port variable that is not set. The port variables include `RABBITMQ_TLS_PORT`.
+2. Set `COMPOSE_FILE` to `docker-compose.yml` and `docker-compose.tls.yml`. Generate the TLS test certificates with `bin/gen-e2e-certs.sh` into a gitignored `.e2e-tls.*` directory.
+3. Pull the RabbitMQ image. Try `mirror.gcr.io` first, then `public.ecr.aws`, with three attempts for each.
+4. If every pull fails, use a copy of the image that is already in the local Docker cache. If no copy is cached, the script stops with an error.
+5. Start the broker with `docker compose up -d`. The broker has the plain stream listener and the TLS stream listener.
+6. Wait until the broker is healthy. The wait is bounded, see below.
+7. Run the E2E suite with `./vendor/bin/phpunit --testsuite e2e --testdox`.
+8. Run the example smoke tests with `bin/run-examples.sh`.
+9. Stop the broker with `docker compose down`. Delete the TLS certificates. This runs on exit, also after a failure.
 
 The wait resolves the container with `docker compose ps -q rabbitmq` (so a
 worktree's `COMPOSE_PROJECT_NAME` and remapped ports are honoured) and polls its
