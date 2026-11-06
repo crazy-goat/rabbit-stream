@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-06
+
 ### Changed
 - **Docs: clarify stored-offset differences between clients (#912)** — the Consumer PHPDoc and offset-tracking/consuming guides now state that PHP stores the next offset (`lastProcessedOffset + 1`), while Java, Go and .NET store the last processed message's offset. They no longer claim stored offsets are portable, and advise checking values from other clients before resuming without prescribing a conversion.
 
