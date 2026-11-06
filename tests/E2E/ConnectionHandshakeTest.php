@@ -67,6 +67,35 @@ class ConnectionHandshakeTest extends E2ETestCase
         $this->assertFalse($connection->isConnected());
     }
 
+    public function testOpenResponseAdvertisesHostAndPort(): void
+    {
+        $connection = $this->createRawConnection();
+        $this->connection = $connection;
+
+        $connection->sendMessage(new PeerPropertiesRequestV1());
+        $connection->readMessage();
+
+        $connection->sendMessage(new SaslHandshakeRequestV1());
+        $connection->readMessage();
+
+        $connection->sendMessage(new SaslAuthenticateRequestV1('PLAIN', 'guest', 'guest'));
+        $connection->readMessage();
+
+        $tune = $connection->readMessage();
+        $this->assertInstanceOf(TuneRequestV1::class, $tune);
+        $connection->sendMessage(new TuneResponseV1($tune->getFrameMax(), $tune->getHeartbeat()));
+
+        $connection->sendMessage(new OpenRequestV1('/'));
+        $open = $connection->readMessage();
+        $this->assertInstanceOf(OpenResponseV1::class, $open);
+
+        $this->assertIsString($open->getAdvertisedHost());
+        $this->assertNotSame('', $open->getAdvertisedHost());
+        $this->assertIsInt($open->getAdvertisedPort());
+        $this->assertGreaterThanOrEqual(1, $open->getAdvertisedPort());
+        $this->assertLessThanOrEqual(65535, $open->getAdvertisedPort());
+    }
+
     public function testInvalidCredentialsThrows(): void
     {
         $this->connection = $this->createRawConnection();

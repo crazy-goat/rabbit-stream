@@ -41,6 +41,47 @@ class OpenResponseV1 implements
         return $this->connectionProperties;
     }
 
+    /**
+     * The host that the broker advertises for later connections (`advertised_host`).
+     *
+     * Returns null when the property is absent or empty.
+     */
+    public function getAdvertisedHost(): ?string
+    {
+        $host = $this->getConnectionPropertyValue('advertised_host');
+
+        return $host === null || $host === '' ? null : $host;
+    }
+
+    /**
+     * The port that the broker advertises for later connections (`advertised_port`).
+     *
+     * Returns null when the property is absent, is not a decimal number, or is outside 1..65535.
+     */
+    public function getAdvertisedPort(): ?int
+    {
+        $port = $this->getConnectionPropertyValue('advertised_port');
+
+        if ($port === null || preg_match('/^[0-9]{1,5}\z/', $port) !== 1) {
+            return null;
+        }
+
+        $value = (int)$port;
+
+        return $value >= 1 && $value <= 65535 ? $value : null;
+    }
+
+    private function getConnectionPropertyValue(string $key): ?string
+    {
+        foreach ($this->connectionProperties as $property) {
+            if ($property->getKey() === $key) {
+                return $property->getValue();
+            }
+        }
+
+        return null;
+    }
+
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): static
     {

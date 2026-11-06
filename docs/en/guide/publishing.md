@@ -10,7 +10,7 @@ Publishing in RabbitMQ Streams is asynchronous by design. When you publish a mes
 
 ### Creating a Producer
 
-The simplest way to publish messages is using the high-level `Producer` API. Save the PHP snippets in this guide as scripts in your Composer project's root directory; they load Composer dependencies with `require_once __DIR__ . '/vendor/autoload.php';`.
+The simplest way to publish messages is using the high-level `Producer` API. Save the PHP snippets in this guide as scripts in your Composer project's root directory; they load Composer dependencies with `require_once __DIR__ . '/vendor/autoload.php';`. The snippets use the stream `my-stream`. Create it once before you run them. The [Quick Start guide](../getting-started/quick-start.md) shows the call (step 2, `createStream()`). `createStream()` throws `ProtocolException` if the stream already exists.
 
 ```php
 <?php
@@ -296,9 +296,16 @@ IDs 1-5:
 
 ```php
 <?php
+use CrazyGoat\RabbitStream\Client\Connection;
 
 // First run - publish messages with IDs 1-5
 $connection1 = Connection::create(host: '127.0.0.1', port: 5552, user: 'guest', password: 'guest');
+
+// Create the stream once. Skip this step when the stream exists.
+if (!$connection1->streamExists('my-stream')) {
+    $connection1->createStream('my-stream');
+}
+
 $producer1 = $connection1->createProducer('my-stream', name: 'order-producer');
 
 for ($i = 1; $i <= 5; $i++) {
