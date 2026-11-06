@@ -65,7 +65,7 @@ class Consumer implements ConsumerInterface
      * Subscribe's initial credit does not have this problem, but the same cap
      * is applied everywhere for one consistent limit.
      */
-    public const MAX_CREDIT = 32767;
+    public const MAX_CREDIT = CreditRequestV1::MAX_CREDIT;
 
     /**
      * Default adaptive credit window: keep roughly this many bytes of chunks in

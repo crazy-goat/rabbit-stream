@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **CreditRequestV1: a credit outside 0 to 32767 throws an exception (#923)** — the broker decodes the Credit field as a signed int16. A credit from 32768 to 65535 became negative on the broker side, and the broker stopped delivery to the subscription with no error. `CreditRequestV1` now throws `InvalidArgumentException` in the constructor for a credit below 0 or above 32767. It does not clamp the value. `tests/Request/CreditRequestV1Test.php` covers the limit and the rejected values.
+
 ## [1.13.2] - 2026-10-29
 
 ### Fixed
