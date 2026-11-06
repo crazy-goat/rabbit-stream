@@ -18,10 +18,11 @@ step() {
 if [ "$FIX" = 1 ]; then
     echo "==> fix"
     vendor/bin/rector process || true
-    vendor/bin/phpcbf --standard=phpcs.xml.dist || true
+    vendor/bin/php-cs-fixer fix || true
     php bin/kb-lint.php --fix || true
 fi
 
+step "php-cs-fixer" vendor/bin/php-cs-fixer fix --dry-run --diff
 step "phpcs" vendor/bin/phpcs --standard=phpcs.xml.dist
 step "rector" vendor/bin/rector process --dry-run
 step "phpstan" vendor/bin/phpstan analyse

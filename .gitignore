@@ -5,6 +5,7 @@
 /phpunit.result.cache
 .worktrees/
 /phpcs-report.json
+/.php-cs-fixer.cache
 .ref-clients/
 .oda
 .opencode

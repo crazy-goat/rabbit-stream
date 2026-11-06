@@ -15,7 +15,7 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
 cd "$root"
 
-if [ ! -x "vendor/bin/phpcs" ] && [ ! -f "vendor/bin/phpcs" ]; then
+if [ ! -x "vendor/bin/php-cs-fixer" ] && [ ! -f "vendor/bin/php-cs-fixer" ]; then
     echo "pre-push: vendor/ not installed — run 'composer install' first, or skip with --no-verify." >&2
     exit 1
 fi
