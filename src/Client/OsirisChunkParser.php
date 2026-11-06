@@ -349,6 +349,19 @@ class OsirisChunkParser
             ));
         }
 
+        // Every record gets the next offset, so the last one is
+        // chunkFirstOffset + numRecords - 1. Reject a chunk whose last offset does
+        // not fit in an int, before any entry is yielded: the offset counter would
+        // otherwise turn into a float and raise a TypeError in ChunkEntry/Message.
+        // getUint64() never returns a negative value, so the subtraction cannot overflow.
+        if ($numRecords > 0 && $chunkFirstOffset > PHP_INT_MAX - ($numRecords - 1)) {
+            throw new DeserializationException(sprintf(
+                'Chunk declares %d records starting at offset %d, so an offset exceeds PHP_INT_MAX',
+                $numRecords,
+                $chunkFirstOffset
+            ));
+        }
+
         // The declared data section must fit inside the received chunk window. The
         // trailerLength and bloomSize fields are deliberately NOT part of this
         // check: Deliver frames omit the bloom and trailer bytes for user-data
