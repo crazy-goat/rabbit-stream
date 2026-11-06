@@ -11,36 +11,50 @@ subagents *propose* candidate entries in their report — they never append
 ## Tag index
 
 <!-- kb-index:start -->
+- `ci` — FAQ-018
 - `conventions` — FAQ-008, FAQ-009
 - `credit` — FAQ-010
 - `docblocks` — FAQ-008
-- `documentation` — FAQ-007
-- `e2e` — FAQ-001, FAQ-002, FAQ-004, FAQ-011
+- `documentation` — FAQ-007, FAQ-013
+- `e2e` — FAQ-001, FAQ-002, FAQ-004, FAQ-011, FAQ-013, FAQ-017
 - `exceptions` — FAQ-007
 - `gh` — FAQ-003
+- `git` — FAQ-018
 - `lint` — FAQ-008
+- `memory` — FAQ-014
 - `offset` — FAQ-004
-- `protocol` — FAQ-002, FAQ-004, FAQ-005, FAQ-006, FAQ-007, FAQ-010, FAQ-011
+- `phpunit` — FAQ-012
+- `protocol` — FAQ-002, FAQ-004, FAQ-005, FAQ-006, FAQ-007, FAQ-010, FAQ-011, FAQ-016
 - `rector` — FAQ-008
+- `security` — FAQ-016
 - `single-active-consumer` — FAQ-010
-- `socket` — FAQ-002, FAQ-005
-- `tests` — FAQ-009
+- `socket` — FAQ-002, FAQ-005, FAQ-015
+- `tests` — FAQ-009, FAQ-012, FAQ-014, FAQ-017
+- `tls` — FAQ-017
+- `tyci` — FAQ-018
 <!-- kb-index:end -->
 
 ## Pitfalls
 
-### E2E tests need the RabbitMQ Stream plugin on port 5552
-<!-- id=FAQ-001 date=2025-05-20 tags=e2e trigger="when touching tests/E2E or running run-e2e.sh" hits=1 status=active -->
+### E2E tests need the RabbitMQ Stream plugin: `run-e2e.sh` picks free ports
+<!-- id=FAQ-001 date=2026-11-06 tags=e2e trigger="when touching tests/E2E or running run-e2e.sh" hits=1 status=active -->
 
-`./run-e2e.sh` boots `mirror.gcr.io/library/rabbitmq:4-management` (ECR Public as fallback) via `docker compose` and binds
-port **5552** (the stream protocol port, not 5672 AMQP) plus 15672
-(management API). The stream plugin is enabled by the image but the broker
-must report `healthy` before the suite runs — the script waits for that. If
-you see "Address already in use" or connection refused, ensure 5552 is free:
-`docker compose down` (the `EXIT` trap does this, but an interrupted run can
-leave it up). E2E tests respect `RABBITMQ_HOST` / `RABBITMQ_PORT` (default
-`127.0.0.1:5552`). Run E2E **only** for wire-level / protocol changes; pure
+`./run-e2e.sh` boots `mirror.gcr.io/library/rabbitmq:4-management` (ECR Public as fallback) via `docker compose`.
+The stream protocol port is **5552** (not 5672 AMQP). The script picks a free
+host port for each port variable that is not set: `RABBITMQ_PORT`,
+`RABBITMQ_AMQP_PORT`, `RABBITMQ_MANAGEMENT_PORT` and `RABBITMQ_TLS_PORT`.
+The broker must report `healthy` before the suite runs, and the script waits
+for that. The ports 5552, 5672 and 15672 are only the defaults of a plain
+`docker compose up -d`. "Address already in use" occurs only with a broker
+that you started by hand, or with ports that you exported before
+`./run-e2e.sh`. Then run `docker compose down` to stop the old broker. The
+`EXIT` trap does this, but an interrupted run can leave the broker up. E2E
+tests read `RABBITMQ_HOST`, `RABBITMQ_PORT` and `RABBITMQ_MANAGEMENT_PORT`,
+with the defaults `127.0.0.1:5552` and `15672`. Run E2E **only** for wire-level / protocol changes; pure
 serialization unit tests never need the broker.
+
+Changed 2026-11-06 (#1073): the text names the free-port selection of
+`run-e2e.sh`. The old text gave 5552 as the only port that the run uses.
 
 ### Server-push frames use the request key, not the response key
 <!-- id=FAQ-002 date=2025-05-20 tags=protocol,socket,e2e trigger="when implementing PublishConfirm/PublishError/Deliver/MetadataUpdate/Heartbeat/ConsumerUpdate handlers" hits=1 status=active -->
@@ -165,3 +179,81 @@ Every `active=false` ConsumerUpdate from the coordinator has `stepping_down => t
 <!-- id=FAQ-011 date=2026-11-06 tags=e2e,protocol trigger="when an E2E test needs a Consumer to hold unread buffered messages (hasUnread()) at a given point" hits=0 status=active -->
 
 A Consumer buffers whole chunks. A test holds unread messages only when the messages that it does not read are in a chunk that is already delivered. One `Producer::sendBatch()` call sends one Publish frame, and the broker normally stores one Publish frame as one chunk. This is broker behaviour, not a guarantee: the broker can also merge frames into one chunk (`tests/E2E/LargeMessageE2ETest.php`). Separate `send()` calls with a confirm wait for each message give one message per chunk (FAQ-004: a confirm is a chunk barrier). Then the consumer holds nothing unread after each read. Do not wait for `hasUnread()` in a loop of `readOne()` calls. `readOne()` pops one buffered message per call, so the loop drains each chunk before the check, and no public wait leaves messages unread. Publish the setup data with one `sendBatch()` and `waitForConfirms()`, and assert `hasUnread()` once. See #983 and https://github.com/crazy-goat/rabbit-stream/pull/986.
+
+### PHPUnit runs `tearDown()` after a skip in `setUp()`: guard the cleanup
+<!-- id=FAQ-012 date=2026-11-06 tags=tests,phpunit trigger="when writing a tearDown() that deletes files or directories, or a setUp() that calls markTestSkipped()" hits=0 status=active -->
+
+PHPUnit calls `tearDown()` even when `setUp()` calls `markTestSkipped()`. The
+after-test section of `runBare()` in `vendor/phpunit/phpunit/src/Framework/TestCase.php`
+runs when the requirements are met, and it does not check that `setUp()` finished.
+A `tearDown()` that deletes a directory then fails, or deletes a path that the test
+did not create. Before any `glob()`, `unlink()` or `rmdir()`, check that `setUp()`
+set the path: it is not empty, and it is inside `sys_get_temp_dir()`. An
+`is_dir()` check alone is not sufficient: with an empty `$dir`, `glob($dir.'/*')`
+reads `/*`. See the guard at the start of `tearDown()` in
+`tests/Client/TlsConnectFailureTest.php`.
+
+### A claim in an old issue that a test is missing can be wrong: check `tests/` first
+<!-- id=FAQ-013 date=2026-11-06 tags=documentation,e2e trigger="when you copy a claim about missing tests or old behaviour from an issue into docs" hits=0 status=active -->
+
+An old issue can say that a feature has no test, or that the docs describe
+it. The text can be stale. Search `tests/E2E/` and `tests/` for the feature
+before you copy the claim into the docs. Issue #910 said "Not tested: whether a
+broker accepts a client certificate with a PLAIN login." The E2E test `testPublishAndConsumeOverMutualTls`
+already covered that path, so the #910 docs fix did not copy the claim.
+
+### `memory_get_peak_usage(true)` depends on the allocator: compare two paths
+<!-- id=FAQ-014 date=2026-11-06 tags=tests,memory trigger="when a test asserts on memory_get_peak_usage()" hits=0 status=active -->
+
+`memory_get_peak_usage(true)` depends on the allocator. On Linux CI, the same
+frame read gave 96 MiB in one run and 128 MiB in the next, so the test was
+flaky (#1071). Run each path in a child process and read
+`memory_get_peak_usage(false)`. Compare the peak of the two paths, not a fixed
+`memory_limit`. `tests/Repro/FrameSizeReadTest.php` shows the pattern. See also
+#940.
+
+### `stream_select()` fails above FD_SETSIZE: the process has too many descriptors
+<!-- id=FAQ-015 date=2026-11-06 tags=socket trigger="when stream_select() reports 'You MUST recompile PHP with a larger value of FD_SETSIZE'" hits=0 status=active -->
+
+`stream_select()` cannot wait on a descriptor at or above `FD_SETSIZE` (usually
+1024). PHP then emits the warning "You MUST recompile PHP with a larger value of
+FD_SETSIZE". The number of the descriptor depends on how many descriptors the
+process has open, not on the library. The library reports the limit in the
+`ConnectionException` message (`src/StreamConnection.php`, #938). That message
+does not avoid the limit. Close the descriptors that the process does not use,
+or run fewer connections in one process.
+
+### A size that a peer declares is not a cap: check it before you allocate
+<!-- id=FAQ-016 date=2026-11-06 tags=protocol,security trigger="when a parser allocates, reads or inflates a buffer whose size a broker or peer declares" hits=0 status=active -->
+
+Check every peer-declared size against a fixed limit before you allocate or
+inflate. A limit on one call does not limit the total. A `gzdecode($data, $max)`
+call stops at `$max`, but each sub-batch of one chunk can still use up to its
+own `$max`. Keep a budget for the total of the declared sizes of one chunk. Add
+each declared size to a running total for the chunk, and check the total before
+each inflate. `OsirisChunkParser` does this with a 32 MiB budget per chunk
+(#915, PR #1068).
+
+### TLS alert tests: use `openssl s_server`, and read the alert from `fread()`
+<!-- id=FAQ-017 date=2026-11-06 tags=tls,tests,e2e trigger="when a test needs the TLS alert from a broker that rejects the client certificate" hits=0 status=active -->
+
+PHP's own `ssl://` listener does not send the "certificate required" TLS alert
+when the client sends no certificate. A test that needs the alert uses
+`openssl s_server -Verify 1 -verify_return_error`, as
+`tests/Client/TlsConnectFailureTest.php` does. macOS LibreSSL `s_server` rejects
+`-accept host:port` and exits at once. The test reads the first stderr line,
+and it skips with `markTestSkipped()` when the process exits.
+
+For the reason of a rejected connect, read the alert from the `fread()`
+warning (`tlsRejectionReason()` in `src/StreamConnection.php`, #957). After a
+TLS 1.3 handshake, the alert text is in that warning. It can also be in the
+OpenSSL error queue, so do not rely on the queue alone.
+
+### tyci: `rebase.sh` can add a merge commit after the review
+<!-- id=FAQ-018 date=2026-11-06 tags=git,tyci,ci trigger="when you write a tyci check that compares the reviewed sha with HEAD" hits=0 status=active -->
+
+`.tyci/workflows/issue-to-merge/checks/rebase.sh` merges the default branch
+into the issue branch, and it can add a merge commit. So a check that runs
+after the `update` step cannot require the reviewed sha to equal HEAD.
+`checks/post_review.sh` accepts the reviewed sha when it is HEAD, or when it is
+a first-parent ancestor with only merge commits after it (#904).
