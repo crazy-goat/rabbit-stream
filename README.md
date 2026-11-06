@@ -66,9 +66,9 @@ do not show it. Code that read `$tls->passphrase` must call `getPassphrase()`.
 passphrase, within `socketTimeout`. The E2E test `tests/E2E/TlsConnectionE2ETest.php` runs
 against a broker with a TLS stream listener and mutual TLS (`./run-e2e.sh` sets it up).
 
-The client certificate is part of the TLS handshake. The client sends only the PLAIN SASL
-mechanism after the handshake. This library does not test whether a broker accepts a
-client certificate together with PLAIN.
+The client certificate does not replace the PLAIN login. The broker checks the certificate
+in the TLS handshake, then checks the PLAIN login. The E2E test
+`testPublishAndConsumeOverMutualTls` covers both checks.
 
 Peer certificate and hostname verification are **on by default**
 (`verify_peer`/`verify_peer_name`). For a self-signed development broker you can
