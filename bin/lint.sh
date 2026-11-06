@@ -31,6 +31,7 @@ step "docs-symbols" php bin/check-docs-symbols.php
 step "api-reference" php bin/check-api-reference.php
 step "docs-frame-keys" php bin/check-docs-frame-keys.php
 step "stale-sockets" php bin/check-stale-sockets.php
+step "e2e-readloop-timeouts" php bin/check-e2e-readloop-timeouts.php
 step "test-suite-coverage" php bin/check-test-suites.php
 step "shellcheck" bash -c '{ git ls-files -z "*.sh"; git ls-files -z "bin/hooks/*"; } | xargs -0 -r shellcheck'
 

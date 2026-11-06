@@ -74,7 +74,7 @@ Tests live in `tests/` with PSR-4 autoloading under `CrazyGoat\RabbitStream\Test
 - `tests/VO/` — value-object tests
 - Root-level tests include `PlatformTest.php`, `ResponseBuilderTest.php`, and `StreamConnectionTest.php`.
 
-The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars (default: `127.0.0.1:5552`) and `RABBITMQ_MANAGEMENT_PORT` (default: `15672`).
+The `run-e2e.sh` script starts RabbitMQ via `docker compose`, waits for it to be healthy, runs the e2e suite, and shuts down the container. E2E tests respect `RABBITMQ_HOST` and `RABBITMQ_PORT` env vars and `RABBITMQ_MANAGEMENT_PORT`. Without `./run-e2e.sh`, the defaults are `127.0.0.1:5552` and `15672`. `./run-e2e.sh` picks a free port for each port variable that is not set, so do not export fixed ports before it.
 
 ---
 

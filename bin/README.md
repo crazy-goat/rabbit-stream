@@ -51,7 +51,7 @@ bash bin/free-port.sh
 ## lint.sh
 
 Runs every lint step (PHPCS, Rector, PHPStan, kb-lint, docs link check, test suite
-coverage, stale ext-sockets reference check, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
+coverage, stale ext-sockets reference check, E2E readLoop timeout check, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
 the pre-push hook and the CI `lint` job all call it. Needs `shellcheck` on `PATH`.
 
 ## check-docs-frame-keys.php
@@ -128,6 +128,25 @@ php bin/check-test-suites.php path/to/config-dir
 
 Exit codes: `0` clean, `1` uncovered test file(s) or stale allow-list
 entry(ies), `2` usage/config error.
+
+## check-e2e-readloop-timeouts.php
+
+Guards against E2E hangs (#975). `StreamConnection::readLoop()` has no deadline when `$timeout`
+is `null`. It returns only after `maxFrames` frames, after `stop()`, or when the connection
+closes. The broker keeps the connection open with heartbeats, so a test whose expected frame
+never arrives blocks until the CI job is cancelled.
+
+The script tokenizes every `*.php` file under `tests/E2E/` and finds each `->readLoop(` method
+call. It fails when the call has no named `timeout:` argument, or when it passes `timeout: null`.
+Comments, strings and method declarations are ignored. Only files under `tests/E2E/` are scanned.
+
+```bash
+php bin/check-e2e-readloop-timeouts.php                  # repo root
+php bin/check-e2e-readloop-timeouts.php path/to/root     # any repository root with tests/E2E/
+```
+
+Exit codes: `0` clean, `1` a `readLoop()` call without a bounded timeout, `2` usage error.
+The check runs inside `bin/lint.sh`.
 
 ## pick-issue.sh, worktree.sh, worktree-done.sh
 
