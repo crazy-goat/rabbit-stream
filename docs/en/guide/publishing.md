@@ -154,6 +154,8 @@ The `ConfirmationStatus` object provides:
 - `getPublishingId()`: The publishing ID of the message
 - `getErrorCode()`: Error code if the message failed (see [Error Handling](#6-error-handling))
 
+If the callback throws, the library still calls it for every other publishing ID of the same frame. It also calls it for every unconfirmed publish when the connection is lost. The first exception then reaches the code that read the frame, such as `waitForConfirms()` or `readLoop()`.
+
 ### Blocking Wait for Confirms
 
 To wait for all pending confirmations before continuing:
@@ -227,7 +229,7 @@ $producer = $connection->createProducer(
 ```
 
 The name must be unique per stream. Multiple connections using the same name
-share the same deduplication state.
+share the same deduplication state. The name must be at most 255 bytes long; a longer name makes `createProducer()` throw `InvalidArgumentException`.
 
 ### How Deduplication Works
 

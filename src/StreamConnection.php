@@ -551,6 +551,9 @@ class StreamConnection
     /**
      * Close the TCP socket connection.
      * Safe to call multiple times — subsequent calls are no-ops.
+     *
+     * The connection-lost handlers run before close() returns. If one throws,
+     * the others still run and the first exception is rethrown here.
      */
     public function close(): void
     {
@@ -564,20 +567,30 @@ class StreamConnection
         }
         $this->stream = null;
         $this->connected = false;
+        // A closed connection cannot read a late reply, so the abandoned-id set
+        // has no further use and must not be carried by a reused instance (R2-3).
+        // It is cleared before the handlers run: they may throw.
+        $this->abandonedCorrelationIds = [];
         if ($wasConnected) {
             $this->notifyConnectionLost('Connection was closed');
         }
-        // A closed connection cannot read a late reply, so the abandoned-id set
-        // has no further use and must not be carried by a reused instance (R2-3).
-        $this->abandonedCorrelationIds = [];
     }
 
     /**
      * Close the connection on object destruction.
+     *
+     * A connection-lost handler may throw. Nothing can receive that exception
+     * here, and an exception that leaves a destructor is fatal, so it is logged.
      */
     public function __destruct()
     {
-        $this->close();
+        try {
+            $this->close();
+        } catch (Throwable $exception) {
+            $this->logger->error('Failed to close connection in destructor', [
+                'exception' => $exception,
+            ]);
+        }
     }
 
     /**
@@ -906,7 +919,9 @@ class StreamConnection
      * Register a handler notified when this connection can no longer carry frames.
      *
      * @param int $handlerId Unique handler id, typically a publisher id
-     * @param callable(string): void $handler Receives the reason the connection was lost
+     * @param callable(string): void $handler Receives the reason the connection was lost.
+     *                                        A throw does not stop the other handlers; the
+     *                                        first exception is rethrown after all ran.
      */
     public function registerConnectionLostHandler(int $handlerId, callable $handler): void
     {
@@ -919,7 +934,12 @@ class StreamConnection
         unset($this->connectionLostHandlers[$handlerId]);
     }
 
-    /** Notify every active producer once, before discarding the callbacks. */
+    /**
+     * Notify every active producer once, before discarding the callbacks.
+     *
+     * A throwing handler does not stop the others. The first exception is
+     * rethrown after all handlers ran.
+     */
     private function notifyConnectionLost(string $reason): void
     {
         if ($this->connectionLostHandlers === []) {
@@ -928,8 +948,19 @@ class StreamConnection
 
         $handlers = $this->connectionLostHandlers;
         $this->connectionLostHandlers = [];
+        $failure = null;
         foreach ($handlers as $handler) {
-            $handler($reason);
+            try {
+                $handler($reason);
+            } catch (Throwable $exception) {
+                $this->logger->error('Connection-lost handler failed; the other handlers still run', [
+                    'exception' => $exception,
+                ]);
+                $failure ??= $exception;
+            }
+        }
+        if ($failure instanceof Throwable) {
+            throw $failure;
         }
     }
 
@@ -938,6 +969,8 @@ class StreamConnection
      *
      * The global callback is invoked for every MetadataUpdate, after the
      * per-stream handlers registered with registerMetadataUpdateHandler().
+     * A throwing handler does not stop the others; the first exception is
+     * rethrown to the readLoop() or request() caller.
      *
      * @param callable $callback Called with (MetadataUpdateResponseV1 $update) on topology changes
      */
@@ -956,7 +989,8 @@ class StreamConnection
      *
      * @param string   $stream    Stream name the handler is interested in
      * @param string   $handlerId Unique id per registration (e.g. "publisher-3"), used to unregister
-     * @param callable $handler   Called with (MetadataUpdateResponseV1 $update)
+     * @param callable $handler   Called with (MetadataUpdateResponseV1 $update); a throw
+     *                            does not stop the other handlers (see onMetadataUpdate())
      */
     public function registerMetadataUpdateHandler(string $stream, string $handlerId, callable $handler): void
     {
@@ -1374,7 +1408,22 @@ class StreamConnection
             $key = $frame->peekUint16();
 
             if (isset(self::SERVER_PUSH_KEYS[$key])) {
-                $this->dispatchServerPush($frame);
+                try {
+                    $this->dispatchServerPush($frame);
+                } catch (Throwable $exception) {
+                    // The caller gets this exception, not the reply it waits for.
+                    // Drop that reply when it arrives, as for a timed-out request.
+                    if ($expectedCorrelationId !== null) {
+                        $parked = $this->takePendingResponse($expectedCorrelationId);
+                        // A reply parked by a nested request() is already here; only an
+                        // id whose reply is still on the way needs to be abandoned.
+                        if ($parked === null && $this->connected) {
+                            $this->abandonCorrelation($expectedCorrelationId);
+                        }
+                    }
+
+                    throw $exception;
+                }
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
@@ -1471,7 +1520,10 @@ class StreamConnection
     }
 
     /**
+     * Remove and return a parked response. It mutates $pendingResponses.
+     *
      * @return array{correlationId: int, result: object|ProtocolException}|null
+     * @phpstan-impure
      */
     private function takePendingResponse(int $correlationId): ?array
     {
@@ -1505,6 +1557,9 @@ class StreamConnection
      * failed. That bound matters because this is the only select site that can
      * run without a `$timeout`, so it has no deadline to stop a retry; see
      * {@see selectWasInterrupted()} for why the bound is needed at all.
+     *
+     * An exception thrown by a user callback or handler reaches the caller after
+     * every callback of that frame ran.
      *
      * @param int|null   $maxFrames Maximum number of frames to process (null = unlimited)
      * @param float|null $timeout   Maximum wall-clock time in seconds (null = unlimited)
@@ -1806,11 +1861,26 @@ class StreamConnection
             'code' => sprintf('0x%04x', $update->getCode()),
         ]);
         // Copy: a handler may (un)register handlers for this stream while we iterate.
-        foreach ($this->metadataUpdateHandlers[$update->getStream()] ?? [] as $handler) {
-            $handler($update);
-        }
+        $callbacks = $this->metadataUpdateHandlers[$update->getStream()] ?? [];
         if ($this->metadataUpdateCallback instanceof \Closure) {
-            ($this->metadataUpdateCallback)($update);
+            $callbacks[] = $this->metadataUpdateCallback;
+        }
+        // A throwing handler does not stop the others. The first exception is
+        // rethrown after all of them ran.
+        $failure = null;
+        foreach ($callbacks as $callback) {
+            try {
+                $callback($update);
+            } catch (Throwable $exception) {
+                $this->logger->error('MetadataUpdate handler failed; the other handlers still run', [
+                    'stream' => $update->getStream(),
+                    'exception' => $exception,
+                ]);
+                $failure ??= $exception;
+            }
+        }
+        if ($failure instanceof Throwable) {
+            throw $failure;
         }
     }
 

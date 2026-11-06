@@ -1735,4 +1735,136 @@ class ProducerTest extends TestCase
         sort($confirmedIds);
         $this->assertSame([1, 2], $confirmedIds, 'each confirmed id reported exactly once');
     }
+
+    public function testConfirmCallbackRunsForEveryIdWhenOneThrows(): void
+    {
+        $connection = $this->createProducerStreamConnectionMock();
+
+        /** @var callable|null $onConfirm */
+        $onConfirm = null;
+        $connection->expects($this->once())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $confirm) use (&$onConfirm): void {
+                $onConfirm = $confirm;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var int[] $seen */
+        $seen = [];
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$seen): void {
+                $seen[] = $status->getPublishingId();
+                if ($status->getPublishingId() === 0) {
+                    throw new \RuntimeException('user callback failed on the first confirm');
+                }
+            },
+        );
+        $producer->sendBatch(['m0', 'm1', 'm2']);
+
+        $this->assertNotNull($onConfirm, 'registerPublisher callback must have been called');
+        try {
+            $onConfirm([0, 1, 2]);
+            self::fail('The exception of the first callback must reach the caller.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('user callback failed on the first confirm', $exception->getMessage());
+        }
+
+        $this->assertSame([0, 1, 2], $seen, 'every confirmed id must reach the callback');
+        $this->assertSame(0, $producer->getPendingConfirms());
+    }
+
+    public function testLostCallbackRunsForEveryIdAndWarnsWhenOneThrows(): void
+    {
+        $connection = $this->createProducerStreamConnectionMock();
+
+        /** @var callable|null $connectionLost */
+        $connectionLost = null;
+        $connection->expects($this->once())
+            ->method('registerConnectionLostHandler')
+            ->willReturnCallback(function ($id, $handler) use (&$connectionLost): void {
+                $connectionLost = $handler;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var string[] $seen */
+        $seen = [];
+        $logger = new RecordingLogger();
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$seen): void {
+                $seen[] = $status->getPublishingId() . ':' . ($status->isConfirmed() ? 'ok' : 'lost');
+                if (!$status->isConfirmed() && $status->getPublishingId() === 0) {
+                    throw new \RuntimeException('user callback failed on the first lost publish');
+                }
+            },
+            logger: $logger,
+        );
+        $producer->sendBatch(['m0', 'm1', 'm2']);
+
+        $this->assertNotNull($connectionLost, 'registerConnectionLostHandler callback must have been called');
+        try {
+            $connectionLost('Connection was closed');
+            self::fail('The exception of the first callback must reach the caller.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('user callback failed on the first lost publish', $exception->getMessage());
+        }
+
+        $this->assertSame(['0:lost', '1:lost', '2:lost'], $seen, 'every lost id must reach the callback');
+        $this->assertSame(3, $producer->getLostConfirmCount());
+        $this->assertCount(1, $logger->warningMessages(), 'the lost publishes must be logged');
+    }
+
+    public function testPublishErrorCallbackRunsForEveryIdAndMarksStaleWhenOneThrows(): void
+    {
+        $connection = $this->createProducerStreamConnectionMock();
+
+        /** @var callable|null $onError */
+        $onError = null;
+        $connection->expects($this->once())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $confirm, $error) use (&$onError): void {
+                $onError = $error;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var string[] $seen */
+        $seen = [];
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$seen): void {
+                $seen[] = $status->getPublishingId() . ':' . $status->getErrorCode();
+                if ($status->getPublishingId() === 0) {
+                    throw new \RuntimeException('user callback failed on the first publish error');
+                }
+            },
+        );
+        $producer->sendBatch(['m0', 'm1', 'm2']);
+
+        $this->assertNotNull($onError, 'registerPublisher callback must have been called');
+        $code = ResponseCodeEnum::PUBLISHER_NOT_EXIST->value;
+        try {
+            $onError([
+                new PublishingError(0, $code),
+                new PublishingError(1, $code),
+                new PublishingError(2, $code),
+            ]);
+            self::fail('The exception of the first callback must reach the caller.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('user callback failed on the first publish error', $exception->getMessage());
+        }
+
+        $this->assertSame(["0:$code", "1:$code", "2:$code"], $seen, 'every failed id must reach the callback');
+        $stale = new \ReflectionProperty($producer, 'stale');
+        $this->assertTrue(
+            $stale->getValue($producer),
+            'a fatal error must mark the publisher stale before the rethrow'
+        );
+    }
 }

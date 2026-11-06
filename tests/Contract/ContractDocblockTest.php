@@ -225,6 +225,7 @@ class ContractDocblockTest extends TestCase
             'ConnectionException',
             'DeserializationException',
             'TimeoutException',
+            'InvalidArgumentException',
         ],
         'ConsumerInterface::close' => [
             'ProtocolException',
