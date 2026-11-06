@@ -900,8 +900,8 @@ class AmqpDecoder
      * format codes (#924). The declared size bounds decoding exactly like the
      * compound readers do. The element count is guarded by readArrayElements():
      * a non-zero-width element takes at least 1 byte, so the count must fit in
-     * the remaining bytes, and a zero-width element is bounded by the content
-     * bytes (MAX_ZERO_WIDTH_ARRAY_ELEMENTS). Both are capped by MAX_COMPOUND_ELEMENTS.
+     * the remaining bytes, and a zero-width element is limited to
+     * MAX_ZERO_WIDTH_ARRAY_ELEMENTS elements. Both are capped by MAX_COMPOUND_ELEMENTS.
      *
      * @return list<mixed>
      */
