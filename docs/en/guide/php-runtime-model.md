@@ -7,7 +7,7 @@ A connection lives as long as its PHP process or request. This guide shows how l
 - A `Connection` object owns one TCP or TLS socket. `Connection::create()` opens a new socket.
 - The library has no persistent connections. Each PHP request or worker start opens its own socket. (Not tested.)
 - `close()` sends the Close exchange to the broker, closes the producers and consumers of the connection, and closes the socket. A second call does nothing.
-- When the object is destroyed, `__destruct()` calls `close()` on a best-effort basis. It logs an error and does not throw. See [Destructor Auto-Cleanup](connection-lifecycle.md#destructor-auto-cleanup).
+- When the object is destroyed, `__destruct()` tries to call `close()`. It logs an error and does not throw. See [Destructor Auto-Cleanup](connection-lifecycle.md#destructor-auto-cleanup).
 - The client checks inbound data and sends heartbeats only inside a library call. A process that is idle outside the library sends no heartbeat. (Not tested.)
 
 Because of the last point, a long-lived process must call the library at least once per heartbeat interval. A consumer `read()` loop does this. See [Connection Lifecycle](connection-lifecycle.md#server-push-frames) for the heartbeat rules.

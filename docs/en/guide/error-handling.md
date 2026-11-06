@@ -727,7 +727,7 @@ try {
 }
 ```
 
-For a complete reconnect pattern for a producer and a consumer, see [Reconnect](reconnect.md).
+For a reconnect pattern for a producer and a consumer, see [Reconnect](reconnect.md).
 
 ## Best Practices
 
