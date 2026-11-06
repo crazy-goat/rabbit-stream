@@ -35,13 +35,38 @@ class NamedProducerResumeTest extends E2ETestCase
             $this->producer = null;
         }
 
+        // The test body may close the connection or leave it null (see the reconnect step),
+        // so the stream is deleted over a fresh cleanup connection.
         if ($this->connection instanceof Connection) {
             try {
-                $this->connection->deleteStream($this->streamName);
+                $this->connection->close();
             } catch (\Exception) {
                 // Ignore cleanup errors
             }
-            $this->connection->close();
+            $this->connection = null;
+        }
+
+        $cleanup = $this->openCleanupConnection();
+        if ($cleanup instanceof Connection) {
+            try {
+                $cleanup->deleteStream($this->streamName);
+            } catch (\Exception) {
+                // Ignore cleanup errors
+            }
+            try {
+                $cleanup->close();
+            } catch (\Exception) {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    private function openCleanupConnection(): ?Connection
+    {
+        try {
+            return $this->createConnection();
+        } catch (\Exception) {
+            return null;
         }
     }
 
@@ -120,12 +145,14 @@ class NamedProducerResumeTest extends E2ETestCase
         $consumer = $this->connection->createConsumer($this->streamName, OffsetSpec::first());
 
         $receivedMessages = [];
-        $deadline = time() + 10;
+        $deadline = microtime(true) + 10.0;
 
-        // Read ALL stored messages from both sessions, without client-side filtering
-        while (time() < $deadline) {
+        // Read ALL stored messages from both sessions, without client-side filtering.
+        // An empty poll ends the loop only when all 15 messages are already read. Before that,
+        // an empty poll is a slow broker, so the loop keeps polling until the deadline.
+        while (microtime(true) < $deadline) {
             $messages = $consumer->read(timeout: 0.5);
-            if ($messages === []) {
+            if ($messages === [] && count($receivedMessages) >= 15) {
                 break;
             }
             foreach ($messages as $msg) {

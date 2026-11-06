@@ -172,7 +172,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
             function (): void {
             }
         );
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
         $this->assertTrue($confirmed, 'Message should be confirmed');
 
         // Subscribe and receive using callback
@@ -189,7 +189,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         $this->assertInstanceOf(SubscribeResponseV1::class, $subscribeResponse);
 
         $connection->sendMessage(new CreditRequestV1(1, 10));
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
 
         // Verify received message
         $this->assertCount(1, $receivedMessages);
@@ -247,7 +247,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
             function (): void {
             }
         );
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
         $this->assertTrue($confirmed);
 
         // Subscribe and receive
@@ -263,7 +263,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         $connection->readMessage();
 
         $connection->sendMessage(new CreditRequestV1(1, 10));
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
 
         // Verify
         $this->assertCount(1, $receivedMessages);
@@ -321,7 +321,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
             function (): void {
             }
         );
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
         $this->assertTrue($confirmed);
 
         // Subscribe and receive
@@ -337,7 +337,7 @@ class AmqpMessageDecoderE2ETest extends E2ETestCase
         $connection->readMessage();
 
         $connection->sendMessage(new CreditRequestV1(1, 10));
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
 
         // Verify
         $this->assertCount(1, $receivedMessages);
