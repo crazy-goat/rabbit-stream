@@ -7,14 +7,14 @@ namespace CrazyGoat\RabbitStream\Serializer;
 interface BinarySerializerInterface
 {
     /**
-     * Converts a Request object to a binary frame (without the 4-byte length prefix).
-     * Uses Request::toArray() to get the data, then serializes to binary.
+     * Converts a Request object to the binary frame content, without the 4-byte size prefix.
+     * The default implementation calls ToStreamBufferInterface::toStreamBuffer() and returns its bytes.
      */
     public function serialize(object $request): string;
 
     /**
      * Converts a binary frame to a Response object.
-     * Deserializes binary to array, then uses Response::fromArray() to build the object.
+     * The method returns an object. It does not return an array.
      */
     public function deserialize(string $frame): object;
 }

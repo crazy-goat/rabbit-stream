@@ -189,6 +189,7 @@ not advertise `PLAIN`, the only mechanism this client implements. The client
 aborts before sending credentials:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 
 try {
@@ -211,6 +212,7 @@ authenticate with `AUTHENTICATION_FAILURE`, which surfaces as a
 tell "bad password" apart from "the server cannot authenticate us at all":
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
@@ -287,6 +289,24 @@ try {
 ```
 
 Catch order matters: `TimeoutException` extends `ConnectionException`.
+
+#### A socket with a descriptor number of 1024 or higher
+
+The client waits for I/O with `stream_select()`. The `select(2)` system call
+cannot wait on a socket whose descriptor number is at or above `FD_SETSIZE`.
+On the tested builds, `FD_SETSIZE` is 1024. An application that keeps about
+1023 or more files and sockets open can reach this limit.
+
+When this happens, the client closes the connection and throws
+`ConnectionException`. The message names the descriptor limit and includes the
+PHP warning:
+
+```text
+stream_select failed while writing: the socket descriptor is at or above FD_SETSIZE (select(2) limit, usually 1024); lower the number of open descriptors in the process. PHP warning: stream_select(): You MUST recompile PHP with a larger value of FD_SETSIZE. ...
+```
+
+To fix this, close the files and sockets that the process does not need. Then
+connect again.
 
 #### Server-initiated close
 
@@ -531,6 +551,7 @@ function connectWithRetry(string $host, int $port, string $user, string $pass): 
 Handle various authentication scenarios:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;

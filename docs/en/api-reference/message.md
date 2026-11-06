@@ -209,10 +209,11 @@ public function getBody(): string|int|float|bool|array|null
 
 #### Return Value
 
-`string|int|float|bool|array|null` - The decoded message body. Type depends on:
-- The AMQP type encoding used by the producer
-- The serializer used (if any)
-- The content type of the message
+`string|int|float|bool|array|null` - The decoded message body. The type depends on the AMQP body section of the message:
+- Data section: `string`. Two or more Data sections give one string, joined in order.
+- AmqpSequence section: `array`
+- AmqpValue section: the PHP type of the AMQP value. An AMQP null gives `null`.
+- No body section: `''` (an empty string)
 
 **Note:** The body is not always a string. This library publishes a string, but a message from another AMQP 1.0 client can carry an array, `null`, a `bool`, an `int` or a `float`. If you put such a body in a string, PHP prints `Array` with a warning, an empty string for `null`, or `1` for `true`. Check the type with `is_string()` before you print or decode the body.
 
@@ -434,14 +435,17 @@ $correlationId = $message->getCorrelationId();
 
 if ($correlationId !== null) {
     echo "Processing request: {$correlationId}\n";
-    
-    // Reply with same correlation ID
-    $reply = new Message(
-        body: json_encode(['status' => 'success']),
-        properties: [
-            'correlation-id' => $correlationId,
-        ]
-    );
+
+    // $connection and $consumer: see Connection::create() and Connection::createConsumer().
+    // The 'replies' stream must exist before createProducer() (see createStream()).
+    // The Producer API sends a body only. It cannot set the correlation-id property,
+    // so the reply carries the correlation ID in the body.
+    $replyProducer = $connection->createProducer('replies');
+    $replyProducer->send(json_encode([
+        'correlation-id' => $correlationId,
+        'status' => 'success',
+    ]));
+    $replyProducer->waitForConfirms(timeout: 5);
 }
 ```
 
@@ -462,19 +466,21 @@ public function getContentType(): ?string
 #### Example
 
 ```php
+// $consumer is a Consumer from Connection::createConsumer(), see the Consumer API reference.
 $message = $consumer->readOne();
 $contentType = $message->getContentType();
+$body = $message->getBody();
 
 switch ($contentType) {
     case 'application/json':
-        $data = json_decode($message->getBody(), true);
+        $data = is_string($body) ? json_decode($body, true) : null;
         break;
     case 'application/xml':
-        $data = simplexml_load_string($message->getBody());
+        $data = is_string($body) ? simplexml_load_string($body) : null;
         break;
     case 'text/plain':
     default:
-        $data = $message->getBody();
+        $data = $body;
         break;
 }
 ```
@@ -663,13 +669,15 @@ while ($message = $consumer->readOne()) {
 Route messages based on AMQP properties:
 
 ```php
+// $consumer: see Connection::createConsumer().
 while ($message = $consumer->readOne()) {
     $contentType = $message->getContentType();
     $subject = $message->getSubject();
     
     // Route by content type
-    if ($contentType === 'application/json') {
-        $data = json_decode($message->getBody(), true);
+    $body = $message->getBody();
+    if ($contentType === 'application/json' && is_string($body)) {
+        $data = json_decode($body, true);
         
         // Route by subject
         if (str_starts_with($subject, 'payments.')) {
@@ -688,6 +696,7 @@ while ($message = $consumer->readOne()) {
 Common pattern for JSON-encoded messages:
 
 ```php
+// $consumer: see Connection::createConsumer().
 while ($message = $consumer->readOne()) {
     // Verify content type
     if ($message->getContentType() !== 'application/json') {
@@ -697,6 +706,10 @@ while ($message = $consumer->readOne()) {
     
     // Decode JSON
     $body = $message->getBody();
+    if (!is_string($body)) {
+        error_log("Expected a string body at offset {$message->getOffset()}");
+        continue;
+    }
     $data = json_decode($body, true);
     
     if ($data === null) {
@@ -757,14 +770,16 @@ file_put_contents('received.png', $binary);
 JSON-encoded messages with proper content type:
 
 ```php
-// Producer
+// Producer: $producer comes from Connection::createProducer(), see the Producer API reference.
 $data = ['user_id' => 123, 'action' => 'login'];
 $producer->send(json_encode($data));
 
 // Consumer
+// $consumer is a Consumer from Connection::createConsumer(), see the Consumer API reference.
 $message = $consumer->readOne();
-if ($message->getContentType() === 'application/json') {
-    $data = json_decode($message->getBody(), true);
+$body = $message->getBody();
+if ($message->getContentType() === 'application/json' && is_string($body)) {
+    $data = json_decode($body, true);
     echo "User {$data['user_id']} performed {$data['action']}\n";
 }
 ```

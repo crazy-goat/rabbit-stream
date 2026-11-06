@@ -17,6 +17,8 @@ composer require crazy-goat/rabbit-stream
 
 ## Quick Start
 
+The snippets in this section use the stream `my-stream`. Create it once before you run them. The [Quick Start guide](docs/en/getting-started/quick-start.md) shows the call (step 2, `createStream()`). `createStream()` throws `ProtocolException` if the stream already exists.
+
 ### Publishing
 
 ```php
@@ -75,6 +77,9 @@ Peer certificate and hostname verification are **on by default**
 disable them explicitly — do not do this in production:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\VO\TlsConfig;
+
 $connection = Connection::create(
     host: 'localhost',
     port: 5551,
@@ -123,6 +128,8 @@ API reference, protocol notes and examples. Translations are listed in
 [`docs/LANGUAGES.md`](docs/LANGUAGES.md) (currently English only).
 
 ## Usage
+
+The snippets in this section use the stream `my-stream`. Create it once before you run them, as shown in the [Quick Start guide](docs/en/getting-started/quick-start.md).
 
 ### High-level API (Recommended)
 

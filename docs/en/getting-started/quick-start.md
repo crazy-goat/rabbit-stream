@@ -157,6 +157,8 @@ Done! Received 4 messages.
 ### 1. Connect to RabbitMQ
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: '127.0.0.1',
     port: 5552,

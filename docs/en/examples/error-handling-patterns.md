@@ -420,6 +420,7 @@ Implement timeout handling with retry:
 ```php
 <?php
 
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Contract\ProducerInterface;
 use CrazyGoat\RabbitStream\Exception\TimeoutException;
 use CrazyGoat\RabbitStream\Exception\ConnectionException;
