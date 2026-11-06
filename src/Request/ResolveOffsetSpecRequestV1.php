@@ -55,6 +55,7 @@ class ResolveOffsetSpecRequestV1 implements
         return [
             'stream' => $this->stream,
             'offsetSpec' => $this->offsetSpec->toArray(),
+            'properties' => $this->properties,
         ];
     }
 

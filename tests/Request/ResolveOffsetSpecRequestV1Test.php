@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\Request;
 
 use CrazyGoat\RabbitStream\Request\ResolveOffsetSpecRequestV1;
+use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use PHPUnit\Framework\TestCase;
 
 class ResolveOffsetSpecRequestV1Test extends TestCase
@@ -13,7 +14,7 @@ class ResolveOffsetSpecRequestV1Test extends TestCase
     {
         $request = new ResolveOffsetSpecRequestV1(
             'my-stream',
-            \CrazyGoat\RabbitStream\VO\OffsetSpec::first()
+            OffsetSpec::first()
         );
         $request->withCorrelationId(42);
 
@@ -34,7 +35,7 @@ class ResolveOffsetSpecRequestV1Test extends TestCase
     {
         $request = new ResolveOffsetSpecRequestV1(
             'my-stream',
-            \CrazyGoat\RabbitStream\VO\OffsetSpec::offset(12345)
+            OffsetSpec::offset(12345)
         );
         $request->withCorrelationId(99);
 
@@ -56,7 +57,7 @@ class ResolveOffsetSpecRequestV1Test extends TestCase
     {
         $request = new ResolveOffsetSpecRequestV1(
             'my-stream',
-            \CrazyGoat\RabbitStream\VO\OffsetSpec::first(),
+            OffsetSpec::first(),
             ['match-unfiltered' => 'true', 'filter' => 'abc']
         );
         $request->withCorrelationId(7);
