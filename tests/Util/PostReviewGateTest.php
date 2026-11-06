@@ -75,8 +75,8 @@ class PostReviewGateTest extends TestCase
 
         $this->assertSame(0, $exit, $stderr);
         $this->assertSame("fail\n", $stdout);
-        $this->assertStringContainsString('format is wrong', $stderr);
-        $this->assertSame('', $calls, 'A malformed review must not be posted.');
+        $this->assertStringContainsString('wrong format', $stderr);
+        $this->assertStringContainsString('pr review 42', $calls, 'A malformed review is still posted.');
     }
 
     public function testReportWithWrongShaFails(): void
@@ -87,7 +87,7 @@ class PostReviewGateTest extends TestCase
 
         $this->assertSame("fail\n", $stdout);
         $this->assertStringContainsString('ACCEPT', $stderr);
-        $this->assertSame('', $calls);
+        $this->assertStringContainsString('pr review 42', $calls, 'A malformed review is still posted.');
     }
 
     /** @return iterable<string, array{string}> */
@@ -110,7 +110,7 @@ class PostReviewGateTest extends TestCase
         [, $stdout, , $calls] = $this->runPostReview();
 
         $this->assertSame("fail\n", $stdout);
-        $this->assertSame('', $calls);
+        $this->assertStringContainsString('pr review 42', $calls, 'A malformed review is still posted.');
     }
 
     /** @return iterable<string, array{string}> */
@@ -130,7 +130,25 @@ class PostReviewGateTest extends TestCase
         [, $stdout, , $calls] = $this->runPostReview();
 
         $this->assertSame("fail\n", $stdout);
-        $this->assertSame('', $calls);
+        $this->assertStringContainsString('pr review 42', $calls, 'A malformed review is still posted.');
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function crlfReportProvider(): iterable
+    {
+        yield 'CRLF on line 1' => ["ACCEPT\r\nReviewed: "];
+        yield 'CRLF on line 2' => ["ACCEPT\nReviewed: "];
+    }
+
+    /** @dataProvider crlfReportProvider */
+    public function testCrlfLineEndingsFail(string $prefix): void
+    {
+        $this->writeReport($prefix . $this->commits['head'] . "\r\n");
+
+        [, $stdout, , $calls] = $this->runPostReview();
+
+        $this->assertSame("fail\n", $stdout);
+        $this->assertStringContainsString('pr review 42', $calls, 'A malformed review is still posted.');
     }
 
     public function testReviewedCommitWithNonMergeCommitAfterItFails(): void
@@ -142,7 +160,7 @@ class PostReviewGateTest extends TestCase
         [, $stdout, , $calls] = $this->runPostReview();
 
         $this->assertSame("fail\n", $stdout);
-        $this->assertSame('', $calls, 'The reviewed sha must not be behind a commit that the review did not see.');
+        $this->assertStringContainsString('pr review 42', $calls, 'The review is still posted.');
     }
 
     private function writeReport(string $contents): void

@@ -6,14 +6,17 @@
 #
 # Env in:  TYCI_PR, TYCI_REPO, TYCI_REVIEW_DIR (the artifact dir of the newest review
 #          step, set by the runner). The review is report.md in that dir.
-# The report must match the format of prompts/review.md: line 1 is ACCEPT or CHANGES, and line 2 is
-# "Reviewed: <40 lower-case hex digits>". The sha must be HEAD, or an ancestor of HEAD that only
-# merge commits follow. The update step (rebase.sh) merges origin/<default> before this check, so
-# HEAD can be a merge commit above the reviewed commit. A bad report is not posted, because the
-# next review round takes its base from the Reviewed: line.
-# Keys:    ok    the review was posted
+# The script posts the report as it is. Then it checks the format that prompts/review.md
+# requires: line 1 is ACCEPT or CHANGES, and line 2 is "Reviewed: <40 lower-case hex digits>".
+# The sha must be HEAD, or an ancestor of HEAD that only merge commits follow. The update step
+# (rebase.sh) can merge origin/<default> before this check, so HEAD can be a merge commit above
+# the reviewed commit. A bad format is reported with fail. It does not stop the post: the PR keeps
+# the review. The next round reads report.md from the artifact dir, so it checks line 2 itself
+# (prompts/review.md).
+# Keys:    ok    the review was posted and its format is right
 #          skip  the run has no review step (it continued an open PR without a new review)
-#          fail  no PR, an empty or malformed review report, or gh failed (the runner records it, the run goes on)
+#          fail  no PR, an empty report, gh failed (not posted), or the review was posted but its
+#                format is wrong (the runner records it, the run goes on)
 # Always exits 0.
 set -euo pipefail
 # describe.sh prints the failure block (see there). A copy of this script without it still works.
@@ -52,14 +55,6 @@ elif ! git merge-base --is-ancestor "$reviewed" HEAD 2>/dev/null ||
 else
     bad_format=0
 fi
-if [ "$bad_format" -eq 1 ]; then
-    describe fail "report.md format is wrong: line 1 must be ACCEPT or CHANGES, and line 2 must be 'Reviewed: <40 lower-case hex digits>' with the sha of HEAD ($head_sha) or of an ancestor that only merge commits follow" \
-        "the reviewer did not follow prompts/review.md lines 11-12, or the reviewed commit is not on the branch" \
-        "nothing to do: the review is not posted, the run records a warning and goes on to ci" \
-        "line 1 = '$line1'; line 2 = '$line2'"
-    echo fail
-    exit 0
-fi
 
 body=$(mktemp)
 trap 'rm -f "$body"' EXIT
@@ -68,11 +63,20 @@ trap 'rm -f "$body"' EXIT
     cat "$review"
 } >"$body"
 
-if gh pr review "$pr" -R "${TYCI_REPO:-}" --comment --body-file "$body" >&2; then
-    echo ok
-else
+if ! gh pr review "$pr" -R "${TYCI_REPO:-}" --comment --body-file "$body" >&2; then
     describe fail "gh pr review $pr --comment failed (see the gh output above); the review was not posted" \
         "no network, gh is not logged in, or no permission to comment" \
         "nothing to do: the run records a warning and goes on to ci"
     echo fail
+    exit 0
 fi
+
+if [ "$bad_format" -eq 1 ]; then
+    describe fail "the review was posted, but report.md has a wrong format: line 1 must be ACCEPT or CHANGES, and line 2 must be 'Reviewed: <40 lower-case hex digits>' with the sha of HEAD ($head_sha) or of an ancestor that only merge commits follow" \
+        "the reviewer did not follow prompts/review.md lines 11-12, or the reviewed commit is not on the branch" \
+        "nothing to do in the PR: the run goes on to ci; the next review round checks line 2 before it uses the sha" \
+        "line 1 = '$line1'; line 2 = '$line2'"
+    echo fail
+    exit 0
+fi
+echo ok
