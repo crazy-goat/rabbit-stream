@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CrazyGoat\RabbitStream\Tests\E2E;
 
 use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Exception\ConnectionException;
 use CrazyGoat\RabbitStream\Exception\RabbitStreamExceptionInterface;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
@@ -92,9 +93,15 @@ class TlsConnectionE2ETest extends TestCase
     public function testConnectFailsWithoutClientCertificate(): void
     {
         // The listener demands a client certificate, so this proves the test above used one.
-        $this->expectException(RabbitStreamExceptionInterface::class);
-
-        $this->connect($this->tlsConfig(clientCertificate: false));
+        // TLS 1.3 completes the handshake before the broker rejects the missing certificate, so the
+        // rejection shows on the first read and names the TLS alert (GitHub #957).
+        try {
+            $this->connect($this->tlsConfig(clientCertificate: false));
+            self::fail('Expected ConnectionException: the broker requires a client certificate');
+        } catch (ConnectionException $e) {
+            self::assertStringStartsWith('TLS peer rejected the connection: ', $e->getMessage());
+            self::assertStringContainsString('certificate required', $e->getMessage());
+        }
     }
 
     public function testConnectFailsWithWrongKeyPassphrase(): void

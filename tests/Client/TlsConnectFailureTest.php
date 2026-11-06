@@ -78,6 +78,35 @@ final class TlsConnectFailureTest extends TestCase
         }
     }
 
+    public function testRejectedClientCertificateNamesTheTlsAlertInTheMessage(): void
+    {
+        // The server demands a client certificate and the client sends none. TLS 1.3 lets the
+        // client finish the handshake, so connect() succeeds and the alert arrives on the first read.
+        // PHP's own TLS listener closes without an alert, so the test uses the openssl CLI server.
+        $port = $this->startRejectingOpenSslServer();
+
+        $connection = new StreamConnection(
+            '127.0.0.1',
+            $port,
+            socketTimeout: 3.0,
+            tls: new TlsConfig(cafile: $this->dir . '/cert.pem', peerName: 'broker.test')
+        );
+
+        $connection->connect();
+
+        try {
+            $connection->readFrame(3.0);
+            self::fail('Expected ConnectionException: the server rejects the missing client certificate');
+        } catch (ConnectionException $e) {
+            self::assertStringStartsWith('TLS peer rejected the connection: ', $e->getMessage());
+            self::assertStringContainsString('alert certificate required', $e->getMessage());
+            self::assertStringNotContainsString("\n", $e->getMessage());
+            self::assertFalse($connection->isConnected());
+        }
+
+        self::assertFalse(openssl_error_string(), 'The rejection left OpenSSL errors in the queue');
+    }
+
     public function testWrongPassphraseReasonIsInMessageWithoutThePassphrase(): void
     {
         $port = $this->startTlsServer();
@@ -177,11 +206,8 @@ final class TlsConnectFailureTest extends TestCase
         $this->drainOpenSslErrors();
     }
 
-    /**
-     * Create a certificate for broker.test, then start a TLS listener in a child process.
-     * Return the port. The listener closes after one accept or after five seconds.
-     */
-    private function startTlsServer(): int
+    /** Write the certificate for broker.test to cert.pem and its key to key.pem in the test directory. */
+    private function writeCertificate(): void
     {
         $keyFile = $this->dir . '/key.pem';
         $certFile = $this->dir . '/cert.pem';
@@ -197,6 +223,17 @@ final class TlsConnectFailureTest extends TestCase
         // Key generation leaves OpenSSL errors in the queue. Clear them, so that a test
         // sees only the errors of its own connect.
         $this->drainOpenSslErrors();
+    }
+
+    /**
+     * Create a certificate for broker.test, then start a TLS listener in a child process.
+     * Return the port. The listener closes after one accept or after five seconds.
+     */
+    private function startTlsServer(): int
+    {
+        $keyFile = $this->dir . '/key.pem';
+        $certFile = $this->dir . '/cert.pem';
+        $this->writeCertificate();
 
         $script = $this->dir . '/server.php';
         file_put_contents($script, <<<'PHP'
@@ -236,6 +273,64 @@ final class TlsConnectFailureTest extends TestCase
         self::assertSame("ready\n", fgets($pipes[1]), 'The TLS test server did not start');
 
         return $port;
+    }
+
+    /**
+     * Start `openssl s_server` as a TLS 1.3 listener that requires a client certificate, and
+     * return its port. Unlike PHP's listener, it sends the "certificate required" alert.
+     * The test is skipped when the openssl CLI is not installed.
+     */
+    private function startRejectingOpenSslServer(): int
+    {
+        exec('openssl version', $output, $exitCode);
+        if ($exitCode !== 0) {
+            self::markTestSkipped('The openssl CLI is required');
+        }
+
+        $this->writeCertificate();
+
+        $probe = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+        self::assertIsResource($probe, "Cannot listen: {$errorMessage} ({$errorCode})");
+        $port = (int) substr((string) strrchr((string) stream_socket_get_name($probe, false), ':'), 1);
+        fclose($probe);
+
+        $pipes = [];
+        $process = proc_open(
+            [
+                'openssl', 's_server', '-accept', "127.0.0.1:{$port}",
+                '-cert', $this->dir . '/cert.pem', '-key', $this->dir . '/key.pem',
+                '-tls1_3', '-Verify', '1', '-verify_return_error', '-quiet',
+            ],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        self::assertIsResource($process, 'Cannot start openssl s_server');
+        $this->server = $process;
+
+        // The server is ready when a TCP connect succeeds. The probe closes at once, so the
+        // server's failed handshake for it ends quickly and the server accepts the next client.
+        $deadline = microtime(true) + 5.0;
+        while (microtime(true) < $deadline) {
+            if (!proc_get_status($process)['running']) {
+                // The CLI exited at once. For example, LibreSSL on macOS rejects -accept host:port.
+                $stderr = (string) stream_get_contents($pipes[2]);
+                $firstLine = strtok($stderr, "\n");
+                $reason = $firstLine === false ? 'no output' : trim($firstLine);
+                foreach ($pipes as $pipe) {
+                    fclose($pipe);
+                }
+                $this->server = null;
+                proc_close($process);
+                self::markTestSkipped("openssl s_server cannot run: {$reason}");
+            }
+            $probeSocket = @stream_socket_client("tcp://127.0.0.1:{$port}", $errorCode, $errorMessage, 0.2);
+            if ($probeSocket !== false) {
+                fclose($probeSocket);
+                return $port;
+            }
+            usleep(50000);
+        }
+        self::fail('openssl s_server is running but did not start listening within 5 seconds');
     }
 
     private function drainOpenSslErrors(): void

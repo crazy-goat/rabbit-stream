@@ -2594,10 +2594,24 @@ class StreamConnection
             // not yet guarantee decodable plaintext (a TLS record may still be
             // incomplete), so an empty read here is retried until the deadline
             // rather than treated as EOF.
-            $chunk = @fread($stream, $remaining);
+            $warnings = [];
+            $chunk = $this->readChunk($stream, $remaining, $warnings);
 
             if ($chunk === false || $chunk === '') {
                 $meta = stream_get_meta_data($stream);
+                // A broker that rejects the client certificate sends a TLS alert before it closes.
+                // The alert text is in the fread() warning, and possibly in the OpenSSL queue (GitHub #957).
+                $rejection = $this->tlsRejectionReason($warnings);
+                if ($rejection !== null) {
+                    $this->close();
+                    // close() shuts the TLS session down, which may queue one more OpenSSL error.
+                    if (function_exists('openssl_error_string')) {
+                        while (openssl_error_string() !== false) {
+                            // Discard each queued error.
+                        }
+                    }
+                    throw new ConnectionException("TLS peer rejected the connection: {$rejection}");
+                }
                 if ($meta['eof']) {
                     $this->close();
                     throw new ConnectionException("Failed to read from socket: connection closed by peer");
@@ -2614,6 +2628,86 @@ class StreamConnection
         }
 
         return $data;
+    }
+
+    /**
+     * One non-blocking fread(). On ssl:// the PHP warnings of the read go to $warnings
+     * instead of being discarded, so a TLS alert stays available (GitHub #957).
+     * Other warnings and notices reach the previous error handler, as before.
+     *
+     * @param resource     $stream   The open connection stream
+     * @param int<1, max>  $length   The number of bytes that the read asks for
+     * @param list<string> $warnings Filled with the PHP warnings that the read emitted
+     * @return string|false The bytes read, '' when none, or false on failure
+     */
+    private function readChunk($stream, int $length, array &$warnings): string|false
+    {
+        if (!$this->tls instanceof TlsConfig) {
+            return @fread($stream, $length);
+        }
+
+        $previousHandler = set_error_handler(
+            static function (
+                int $number,
+                string $message,
+                string $file = '',
+                int $line = 0
+            ) use (
+                &$warnings,
+                &$previousHandler
+            ): bool {
+                if ($number === E_WARNING) {
+                    $warnings[] = $message;
+                }
+                if ($previousHandler === null) {
+                    return $number === E_WARNING;
+                }
+                return (bool) $previousHandler($number, $message, $file, $line);
+            }
+        );
+        try {
+            return @fread($stream, $length);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * The TLS alert that a failed read reports, or null when the read has no alert.
+     *
+     * Only an ssl:// transport has one. Every OpenSSL error in the queue is taken, so stale
+     * errors do not reach a later call. The lines that name an alert other than close_notify
+     * are the reason, for example "tlsv13 alert certificate required" (GitHub #957).
+     *
+     * @param list<string> $warnings The PHP warnings of the failed read
+     */
+    private function tlsRejectionReason(array $warnings): ?string
+    {
+        if (!$this->tls instanceof TlsConfig) {
+            return null;
+        }
+
+        $texts = $warnings;
+        if (function_exists('openssl_error_string')) {
+            while (($opensslError = openssl_error_string()) !== false) {
+                $texts[] = $opensslError;
+            }
+        }
+
+        $reasons = [];
+        foreach ($texts as $text) {
+            foreach (preg_split('/\R/', $text) ?: [] as $line) {
+                $line = (string) preg_replace('/^fread\(\): /', '', $line);
+                if (preg_match('/alert/i', $line) !== 1 || preg_match('/close.notify/i', $line) === 1) {
+                    continue;
+                }
+                $reasons[] = trim((string) preg_replace('/\s+/', ' ', $line));
+            }
+        }
+
+        $reasons = array_slice(array_values(array_unique($reasons)), 0, self::MAX_OPENSSL_REASONS);
+
+        return $reasons === [] ? null : implode('; ', $reasons);
     }
 
     /**

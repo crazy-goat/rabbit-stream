@@ -333,6 +333,24 @@ try {
 `getServerCloseCode()` returns `null` for a `ConnectionException` that the
 client did not get from a Close frame.
 
+#### TLS peer rejection
+
+With TLS 1.3, `connect()` can succeed before the broker checks the client certificate.
+The broker then sends a TLS alert and closes the connection. The first read fails. The
+exception message starts with `TLS peer rejected the connection:` and names the alert,
+for example `alert certificate required`.
+
+```php
+try {
+    $connection->connect();
+    $connection->readFrame(5.0);
+} catch (ConnectionException $e) {
+    if (str_starts_with($e->getMessage(), 'TLS peer rejected the connection:')) {
+        // The broker rejected the client certificate. Check the certificate and its key.
+    }
+}
+```
+
 #### Publisher/subscription id exhaustion
 
 `ConnectionException` is also thrown when all 256 publisher (or subscription)

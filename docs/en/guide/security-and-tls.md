@@ -55,6 +55,8 @@ The client completes the TLS handshake, with the client certificate and the key 
 
 The client certificate does not replace the PLAIN login. The broker checks the certificate in the TLS handshake, then checks the PLAIN login. The E2E test `testPublishAndConsumeOverMutualTls` in `tests/E2E/TlsConnectionE2ETest.php` covers both checks.
 
+With TLS 1.3, `connect()` can succeed when the broker rejects the client certificate. The rejection shows on the first read. The client then throws `ConnectionException`. Its message starts with `TLS peer rejected the connection:` and names the TLS alert. [TLS peer rejection](error-handling.md#tls-peer-rejection) shows an example.
+
 ### TlsConfig Options
 
 | Option | Default | Meaning |
