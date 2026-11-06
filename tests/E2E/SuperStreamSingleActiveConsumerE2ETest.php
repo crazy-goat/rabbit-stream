@@ -69,13 +69,19 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         $connectionB = $this->connectionB;
         $partitions = [$this->superStream . '-p0', $this->superStream . '-p1'];
         $group = 'ssac-group-' . uniqid();
+        $autoCommit = 3;
+        // Partition 1 offsets that B returns, in order. Used to derive B's last store.
+        $bPartitionOffsets = [];
 
         $admin->createSuperStream($this->superStream, $partitions, ['k0', 'k1']);
         foreach ($partitions as $i => $partition) {
             $producer = $admin->createProducer($partition);
-            for ($m = 0; $m < 10; $m++) {
-                $producer->send("p{$i}-m{$m}");
-            }
+            // One batch per partition. The broker normally stores one Publish frame as
+            // one chunk, so the consumer holds unread messages when autoCommit stores an offset.
+            $producer->sendBatch(array_map(
+                static fn (int $m): string => "p{$i}-m{$m}",
+                range(0, 9),
+            ));
             $producer->waitForConfirms(timeout: 5.0);
             $producer->close();
         }
@@ -84,7 +90,7 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             $this->superStream,
             OffsetSpec::first(),
             $group,
-            autoCommit: 3,
+            autoCommit: $autoCommit,
             singleActiveConsumer: true,
         );
 
@@ -105,7 +111,7 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
             $this->superStream,
             OffsetSpec::first(),
             $group,
-            autoCommit: 3,
+            autoCommit: $autoCommit,
             singleActiveConsumer: true,
         );
 
@@ -114,7 +120,10 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         $deadline = microtime(true) + 20.0;
         while (microtime(true) < $deadline && ($a->isActive($partitions[1]) || !$b->isActive($partitions[1]))) {
             $connectionA->queryOffset($group, $partitions[0]);
-            $b->readOne(timeout: 0.2);
+            $message = $b->readOne(timeout: 0.2);
+            if ($message instanceof Message && $message->getStream() === $partitions[1]) {
+                $bPartitionOffsets[] = $message->getOffset();
+            }
         }
         $this->assertFalse($a->isActive($partitions[1]), 'A must be demoted on partition 1');
         $this->assertTrue($b->isActive($partitions[1]), 'B must be active on partition 1');
@@ -125,19 +134,32 @@ class SuperStreamSingleActiveConsumerE2ETest extends E2ETestCase
         while ($lastRead !== 9 && microtime(true) < $deadline) {
             $message = $b->readOne(timeout: 0.5);
             $lastRead = $message?->getOffset();
+            if ($message instanceof Message && $message->getStream() === $partitions[1]) {
+                $bPartitionOffsets[] = $message->getOffset();
+            }
         }
         $this->assertSame(9, $lastRead, 'B must read partition 1 up to offset 9');
-        // B's last StoreOffset has no reply, so poll until the stored value stops changing.
-        $storedByB = $admin->queryOffset($group, $partitions[1]);
-        $deadline = microtime(true) + 5.0;
-        while (microtime(true) < $deadline) {
-            usleep(200_000);
-            $current = $admin->queryOffset($group, $partitions[1]);
-            if ($current === $storedByB) {
-                break;
+        // Derive the value B stores last. B resumes at the stored offset, which A may
+        // have raised on demotion, so the first offset B returns is B's resume point.
+        // Auto-commit then stores lastOffset + 1 after every $autoCommit messages B
+        // processes. If B stores nothing, the broker keeps that resume point.
+        $this->assertNotEmpty($bPartitionOffsets, 'B must return partition 1 messages');
+        $expectedByB = $bPartitionOffsets[0];
+        $processedSinceStore = 0;
+        foreach ($bPartitionOffsets as $offset) {
+            $processedSinceStore++;
+            if ($processedSinceStore === $autoCommit) {
+                $expectedByB = $offset + 1;
+                $processedSinceStore = 0;
             }
-            $storedByB = $current;
         }
+        // StoreOffset has no reply. Poll until the broker shows B's last store.
+        $deadline = microtime(true) + 5.0;
+        while (microtime(true) < $deadline && $admin->queryOffset($group, $partitions[1]) !== $expectedByB) {
+            usleep(50_000);
+        }
+        $storedByB = $admin->queryOffset($group, $partitions[1]);
+        $this->assertSame($expectedByB, $storedByB, 'B must store its last offset of partition 1');
         $this->assertGreaterThan(3, $storedByB, 'B must store progress beyond the offset A stored');
 
         // A reads after its demotion. Each read must leave the stored offset unchanged.
