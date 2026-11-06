@@ -42,7 +42,6 @@ class StreamStatsTest extends E2ETestCase
 
             foreach (['first_chunk_id', 'last_chunk_id', 'committed_chunk_id', 'committed_offset'] as $key) {
                 $this->assertArrayHasKey($key, $stats);
-                $this->assertIsInt($stats[$key]);
                 $this->assertSame(-1, $stats[$key], "$key of a new stream");
             }
         } finally {
