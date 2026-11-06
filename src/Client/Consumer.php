@@ -23,6 +23,7 @@ use CrazyGoat\RabbitStream\Response\CreditResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryOffsetResponseV1;
 use CrazyGoat\RabbitStream\Response\StreamStatsResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Util\ReferenceLength;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use Throwable;
 
@@ -217,9 +218,10 @@ class Consumer implements ConsumerInterface
      * @throws InvalidArgumentException If $maxBufferSize is not positive, $initialCredit
      *                            is outside 1..MAX_CREDIT, $creditWindowBytes is
      *                            negative, $maxDecodeDepth is below 1,
-     *                            $singleActiveConsumer is set without $name, or the
-     *                            serialized Subscribe request exceeds the negotiated
-     *                            outgoing frame size.
+     *                            $singleActiveConsumer is set without $name, $name is
+     *                            longer than 255 bytes while $singleActiveConsumer is set
+     *                            or $autoCommit is above 0, or the serialized Subscribe
+     *                            request exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If the broker rejects the Subscribe with a non-OK
      *                            response code.
      * @throws ConnectionException If the socket is not connected or the Subscribe
@@ -265,6 +267,13 @@ class Consumer implements ConsumerInterface
                 'singleActiveConsumer requires a consumer name (the broker groups '
                 . 'single active consumers by reference/name)'
             );
+        }
+        if ($this->singleActiveConsumer) {
+            ReferenceLength::assertValid($this->name, 'single-active-consumer name');
+        } elseif ($this->name !== null && $this->autoCommit > 0) {
+            // Auto-commit stores the offset after a message is read. A name that the
+            // broker rejects would fail there, after the message left the buffer (#932).
+            ReferenceLength::assertValid($this->name, 'consumer name');
         }
         $this->active = !$this->singleActiveConsumer;
         $this->subscribe();
@@ -868,6 +877,7 @@ class Consumer implements ConsumerInterface
      * @param int $offset Next offset to consume
      * @throws ProtocolException If this consumer has no name (offsets are
      *                            name-scoped on the broker).
+     * @throws InvalidArgumentException If the consumer name is longer than 255 bytes.
      * @throws ConnectionException If the socket is not connected or the write fails.
      * @throws TimeoutException If the write does not complete within the socket timeout.
      */
@@ -876,6 +886,7 @@ class Consumer implements ConsumerInterface
         if ($this->name === null) {
             throw new ProtocolException('Cannot store offset for unnamed consumer');
         }
+        ReferenceLength::assertValid($this->name, 'consumer reference');
         $this->connection->sendMessage(
             new StoreOffsetRequestV1($this->name, $this->stream, $offset)
         );
@@ -895,6 +906,7 @@ class Consumer implements ConsumerInterface
      *                            non-OK response code other than NO_OFFSET.
      * @throws UnexpectedResponseException If the server replies with something other
      *                            than a QueryOffset response.
+     * @throws InvalidArgumentException If the consumer name is longer than 255 bytes.
      * @throws ConnectionException If the socket is not connected or the request fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
@@ -904,6 +916,7 @@ class Consumer implements ConsumerInterface
         if ($this->name === null) {
             throw new ProtocolException('Cannot query offset for unnamed consumer');
         }
+        ReferenceLength::assertValid($this->name, 'consumer reference');
         $response = $this->connection->request(
             new QueryOffsetRequestV1($this->name, $this->stream)
         );

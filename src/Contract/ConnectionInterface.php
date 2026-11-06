@@ -244,7 +244,8 @@ interface ConnectionInterface
      *                                 version.
      * @throws UnexpectedResponseException If the server replies with something other than a
      *                                 QueryOffset response.
-     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     * @throws InvalidArgumentException If $reference is longer than 255 bytes, or the
+     *                                 serialized request exceeds the negotiated
      *                                 outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
@@ -307,9 +308,9 @@ interface ConnectionInterface
      * @throws ConnectionException If the socket is not connected, a write or read fails, or
      *                                 all publisher ids are in use.
      * @throws InvalidArgumentException If $redeclareTimeout or
-     *                                 $closeConfirmDrainTimeout is negative, or the serialized
-     *                                 DeclarePublisher request exceeds the negotiated outgoing
-     *                                 frame size.
+     *                                 $closeConfirmDrainTimeout is negative, $name is longer
+     *                                 than 255 bytes, or the serialized DeclarePublisher
+     *                                 request exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If the stream does not exist (the DeclarePublisher response
      *                                 code is asserted), or the response has an unexpected
      *                                 command or version.
@@ -367,9 +368,10 @@ interface ConnectionInterface
      * @throws InvalidArgumentException If $maxBufferSize is not positive, $initialCredit is
      *                                 outside 1..Consumer::MAX_CREDIT, $creditWindowBytes is
      *                                 negative, $maxDecodeDepth is below 1,
-     *                                 $singleActiveConsumer is set without $name, or the
-     *                                 serialized request exceeds the negotiated outgoing frame
-     *                                 size.
+     *                                 $singleActiveConsumer is set without $name, $name is
+     *                                 longer than 255 bytes while $singleActiveConsumer is set
+     *                                 or $autoCommit is above 0, or the serialized request
+     *                                 exceeds the negotiated outgoing frame size.
      * @throws ProtocolException If the broker rejects the Subscribe with a non-OK response
      *                                 code, or the response has an unexpected command or version.
      * @throws DeserializationException If a response frame cannot be deserialized.
@@ -419,8 +421,10 @@ interface ConnectionInterface
      * @throws ProtocolException If the super stream does not exist or has zero partitions,
      *                                 or a response has an unexpected command or version.
      * @throws UnexpectedResponseException If a partitions() response has an unexpected type.
-     * @throws InvalidArgumentException If $closeConfirmDrainTimeout is negative, or a
-     *                                 partitions() request exceeds the negotiated outgoing frame size.
+     * @throws InvalidArgumentException If $closeConfirmDrainTimeout is negative, a derived
+     *                                 partition producer name ("<name>-<partition>") is longer
+     *                                 than 255 bytes, or a partitions() request exceeds the
+     *                                 negotiated outgoing frame size.
      * @throws ConnectionException If the socket is not connected or a write or read fails.
      * @throws DeserializationException If a response frame cannot be deserialized.
      * @throws TimeoutException If a response does not arrive in time.
@@ -469,9 +473,11 @@ interface ConnectionInterface
      *                                 all subscription ids are in use.
      * @throws InvalidArgumentException If a Consumer argument is out of range
      *                                 (including a non-positive $maxBufferSize),
-     *                                 $singleActiveConsumer is set without $name, or a
-     *                                 partitions() request — or a per-partition Subscribe
-     *                                 request — exceeds the negotiated outgoing frame size.
+     *                                 $singleActiveConsumer is set without $name, $name is
+     *                                 longer than 255 bytes while $singleActiveConsumer is set
+     *                                 or $autoCommit is above 0, or a partitions() request
+     *                                 or a per-partition Subscribe request exceeds the
+     *                                 negotiated outgoing frame size.
      * @throws DeserializationException If a response frame cannot be deserialized.
      * @throws TimeoutException If a response does not arrive in time.
      */
@@ -550,7 +556,8 @@ interface ConnectionInterface
      * @param string $stream Stream name.
      * @param int $offset Next offset to consume.
      * @throws ConnectionException If the socket is not connected or the write fails.
-     * @throws InvalidArgumentException If the serialized request exceeds the negotiated
+     * @throws InvalidArgumentException If $reference is longer than 255 bytes, or the
+     *                                 serialized request exceeds the negotiated
      *                                 outgoing frame size.
      * @throws TimeoutException If the frame cannot be written within the socket timeout.
      */

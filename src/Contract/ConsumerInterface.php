@@ -110,8 +110,8 @@ interface ConsumerInterface
      *                            name-scoped on the broker).
      * @throws ConnectionException If the socket is not connected or the write fails.
      * @throws TimeoutException If the write does not complete within the socket timeout.
-     * @throws InvalidArgumentException If the StoreOffset frame exceeds the negotiated
-     *                            outgoing frame size.
+     * @throws InvalidArgumentException If the consumer name is longer than 255 bytes, or the
+     *                            StoreOffset frame exceeds the negotiated outgoing frame size.
      */
     public function storeOffset(int $offset): void;
 
@@ -130,6 +130,8 @@ interface ConsumerInterface
      * @throws ConnectionException If the socket is not connected or the request fails.
      * @throws DeserializationException If the response frame cannot be deserialized.
      * @throws TimeoutException If the response does not arrive in time.
+     * @throws InvalidArgumentException If the consumer name is longer than 255 bytes, or the
+     *                            QueryOffset request exceeds the negotiated outgoing frame size.
      */
     public function queryOffset(): ?int;
 
