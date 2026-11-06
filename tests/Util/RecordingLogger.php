@@ -84,6 +84,26 @@ class RecordingLogger extends AbstractLogger
     }
 
     /**
+     * Return all error-level message strings in order.
+     *
+     * @return array<string>
+     */
+    public function errorMessages(): array
+    {
+        return $this->messagesAtLevel('error');
+    }
+
+    /**
+     * Return the PSR-3 context array of every error-level record, in order.
+     *
+     * @return list<array<mixed>>
+     */
+    public function errorContexts(): array
+    {
+        return $this->contextsAtLevel('error');
+    }
+
+    /**
      * @return array<string>
      */
     private function messagesAtLevel(string $level): array
