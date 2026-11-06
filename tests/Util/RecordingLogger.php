@@ -40,6 +40,16 @@ class RecordingLogger extends AbstractLogger
     }
 
     /**
+     * Return the PSR-3 context array of every debug-level record, in order.
+     *
+     * @return list<array<mixed>>
+     */
+    public function debugContexts(): array
+    {
+        return $this->contextsAtLevel('debug');
+    }
+
+    /**
      * Return all warning-level message strings in order.
      *
      * @return array<string>
@@ -56,11 +66,19 @@ class RecordingLogger extends AbstractLogger
      */
     public function warningContexts(): array
     {
+        return $this->contextsAtLevel('warning');
+    }
+
+    /**
+     * @return list<array<mixed>>
+     */
+    private function contextsAtLevel(string $level): array
+    {
         return array_values(array_map(
             static fn (array $r): array => $r['context'],
             array_filter(
                 $this->records,
-                static fn (array $r): bool => $r['level'] === 'warning'
+                static fn (array $r): bool => $r['level'] === $level
             )
         ));
     }
@@ -82,13 +100,7 @@ class RecordingLogger extends AbstractLogger
      */
     public function errorContexts(): array
     {
-        return array_values(array_map(
-            static fn (array $r): array => $r['context'],
-            array_filter(
-                $this->records,
-                static fn (array $r): bool => $r['level'] === 'error'
-            )
-        ));
+        return $this->contextsAtLevel('error');
     }
 
     /**

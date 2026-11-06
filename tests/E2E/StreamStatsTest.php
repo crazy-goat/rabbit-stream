@@ -31,6 +31,49 @@ class StreamStatsTest extends E2ETestCase
         $connection->close();
     }
 
+    public function testStreamStatsReturnsTheBrokerKeysForNewStream(): void
+    {
+        $connection = $this->createConnection();
+        $streamName = 'test-stream-stats-new-' . uniqid();
+        $connection->createStream($streamName);
+
+        try {
+            $stats = $connection->getStreamStats($streamName);
+
+            foreach (['first_chunk_id', 'last_chunk_id', 'committed_chunk_id', 'committed_offset'] as $key) {
+                $this->assertArrayHasKey($key, $stats);
+                $this->assertSame(-1, $stats[$key], "$key of a new stream");
+            }
+        } finally {
+            $connection->deleteStream($streamName);
+            $connection->close();
+        }
+    }
+
+    public function testStreamStatsAfterOneConfirmedMessage(): void
+    {
+        $connection = $this->createConnection();
+        $streamName = 'test-stream-stats-publish-' . uniqid();
+        $connection->createStream($streamName);
+
+        try {
+            $producer = $connection->createProducer($streamName);
+            $producer->send('stats message');
+            $producer->waitForConfirms(timeout: 5);
+            $producer->close();
+
+            $stats = $connection->getStreamStats($streamName);
+
+            $this->assertSame(0, $stats['first_chunk_id']);
+            $this->assertSame(0, $stats['last_chunk_id']);
+            $this->assertSame(0, $stats['committed_chunk_id']);
+            $this->assertGreaterThanOrEqual(0, $stats['committed_offset']);
+        } finally {
+            $connection->deleteStream($streamName);
+            $connection->close();
+        }
+    }
+
     public function testStreamStatsForNonExistentStreamThrows(): void
     {
         $connection = $this->connectAndOpen();
