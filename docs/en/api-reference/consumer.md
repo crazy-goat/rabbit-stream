@@ -424,7 +424,7 @@ Whether this consumer is currently allowed to receive messages. Always `true`
 for a consumer created without `singleActiveConsumer`. For a single active
 consumer, tracks the broker's most recent `ConsumerUpdate` activation state —
 starts `false` and flips to `true`/`false` as the broker activates/deactivates
-it.
+it. While the value is `false`, `read()` and `readOne()` return no messages.
 
 ### onConsumerUpdate()
 
@@ -442,10 +442,9 @@ Default behavior (used when no callback is registered):
   consumer's `name` and replies `OffsetSpec::offset($stored)`; if `null` is
   returned (nothing stored yet, `NO_OFFSET`), replies with the consumer's
   initial `OffsetSpec`.
-- **Deactivation** (`$active === false`): if `autoCommit > 0` and at least one
-  message was processed, stores `lastProcessedOffset + 1` so the next active
-  consumer resumes without gaps and without a duplicate; replies `null` (keep
-  position).
+- **Deactivation** (`$active === false`): drops the unread messages and stores
+  no offset. The next active consumer resumes from the last stored offset;
+  replies `null` (keep position).
 
 ```php
 $consumer->onConsumerUpdate(function (bool $active, Consumer $consumer): ?OffsetSpec {

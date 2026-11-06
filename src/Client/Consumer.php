@@ -286,7 +286,9 @@ class Consumer implements ConsumerInterface
      *
      * Always true for a non-single-active-consumer subscription; for a
      * single-active-consumer subscription it follows the broker's ConsumerUpdate
-     * and may be false while another group member holds the active slot.
+     * and may be false while another group member holds the active slot. While it
+     * is false, readOne() and read() return no message and nothing is stored
+     * for this consumer; the unread messages of the lost partition were dropped.
      *
      * @return bool True when the broker has this consumer active, false while a
      *                            single-active-consumer handover has it paused.
@@ -455,10 +457,10 @@ class Consumer implements ConsumerInterface
      *  - activation (active=true): resume at the stored offset (which is the
      *    next offset to consume, see storeOffset()), or at the consumer's
      *    initial OffsetSpec when nothing is stored yet.
-     *  - deactivation (active=false): store the last processed offset (if
-     *    auto-commit is enabled and at least one message was processed) so the
-     *    successor resumes without gaps, then reply "none" (keep position,
-     *    irrelevant once inactive).
+     *  - deactivation (active=false): drop the unread messages of the partition
+     *    and store nothing. The broker may already have activated the successor,
+     *    and a late store from this member would move its stored offset back.
+     *    The successor resumes at the last stored offset; the reply is "none".
      *
      * Re-entrancy: this runs inside StreamConnection::readLoop()'s server-push
      * dispatch and queryOffset() performs a nested round trip. That is safe
@@ -469,6 +471,12 @@ class Consumer implements ConsumerInterface
     {
         $this->active = $query->isActive();
 
+        if (!$this->active) {
+            $this->buffer = [];
+            $this->bufferHead = 0;
+            $this->unreadCount = 0;
+        }
+
         if ($this->consumerUpdateCallback instanceof \Closure) {
             $offset = ($this->consumerUpdateCallback)($this->active, $this);
             $this->setDeliveryOffsetFilter($offset);
@@ -476,9 +484,6 @@ class Consumer implements ConsumerInterface
         }
 
         if (!$this->active) {
-            if ($this->autoCommit > 0 && $this->hasProcessedMessage) {
-                $this->storeOffset($this->lastOffset + 1);
-            }
             return null;
         }
 
@@ -577,9 +582,13 @@ class Consumer implements ConsumerInterface
                     // entry has parsed successfully. A malformed tail must not make
                     // already-yielded messages visible as a partial chunk.
                     $this->deliveryOffsetFilter = $deliveryOffsetFilter;
-                    foreach ($messagesToBuffer as $message) {
-                        $this->buffer[] = $message;
-                        $this->unreadCount++;
+                    // A demoted member drops the chunk: the broker has given the
+                    // partition to another member. The credit is still replenished below.
+                    if ($this->active) {
+                        foreach ($messagesToBuffer as $message) {
+                            $this->buffer[] = $message;
+                            $this->unreadCount++;
+                        }
                     }
                     $this->observeChunkSize($chunkLength);
                 } catch (Throwable $exception) {
@@ -766,7 +775,7 @@ class Consumer implements ConsumerInterface
      */
     public function drain(): array
     {
-        if ($this->unreadCount === 0) {
+        if ($this->unreadCount === 0 || !$this->active) {
             return [];
         }
 
@@ -829,7 +838,9 @@ class Consumer implements ConsumerInterface
         $this->waitForMessages($timeout);
         $this->throwCreditError();
 
-        if ($this->unreadCount === 0) {
+        // A paused single-active-consumer member returns nothing until the broker
+        // activates it again.
+        if ($this->unreadCount === 0 || !$this->active) {
             return null;
         }
 
@@ -933,7 +944,9 @@ class Consumer implements ConsumerInterface
         }
         $this->closed = true;
 
-        if ($this->autoCommit > 0 && $this->name !== null && $this->messagesProcessed > 0) {
+        // A paused member stores nothing: its position may be older than the one
+        // the active member has already stored (see defaultConsumerUpdateHandler()).
+        if ($this->autoCommit > 0 && $this->name !== null && $this->messagesProcessed > 0 && $this->active) {
             $this->storeOffset($this->lastOffset + 1);
         }
 
@@ -973,7 +986,7 @@ class Consumer implements ConsumerInterface
 
     private function maybeAutoCommit(): void
     {
-        if ($this->autoCommit <= 0 || $this->name === null) {
+        if ($this->autoCommit <= 0 || $this->name === null || !$this->active) {
             return;
         }
         if ($this->messagesProcessed >= $this->autoCommit) {

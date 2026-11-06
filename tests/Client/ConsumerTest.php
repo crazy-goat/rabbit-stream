@@ -1751,6 +1751,142 @@ class ConsumerTest extends TestCase
         $this->assertSame(42, $resume->getValue());
     }
 
+    private function setActive(Consumer $consumer, bool $active): void
+    {
+        (new \ReflectionProperty($consumer, 'active'))->setValue($consumer, $active);
+    }
+
+    public function testDeactivationClearsTheUnreadBuffer(): void
+    {
+        [$connection] = $this->connectionCapturingStoredOffsets();
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            singleActiveConsumer: true,
+        );
+        $this->setActive($consumer, true);
+        $this->setBuffer($consumer, [new Message(4, 0, 'p1-m4'), new Message(5, 0, 'p1-m5')]);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertFalse($consumer->hasUnread());
+        $this->assertSame([], $consumer->read(timeout: 0.0));
+    }
+
+    public function testDeactivationDoesNotStoreOffset(): void
+    {
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets();
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 5,
+            singleActiveConsumer: true,
+        );
+        $this->setActive($consumer, true);
+        $this->setBuffer($consumer, [new Message(41, 0, 'payload')]);
+        $consumer->read(timeout: 0.0);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertSame(
+            [],
+            $this->storedOffsetValues($stored),
+            'A demoted member must not write its old position over the new member'
+        );
+    }
+
+    public function testReadOneReturnsNoMessageWhileInactive(): void
+    {
+        [$connection] = $this->connectionCapturingStoredOffsets();
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            singleActiveConsumer: true,
+        );
+        $this->setBuffer($consumer, [new Message(4, 0, 'p1-m4')]);
+
+        $this->assertNull($consumer->readOne(timeout: 0.0));
+    }
+
+    public function testDeliverChunkWhileInactiveIsDropped(): void
+    {
+        $deliverCallback = null;
+        $connection = $this->createMock(StreamConnection::class);
+        $connection->expects($this->any())
+            ->method('registerSubscriber')
+            ->willReturnCallback(function (int $id, callable $callback) use (&$deliverCallback): void {
+                $deliverCallback = $callback;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+        $connection->expects($this->any())->method('request')->willReturn(new \stdClass());
+
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            singleActiveConsumer: true,
+        );
+        $this->assertIsCallable($deliverCallback);
+
+        $deliverCallback($this->deliverOf($this->buildChunk(['m0', 'm1'], 0)));
+
+        $this->assertFalse($consumer->hasUnread());
+        $this->assertSame([], $consumer->read(timeout: 0.0));
+    }
+
+    public function testCloseDoesNotStoreOffsetWhileInactive(): void
+    {
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets();
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 5,
+            singleActiveConsumer: true,
+        );
+        $this->setActive($consumer, true);
+        $this->setBuffer($consumer, [new Message(100, 0, 'payload')]);
+        $consumer->read(timeout: 0.0);
+        $this->setActive($consumer, false);
+
+        $consumer->close();
+
+        $this->assertSame([], $this->storedOffsetValues($stored));
+    }
+
+    public function testAutoCommitDoesNotStoreWhileInactive(): void
+    {
+        [$connection, $stored] = $this->connectionCapturingStoredOffsets();
+        $consumer = new Consumer(
+            $connection,
+            'test-stream',
+            1,
+            OffsetSpec::first(),
+            name: 'my-consumer',
+            autoCommit: 1,
+            singleActiveConsumer: true,
+        );
+        (new \ReflectionProperty($consumer, 'lastOffset'))->setValue($consumer, 7);
+        (new \ReflectionProperty($consumer, 'messagesProcessed'))->setValue($consumer, 1);
+
+        (new \ReflectionMethod($consumer, 'maybeAutoCommit'))->invoke($consumer);
+
+        $this->assertSame([], $this->storedOffsetValues($stored));
+    }
+
     public function testCloseIsIdempotent(): void
     {
         $unsubscribes = 0;

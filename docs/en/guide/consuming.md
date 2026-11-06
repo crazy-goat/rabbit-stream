@@ -644,10 +644,12 @@ if ($consumer->isActive()) {
 ```
 
 By default, when this consumer is activated it resumes right after its
-stored offset (or its initial `OffsetSpec` if nothing was stored yet); when
-deactivated, it stores its last processed offset (if `autoCommit` is on) so
-the next active consumer picks up from there. Override this with
-`onConsumerUpdate()`:
+stored offset (or its initial `OffsetSpec` if nothing was stored yet). When
+it is deactivated, it drops its unread messages and stores no offset. The
+next active consumer resumes from the last stored offset. Messages that this
+consumer processed after its last stored offset can come again, so make
+your processing safe to repeat. While `isActive()` is `false`, `read()` and
+`readOne()` return no messages. Override this with `onConsumerUpdate()`:
 
 ```php
 $consumer->onConsumerUpdate(function (bool $active, $consumer): ?OffsetSpec {
