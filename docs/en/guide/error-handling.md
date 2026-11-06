@@ -290,6 +290,24 @@ try {
 
 Catch order matters: `TimeoutException` extends `ConnectionException`.
 
+#### A socket with a descriptor number of 1024 or higher
+
+The client waits for I/O with `stream_select()`. The `select(2)` system call
+cannot wait on a socket whose descriptor number is at or above `FD_SETSIZE`.
+On the tested builds, `FD_SETSIZE` is 1024. An application that keeps about
+1023 or more files and sockets open can reach this limit.
+
+When this happens, the client closes the connection and throws
+`ConnectionException`. The message names the descriptor limit and includes the
+PHP warning:
+
+```text
+stream_select failed while writing: the socket descriptor is at or above FD_SETSIZE (select(2) limit, usually 1024); lower the number of open descriptors in the process. PHP warning: stream_select(): You MUST recompile PHP with a larger value of FD_SETSIZE. ...
+```
+
+To fix this, close the files and sockets that the process does not need. Then
+connect again.
+
 #### Server-initiated close
 
 The broker can close the connection with a Close frame. The frame carries a

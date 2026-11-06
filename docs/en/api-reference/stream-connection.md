@@ -73,6 +73,11 @@ handler swallows warnings. The extra work is one short-lived PHP error-handler
 stack entry per select, rather than per-socket errno access. No socket transport
 or TLS behavior changes.
 
+A select that fails on a socket whose descriptor number is at or above
+`FD_SETSIZE` (usually 1024) raises a `ConnectionException`. Its message names the
+descriptor limit and includes the PHP warning. See
+[A socket with a descriptor number of 1024 or higher](../guide/error-handling.md#a-socket-with-a-descriptor-number-of-1024-or-higher).
+
 ### close()
 
 Closes the socket connection and cleans up resources.
@@ -380,7 +385,7 @@ An exception that a callback throws (heartbeat, publish confirm, publish error, 
 
 A signal delivered while the loop waits (`SIGTERM` from a graceful shutdown, `SIGALRM` from a watchdog, …) interrupts `select(2)` with `EINTR`. The loop retries that wait instead of failing, so a handler that calls `stop()` shuts the loop down cleanly. The retry is bounded: a wait that completes resets the count, and an unbroken run of more than 1,000,000 interruptions raises `ConnectionException`. It takes roughly 16,700 signals per second, sustained for a minute, to reach that bound, so no ordinary watchdog, supervisor or shutdown handler can. Each retry blocks in `select(2)` until the next signal rather than spinning, so the wait costs 0.4% of a core at ~875 signals per second and 2.7% at ~14,900/s, rising to 15.8% at a pegged ~136,000/s storm — which the bound then trips after 7.4s. With `$timeout = null` this bound is the only thing that can end the loop, because the loop has no deadline of its own.
 
-> **Known limitation.** The client detects `EINTR` by matching `error_get_last()`, because PHP's stream API exposes no error number for `stream_select()`. That slot is process-global, so an application that installs a swallowing `set_error_handler()` (a handler returning `true`) stops PHP from recording it — there the retry silently does not happen and `ConnectionException` is raised again. Every select that consults this check clears the slot first, so a stale diagnostic from earlier code can never be mistaken for this wait's outcome; that also means the library call clears the application's own `error_get_last()`.
+> **Known limitation.** PHP's stream API exposes no error number for `stream_select()`, so the client reads the warning text of each select call. A temporary error handler records that warning and then calls the application's handler. A handler that returns `true` does not stop this capture, so the `EINTR` retry and the warning text in the `ConnectionException` message still work. The `EINTR` check matches the English text `Interrupted system call`. A system that translates the `strerror()` text makes the retry fail, and the client throws `ConnectionException`.
 
 **Example:**
 ```php
