@@ -166,29 +166,68 @@ $serializer = new PhpBinarySerializer();
 
 ### Custom Serializer Implementation
 
-Implement `BinarySerializerInterface` for custom serialization:
+The serializer converts protocol frames, not message bodies, so a custom serializer must produce the same bytes as `PhpBinarySerializer`.
+
+Implement `BinarySerializerInterface` in a decorator that wraps `PhpBinarySerializer`. This example counts and logs each frame:
 
 ```php
-use CrazyGoat\RabbitStream\Client\Connection;
-use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
+<?php
 
-class JsonSerializer implements BinarySerializerInterface
+namespace MyApp\Serializer;
+
+use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
+use Psr\Log\LoggerInterface;
+
+class CountingSerializer implements BinarySerializerInterface
 {
+    private int $serialized = 0;
+    private int $deserialized = 0;
+
+    public function __construct(
+        private BinarySerializerInterface $inner,
+        private LoggerInterface $logger,
+    ) {
+    }
+
     public function serialize(object $request): string
     {
-        return json_encode($request);
+        $frame = $this->inner->serialize($request);
+        $this->serialized++;
+        $this->logger->debug('Serialized frame', [
+            'class' => $request::class,
+            'bytes' => strlen($frame),
+            'total' => $this->serialized,
+        ]);
+
+        return $frame;
     }
 
     public function deserialize(string $frame): object
     {
-        // The interface returns an object, so wrap the decoded JSON in one.
-        return (object) json_decode($frame, true);
+        $response = $this->inner->deserialize($frame);
+        $this->deserialized++;
+        $this->logger->debug('Deserialized frame', [
+            'class' => $response::class,
+            'bytes' => strlen($frame),
+            'total' => $this->deserialized,
+        ]);
+
+        return $response;
     }
 }
+```
 
-// Use custom serializer
+The decorator wraps `PhpBinarySerializer` and passes the same bytes through. Use it as follows:
+
+```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
+use MyApp\Serializer\CountingSerializer;
+use Psr\Log\NullLogger;
+
+// Wrap the default serializer. Pass a PSR-3 logger, such as Monolog, instead of NullLogger.
 $connection = Connection::create(
-    serializer: new JsonSerializer(),
+    serializer: new CountingSerializer(new PhpBinarySerializer(), new NullLogger()),
 );
 ```
 
