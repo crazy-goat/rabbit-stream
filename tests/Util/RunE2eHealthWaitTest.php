@@ -143,7 +143,6 @@ class RunE2eHealthWaitTest extends TestCase
                 $dir,
                 'fakecid',
                 $terminalStatus,
-                timeoutSeconds: 3,
                 retries: '90',
                 interval: '1'
             );
@@ -153,6 +152,9 @@ class RunE2eHealthWaitTest extends TestCase
             $this->assertStringContainsString('ERROR: RabbitMQ is not healthy', $result['stderr']);
             $this->assertStringContainsString("last status: '{$terminalStatus}'", $result['stderr']);
             $this->assertStringContainsString('FAKE-RABBITMQ-LOG', $result['stderr']);
+            // The count is the deterministic check for "fails immediately": a script that
+            // ignores the terminal status polls again, so it runs `inspect -f` more than once.
+            // The time limit is not used for this, because it depends on machine load.
             $this->assertSame(1, substr_count((string) file_get_contents($dir . '/docker.log'), 'inspect -f'));
         }
     }
