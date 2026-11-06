@@ -34,8 +34,7 @@ composer test:unit
 # Run E2E tests (requires RabbitMQ — use the script below)
 ./run-e2e.sh
 
-# Run every lint step (PHPCS, Rector dry-run, PHPStan, kb-lint, docs link check,
-# test suite coverage, shellcheck). Check-only; runs all steps, exits non-zero on any failure.
+# Run every lint step (see bin/lint.sh). Check-only; runs all steps, exits non-zero on any failure.
 bin/lint.sh
 # OR
 composer lint
