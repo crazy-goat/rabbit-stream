@@ -1289,7 +1289,10 @@ class StreamConnection
         }
 
         $now = microtime(true);
-        if ($now - $this->lastReadAt >= 2 * $this->heartbeatInterval) {
+        // Frames that wait unread in the socket are inbound activity too. The
+        // read path updates $lastReadAt once it consumes them, so the peer is
+        // not treated as silent while they are pending.
+        if ($now - $this->lastReadAt >= 2 * $this->heartbeatInterval && !$this->hasUnreadInbound()) {
             $this->close();
             throw new ConnectionException(sprintf(
                 'Connection closed after missing inbound frames for %.1f seconds (heartbeat interval: %d seconds)',
@@ -1305,6 +1308,20 @@ class StreamConnection
             $content = $this->serializer->serialize(new HeartbeatRequestV1());
             $this->sendFrame($this->wrapFrame($content));
         }
+    }
+
+    /**
+     * Poll the socket without waiting and report whether data is readable.
+     */
+    private function hasUnreadInbound(): bool
+    {
+        $read = [$this->requireStream()];
+        $write = null;
+        $except = null;
+
+        $ready = $this->selectStreams($read, $write, $except, 0, 0);
+
+        return is_int($ready) && $ready > 0;
     }
 
     private function heartbeatWaitTimeout(float $timeout): float
