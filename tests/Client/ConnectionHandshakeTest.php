@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
+use Composer\InstalledVersions;
+use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
 use CrazyGoat\RabbitStream\Enum\KeyEnum;
@@ -32,6 +34,7 @@ use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+use ReflectionMethod;
 
 class ConnectionHandshakeTest extends TestCase
 {
@@ -50,6 +53,63 @@ class ConnectionHandshakeTest extends TestCase
         $this->expectExceptionMessage('Expected ' . PeerPropertiesResponseV1::class);
 
         Connection::create(streamConnection: $streamConnection);
+    }
+
+    public function testCreateSendsClientPropertiesInPeerProperties(): void
+    {
+        $sent = [];
+        $streamConnection = $this->createMock(StreamConnection::class);
+        $streamConnection->method('sendMessage')
+            ->willReturnCallback(function (object $message) use (&$sent): void {
+                $sent[] = $message;
+            });
+        $streamConnection->method('readMessage')
+            ->willReturn(new SaslAuthenticateResponseV1());
+
+        try {
+            Connection::create(streamConnection: $streamConnection);
+            $this->fail('Expected UnexpectedResponseException after the PeerProperties step');
+        } catch (UnexpectedResponseException) {
+            // The mocked reply is not a PeerPropertiesResponseV1; only the request matters here.
+        }
+
+        $this->assertInstanceOf(PeerPropertiesRequestV1::class, $sent[0]);
+        $sent[0]->withCorrelationId(1);
+        $buffer = new ReadBuffer($sent[0]->toStreamBuffer()->getContents());
+        $this->assertSame(0x0011, $buffer->getUint16());
+        $this->assertSame(1, $buffer->getUint16());
+        $this->assertSame(1, $buffer->getUint32());
+        $this->assertSame(3, $buffer->getUint32());
+
+        $properties = [];
+        for ($i = 0; $i < 3; $i++) {
+            $key = (string) $buffer->getString();
+            $properties[$key] = $buffer->getString();
+        }
+
+        $this->assertArrayHasKey('product', $properties);
+        $this->assertArrayHasKey('version', $properties);
+        $this->assertArrayHasKey('platform', $properties);
+        $this->assertNotSame('', $properties['product']);
+        $this->assertNotSame('', $properties['version']);
+        $this->assertSame('PHP ' . PHP_VERSION, $properties['platform']);
+    }
+
+    public function testInstalledVersionFallsBackToUnknownWhenPackageIsNotInstalled(): void
+    {
+        $method = new ReflectionMethod(Connection::class, 'installedVersion');
+
+        $this->assertSame('unknown', $method->invoke(null, 'crazy-goat/not-installed-for-test'));
+    }
+
+    public function testInstalledVersionReturnsTheComposerVersionOfAnInstalledPackage(): void
+    {
+        $method = new ReflectionMethod(Connection::class, 'installedVersion');
+
+        $this->assertSame(
+            InstalledVersions::getPrettyVersion('crazy-goat/rabbit-stream'),
+            $method->invoke(null, 'crazy-goat/rabbit-stream'),
+        );
     }
 
     public function testCreateThrowsWhenPlainMechanismNotSupported(): void

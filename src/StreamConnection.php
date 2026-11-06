@@ -49,6 +49,14 @@ class StreamConnection
     private $stream;
 
     /**
+     * True when the host is an IPv4 address or an IPv6 address, with or without brackets.
+     */
+    private function isIpLiteral(string $host): bool
+    {
+        return filter_var(trim($host, '[]'), FILTER_VALIDATE_IP) !== false;
+    }
+
+    /**
      * The open connection stream, or an exception if it is gone.
      *
      * @return resource
@@ -336,7 +344,16 @@ class StreamConnection
     {
         $useTls = $this->tls instanceof TlsConfig;
         $scheme = $useTls ? 'ssl' : 'tcp';
-        $context = stream_context_create($useTls ? $this->tls->toStreamContext() : []);
+        $options = [];
+        if ($this->tls instanceof TlsConfig) {
+            $options = $this->tls->toStreamContext();
+            // RFC 6066 section 3: an IP literal is not a HostName, so no SNI for an IP host.
+            // A peerName still sets the SNI value, so SNI stays on for it (GitHub #929).
+            if ($this->tls->peerName === null && $this->isIpLiteral($this->host)) {
+                $options['ssl']['SNI_enabled'] = false;
+            }
+        }
+        $context = stream_context_create($options);
 
         $stream = @stream_socket_client(
             sprintf('%s://%s:%d', $scheme, $this->host, $this->port),

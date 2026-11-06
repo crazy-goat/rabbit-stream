@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use Composer\InstalledVersions;
 use CrazyGoat\RabbitStream\Client\Routing\HashRoutingStrategy;
 use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
 use CrazyGoat\RabbitStream\Contract\ConnectionInterface;
@@ -58,8 +59,10 @@ use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Util\ReferenceLength;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
+use CrazyGoat\RabbitStream\VO\KeyValue;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
+use OutOfBoundsException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -225,8 +228,12 @@ class Connection implements ConnectionInterface
             $initialFrameMax ?? StreamConnection::DEFAULT_INITIAL_FRAME_SIZE
         );
 
-        // 1. PeerProperties
-        $streamConnection->sendMessage(new PeerPropertiesRequestV1());
+        // 1. PeerProperties: product, version and platform identify this client to the broker
+        $streamConnection->sendMessage(new PeerPropertiesRequestV1(
+            new KeyValue('product', 'rabbit-stream'),
+            new KeyValue('version', self::installedVersion('crazy-goat/rabbit-stream')),
+            new KeyValue('platform', 'PHP ' . PHP_VERSION),
+        ));
         $peerResponse = $streamConnection->readMessage();
         if (!$peerResponse instanceof PeerPropertiesResponseV1) {
             throw UnexpectedResponseException::create(PeerPropertiesResponseV1::class, $peerResponse);
@@ -447,6 +454,24 @@ class Connection implements ConnectionInterface
         return [
             new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
         ];
+    }
+
+    /**
+     * The version Composer installed for a package. Composer writes it, so a release
+     * needs no manual change. A version lookup never fails the connection: the result is
+     * `unknown` when Composer metadata is missing or does not list the package.
+     */
+    private static function installedVersion(string $packageName): string
+    {
+        if (!class_exists(InstalledVersions::class) || !InstalledVersions::isInstalled($packageName)) {
+            return 'unknown';
+        }
+
+        try {
+            return InstalledVersions::getPrettyVersion($packageName) ?? 'unknown';
+        } catch (OutOfBoundsException) {
+            return 'unknown';
+        }
     }
 
     private static function negotiatedMaxValue(int $clientValue, int $serverValue): int
