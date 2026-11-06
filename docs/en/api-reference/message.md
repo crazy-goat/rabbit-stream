@@ -209,10 +209,11 @@ public function getBody(): string|int|float|bool|array|null
 
 #### Return Value
 
-`string|int|float|bool|array|null` - The decoded message body. Type depends on:
-- The AMQP type encoding used by the producer
-- The serializer used (if any)
-- The content type of the message
+`string|int|float|bool|array|null` - The decoded message body. The type depends on the AMQP body section of the message:
+- Data section: `string`
+- AmqpSequence section: `array`
+- AmqpValue section: the PHP type of the AMQP value
+- No body section: `null`
 
 **Note:** The body is not always a string. This library publishes a string, but a message from another AMQP 1.0 client can carry an array, `null`, a `bool`, an `int` or a `float`. If you put such a body in a string, PHP prints `Array` with a warning, an empty string for `null`, or `1` for `true`. Check the type with `is_string()` before you print or decode the body.
 
@@ -462,19 +463,21 @@ public function getContentType(): ?string
 #### Example
 
 ```php
+// $consumer is a Consumer from Connection::createConsumer(), see the Consumer API reference.
 $message = $consumer->readOne();
 $contentType = $message->getContentType();
+$body = $message->getBody();
 
 switch ($contentType) {
     case 'application/json':
-        $data = json_decode($message->getBody(), true);
+        $data = is_string($body) ? json_decode($body, true) : null;
         break;
     case 'application/xml':
-        $data = simplexml_load_string($message->getBody());
+        $data = is_string($body) ? simplexml_load_string($body) : null;
         break;
     case 'text/plain':
     default:
-        $data = $message->getBody();
+        $data = $body;
         break;
 }
 ```
@@ -668,8 +671,9 @@ while ($message = $consumer->readOne()) {
     $subject = $message->getSubject();
     
     // Route by content type
-    if ($contentType === 'application/json') {
-        $data = json_decode($message->getBody(), true);
+    $body = $message->getBody();
+    if ($contentType === 'application/json' && is_string($body)) {
+        $data = json_decode($body, true);
         
         // Route by subject
         if (str_starts_with($subject, 'payments.')) {
@@ -697,6 +701,10 @@ while ($message = $consumer->readOne()) {
     
     // Decode JSON
     $body = $message->getBody();
+    if (!is_string($body)) {
+        error_log("Expected a string body at offset {$message->getOffset()}");
+        continue;
+    }
     $data = json_decode($body, true);
     
     if ($data === null) {
@@ -762,9 +770,11 @@ $data = ['user_id' => 123, 'action' => 'login'];
 $producer->send(json_encode($data));
 
 // Consumer
+// $consumer is a Consumer from Connection::createConsumer(), see the Consumer API reference.
 $message = $consumer->readOne();
-if ($message->getContentType() === 'application/json') {
-    $data = json_decode($message->getBody(), true);
+$body = $message->getBody();
+if ($message->getContentType() === 'application/json' && is_string($body)) {
+    $data = json_decode($body, true);
     echo "User {$data['user_id']} performed {$data['action']}\n";
 }
 ```
