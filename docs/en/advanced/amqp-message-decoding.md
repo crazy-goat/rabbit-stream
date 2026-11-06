@@ -206,6 +206,9 @@ The Properties section (0x73) contains 13 ordered fields:
 
 *Note: Fields are positional in the list. Null values are skipped.*
 
+The Properties section must be a list (list0, list8 or list32). A map, a scalar or
+a described value raises a `DeserializationException`. A null value decodes as no properties.
+
 ### Complete Message Example
 
 Every `size` below is the count byte plus the content bytes — the exact values
@@ -293,8 +296,26 @@ Beyond depth, a payload is rejected (with `DeserializationException`) when:
 | A compound's elements consume exactly its declared `size` | A lying `size` otherwise desynchronises everything decoded after it |
 | A map's `count` is even | Keys and values are counted separately |
 | A map key is an int or string that does not collide with an earlier key | A non-scalar or float/bool key would be lost or retyped, and a colliding key would overwrite an earlier entry silently |
-| A Data section (0x75) carries binary | Anything else used to be dropped silently, leaving an empty body |
+| A Data section (0x75) carries a PHP string | Any other value (a list, a map, a number) throws. Before #452 it was dropped silently, leaving an empty body. A `str8` or `sym8` string is tolerated, see below |
+| A Properties section (0x73) is a list (list0, list8 or list32), or null | A map, a scalar or a described value used to give empty properties, or shifted keys read as field indexes, with no error |
 | Every variable-width length fits the frame | Bounds are compared as subtractions, so a 32-bit length cannot overflow the check |
+
+### Tolerated Malformed Input
+
+Some malformed input decodes without an error. The decoder keeps this behaviour,
+so existing consumers do not break. Do not rely on a body from such a message
+being valid AMQP 1.0.
+
+| Input | Result |
+|-------|--------|
+| A Properties section (0x73) whose value is null (0x40) | No properties (`[]`) |
+| A Data section (0x75) whose value is `str8` or `sym8`, not binary | The string bytes become the body |
+| A string AmqpValue (0x77) followed by a Data section | The Data bytes are joined to the AmqpValue string, for example `XY` |
+| An AmqpSequence (0x76) or a non-string AmqpValue (0x77) followed by a Data section | The Data body replaces the earlier body, with no error. For example, an AmqpSequence `[42]` then Data `Y` gives `Y` |
+| A Data section followed by an AmqpValue (0x77) | The AmqpValue replaces the Data body, for example `X` |
+
+Osiris chunks have two more tolerated forms. See
+[Error Handling](./osiris-chunk-format.md#error-handling).
 
 ### Section Access
 
