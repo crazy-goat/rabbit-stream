@@ -982,7 +982,7 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
-    public function testReadLoopLogsCreditErrorWithoutRegisteredSubscription(): void
+    public function testCreditErrorForUnregisteredSubscriptionIsLoggedAtDebugLevel(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
         $logger = new RecordingLogger();
@@ -992,9 +992,15 @@ class StreamConnectionTest extends TestCase
         fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 7)));
         $connection->readLoop(maxFrames: 1, timeout: 1.0);
 
-        $this->assertSame('Credit request rejected for unregistered subscription', $logger->warningMessages()[0]);
-        $this->assertSame(7, $logger->warningContexts()[0]['subscriptionId']);
-        $this->assertSame('0x0004', $logger->warningContexts()[0]['responseCode']);
+        $this->assertSame([], $logger->warningMessages());
+        $index = array_search(
+            'Credit request rejected for unregistered subscription',
+            $logger->debugMessages(),
+            true
+        );
+        $this->assertIsInt($index);
+        $this->assertSame(7, $logger->debugContexts()[$index]['subscriptionId']);
+        $this->assertSame('0x0004', $logger->debugContexts()[$index]['responseCode']);
 
         fclose($serverSocket);
         fclose($clientSocket);
