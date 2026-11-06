@@ -155,7 +155,10 @@ interface ConsumerInterface
     /**
      * Whether this consumer is currently allowed to receive messages. Always
      * true unless created with singleActiveConsumer, in which case it tracks
-     * the broker's most recent ConsumerUpdate activation state.
+     * the broker's most recent ConsumerUpdate activation state. While the value
+     * is false, read() and readOne() return no message. On deactivation the
+     * unread messages of the lost partition are dropped, and the position is
+     * stored only when it is ahead of the stored offset.
      *
      * @return bool True when the broker has this consumer active, false while a
      *                            single-active-consumer handover has it paused.
