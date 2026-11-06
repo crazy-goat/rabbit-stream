@@ -451,11 +451,7 @@ class CheckApiSignatureTest extends TestCase
         $this->writeTree($dir . '/src', $tagFiles);
         $this->git($dir, ['init', '-q']);
         $this->git($dir, ['add', '-A']);
-        $this->git($dir, [
-            '-c', 'user.name=test',
-            '-c', 'user.email=test@example.invalid',
-            'commit', '-q', '-m', 'initial',
-        ]);
+        $this->git($dir, ['commit', '-q', '-m', 'initial']);
         if ($tag) {
             $this->git($dir, ['tag', 'v1.0.0']);
         }
@@ -474,10 +470,17 @@ class CheckApiSignatureTest extends TestCase
         return $real;
     }
 
-    /** @param list<string> $args */
+    /**
+     * Runs git with a fixed identity and without signing, so the user's git config
+     * (for example commit.gpgsign or tag.gpgSign) cannot make the test fail.
+     *
+     * @param list<string> $args
+     */
     private function git(string $dir, array $args): void
     {
-        $command = 'git -C ' . escapeshellarg($dir);
+        $command = 'git -C ' . escapeshellarg($dir)
+            . ' -c commit.gpgsign=false -c tag.gpgsign=false'
+            . ' -c user.name=test -c user.email=test@example.invalid';
         foreach ($args as $arg) {
             $command .= ' ' . escapeshellarg($arg);
         }
