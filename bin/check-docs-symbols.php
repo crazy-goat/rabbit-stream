@@ -23,10 +23,21 @@ if (!is_dir($docsRoot)) {
     exit(2);
 }
 
+// The test namespace is the autoload-dev PSR-4 prefix in composer.json, so a rename there needs no edit here.
+$composerConfig = json_decode((string) file_get_contents($repositoryRoot . '/composer.json'), true);
+$autoloadDev = is_array($composerConfig) ? ($composerConfig['autoload-dev'] ?? null) : null;
+$testPsr4 = is_array($autoloadDev) ? ($autoloadDev['psr-4'] ?? null) : null;
+$testPrefix = is_array($testPsr4) ? array_key_first($testPsr4) : null;
+if (!is_string($testPrefix) || $testPrefix === '') {
+    fwrite(STDERR, "composer.json has no autoload-dev PSR-4 prefix for the test namespace.\n");
+    exit(2);
+}
+$testNamespace = rtrim($testPrefix, '\\');
+
 /** @var array<string, array{file: string, parameters: list<string>, parent: ?string}> $classes */
 $classes = [];
 /** @var array<string, true> $sourceDirectories */
-$sourceDirectories = ['CrazyGoat\\RabbitStream\\Tests' => true];
+$sourceDirectories = [$testNamespace => true];
 $sourceFiles = new RecursiveIteratorIterator(
     new RecursiveDirectoryIterator($sourceRoot, FilesystemIterator::SKIP_DOTS)
 );
@@ -272,6 +283,9 @@ foreach ($classes as $className => $class) {
 }
 
 $errors = [];
+// Bare class names that a PHP fence may use without a use statement. The checker does not
+// check the named arguments of a constructor call to one of these names. Names are compared
+// case-insensitively. To allow a new name, add it to this list. Prefer a use statement in the fence.
 $allowedUnqualifiedClasses = array_fill_keys([
     'BasicConsumerExample',
     'BasicProducerExample',
@@ -351,9 +365,9 @@ foreach ($markdownFiles as $markdownFile) {
         array $classes,
         array $sourceDirectories,
         array $allowedUnqualifiedClasses
-    ): void {
+    ) use ($testNamespace): void {
         $code = implode("\n", $block);
-        $knownNamespace = static function (string $name) use ($sourceDirectories): bool {
+        $knownNamespace = static function (string $name) use ($sourceDirectories, $testNamespace): bool {
             if (isset($sourceDirectories[$name])) {
                 return true;
             }
@@ -362,7 +376,7 @@ foreach ($markdownFiles as $markdownFile) {
                     return true;
                 }
                 if (
-                    $directory === 'CrazyGoat\\RabbitStream\\Tests'
+                    $directory === $testNamespace
                     && str_starts_with($name, $directory . '\\')
                 ) {
                     return true;
@@ -454,7 +468,9 @@ foreach ($markdownFiles as $markdownFile) {
                 ) {
                     $line = $startLine + substr_count(substr($code, 0, $offset), "\n");
                     $errors[] = sprintf(
-                        '%s:%d: class %s is not imported or fully qualified — the fence cannot be checked',
+                        '%s:%d: class %s is not imported or fully qualified — the fence cannot be checked. '
+                        . 'Add a use statement or the fully qualified name, or add the bare name to '
+                        . '$allowedUnqualifiedClasses in bin/check-docs-symbols.php',
                         $path,
                         $line,
                         $classToken

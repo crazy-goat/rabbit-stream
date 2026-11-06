@@ -87,8 +87,12 @@ class CheckDocsSymbolsTest extends TestCase
 
     public function testAllowsImportFromTestSubnamespace(): void
     {
+        $composer = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/composer.json'), true);
+        $this->assertIsArray($composer);
+        $this->assertIsArray($composer['autoload-dev']['psr-4'] ?? null);
+        $testNamespace = rtrim((string) array_key_first($composer['autoload-dev']['psr-4']), '\\');
         $docs = $this->makeDocs([
-            'guide/example.md' => "```php\nuse CrazyGoat\\RabbitStream\\Tests\\Request\\SomeTest;\n```\n",
+            'guide/example.md' => "```php\nuse {$testNamespace}\\Request\\SomeTest;\n```\n",
         ]);
 
         [$exit, $stdout, $stderr] = $this->runGate($docs);
@@ -110,6 +114,22 @@ class CheckDocsSymbolsTest extends TestCase
             'guide/example.md:2: class NopeClass is not imported or fully qualified',
             $stderr
         );
+        $this->assertStringContainsString(
+            'Add a use statement or the fully qualified name, or add the bare name to '
+            . '$allowedUnqualifiedClasses in bin/check-docs-symbols.php',
+            $stderr
+        );
+    }
+
+    public function testAllowsBareConstructorClassFromAllowList(): void
+    {
+        $docs = $this->makeDocs([
+            'guide/example.md' => "```php\nnew producer(1);\n```\n",
+        ]);
+
+        [$exit, , $stderr] = $this->runGate($docs);
+
+        $this->assertSame(0, $exit, $stderr);
     }
 
     public function testFailsOnUnknownNamedConstructorArgument(): void
