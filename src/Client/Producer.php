@@ -21,6 +21,7 @@ use CrazyGoat\RabbitStream\Request\QueryPublisherSequenceRequestV1;
 use CrazyGoat\RabbitStream\Response\MetadataUpdateResponseV1;
 use CrazyGoat\RabbitStream\Response\QueryPublisherSequenceResponseV1;
 use CrazyGoat\RabbitStream\StreamConnection;
+use CrazyGoat\RabbitStream\Util\ReferenceLength;
 use CrazyGoat\RabbitStream\VO\PublishedMessage;
 use CrazyGoat\RabbitStream\VO\PublishedMessageV2;
 use Psr\Log\LoggerInterface;
@@ -133,7 +134,8 @@ class Producer implements ProducerInterface
      *                          publish confirms before abandoning them; defaults
      *                          to DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT. Must be >= 0.
      * @throws InvalidArgumentException If $redeclareTimeout or
-     *                          $closeConfirmDrainTimeout is negative.
+     *                          $closeConfirmDrainTimeout is negative, or $name is longer
+     *                          than 255 bytes.
      * @throws ConnectionException If the socket is not connected or the
      *                          DeclarePublisher/QueryPublisherSequence exchange
      *                          fails.
@@ -163,6 +165,9 @@ class Producer implements ProducerInterface
         }
         if ($this->closeConfirmDrainTimeout < 0) {
             throw new InvalidArgumentException('closeConfirmDrainTimeout must be >= 0');
+        }
+        if ($this->name !== null) {
+            ReferenceLength::assertValid($this->name, 'producer name');
         }
         $this->onConfirm = $onConfirm !== null ? \Closure::fromCallable($onConfirm) : null;
         $this->onClose = $onClose !== null ? \Closure::fromCallable($onClose) : null;

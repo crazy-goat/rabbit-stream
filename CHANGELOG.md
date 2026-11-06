@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Client: a name or offset reference over 255 bytes throws `InvalidArgumentException` at the call (#932)** — the broker accepts at most 255 bytes per reference, but the client sent longer values without a check. A producer name, a single-active-consumer name, a consumer name in `storeOffset()` or `queryOffset()`, and a derived super-stream partition name (`"{$name}-{$partition}"`) now fail before any frame is sent. A consumer name over 255 bytes with `autoCommit > 0` now fails at `createConsumer()` and `createSuperStreamConsumer()`, before the first subscribe. The exception names the limit. Before this fix, a consumer name over 255 bytes lost its stored offset without an error, and a super-stream partition name failed at the first `send()`. Names of 255 bytes or less work as before. `tests/Client/ReferenceLimitTest.php` covers each path.
 - **CreditRequestV1: a credit outside 0 to 32767 throws an exception (#923)** — the broker decodes the Credit field as a signed int16. A credit from 32768 to 65535 became negative on the broker side, and the broker stopped delivery to the subscription with no error. `CreditRequestV1` now throws `InvalidArgumentException` in the constructor for a credit below 0 or above 32767. It does not clamp the value. `tests/Request/CreditRequestV1Test.php` covers the limit and the rejected values.
 
 ## [1.13.2] - 2026-10-29
