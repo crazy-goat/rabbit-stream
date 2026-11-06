@@ -32,26 +32,32 @@ already holds the planned version. Change the milestone title if the plan change
 ### Intended API breaks
 
 The CI step `api-signature` (`bin/check-api-signature.php`) compares `src/` with the newest
-`vX.Y.Z` tag. It fails when a public member is removed or changed, or when a new abstract
-or interface method is added.
+`vX.Y.Z` tag. It fails when a public member is removed or changed. It fails when a new abstract
+or interface method is added to a type that exists in the tag. It also checks protected members
+of non-final classes, because subclasses use them.
 
-A constructor is an exception. The check passes when a constructor gains optional
-parameters at the end. Each new parameter must have a default value. The check fails when
-a constructor parameter is renamed, when its type or default changes, or when a required
-parameter is added. Other methods keep the strict rule: an optional parameter added to a
-normal method is a break.
+A constructor is an exception. The check passes when a constructor gains optional parameters at
+the end. Each new parameter must have a default value. The check fails when a constructor
+parameter changes its name, type or default value, or when a required parameter is added.
+Other methods keep the strict rule. An optional parameter added to a normal method is a break.
 
 To accept an intended break:
 
-1. Run `php bin/check-api-signature.php`. Copy the key from the `BREAK` line. The key starts with `M|`, `P|`, `C|`, `E|`, `T|` or `I|`, and follows `removed`, `changed` or `added required member`. For example: `M|CrazyGoat\RabbitStream\Client\Producer::send`.
-2. Add a line to `api-breaks.txt` in the repository root. Write the key, a space, and the reason with the issue number.
+1. Run `php bin/check-api-signature.php`. Copy the key from the `BREAK` line. The key starts
+   with `M|`, `P|`, `C|`, `E|`, `T|` or `I|`. The line shows `removed`, `changed` or
+   `added required member`. For example: `M|CrazyGoat\RabbitStream\Client\Producer::send`.
+2. Add a line to `api-breaks.txt` in the repository root. Write the key, a space and the reason,
+   with the issue number.
 3. Commit the line in the same pull request as the break.
 
 The check prints `WARNING stale allow-list entry` when an entry no longer matches a break.
 Remove that entry.
 
-The allow-list is reset after each release. Remove all entries in the release pull request,
-before the tag is created. The next release starts with an empty list.
+Each release starts with an empty allow-list. Remove all entries in the release pull request,
+before the tag is created.
+
+Keep `api-breaks.txt` empty on the `1.x` line. The `1.x` line takes no API breaks. The `main`
+line can use the file for 2.0.0.
 
 ## 3. Prepare the CHANGELOG (pull request)
 

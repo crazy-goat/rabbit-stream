@@ -210,12 +210,14 @@ function findBreaks(array $previous, array $current): array
     }
 
     foreach ($current as $key => $value) {
-        if (array_key_exists($key, $previous) || !str_starts_with($key, 'M|')) {
+        if (array_key_exists($key, $previous) || !str_starts_with($key, 'M|') || !str_contains($value, 'abstract=1')) {
             continue;
         }
-        if (str_contains($value, 'abstract=1')) {
-            $breaks[$key] = sprintf('added required member %s: %s', $key, $value);
+        // A new type has no implementers yet, so only a type that existed in the tag can break.
+        if (!array_key_exists('T|' . methodOwner($key), $previous)) {
+            continue;
         }
+        $breaks[$key] = sprintf('added required member %s: %s', $key, $value);
     }
 
     ksort($breaks);
@@ -260,6 +262,14 @@ function isCompatibleConstructor(string $key, string $previous, string $current)
     }
 
     return true;
+}
+
+/** Returns the class name of a method key "M|Class::method". */
+function methodOwner(string $key): string
+{
+    $position = strrpos($key, '::');
+
+    return $position === false ? '' : substr($key, 2, $position - 2);
 }
 
 /** @return array{string, string} the flags and the parameter list of a method value */
@@ -406,21 +416,30 @@ function describeType(string $name): array
         $lines[sprintf('I|%s|%s', $name, $interface)] = 'implements';
     }
 
-    foreach ($class->getReflectionConstants(ReflectionClassConstant::IS_PUBLIC) as $constant) {
+    $visible = ReflectionClassConstant::IS_PUBLIC | ReflectionClassConstant::IS_PROTECTED;
+    foreach ($class->getReflectionConstants($visible) as $constant) {
         if ($constant->isEnumCase()) {
             $lines[sprintf('E|%s::%s', $name, $constant->getName())] = describeValue($constant->getValue());
             continue;
         }
+        if (!isApiMember($constant, $class)) {
+            continue;
+        }
         $lines[sprintf('C|%s::%s', $name, $constant->getName())] = sprintf(
-            'final=%d;value=%s',
+            'visibility=%s;final=%d;value=%s',
+            visibilityOf($constant),
             (int) $constant->isFinal(),
             describeValue($constant->getValue())
         );
     }
 
-    foreach ($class->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+    foreach ($class->getProperties(ReflectionProperty::IS_PUBLIC | ReflectionProperty::IS_PROTECTED) as $property) {
+        if (!isApiMember($property, $class)) {
+            continue;
+        }
         $lines[sprintf('P|%s::$%s', $name, $property->getName())] = sprintf(
-            'static=%d;readonly=%d;type=%s;default=%s',
+            'visibility=%s;static=%d;readonly=%d;type=%s;default=%s',
+            visibilityOf($property),
             (int) $property->isStatic(),
             (int) $property->isReadOnly(),
             (string) ($property->getType() ?? 'none'),
@@ -428,9 +447,13 @@ function describeType(string $name): array
         );
     }
 
-    foreach ($class->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+    foreach ($class->getMethods(ReflectionMethod::IS_PUBLIC | ReflectionMethod::IS_PROTECTED) as $method) {
+        if (!isApiMember($method, $class)) {
+            continue;
+        }
         $lines[sprintf('M|%s::%s', $name, $method->getName())] = sprintf(
-            'static=%d;final=%d;abstract=%d;byref=%d;return=%s;params=%s',
+            'visibility=%s;static=%d;final=%d;abstract=%d;byref=%d;return=%s;params=%s',
+            visibilityOf($method),
             (int) $method->isStatic(),
             (int) $method->isFinal(),
             (int) ($method->isAbstract() || $class->isInterface()),
@@ -441,6 +464,24 @@ function describeType(string $name): array
     }
 
     return $lines;
+}
+
+/**
+ * Public members are API. Protected members are API only when a subclass can exist,
+ * because a subclass depends on them. A protected member of a final class is not API.
+ *
+ * @param ReflectionClass<object> $class
+ */
+function isApiMember(
+    ReflectionClassConstant|ReflectionProperty|ReflectionMethod $member,
+    ReflectionClass $class
+): bool {
+    return $member->isPublic() || ($member->isProtected() && !$class->isFinal());
+}
+
+function visibilityOf(ReflectionClassConstant|ReflectionProperty|ReflectionMethod $member): string
+{
+    return $member->isPublic() ? 'public' : 'protected';
 }
 
 /** @return string JSON list of {signature, optional}; optional means a default value and not variadic */

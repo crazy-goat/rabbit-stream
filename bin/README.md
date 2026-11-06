@@ -149,31 +149,40 @@ The check runs inside `bin/lint.sh`.
 
 ## check-api-signature.php
 
-Compares the public API of `src/` with the newest release tag (#918). A release that
-changes its public API must say so in the release line. This check shows each change in
-the pull request.
+This script compares the public API of `src/` with the newest release tag (#918). It shows each
+API change in the pull request. A release that changes its public API must say so in the
+release line.
 
-The script reads the newest `vX.Y.Z` tag that is reachable from `HEAD`. It exports the `src/`
-tree of that tag with `git archive`, and dumps the public members of both trees with
-reflection. Each tree is dumped in a child process, because both use the same class names.
+The script reads the newest `vX.Y.Z` tag that `HEAD` reaches. It exports the `src/` tree of
+that tag with `git archive`. It dumps the public members of both trees with reflection. It runs
+each dump in a child process, because both trees use the same class names.
 
 The script fails on these changes:
 
-- a removed or changed public member (method, property, constant, enum case, type, or an
-  interface that a class no longer implements),
-- a new abstract or interface method, because each implementer must change.
-- a changed constructor parameter, except an optional parameter added at the end. The
+- A removed or changed public member: method, property, constant, enum case, type, or an
+  interface that a class no longer implements.
+- A changed protected member of a class that is not `final`. Subclasses use these members.
+- A new abstract or interface method on a type that exists in the tag. Each implementer must
+  change. A new type passes, because it has no implementers yet.
+- A changed constructor parameter. An optional parameter added at the end passes. The
   constructor exception does not apply to other methods.
 
-New classes, new optional methods, new constants, properties and enum cases, and new
-interfaces on a class do not fail.
+These changes pass: a new class, a new optional method, a new constant, property or enum case,
+and a class that implements a new interface.
 
-An intended break is listed in `api-breaks.txt` in the repository root. Each line has a
-key from the `BREAK` output and a reason. See
+Known limits:
+
+- The script treats an `@internal` type as API. It does not read the annotation.
+- The script passes an added enum case. Code that matches every case can break, and the
+  script does not detect it.
+- The script checks signatures only. It does not detect a change in behaviour.
+
+List an intended break in `api-breaks.txt` in the repository root. Each line holds a key from
+the `BREAK` output and a reason. See
 [release-workflow.md](../docs/release-workflow.md#intended-api-breaks).
 
-The script needs the tags. If no release tag is reachable, the script exits with code 2
-and asks for the full history. The CI `lint` job uses `fetch-depth: 0`.
+If no release tag is reachable, the script exits with code 2. It then asks for the full
+history. The CI `lint` job uses `fetch-depth: 0`.
 
 ```bash
 php bin/check-api-signature.php                  # repo root

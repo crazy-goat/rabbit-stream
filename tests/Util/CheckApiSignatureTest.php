@@ -63,6 +63,30 @@ class CheckApiSignatureTest extends TestCase
         }
         PHP;
 
+    private const BASE_V1 = <<<'PHP'
+        <?php
+
+        namespace CrazyGoat\RabbitStream\Api;
+
+        class Base
+        {
+            protected function helper(int $a): void
+            {
+            }
+        }
+        PHP;
+
+    private const FLUSHABLE = <<<'PHP'
+        <?php
+
+        namespace CrazyGoat\RabbitStream\Api;
+
+        interface Flushable
+        {
+            public function flush(): void;
+        }
+        PHP;
+
     /** @var list<string> */
     private array $tempDirs = [];
 
@@ -294,6 +318,96 @@ class CheckApiSignatureTest extends TestCase
 
         $this->assertSame(1, $exit);
         $this->assertStringContainsString('BREAK changed M|CrazyGoat\RabbitStream\Api\Client::send', $stderr);
+    }
+
+    public function testPassesWhenANewInterfaceWithAMethodIsAdded(): void
+    {
+        $contract = <<<'PHP'
+            <?php
+
+            namespace CrazyGoat\RabbitStream\Api;
+
+            interface Contract
+            {
+                public function go(): void;
+            }
+            PHP;
+        $root = $this->makeRepository(
+            ['Api/Handler.php' => self::HANDLER_V1],
+            ['Api/Handler.php' => self::HANDLER_V1, 'Api/Contract.php' => $contract],
+        );
+
+        [$exit, $stdout, $stderr] = $this->runCheck($root);
+
+        $this->assertSame(0, $exit, $stderr);
+        $this->assertStringContainsString('0 break(s), 0 allowed.', $stdout);
+    }
+
+    public function testPassesWhenANewAbstractClassWithAnAbstractMethodIsAdded(): void
+    {
+        $shape = <<<'PHP'
+            <?php
+
+            namespace CrazyGoat\RabbitStream\Api;
+
+            abstract class Shape
+            {
+                abstract public function area(): int;
+            }
+            PHP;
+        $root = $this->makeRepository(
+            ['Api/Handler.php' => self::HANDLER_V1],
+            ['Api/Handler.php' => self::HANDLER_V1, 'Api/Shape.php' => $shape],
+        );
+
+        [$exit, $stdout, $stderr] = $this->runCheck($root);
+
+        $this->assertSame(0, $exit, $stderr);
+        $this->assertStringContainsString('0 break(s), 0 allowed.', $stdout);
+    }
+
+    public function testFailsWhenAnExistingInterfaceExtendsANewInterfaceWithAMethod(): void
+    {
+        $handlerV2 = str_replace('interface Handler', 'interface Handler extends Flushable', self::HANDLER_V1);
+        $root = $this->makeRepository(
+            ['Api/Handler.php' => self::HANDLER_V1],
+            ['Api/Handler.php' => $handlerV2, 'Api/Flushable.php' => self::FLUSHABLE],
+        );
+
+        [$exit, , $stderr] = $this->runCheck($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString(
+            'BREAK added required member M|CrazyGoat\RabbitStream\Api\Handler::flush',
+            $stderr
+        );
+    }
+
+    public function testFailsWhenAProtectedMemberOfANonFinalClassChanges(): void
+    {
+        $root = $this->makeRepository(
+            ['Api/Base.php' => self::BASE_V1],
+            ['Api/Base.php' => str_replace('helper(int $a)', 'helper(string $a)', self::BASE_V1)],
+        );
+
+        [$exit, , $stderr] = $this->runCheck($root);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('BREAK changed M|CrazyGoat\RabbitStream\Api\Base::helper', $stderr);
+    }
+
+    public function testPassesWhenAProtectedMemberOfAFinalClassChanges(): void
+    {
+        $finalV1 = str_replace('class Base', 'final class Base', self::BASE_V1);
+        $root = $this->makeRepository(
+            ['Api/Base.php' => $finalV1],
+            ['Api/Base.php' => str_replace('helper(int $a)', 'helper(string $a)', $finalV1)],
+        );
+
+        [$exit, $stdout, $stderr] = $this->runCheck($root);
+
+        $this->assertSame(0, $exit, $stderr);
+        $this->assertStringContainsString('0 break(s), 0 allowed.', $stdout);
     }
 
     /** @return array{0: int, 1: string, 2: string} */
