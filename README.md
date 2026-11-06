@@ -70,6 +70,10 @@ The client certificate does not replace the PLAIN login. The broker checks the c
 in the TLS handshake, then checks the PLAIN login. The E2E test
 `testPublishAndConsumeOverMutualTls` covers both checks.
 
+With TLS 1.3, `connect()` can succeed when the broker rejects the client certificate. The
+rejection shows on the first read. The exception message then starts with
+`TLS peer rejected the connection:` and names the TLS alert.
+
 Peer certificate and hostname verification are **on by default**
 (`verify_peer`/`verify_peer_name`). For a self-signed development broker you can
 disable them explicitly — do not do this in production:
