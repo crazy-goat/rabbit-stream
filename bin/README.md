@@ -23,10 +23,35 @@ Runs `bin/lint.sh` before every push. On failure it prints the log and
 exits non-zero, blocking the push. Bypass with `git push --no-verify` — CI
 runs the same checks, so skipping locally just moves the failure later.
 
+## gen-e2e-certs.sh
+
+Creates the throwaway TLS test material for `tests/E2E/TlsConnectionE2ETest.php`. It makes a
+CA, a server certificate for `127.0.0.1` and `localhost`, and a client certificate. It
+encrypts the client private key with a passphrase. `run-e2e.sh` calls the script at run time.
+Git ignores the output, so the repository keeps no certificate.
+
+```bash
+bin/gen-e2e-certs.sh <output-dir> <client-key-passphrase>
+```
+
+The script needs `openssl` on `PATH`. It writes `ca.pem`, `server.pem`, `server.key`,
+`client.pem` and `client.key` to `<output-dir>`. It deletes the CA key after it signs the
+certificates. It sets the file modes so that the broker container can read the files.
+
+## free-port.sh
+
+Prints one free TCP port on `127.0.0.1`. `bin/worktree.sh` calls it for each port variable in
+the compose files and writes the result to `.env.worktree`. `run-e2e.sh` calls it for each port variable that is not set. The script needs
+`python3` on `PATH`.
+
+```bash
+bash bin/free-port.sh
+```
+
 ## lint.sh
 
 Runs every lint step (PHPCS, Rector, PHPStan, kb-lint, docs link check, test suite
-coverage, stale ext-sockets reference check, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
+coverage, stale ext-sockets reference check, E2E readLoop timeout check, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
 the pre-push hook and the CI `lint` job all call it. Needs `shellcheck` on `PATH`.
 
 ## check-docs-frame-keys.php
@@ -103,6 +128,25 @@ php bin/check-test-suites.php path/to/config-dir
 
 Exit codes: `0` clean, `1` uncovered test file(s) or stale allow-list
 entry(ies), `2` usage/config error.
+
+## check-e2e-readloop-timeouts.php
+
+Guards against E2E hangs (#975). `StreamConnection::readLoop()` has no deadline when `$timeout`
+is `null`. It returns only after `maxFrames` frames, after `stop()`, or when the connection
+closes. The broker keeps the connection open with heartbeats, so a test whose expected frame
+never arrives blocks until the CI job is cancelled.
+
+The script tokenizes every `*.php` file under `tests/E2E/` and finds each `->readLoop(` method
+call. It fails when the call has no named `timeout:` argument, or when it passes `timeout: null`.
+Comments, strings and method declarations are ignored. Only files under `tests/E2E/` are scanned.
+
+```bash
+php bin/check-e2e-readloop-timeouts.php                  # repo root
+php bin/check-e2e-readloop-timeouts.php path/to/root     # any repository root with tests/E2E/
+```
+
+Exit codes: `0` clean, `1` a `readLoop()` call without a bounded timeout, `2` usage error.
+The check runs inside `bin/lint.sh`.
 
 ## pick-issue.sh, worktree.sh, worktree-done.sh
 
