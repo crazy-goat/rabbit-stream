@@ -19,11 +19,11 @@ cd rabbit-stream
 # 2. Install dependencies
 composer install
 
-# 3. Run the E2E tests (optional, needs Docker; the script starts its own broker)
-./run-e2e.sh
-
-# 4. Run tests to verify setup
+# 3. Run tests to verify setup
 composer test:unit
+
+# 4. Run the E2E tests (optional, needs Docker; the script starts its own broker)
+./run-e2e.sh
 ```
 
 ## Detailed Setup
@@ -58,7 +58,7 @@ Or follow the [official Composer installation guide](https://getcomposer.org/doc
 
 The project includes a `docker-compose.yml` file. It runs RabbitMQ with the Streams plugin enabled.
 
-To run the E2E tests, run `./run-e2e.sh`. The script starts the broker, waits until it is healthy, runs the E2E suite and stops the broker. Do not run `docker compose up -d` before `./run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
+To run the E2E tests, run `./run-e2e.sh`. The script starts the broker, waits until it is healthy, runs the E2E suite, runs the example smoke tests with `bin/run-examples.sh` and stops the broker. Do not run `docker compose up -d` before `./run-e2e.sh`. A broker that you start by hand keeps running after the script ends.
 
 To start a broker by hand, use these commands:
 
