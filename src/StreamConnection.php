@@ -67,11 +67,13 @@ class StreamConnection
     private function requireStream()
     {
         if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            // Build the exception before the state change: it names a server close only when already closed.
+            $exception = $this->notConnectedException('Cannot use socket: socket is not connected');
             if ($this->connected) {
                 $this->connected = false;
                 $this->notifyConnectionLost('Connection stream is not available');
             }
-            throw $this->notConnectedException('Cannot use socket: socket is not connected');
+            throw $exception;
         }
 
         return $this->stream;
@@ -79,11 +81,12 @@ class StreamConnection
 
     /**
      * The exception for a call on a closed connection. After a server-initiated Close, it names the
-     * closing code and the reason; otherwise it has the plain message.
+     * closing code and the reason; otherwise it has the plain message. While the connection is still
+     * open (handleServerClose() writes its CloseResponse then), it has the plain message too.
      */
     private function notConnectedException(string $plainMessage): ConnectionException
     {
-        if ($this->serverCloseCode === null) {
+        if ($this->connected || $this->serverCloseCode === null) {
             return new ConnectionException($plainMessage);
         }
 
