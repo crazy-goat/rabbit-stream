@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Tests\Client;
 
+use Composer\InstalledVersions;
 use CrazyGoat\RabbitStream\Buffer\ReadBuffer;
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Contract\KeyVersionInterface;
@@ -33,6 +34,7 @@ use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+use ReflectionMethod;
 
 class ConnectionHandshakeTest extends TestCase
 {
@@ -91,6 +93,23 @@ class ConnectionHandshakeTest extends TestCase
         $this->assertNotSame('', $properties['product']);
         $this->assertNotSame('', $properties['version']);
         $this->assertSame('PHP ' . PHP_VERSION, $properties['platform']);
+    }
+
+    public function testInstalledVersionFallsBackToUnknownWhenPackageIsNotInstalled(): void
+    {
+        $method = new ReflectionMethod(Connection::class, 'installedVersion');
+
+        $this->assertSame('unknown', $method->invoke(null, 'crazy-goat/not-installed-for-test'));
+    }
+
+    public function testInstalledVersionReturnsTheComposerVersionOfAnInstalledPackage(): void
+    {
+        $method = new ReflectionMethod(Connection::class, 'installedVersion');
+
+        $this->assertSame(
+            InstalledVersions::getPrettyVersion('crazy-goat/rabbit-stream'),
+            $method->invoke(null, 'crazy-goat/rabbit-stream'),
+        );
     }
 
     public function testCreateThrowsWhenPlainMechanismNotSupported(): void

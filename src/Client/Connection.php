@@ -62,6 +62,7 @@ use CrazyGoat\RabbitStream\VO\CommandVersion;
 use CrazyGoat\RabbitStream\VO\KeyValue;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
+use OutOfBoundsException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -230,7 +231,7 @@ class Connection implements ConnectionInterface
         // 1. PeerProperties: product, version and platform identify this client to the broker
         $streamConnection->sendMessage(new PeerPropertiesRequestV1(
             new KeyValue('product', 'rabbit-stream'),
-            new KeyValue('version', self::clientVersion()),
+            new KeyValue('version', self::installedVersion('crazy-goat/rabbit-stream')),
             new KeyValue('platform', 'PHP ' . PHP_VERSION),
         ));
         $peerResponse = $streamConnection->readMessage();
@@ -456,16 +457,21 @@ class Connection implements ConnectionInterface
     }
 
     /**
-     * The version Composer installed for this package. Composer writes it, so a release
-     * needs no manual change. The fallback applies when Composer metadata is not available.
+     * The version Composer installed for a package. Composer writes it, so a release
+     * needs no manual change. A version lookup never fails the connection: the result is
+     * `unknown` when Composer metadata is missing or does not list the package.
      */
-    private static function clientVersion(): string
+    private static function installedVersion(string $packageName): string
     {
-        $version = class_exists(InstalledVersions::class)
-            ? InstalledVersions::getPrettyVersion('crazy-goat/rabbit-stream')
-            : null;
+        if (!class_exists(InstalledVersions::class) || !InstalledVersions::isInstalled($packageName)) {
+            return 'unknown';
+        }
 
-        return $version ?? 'unknown';
+        try {
+            return InstalledVersions::getPrettyVersion($packageName) ?? 'unknown';
+        } catch (OutOfBoundsException) {
+            return 'unknown';
+        }
     }
 
     private static function negotiatedMaxValue(int $clientValue, int $serverValue): int
