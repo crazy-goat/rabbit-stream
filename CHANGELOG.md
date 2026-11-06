@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **TLS: a connection to an IP address sends no SNI host name (#929)** — with a `TlsConfig` and no `peerName`, the ClientHello carried the IP address as the Server Name Indication (SNI) host name. RFC 6066 section 3 does not allow an IP literal there. For an IP address host, `connect()` now turns SNI off. Set `peerName` to send a host name for an IP address host. A host name still sends SNI as before. A server that selects its certificate by SNI can now select a different certificate for an IP address host. `tests/Client/TlsSniTest.php` reads the ClientHello for IPv4 and bracketed IPv6 hosts.
 - **Heartbeat: a stalled mid-frame read closes after two heartbeat intervals (#968)** — a read that waited in the middle of a frame ended only at `socketTimeout` (30 s by default). The heartbeat did not apply there, so a peer that stopped mid-frame was detected late, and no outbound heartbeat was sent during a long read. Now each received byte counts as inbound activity. A mid-frame read closes with "missing inbound frames" when no byte arrives for two heartbeat intervals, and it sends an idle heartbeat when one is due. A slow frame that keeps arriving stays open. The read still ends at `socketTimeout`. `tests/StreamConnectionTest.php` covers the stalled peer, a slow frame within the heartbeat budget, and the outbound heartbeat during a slow read.
 
 ## [1.14.0] - 2026-11-06
