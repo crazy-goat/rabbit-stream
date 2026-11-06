@@ -133,9 +133,8 @@ final class FrameSizeReadTest extends TestCase
 
         $context = "exit={$exitCode}\nstdout:\n{$stdout}\nstderr:\n{$stderr}";
         self::assertSame(0, $exitCode, "The child read failed. {$context}");
-        self::assertMatchesRegularExpression('/^read peak=(\d+)$/', trim($stdout), "Unexpected child output. {$context}");
-
-        preg_match('/^read peak=(\d+)$/', trim($stdout), $matches);
+        $matched = preg_match('/^read peak=(\d+)$/', trim($stdout), $matches);
+        self::assertSame(1, $matched, "Unexpected child output. {$context}");
 
         return (int) $matches[1];
     }
