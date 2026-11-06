@@ -1155,8 +1155,7 @@ class AmqpDecoder
 
         throw new DeserializationException(sprintf(
             '%s key of type %s cannot be represented as a PHP array key '
-            . '(only int and string keys are supported); refusing to map it to an empty string, '
-            . 'which would silently overwrite other keys',
+            . '(only int and string keys are supported)',
             $what,
             get_debug_type($key)
         ));
