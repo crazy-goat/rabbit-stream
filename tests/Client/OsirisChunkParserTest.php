@@ -12,6 +12,8 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
 use DeflateContext;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
 class OsirisChunkParserTest extends TestCase
@@ -529,6 +531,12 @@ class OsirisChunkParserTest extends TestCase
         );
     }
 
+    /**
+     * The memory limit is changed below, so the test runs in its own process. A failed
+     * run then cannot leave the limit changed for the other tests.
+     */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testGzipDecompressionBombIsCappedByDeclaredSize(): void
     {
         $this->requireZlib();
@@ -553,6 +561,66 @@ class OsirisChunkParserTest extends TestCase
         } finally {
             ini_set('memory_limit', is_string($previousLimit) ? $previousLimit : '-1');
         }
+    }
+
+    public function testGzipSubBatchOverPerChunkBudgetIsRejectedBeforeInflate(): void
+    {
+        $this->requireZlib();
+        $budget = 32 * 1024 * 1024;
+        // The declared size is one byte over the budget and the body is tiny. An inflate
+        // would fail with a size mismatch instead, so the budget message shows that the
+        // size check runs before the inflate.
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 1, $budget + 1, self::gzipBytes('tiny')),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        $this->assertDecodeFailsOnBothPaths(
+            $chunk,
+            'GZIP sub-batch declares uncompressedSize 33554433; the chunk total of declared GZIP sizes ' .
+            'would be 33554433, above the per-chunk budget of 33554432 bytes'
+        );
+    }
+
+    public function testGzipSubBatchesEachWithinBudgetThatTogetherExceedItAreRejectedOnBothPaths(): void
+    {
+        $this->requireZlib();
+        $size = 17 * 1024 * 1024;
+        // Each sub-batch fits the budget alone. The first inflates to 17 MiB of zeros. Its one
+        // record is 0 bytes long, and the parser does not read the other zeros.
+        $first = $this->subBatchEntry(1, 1, $size, $this->gzipZeros($size));
+        $this->assertCount(
+            1,
+            OsirisChunkParser::parse($this->chunkWithDataSection($first, numEntries: 1, numRecords: 1))
+        );
+
+        // The second body is tiny. The budget check must reject it before any inflate.
+        $second = $this->subBatchEntry(1, 1, $size, self::gzipBytes('tiny'));
+        $chunk = $this->chunkWithDataSection($first . $second, numEntries: 2, numRecords: 2);
+
+        $this->assertDecodeFailsOnBothPaths(
+            $chunk,
+            'GZIP sub-batch declares uncompressedSize 17825792; the chunk total of declared GZIP sizes ' .
+            'would be 35651584, above the per-chunk budget of 33554432 bytes'
+        );
+    }
+
+    public function testGzipSubBatchAtExactlyTheBudgetParsesOnBothPaths(): void
+    {
+        $this->requireZlib();
+        $budget = 32 * 1024 * 1024;
+        // The sub-batch inflates to exactly the budget. Its one record is 0 bytes long, and
+        // the other inflated bytes are not read, as in
+        // testExtraBytesInsideSubBatchAfterTheDeclaredRecordAreIgnoredTolerantly.
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 1, $budget, $this->gzipZeros($budget)),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        $this->assertCount(1, OsirisChunkParser::parse($chunk));
+        $this->assertCount(1, iterator_to_array(OsirisChunkParser::parseMessages($chunk), false));
     }
 
     public function testTruncatedSimpleEntryThrowsException(): void

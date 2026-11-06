@@ -238,10 +238,14 @@ The parser inflates the body and reads the records from the result. Each record 
 the same offset and timestamp as a record in a simple entry.
 
 The parser follows these rules:
-1. It inflates the body to no more than `uncompressedSize` bytes.
-2. It throws `DeserializationException` if the body is corrupt or inflates to more than `uncompressedSize` bytes.
-3. It throws `DeserializationException` if the inflated size is not exactly `uncompressedSize`.
-4. It throws `DeserializationException` if ext-zlib is not loaded.
+1. It adds the `uncompressedSize` of each gzip sub-batch to a total for its chunk.
+2. It throws `DeserializationException` before it inflates anything, if that total is more than 32 MiB (33 554 432 bytes). This per-chunk budget is private. It cannot be changed.
+3. It inflates the body to no more than `uncompressedSize` bytes.
+4. It throws `DeserializationException` if the body is corrupt or inflates to more than `uncompressedSize` bytes.
+5. It throws `DeserializationException` if the inflated size is not exactly `uncompressedSize`.
+6. It throws `DeserializationException` if ext-zlib is not loaded.
+
+The sender sets `uncompressedSize`, so the declared size does not limit memory by itself. The 32 MiB per-chunk budget limits it. A chunk can use up to about 32 MiB for inflated records.
 
 Install the ext-zlib extension to read gzip sub-batches.
 

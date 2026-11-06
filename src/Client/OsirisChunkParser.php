@@ -47,8 +47,11 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
  *
  * Sub-batch codecs: 0 (NONE) and 1 (GZIP, RFC 1952 gzip stream) are decoded. Codecs 2 to 7
  * (SNAPPY, LZ4, ZSTD, and reserved values) throw DeserializationException. A gzip sub-batch
- * must inflate to exactly its declared uncompressedSize; the inflate is capped at that size
- * (issue #399). Decoding gzip needs the ext-zlib extension.
+ * must inflate to exactly its declared uncompressedSize, and the inflate stops at that size
+ * (issue #399). The declared uncompressedSize values of all gzip sub-batches in one chunk
+ * total at most 32 MiB (33 554 432 bytes). The parser checks this total before it inflates
+ * anything, so one chunk cannot make it allocate more than that budget. Decoding gzip needs
+ * the ext-zlib extension.
  *
  * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/rabbitmq_stream/docs/PROTOCOL.adoc
  * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/osiris/src/osiris_log.erl
@@ -64,6 +67,14 @@ class OsirisChunkParser
     private const CODEC_NONE = 0;
     private const CODEC_GZIP = 1;
     private const CODEC_NAMES = ['NONE', 'GZIP', 'SNAPPY', 'LZ4', 'ZSTD'];
+
+    /**
+     * Budget for the declared uncompressedSize of all gzip sub-batches in one chunk: 32 MiB.
+     *
+     * The declared size comes from the chunk and can be up to 4 GiB, so it cannot bound the
+     * memory that an inflate uses. This budget does. It is private and is not configurable.
+     */
+    private const MAX_GZIP_UNCOMPRESSED_PER_CHUNK = 33554432;
 
     /**
      * Default ceiling for entries produced from a single chunk.
@@ -153,11 +164,14 @@ class OsirisChunkParser
      * $chunkBytes: each Message is built via {@see Message::fromChunkView()} as a
      * zero-copy view sharing $chunkBytes (PHP strings are refcounted, so every
      * Message from one chunk just bumps that one buffer's refcount instead of
-     * substr()-copying its own entry out of it) — including sub-batch entries,
-     * whose inner records are views into $chunkBytes too, not into a copied
-     * sub-batch buffer. This is the hot path for Consumer's deliver callback: for
+     * substr()-copying its own entry out of it) — including the inner records of
+     * an uncompressed sub-batch. This is the hot path for Consumer's deliver callback: for
      * every entry it saves one ChunkEntry object, one payload copy, plus the extra
      * indirection of AmqpMessageDecoder::decode() per message.
+     *
+     * The views share $chunkBytes, except for the records of a gzip sub-batch. Those
+     * records are views into the inflated buffer that the sub-batch owns, so their
+     * Messages share that buffer instead of $chunkBytes.
      *
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
@@ -215,6 +229,7 @@ class OsirisChunkParser
         $entryCount = 0;
         $recordCount = 0;
         $currentOffset = $chunkFirstOffset;
+        $gzipDeclaredTotal = 0;
 
         for ($i = 0; $i < $numEntries; $i++) {
             if ($entryCount >= $maxEntriesPerChunk) {
@@ -273,6 +288,7 @@ class OsirisChunkParser
                 $subBatchData = self::readBytesAt($chunkBytes, $dataEnd, $pos, $compressedSize);
 
                 if ($codec === self::CODEC_GZIP) {
+                    $gzipDeclaredTotal = self::reserveGzipBudget($gzipDeclaredTotal, $uncompressedSize);
                     $subBatchData = self::decompressGzip($subBatchData, $uncompressedSize);
                 }
 
@@ -457,6 +473,7 @@ class OsirisChunkParser
         $entryCount = 0;
         $recordCount = 0;
         $currentOffset = $chunkFirstOffset;
+        $gzipDeclaredTotal = 0;
 
         for ($i = 0; $i < $numEntries; $i++) {
             if ($entryCount >= $maxEntriesPerChunk) {
@@ -509,6 +526,7 @@ class OsirisChunkParser
                 if ($codec === self::CODEC_GZIP) {
                     // The inflated records are not in $chunkBytes, so they form their own
                     // buffer. The inner entries are views into that buffer.
+                    $gzipDeclaredTotal = self::reserveGzipBudget($gzipDeclaredTotal, $uncompressedSize);
                     $subBuffer = self::decompressGzip(
                         substr($chunkBytes, $subBatchStart, $compressedSize),
                         $uncompressedSize
@@ -540,6 +558,32 @@ class OsirisChunkParser
         }
 
         self::assertRecordCount($recordCount, $numRecords);
+    }
+
+    /**
+     * Adds the declared uncompressedSize of one gzip sub-batch to the total of its chunk
+     * and returns the new total. Call it before decompressGzip(), so a chunk that goes over
+     * MAX_GZIP_UNCOMPRESSED_PER_CHUNK is rejected without any inflate.
+     *
+     * @param int $declaredTotal Sum of the uncompressedSize values of the earlier gzip
+     *                           sub-batches of the same chunk.
+     * @return int The new total, including $uncompressedSize.
+     * @throws DeserializationException If the new total is above the per-chunk budget.
+     */
+    private static function reserveGzipBudget(int $declaredTotal, int $uncompressedSize): int
+    {
+        $newTotal = $declaredTotal + $uncompressedSize;
+        if ($newTotal > self::MAX_GZIP_UNCOMPRESSED_PER_CHUNK) {
+            throw new DeserializationException(sprintf(
+                'GZIP sub-batch declares uncompressedSize %d; the chunk total of declared GZIP sizes ' .
+                'would be %d, above the per-chunk budget of %d bytes (32 MiB)',
+                $uncompressedSize,
+                $newTotal,
+                self::MAX_GZIP_UNCOMPRESSED_PER_CHUNK
+            ));
+        }
+
+        return $newTotal;
     }
 
     /**
