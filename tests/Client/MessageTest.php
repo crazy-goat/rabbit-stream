@@ -597,4 +597,60 @@ class MessageTest extends TestCase
             Message::fromRawEntry(offset: 1, timestamp: 1000, rawData: $entry)->getBody()
         );
     }
+
+    /**
+     * An amqp-value section with type code 0x02 is not supported by the decoder.
+     * The first decode fails, and every later accessor must report the same error.
+     */
+    public function testRawEntryRepeatedAccessorAfterFailedDecodeThrowsSameError(): void
+    {
+        $msg = Message::fromRawEntry(offset: 0, timestamp: 0, rawData: "\x00\x53\x77\x02");
+
+        $first = $this->captureDecodeError(static fn (): mixed => $msg->getBody());
+        $second = $this->captureDecodeError(static fn (): mixed => $msg->getBody());
+
+        $this->assertInstanceOf(DeserializationException::class, $first);
+        $this->assertSame('Unsupported AMQP type: 0x02', $first->getMessage());
+        $this->assertSame($first, $second);
+    }
+
+    public function testChunkViewRepeatedAccessorAfterFailedDecodeThrowsSameError(): void
+    {
+        $msg = Message::fromChunkView(0, 0, "\x00\x53\x77\x02", 0, 4);
+
+        $first = $this->captureDecodeError(static fn (): mixed => $msg->getBody());
+        $second = $this->captureDecodeError(static fn (): mixed => $msg->getBody());
+
+        $this->assertInstanceOf(DeserializationException::class, $first);
+        $this->assertSame('Unsupported AMQP type: 0x02', $first->getMessage());
+        $this->assertSame($first, $second);
+    }
+
+    public function testDifferentAccessorAfterFailedDecodeThrowsSameError(): void
+    {
+        $msg = Message::fromRawEntry(offset: 0, timestamp: 0, rawData: "\x00\x53\x77\x02");
+
+        $first = $this->captureDecodeError(static fn (): mixed => $msg->getBody());
+        $this->assertNotNull($first);
+
+        $this->assertSame($first, $this->captureDecodeError(static fn (): mixed => $msg->getProperties()));
+        $this->assertSame($first, $this->captureDecodeError(static fn (): mixed => $msg->getApplicationProperties()));
+        $this->assertSame($first, $this->captureDecodeError(static fn (): mixed => $msg->getMessageAnnotations()));
+        $this->assertSame($first, $this->captureDecodeError(static fn (): mixed => $msg->getMessageId()));
+        $this->assertSame($first, $this->captureDecodeError(static fn (): mixed => $msg->getCreationTime()));
+    }
+
+    /**
+     * Runs $accessor and returns the exception it throws, or null when it does not throw.
+     */
+    private function captureDecodeError(callable $accessor): ?\Throwable
+    {
+        try {
+            $accessor();
+        } catch (\Throwable $error) {
+            return $error;
+        }
+
+        return null;
+    }
 }
