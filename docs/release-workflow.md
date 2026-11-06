@@ -29,6 +29,24 @@ gh api repos/{owner}/{repo}/milestones --jq '.[] | select(.title=="vX.Y.Z") | {t
 Before `1.0.0`, breaking changes bump the minor version. The milestone title
 already holds the planned version. Change the milestone title if the plan changed.
 
+### Intended API breaks
+
+The CI step `api-signature` (`bin/check-api-signature.php`) compares `src/` with the newest
+`vX.Y.Z` tag. It fails when a public member is removed or changed, or when a new abstract
+or interface method is added.
+
+To accept an intended break:
+
+1. Run `php bin/check-api-signature.php`. Copy the key from the `BREAK` line. The key starts with `M|`, `P|`, `C|`, `E|`, `T|` or `I|`, and follows `removed`, `changed` or `added required member`. For example: `M|CrazyGoat\RabbitStream\Client\Producer::send`.
+2. Add a line to `api-breaks.txt` in the repository root. Write the key, a space, and the reason with the issue number.
+3. Commit the line in the same pull request as the break.
+
+The check prints `WARNING stale allow-list entry` when an entry no longer matches a break.
+Remove that entry.
+
+The allow-list is reset after each release. Remove all entries in the release pull request,
+before the tag is created. The next release starts with an empty list.
+
 ## 3. Prepare the CHANGELOG (pull request)
 
 ```bash

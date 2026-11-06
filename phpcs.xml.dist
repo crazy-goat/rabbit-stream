@@ -46,9 +46,10 @@
     <!-- Slevomat: Require null coalesce operator when possible -->
     <rule ref="SlevomatCodingStandard.ControlStructures.RequireNullCoalesceOperator"/>
     
-    <!-- kb-lint is a CLI entrypoint that intentionally defines helpers and executes main. -->
+    <!-- kb-lint and the API signature check are CLI entrypoints that intentionally define helpers and execute main. -->
     <rule ref="PSR1.Files.SideEffects">
         <exclude-pattern>bin/kb-lint.php</exclude-pattern>
+        <exclude-pattern>bin/check-api-signature.php</exclude-pattern>
     </rule>
     
     <!-- Show progress -->

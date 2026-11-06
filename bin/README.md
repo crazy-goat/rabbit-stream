@@ -147,6 +147,40 @@ php bin/check-e2e-readloop-timeouts.php path/to/root     # any repository root w
 Exit codes: `0` clean, `1` a `readLoop()` call without a bounded timeout, `2` usage error.
 The check runs inside `bin/lint.sh`.
 
+## check-api-signature.php
+
+Compares the public API of `src/` with the newest release tag (#918). A release that
+changes its public API must say so in the release line. This check shows each change in
+the pull request.
+
+The script reads the newest `vX.Y.Z` tag that is reachable from `HEAD`. It exports the `src/`
+tree of that tag with `git archive`, and dumps the public members of both trees with
+reflection. Each tree is dumped in a child process, because both use the same class names.
+
+The script fails on these changes:
+
+- a removed or changed public member (method, property, constant, enum case, type, or an
+  interface that a class no longer implements),
+- a new abstract or interface method, because each implementer must change.
+
+New classes, new optional methods, new constants, properties and enum cases, and new
+interfaces on a class do not fail.
+
+An intended break is listed in `api-breaks.txt` in the repository root. Each line has a
+key from the `BREAK` output and a reason. See
+[release-workflow.md](../docs/release-workflow.md#intended-api-breaks).
+
+The script needs the tags. If no release tag is reachable, the script exits with code 2
+and asks for the full history. The CI `lint` job uses `fetch-depth: 0`.
+
+```bash
+php bin/check-api-signature.php                  # repo root
+php bin/check-api-signature.php path/to/root     # any repository root with src/
+```
+
+Exit codes: `0` no unallowed break, `1` an unallowed break, `2` usage, git or tag error.
+The check runs inside `bin/lint.sh`.
+
 ## pick-issue.sh, worktree.sh, worktree-done.sh
 
 Identical copies of the shared scripts from `crazy-goat/.github` (`standard/`). Do not edit them
