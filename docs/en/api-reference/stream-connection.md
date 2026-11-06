@@ -748,6 +748,8 @@ public function abandonCorrelation(int $correlationId): void
 
 Register a handler for a rejected Credit request on a subscription.
 
+A handler that returns `false` ignores the response as stale. The library then logs it at debug level instead of warning level. Any other return value means the error was recorded and is logged as a warning.
+
 ```php
 public function registerCreditErrorHandler(int $subscriptionId, callable $handler): void
 ```

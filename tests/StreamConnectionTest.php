@@ -940,6 +940,24 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    public function testCreditErrorIgnoredByHandlerIsLoggedAtDebugLevel(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $logger = new RecordingLogger();
+        $connection = new StreamConnection('127.0.0.1', 5552, $logger);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->registerCreditErrorHandler(7, static fn(CreditResponseV1 $response): bool => false);
+
+        fwrite($serverSocket, $this->buildFrame(0x8009, 1, pack('n', 0x04) . pack('C', 7)));
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 1.0));
+
+        $this->assertSame([], $logger->warningMessages());
+        $this->assertContains('Credit response ignored by handler', $logger->debugMessages());
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
     public function testReadLoopDispatchesCreditErrorToRegisteredSubscription(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
