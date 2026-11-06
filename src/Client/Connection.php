@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CrazyGoat\RabbitStream\Client;
 
+use Composer\InstalledVersions;
 use CrazyGoat\RabbitStream\Client\Routing\HashRoutingStrategy;
 use CrazyGoat\RabbitStream\Client\Routing\RoutingStrategy;
 use CrazyGoat\RabbitStream\Contract\ConnectionInterface;
@@ -58,6 +59,7 @@ use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 use CrazyGoat\RabbitStream\StreamConnection;
 use CrazyGoat\RabbitStream\Util\ReferenceLength;
 use CrazyGoat\RabbitStream\VO\CommandVersion;
+use CrazyGoat\RabbitStream\VO\KeyValue;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 use CrazyGoat\RabbitStream\VO\TlsConfig;
 use Psr\Log\LoggerInterface;
@@ -225,8 +227,12 @@ class Connection implements ConnectionInterface
             $initialFrameMax ?? StreamConnection::DEFAULT_INITIAL_FRAME_SIZE
         );
 
-        // 1. PeerProperties
-        $streamConnection->sendMessage(new PeerPropertiesRequestV1());
+        // 1. PeerProperties: product, version and platform identify this client to the broker
+        $streamConnection->sendMessage(new PeerPropertiesRequestV1(
+            new KeyValue('product', 'rabbit-stream'),
+            new KeyValue('version', self::clientVersion()),
+            new KeyValue('platform', 'PHP ' . PHP_VERSION),
+        ));
         $peerResponse = $streamConnection->readMessage();
         if (!$peerResponse instanceof PeerPropertiesResponseV1) {
             throw UnexpectedResponseException::create(PeerPropertiesResponseV1::class, $peerResponse);
@@ -447,6 +453,19 @@ class Connection implements ConnectionInterface
         return [
             new CommandVersion(KeyEnum::PUBLISH->value, 1, 2),
         ];
+    }
+
+    /**
+     * The version Composer installed for this package. Composer writes it, so a release
+     * needs no manual change. The fallback applies when Composer metadata is not available.
+     */
+    private static function clientVersion(): string
+    {
+        $version = class_exists(InstalledVersions::class)
+            ? InstalledVersions::getPrettyVersion('crazy-goat/rabbit-stream')
+            : null;
+
+        return $version ?? 'unknown';
     }
 
     private static function negotiatedMaxValue(int $clientValue, int $serverValue): int
