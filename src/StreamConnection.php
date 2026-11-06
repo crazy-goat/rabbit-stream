@@ -38,6 +38,9 @@ class StreamConnection
     private int $heartbeatInterval = 0;
     private float $lastReadAt = 0.0;
     private float $lastWriteAt = 0.0;
+    /** Closing code and reason of the broker's last Close frame; read when the read throws. */
+    private ?int $serverCloseCode = null;
+    private ?string $serverCloseReason = null;
     /**
      * Underlying PHP stream (tcp:// or ssl://). Streams (not ext-sockets) are
      * used for BOTH transports because TLS in PHP is only available through
@@ -57,6 +60,47 @@ class StreamConnection
     }
 
     /**
+     * The reason of a failed stream_socket_client() call.
+     *
+     * The socket error text is used when PHP set it. Otherwise the PHP warnings
+     * carry the reason, for example a TLS peer name that did not match. The OpenSSL
+     * errors follow, for example a wrong key passphrase (GitHub #928). Whitespace runs
+     * become one space, so the message stays on one line.
+     *
+     * @param list<string> $warnings      The PHP warnings that the call emitted
+     * @param list<string> $opensslErrors The OpenSSL errors that the call left in the queue
+     */
+    private function describeConnectFailure(
+        ?string $errorMessage,
+        ?int $errorCode,
+        array $warnings,
+        array $opensslErrors
+    ): string {
+        $code = $errorCode ?? 0;
+        $reasons = [];
+        if ($errorMessage !== null && $errorMessage !== '') {
+            $reasons[] = "{$errorMessage} ({$code})";
+        } else {
+            foreach ($warnings as $warning) {
+                $reasons[] = (string) preg_replace('/^stream_socket_client\(\): /', '', $warning);
+            }
+        }
+        foreach (array_slice(array_unique($opensslErrors), 0, self::MAX_OPENSSL_REASONS) as $opensslError) {
+            $reasons[] = $opensslError;
+        }
+
+        $reasons = array_values(array_unique(array_map(
+            static fn (string $reason): string => trim((string) preg_replace('/\s+/', ' ', $reason)),
+            $reasons
+        )));
+        if ($reasons === []) {
+            return "unknown error ({$code})";
+        }
+
+        return implode('; ', $reasons);
+    }
+
+    /**
      * The open connection stream, or an exception if it is gone.
      *
      * @return resource
@@ -64,14 +108,30 @@ class StreamConnection
     private function requireStream()
     {
         if (!$this->connected || $this->stream === null || !is_resource($this->stream)) {
+            // Build the exception before the state change: it names a server close only when already closed.
+            $exception = $this->notConnectedException('Cannot use socket: socket is not connected');
             if ($this->connected) {
                 $this->connected = false;
                 $this->notifyConnectionLost('Connection stream is not available');
             }
-            throw new ConnectionException('Cannot use socket: socket is not connected');
+            throw $exception;
         }
 
         return $this->stream;
+    }
+
+    /**
+     * The exception for a call on a closed connection. After a server-initiated Close, it names the
+     * closing code and the reason; otherwise it has the plain message. While the connection is still
+     * open (handleServerClose() writes its CloseResponse then), it has the plain message too.
+     */
+    private function notConnectedException(string $plainMessage): ConnectionException
+    {
+        if ($this->connected || $this->serverCloseCode === null) {
+            return new ConnectionException($plainMessage);
+        }
+
+        return ConnectionException::serverClosed($this->serverCloseCode, $this->serverCloseReason ?? '');
     }
     private int $correlationId = 0;
     /**
@@ -274,15 +334,36 @@ class StreamConnection
     /**
      * Hard upper bound on {@see $abandonedCorrelationIds}.
      *
-     * The set is only pruned when a matching late reply finally arrives, and
-     * correlation ids are monotonic (never reused), so without a bound a caller
-     * that abandons requests could grow it without limit. In practice only the
-     * single ExchangeCommandVersions handshake can abandon an id — and only on a
+     * The set is only pruned when a matching late reply finally arrives. Ids are
+     * only reused after the counter wraps (see {@see nextCorrelationId()}), so
+     * without a bound a caller that abandons requests could grow it without
+     * limit. In practice only the single ExchangeCommandVersions handshake can
+     * abandon an id — and only on a
      * read-side timeout — so this cap is never reached in normal use; it exists
      * so the state cannot grow without bound. Oldest-first eviction is safe
      * because the oldest id is the least likely to still have a reply in flight.
      */
     private const MAX_ABANDONED_CORRELATION_IDS = 64;
+
+    /**
+     * The most OpenSSL errors that a failed TLS connect puts in its exception message (GitHub #928).
+     */
+    private const MAX_OPENSSL_REASONS = 5;
+
+    /**
+     * Highest correlation id the wire format carries (uint32). After this id the
+     * counter wraps to 1, so it never leaves the uint32 range (GitHub #942).
+     */
+    private const MAX_CORRELATION_ID = 4294967295;
+
+    /**
+     * Correlation ids of requests that {@see request()} is still waiting for.
+     * {@see nextCorrelationId()} skips them, so a wrapped counter never hands out
+     * an id that is still in use. Filled and emptied by {@see request()}.
+     *
+     * @var array<int, true>
+     */
+    private array $inFlightCorrelationIds = [];
 
     /**
      * Correlation ids of requests that already timed out and whose reply, if it
@@ -342,6 +423,9 @@ class StreamConnection
      */
     public function connect(): void
     {
+        // A new connection has no close from an earlier connection.
+        $this->serverCloseCode = null;
+        $this->serverCloseReason = null;
         $useTls = $this->tls instanceof TlsConfig;
         $scheme = $useTls ? 'ssl' : 'tcp';
         $options = [];
@@ -355,18 +439,63 @@ class StreamConnection
         }
         $context = stream_context_create($options);
 
-        $stream = @stream_socket_client(
-            sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
-            $errorCode,
-            $errorMessage,
-            $this->socketTimeout,
-            STREAM_CLIENT_CONNECT,
-            $context
+        // Clear the OpenSSL errors that the application left in the queue, so that the
+        // reason of this connect is the only one that the failure message can report.
+        // The queue is bounded, and each openssl_error_string() call takes one entry (GitHub #928).
+        if ($useTls && function_exists('openssl_error_string')) {
+            while (openssl_error_string() !== false) {
+                // Discard each queued error.
+            }
+        }
+
+        // A failed TLS handshake leaves $errorMessage empty. PHP reports the reason only
+        // as warnings and notices, so a temporary handler collects them (GitHub #928).
+        // Other levels go to the previous handler.
+        $warnings = [];
+        $previousHandler = set_error_handler(
+            static function (
+                int $number,
+                string $message,
+                string $file = '',
+                int $line = 0
+            ) use (
+                &$warnings,
+                &$previousHandler
+            ): bool {
+                if (($number & (E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE)) === 0) {
+                    if ($previousHandler === null) {
+                        return false;
+                    }
+                    return (bool) $previousHandler($number, $message, $file, $line);
+                }
+                $warnings[] = $message;
+                return true;
+            }
         );
+        $opensslErrors = [];
+        try {
+            $stream = stream_socket_client(
+                sprintf('%s://%s:%d', $scheme, $this->host, $this->port),
+                $errorCode,
+                $errorMessage,
+                $this->socketTimeout,
+                STREAM_CLIENT_CONNECT,
+                $context
+            );
+        } finally {
+            restore_error_handler();
+            // Take every queued OpenSSL error, so that stale errors do not reach a later
+            // openssl_error_string() call of the application. The reason is kept (GitHub #928).
+            if ($useTls && function_exists('openssl_error_string')) {
+                while (($opensslError = openssl_error_string()) !== false) {
+                    $opensslErrors[] = $opensslError;
+                }
+            }
+        }
         if ($stream === false) {
             throw new ConnectionException(
                 "Cannot connect to {$scheme}://{$this->host}:{$this->port}: " .
-                "{$errorMessage} ({$errorCode})"
+                $this->describeConnectFailure($errorMessage, $errorCode, $warnings, $opensslErrors)
             );
         }
 
@@ -1088,7 +1217,7 @@ class StreamConnection
             // one id before the guard below rejects it; that gap is harmless
             // (ids only need to be unique per in-flight request) and is
             // preferable to serializing twice or breaking correlation.
-            $this->correlationId++;
+            $this->correlationId = $this->nextCorrelationId();
             $request->withCorrelationId($this->correlationId);
         }
 
@@ -1324,17 +1453,57 @@ class StreamConnection
             throw new InvalidArgumentException('request() requires a correlated request; use sendMessage()');
         }
         $this->sendMessage($request, $timeout);
+        $correlationId = $request->getCorrelationId();
+        $this->inFlightCorrelationIds[$correlationId] = true;
 
         try {
-            return $this->readResponse($timeout, $request->getCorrelationId());
+            return $this->readResponse($timeout, $correlationId);
         } catch (TimeoutException $exception) {
             // sendMessage() runs outside this try, so a write timeout is not
             // abandoned: the request did not reach the broker. A read timeout
             // can still leave a reply in flight, which must be discarded.
-            $this->abandonCorrelation($request->getCorrelationId());
+            $this->abandonCorrelation($correlationId);
 
             throw $exception;
+        } finally {
+            // Runs after abandonCorrelation(), so the id is never free for reuse
+            // while a late reply for it can still arrive.
+            unset($this->inFlightCorrelationIds[$correlationId]);
         }
+    }
+
+    /**
+     * Return the next correlation id that no in-flight request, abandoned
+     * request or parked response uses.
+     *
+     * The counter wraps from {@see MAX_CORRELATION_ID} to 1. The ids to skip are
+     * finite, so the loop always ends.
+     */
+    private function nextCorrelationId(): int
+    {
+        $candidate = $this->correlationId;
+        do {
+            $candidate = $candidate >= self::MAX_CORRELATION_ID ? 1 : $candidate + 1;
+        } while ($this->isCorrelationIdBusy($candidate));
+
+        return $candidate;
+    }
+
+    private function isCorrelationIdBusy(int $correlationId): bool
+    {
+        $isInUse = isset($this->inFlightCorrelationIds[$correlationId])
+            || isset($this->abandonedCorrelationIds[$correlationId]);
+        if ($isInUse) {
+            return true;
+        }
+
+        foreach ($this->pendingResponses as $pending) {
+            if ($pending['correlationId'] === $correlationId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function maintainHeartbeat(): void
@@ -1397,7 +1566,7 @@ class StreamConnection
 
         while (true) {
             if (!$this->connected) {
-                throw new ConnectionException("Connection closed");
+                throw $this->notConnectedException('Connection closed');
             }
 
             // A nested request() (issued from a server-push handler dispatched
@@ -1448,7 +1617,7 @@ class StreamConnection
 
                 // Connection may have been closed by server-initiated close
                 if (!$this->connected) {
-                    throw new ConnectionException("Connection closed by server");
+                    throw $this->notConnectedException('Connection closed by server');
                 }
 
                 continue;
@@ -1850,6 +2019,8 @@ class StreamConnection
         $correlationId = $frame->getUint32();
         $closingCode = $frame->getUint16();
         $closingReason = $frame->getString();
+        $this->serverCloseCode = $closingCode;
+        $this->serverCloseReason = $closingReason ?? '';
         if ($this->debugLogging) {
             $this->logger->debug(sprintf(
                 'Server-initiated close: code=%d, reason=%s',

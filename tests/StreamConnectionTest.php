@@ -201,6 +201,118 @@ class StreamConnectionTest extends TestCase
         fclose($serverSocket);
     }
 
+    public function testServerCloseCodeAndReasonAreKeptOnTheException(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // Close frame from the broker: key, version, correlation id, code 320, reason.
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 8) . 'bye fast';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        try {
+            $connection->request(new CreateRequestV1('close-reason'), 2.0);
+            self::fail('Expected ConnectionException after a server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Connection closed by server: code=320, reason=bye fast', $exception->getMessage());
+            self::assertSame(320, $exception->getServerCloseCode());
+            self::assertSame('bye fast', $exception->getServerCloseReason());
+        }
+
+        self::assertFalse($connection->isConnected());
+        fclose($serverSocket);
+    }
+
+    public function testServerCloseCodeAndReasonAreKeptForNextCallAfterReadLoop(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 8) . 'bye fast';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        // readLoop() returns after the Close frame without an exception.
+        self::assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 2.0));
+        self::assertFalse($connection->isConnected());
+
+        try {
+            $connection->readLoop(maxFrames: 1, timeout: 0.5);
+            self::fail('Expected ConnectionException on the call after a server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Connection closed by server: code=320, reason=bye fast', $exception->getMessage());
+            self::assertSame(320, $exception->getServerCloseCode());
+            self::assertSame('bye fast', $exception->getServerCloseReason());
+        }
+
+        fclose($serverSocket);
+    }
+
+    public function testCloseResponseIsWrittenBeforeTheCloseValuesAreUsedByLaterCalls(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        $closeFrame = pack('nnNn', KeyEnum::CLOSE->value, 1, 7, 320) . pack('n', 3) . 'bye';
+        fwrite($serverSocket, pack('N', strlen($closeFrame)) . $closeFrame);
+
+        self::assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 2.0));
+
+        // handleServerClose() wrote its CloseResponse while the connection was still open.
+        self::assertSame(
+            pack('nnNn', KeyEnum::CLOSE_RESPONSE->value, 1, 7, 0x0001),
+            $this->readResponse($serverSocket)
+        );
+
+        try {
+            $connection->sendMessage(new CreateRequestV1('after-close'));
+            self::fail('Expected ConnectionException after the server-initiated close');
+        } catch (ConnectionException $exception) {
+            self::assertSame(320, $exception->getServerCloseCode());
+        }
+
+        fclose($serverSocket);
+    }
+
+    public function testPlainMessageIsKeptWhileTheConnectionIsOpen(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        (new \ReflectionProperty($connection, 'serverCloseCode'))->setValue($connection, 320);
+        (new \ReflectionProperty($connection, 'serverCloseReason'))->setValue($connection, 'bye');
+        (new \ReflectionProperty($connection, 'stream'))->setValue($connection, null);
+
+        try {
+            $connection->sendMessage(new CreateRequestV1('open'));
+            self::fail('Expected ConnectionException on an open connection without a stream');
+        } catch (ConnectionException $exception) {
+            self::assertSame('Cannot use socket: socket is not connected', $exception->getMessage());
+            self::assertNull($exception->getServerCloseCode());
+        }
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testConnectClearsServerCloseValuesFromAnEarlierConnection(): void
+    {
+        $connection = new StreamConnection('127.0.0.1', 1, socketTimeout: 0.5);
+        (new \ReflectionProperty($connection, 'serverCloseCode'))->setValue($connection, 320);
+        (new \ReflectionProperty($connection, 'serverCloseReason'))->setValue($connection, 'old');
+
+        try {
+            $connection->connect();
+            self::fail('Expected ConnectionException: nothing listens on port 1');
+        } catch (ConnectionException) {
+        }
+
+        self::assertNull((new \ReflectionProperty($connection, 'serverCloseCode'))->getValue($connection));
+        self::assertNull((new \ReflectionProperty($connection, 'serverCloseReason'))->getValue($connection));
+    }
+
     public function testReadFrameAcceptsFloatTimeout(): void
     {
         $connection = new StreamConnection('127.0.0.1', 5552);
@@ -835,6 +947,85 @@ class StreamConnectionTest extends TestCase
         fclose($clientSocket);
     }
 
+    public function testCorrelationIdWrapsToOneAfterTheMaximumValue(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        (new \ReflectionProperty($connection, 'correlationId'))->setValue($connection, 4294967295);
+
+        $connection->sendMessage(new CreateRequestV1('wrapped'));
+
+        // The request is written with id 1, not with the out-of-range id 4294967296.
+        $payload = $this->readResponse($serverSocket);
+        $this->assertIsString($payload);
+        $unpacked = unpack('N', $payload, 4);
+        $this->assertIsArray($unpacked);
+        $this->assertSame(1, $unpacked[1]);
+        $this->assertSame(1, (new \ReflectionProperty($connection, 'correlationId'))->getValue($connection));
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testCorrelationIdSkipsAbandonedIdAfterWrap(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        (new \ReflectionProperty($connection, 'correlationId'))->setValue($connection, 4294967295);
+        $connection->abandonCorrelation(1);
+
+        // A late reply for id 1 must not match the next request, so id 2 is used.
+        $connection->sendMessage(new CreateRequestV1('after-wrap'));
+
+        $payload = $this->readResponse($serverSocket);
+        $this->assertIsString($payload);
+        $unpacked = unpack('N', $payload, 4);
+        $this->assertIsArray($unpacked);
+        $this->assertSame(2, $unpacked[1]);
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
+    public function testNestedRequestDoesNotReuseTheInFlightIdAfterWrap(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+
+        // The outer request() holds id 1 while it waits. A ConsumerUpdate handler
+        // then moves the counter to its maximum, so the nested request() wraps to
+        // 1. It must skip 1, which is still in flight, and use 2.
+        fwrite($serverSocket, $this->buildFrame(0x001a, 1, pack('N', 9) . pack('C', 1) . pack('C', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 1) . pack('n', 1)));
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 2) . pack('n', 1)));
+
+        $inner = null;
+        $connection->registerConsumerUpdateHandler(1, function () use ($connection, &$inner): OffsetSpec {
+            (new \ReflectionProperty($connection, 'correlationId'))->setValue($connection, 4294967295);
+            $inner = $connection->request(new CreateRequestV1('inner'), 1.0);
+            return OffsetSpec::offset(42);
+        });
+
+        $outer = $connection->request(new CreateRequestV1('outer'), 1.0);
+
+        $this->assertInstanceOf(CreateResponseV1::class, $outer);
+        $this->assertSame(1, $outer->getCorrelationId());
+        $this->assertInstanceOf(CreateResponseV1::class, $inner);
+        $this->assertSame(2, $inner->getCorrelationId());
+
+        // Both requests have finished, so no id is left marked as in flight.
+        $this->assertSame([], (new \ReflectionProperty($connection, 'inFlightCorrelationIds'))->getValue($connection));
+
+        fclose($serverSocket);
+        fclose($clientSocket);
+    }
+
     public function testRequestParksResponsesOfOtherCorrelationIds(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
@@ -859,9 +1050,12 @@ class StreamConnectionTest extends TestCase
             // Expected: only request() may consume the parked response.
         }
 
-        $parked = $connection->request(new CreateRequestV1('b'), 1.0);
-        $this->assertInstanceOf(CreateResponseV1::class, $parked);
-        $this->assertSame(2, $parked->getCorrelationId());
+        // Id 2 is still parked, and no request holds it, so the next request does
+        // not reuse it. It gets id 3 and its own reply.
+        fwrite($serverSocket, $this->buildFrame(0x800d, 1, pack('N', 3) . pack('n', 1)));
+        $next = $connection->request(new CreateRequestV1('b'), 1.0);
+        $this->assertInstanceOf(CreateResponseV1::class, $next);
+        $this->assertSame(3, $next->getCorrelationId());
 
         fclose($serverSocket);
         fclose($clientSocket);
@@ -2025,7 +2219,7 @@ class StreamConnectionTest extends TestCase
         $this->injectSocket($connection, $clientSocket);
 
         $start = microtime(true);
-        // No frame is sent: readLoop must poll with socket_select until the
+        // No frame is sent: readLoop must poll with stream_select until the
         // deadline. Regression for #382: the seconds were clamped to 1 while
         // the microseconds were derived from the UNCLAMPED remainder
         // (2.5s -> sec = 1, usec = 1_500_000), which select(2) rejects with

@@ -107,9 +107,9 @@ public static function offset(int $offset): self
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `$offset` | `int` | Absolute offset to start from (inclusive) |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$offset` | `int` | Yes | Absolute offset to start from (inclusive) |
 
 **Example:**
 
@@ -135,9 +135,9 @@ chunks share one timestamp, derive the boundary from broker-written
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `$timestamp` | `int` | Unix timestamp in **milliseconds** since the epoch |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `$timestamp` | `int` | Yes | Unix timestamp in **milliseconds** since the epoch |
 
 **Example:**
 

@@ -135,7 +135,7 @@ foreach ($consumer->read(timeout: 5.0) as $message) {
 
 #### Notes
 
-- If any partition already has buffered messages, this call does **no connection I/O** — it just drains every partition's buffer
+- If any partition already has buffered messages, this call does not read frames from the socket. It drains every partition's buffer. The drain can write withheld credit and auto-commit `StoreOffset` frames.
 - Otherwise it performs exactly one bounded read-loop pass, then drains whatever arrived
 - May return an empty array if the timeout expires with no messages anywhere
 
@@ -197,6 +197,8 @@ public function storeOffset(string $partition, int $offset): void
 
 - `InvalidArgumentException` - If `$partition` is not one of this consumer's partitions
 - `ProtocolException` - If this consumer was created without a `$name`
+- `ConnectionException` - If the socket is not connected, or the write fails
+- `TimeoutException` - If the write does not complete within the socket timeout
 
 #### Example
 
@@ -228,9 +230,11 @@ partition, or `null` when nothing has been stored yet for it (`NO_OFFSET`).
 #### Exceptions
 
 - `InvalidArgumentException` - If `$partition` is not one of this consumer's partitions
-- `ProtocolException` - If this consumer was created without a `$name`, or the broker
-  returns a non-OK code other than `NO_OFFSET`
+- `ProtocolException` - If this consumer was created without a `$name`, or the broker returns a non-OK code other than `NO_OFFSET`
 - `UnexpectedResponseException` - If the server returns an unexpected response
+- `ConnectionException` - If the socket is not connected, or the request fails
+- `DeserializationException` - If the response frame cannot be deserialized
+- `TimeoutException` - If the response does not arrive in time
 
 #### Example
 
@@ -308,6 +312,14 @@ public function close(): void
 #### Return Value
 
 `void`
+
+#### Exceptions
+
+- `ProtocolException` - If the broker rejects an Unsubscribe with a non-OK response code
+- `ConnectionException` - If the socket is not connected, or an exchange fails
+- `DeserializationException` - If an Unsubscribe response frame cannot be deserialized
+- `TimeoutException` - If an Unsubscribe response does not arrive in time
+- `InvalidArgumentException` - If an Unsubscribe or auto-commit `StoreOffset` frame exceeds the negotiated outgoing frame size
 
 #### Notes
 

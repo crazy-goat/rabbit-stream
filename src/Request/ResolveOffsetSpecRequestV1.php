@@ -13,6 +13,7 @@ use CrazyGoat\RabbitStream\Enum\KeyEnum;
 use CrazyGoat\RabbitStream\Trait\CommandTrait;
 use CrazyGoat\RabbitStream\Trait\CorrelationTrait;
 use CrazyGoat\RabbitStream\Trait\V1Trait;
+use CrazyGoat\RabbitStream\VO\KeyValue;
 use CrazyGoat\RabbitStream\VO\OffsetSpec;
 
 class ResolveOffsetSpecRequestV1 implements
@@ -25,18 +26,27 @@ class ResolveOffsetSpecRequestV1 implements
     use V1Trait;
     use CommandTrait;
 
+    /**
+     * @param array<string, string> $properties
+     */
     public function __construct(
         private string $stream,
-        private OffsetSpec $offsetSpec
+        private OffsetSpec $offsetSpec,
+        private array $properties = []
     ) {
     }
 
     public function toStreamBuffer(): WriteBuffer
     {
+        $keyValues = [];
+        foreach ($this->properties as $key => $value) {
+            $keyValues[] = new KeyValue($key, $value);
+        }
+
         return self::getKeyVersion($this->getCorrelationId())
             ->addString($this->stream)
             ->addRaw($this->offsetSpec->toStreamBuffer()->getContents())
-            ->addUInt32(0); // Properties array length (0 = empty array)
+            ->addArray(...$keyValues);
     }
 
     /** @return array<string, mixed> */
@@ -45,6 +55,7 @@ class ResolveOffsetSpecRequestV1 implements
         return [
             'stream' => $this->stream,
             'offsetSpec' => $this->offsetSpec->toArray(),
+            'properties' => $this->properties,
         ];
     }
 

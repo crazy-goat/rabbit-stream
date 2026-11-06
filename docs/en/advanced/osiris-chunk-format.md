@@ -427,6 +427,17 @@ if ($chunkType !== 0) {
 }
 ```
 
+### Tolerated Extra Bytes
+
+The parser reads only the declared entry count and the declared sub-batch record
+count. Bytes inside the data section that come after them are ignored, and no
+exception is thrown. The chunk CRC covers those bytes, so the CRC does not flag
+them. Both forms below are tolerated malformed input. Do not rely on them in a
+valid chunk.
+
+- A chunk declares one entry, and extra bytes follow it inside `dataLength`.
+- A sub-batch declares one record, and extra bytes follow it inside `compressedSize`.
+
 ## Performance Considerations
 
 ### Memory Usage
