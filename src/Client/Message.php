@@ -339,11 +339,17 @@ class Message
         return is_scalar($value) ? (string) $value : null;
     }
 
+    /**
+     * Returns the producer creation time in milliseconds since the Unix epoch.
+     *
+     * Only an AMQP timestamp (decoded as int) gives a value. A missing value,
+     * or a value of another type (double, string, bool, list), gives null.
+     */
     public function getCreationTime(): ?int
     {
         $this->ensureDecoded();
         $value = $this->properties['creation-time'] ?? null;
-        return is_scalar($value) ? (int) $value : null;
+        return is_int($value) ? $value : null;
     }
 
     public function getGroupId(): ?string
