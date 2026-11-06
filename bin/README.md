@@ -26,9 +26,9 @@ runs the same checks, so skipping locally just moves the failure later.
 ## gen-e2e-certs.sh
 
 Creates the throwaway TLS test material for `tests/E2E/TlsConnectionE2ETest.php`. It makes a
-CA, a server certificate for `127.0.0.1` and `localhost`, and a client certificate. The
-client private key is encrypted with a passphrase. `run-e2e.sh` calls the script at run time.
-Nothing is committed.
+CA, a server certificate for `127.0.0.1` and `localhost`, and a client certificate. It
+encrypts the client private key with a passphrase. `run-e2e.sh` calls the script at run time.
+Git ignores the output, so the repository keeps no certificate.
 
 ```bash
 bin/gen-e2e-certs.sh <output-dir> <client-key-passphrase>
@@ -41,7 +41,7 @@ certificates. It sets the file modes so that the broker container can read the f
 ## free-port.sh
 
 Prints one free TCP port on `127.0.0.1`. `bin/worktree.sh` calls it for each port variable in
-`.env.worktree`. `run-e2e.sh` calls it for each port variable that is not set. The script needs
+the compose files and writes the result to `.env.worktree`. `run-e2e.sh` calls it for each port variable that is not set. The script needs
 `python3` on `PATH`.
 
 ```bash
