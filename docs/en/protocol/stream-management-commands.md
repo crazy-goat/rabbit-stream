@@ -351,16 +351,18 @@ statistics[]:  Array<Statistic>
 **Statistic Structure:**
 ```
 key:   string (statistic name)
-value: uint64 (statistic value)
+value: int64 (statistic value)
 ```
 
-**Common Statistics:**
+**Statistics the broker sends:**
 | Statistic | Description |
 |-----------|-------------|
-| `first_offset` | Offset of the first message in the stream |
-| `last_offset` | Offset of the last message in the stream |
-| `committed_chunk_id` | ID of the last committed chunk |
-| `chunk_count` | Number of chunks in the stream |
+| `first_chunk_id` | Offset of the first message in the first chunk of the stream |
+| `last_chunk_id` | Offset of the first message in the last chunk of the stream |
+| `committed_chunk_id` | ID of the last committed chunk. A chunk ID is the offset of the first message in that chunk. A chunk is committed when a quorum of replicas confirms it. |
+| `committed_offset` | Offset of the last entry in the committed chunk. This is not a consumer's stored offset. The last entry can be an offset-tracking record, not a user message. |
+
+A new stream with no messages returns `-1` for each key.
 
 **PHP Implementation:**
 ```php
@@ -382,10 +384,7 @@ $stats = [];
 foreach ($response->getStats() as $stat) {
     $stats[$stat->getKey()] = $stat->getValue();
 }
-$firstOffset = $stats['first_offset'] ?? 0;
-$lastOffset = $stats['last_offset'] ?? 0;
-$messageCount = $lastOffset - $firstOffset + 1;
-echo "Stream contains $messageCount messages\n";
+echo "Last chunk ID: {$stats['last_chunk_id']}\n";
 ```
 
 ## Stream Management Flow
@@ -455,9 +454,7 @@ $stats = [];
 foreach ($response->getStats() as $stat) {
     $stats[$stat->getKey()] = $stat->getValue();
 }
-$firstOffset = $stats['first_offset'] ?? 0;
-$lastOffset = $stats['last_offset'] ?? 0;
-echo "Messages: " . ($lastOffset - $firstOffset + 1) . "\n";
+echo "Last chunk ID: {$stats['last_chunk_id']}\n";
 
 // 4. Delete stream
 $connection->sendMessage(new DeleteStreamRequestV1(stream: $streamName));
