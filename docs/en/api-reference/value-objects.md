@@ -775,7 +775,7 @@ $array = $version->toArray();
 
 Stream statistics key-value pair. Located in `src/VO/Statistic.php`.
 
-The `Statistic` value object represents a single stream statistic as a key-value pair, where the value is an integer (typically a count or size).
+The `Statistic` value object represents a single stream statistic as a key-value pair, where the value is an integer. A new stream with no messages returns `-1` for each statistic key.
 
 ### Constructor
 
@@ -830,17 +830,17 @@ use CrazyGoat\RabbitStream\VO\Statistic;
 
 // Create a statistic
 $stat = new Statistic(
-    key: 'publishers',
+    key: 'last_chunk_id',
     value: 5
 );
 
 // Get statistic info
-echo $stat->getKey();   // "publishers"
+echo $stat->getKey();   // "last_chunk_id"
 echo $stat->getValue(); // 5
 
 // Convert to array
 $array = $stat->toArray();
-// ['key' => 'publishers', 'value' => 5]
+// ['key' => 'last_chunk_id', 'value' => 5]
 ```
 
 ---
