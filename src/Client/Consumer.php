@@ -481,6 +481,7 @@ class Consumer implements ConsumerInterface
             // reset, a close() after reactivation would store it (see close()).
             $this->messagesProcessed = 0;
             $this->hasProcessedMessage = false;
+            $this->lastOffset = 0;
         }
 
         if ($this->consumerUpdateCallback instanceof \Closure) {

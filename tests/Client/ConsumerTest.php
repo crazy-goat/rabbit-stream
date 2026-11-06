@@ -1840,6 +1840,15 @@ class ConsumerTest extends TestCase
         $this->assertSame([], $this->storedOffsetValues($stored));
     }
 
+    public function testDeactivationResetsTheLastProcessedOffset(): void
+    {
+        [$consumer] = $this->consumerReadingOneMessageThenDemoted(storedOffset: 40, readOffset: 41);
+
+        $this->invokeConsumerUpdate($consumer, false);
+
+        $this->assertSame(0, (new \ReflectionProperty($consumer, 'lastOffset'))->getValue($consumer));
+    }
+
     public function testDeactivationStoresNothingWhenNothingWasProcessed(): void
     {
         [$connection, $stored] = $this->connectionCapturingStoredOffsets(storedOffset: 40);
