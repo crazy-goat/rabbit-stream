@@ -2245,6 +2245,11 @@ class StreamConnection
      * accumulated in a loop, matching the semantics of the previous socket-based
      * implementation.
      *
+     * With heartbeats on, a mid-frame read also ends when no byte has arrived
+     * for two heartbeat intervals, and it sends an idle heartbeat when one is
+     * due. Each received byte resets that silence window, so a slow frame that
+     * keeps arriving is not cut off. The read still ends at $socketTimeout.
+     *
      * On a receive timeout (bounded by $socketTimeout via the stream_select()
      * loops, see {@see self::DEFAULT_SOCKET_TIMEOUT}) the outcome depends on
      * how much of the read had already succeeded:
@@ -2282,6 +2287,15 @@ class StreamConnection
             $write = null;
             $except = null;
 
+            // Mid-frame, the heartbeat runs during the wait: it sends an idle
+            // heartbeat when one is due and closes the connection when no byte
+            // has arrived for two intervals. A boundary read has no frame in
+            // progress, so readResponse() or readLoop() runs the heartbeat.
+            $midFrame = $mustComplete || $data !== '';
+            if ($midFrame) {
+                $this->maintainHeartbeat();
+            }
+
             $remainingTime = $deadline - microtime(true);
             if ($remainingTime <= 0 && $this->readTimeout($data, $length, $mustComplete)) {
                 return null;
@@ -2292,7 +2306,11 @@ class StreamConnection
             // empty frame-boundary read or throws). Clamp explicitly anyway so
             // splitSelectTimeout()'s non-negative precondition is enforced here
             // instead of depending on that non-local invariant.
-            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout(max(0.0, $remainingTime));
+            $waitTime = max(0.0, $remainingTime);
+            if ($midFrame) {
+                $waitTime = $this->heartbeatWaitTimeout($waitTime);
+            }
+            [$timeoutSec, $timeoutUsec] = $this->splitSelectTimeout($waitTime);
 
             $ready = $this->selectStreams($read, $write, $except, $timeoutSec, $timeoutUsec);
 
@@ -2304,8 +2322,15 @@ class StreamConnection
                 $this->notifyConnectionLost('stream_select failed while reading');
                 throw new ConnectionException('stream_select failed while reading');
             }
-            if ($ready === 0 && $this->readTimeout($data, $length, $mustComplete)) {
-                return null;
+            if ($ready === 0) {
+                if (!$midFrame) {
+                    // Frame boundary: nothing consumed, so the caller may try again.
+                    return null;
+                }
+
+                // Mid-frame, the wait ended early for the heartbeat. The loop head
+                // closes the read at the socketTimeout deadline.
+                continue;
             }
 
             // Non-blocking: fread() returns whatever plaintext is available and
@@ -2327,6 +2352,9 @@ class StreamConnection
 
             $data .= $chunk;
             $remaining -= strlen($chunk);
+            // A received byte is inbound activity, so a slow frame that keeps
+            // sending is not treated as a silent peer (see maintainHeartbeat()).
+            $this->lastReadAt = microtime(true);
         }
 
         return $data;

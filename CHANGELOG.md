@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Heartbeat: a stalled mid-frame read closes after two heartbeat intervals (#968)** — a read that waited in the middle of a frame ended only at `socketTimeout` (30 s by default). The heartbeat did not apply there, so a peer that stopped mid-frame was detected late, and no outbound heartbeat was sent during a long read. Now each received byte counts as inbound activity. A mid-frame read closes with "missing inbound frames" when no byte arrives for two heartbeat intervals, and it sends an idle heartbeat when one is due. A slow frame that keeps arriving stays open. The read still ends at `socketTimeout`. `tests/StreamConnectionTest.php` covers the stalled peer, a slow frame within the heartbeat budget, and the outbound heartbeat during a slow read.
+
 ## [1.14.0] - 2026-11-06
 
 ### Changed

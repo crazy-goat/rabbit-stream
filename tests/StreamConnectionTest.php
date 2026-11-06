@@ -2249,6 +2249,96 @@ class StreamConnectionTest extends TestCase
         fclose($serverSocket);
     }
 
+    public function testStalledMidFrameReadClosesAfterTwoHeartbeatIntervals(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+        $connection->setSocketTimeout(6.0);
+
+        // Half a frame, then silence. With heartbeats on, two intervals without a
+        // received byte end the read. The socket timeout is only the upper bound.
+        fwrite($serverSocket, pack('N', 64) . pack('n', 0x0003));
+
+        $start = microtime(true);
+        try {
+            $connection->readFrame(8.0);
+            self::fail('A peer that stops mid-frame must be detected by the heartbeat');
+        } catch (ConnectionException $exception) {
+            self::assertStringContainsString('missing inbound frames', $exception->getMessage());
+        }
+
+        self::assertLessThan(4.0, microtime(true) - $start);
+        self::assertFalse($connection->isConnected());
+
+        fclose($serverSocket);
+    }
+
+    public function testSlowFrameWithinHeartbeatBudgetKeepsConnectionOpen(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+        $connection->setSocketTimeout(10.0);
+        $now = microtime(true);
+        (new \ReflectionProperty($connection, 'lastReadAt'))->setValue($connection, $now);
+        (new \ReflectionProperty($connection, 'lastWriteAt'))->setValue($connection, $now);
+
+        // Five chunks, 0.7 s apart: 2.8 s in total, longer than two intervals.
+        // No silence reaches two intervals, so the connection must stay open.
+        $frame = $this->buildFrame(0x0003, 1, str_repeat('a', 32));
+        $pid = $this->forkSlowWriter($serverSocket, str_split($frame, 8), 0.7);
+
+        try {
+            $read = $connection->readFrame(6.0);
+        } finally {
+            pcntl_waitpid($pid, $status);
+        }
+
+        self::assertInstanceOf(ReadBuffer::class, $read);
+        self::assertTrue($connection->isConnected());
+
+        fclose($serverSocket);
+    }
+
+    public function testOutboundHeartbeatIsSentDuringSlowMidFrameRead(): void
+    {
+        [$serverSocket, $clientSocket] = $this->createSocketPair();
+
+        $connection = new StreamConnection('127.0.0.1', 5552);
+        $this->injectSocket($connection, $clientSocket);
+        $connection->setHeartbeatInterval(1);
+        $connection->setSocketTimeout(10.0);
+        $now = microtime(true);
+        (new \ReflectionProperty($connection, 'lastReadAt'))->setValue($connection, $now);
+        (new \ReflectionProperty($connection, 'lastWriteAt'))->setValue($connection, $now);
+
+        // The read runs for 2.8 s. The client's heartbeat is due after one
+        // interval, so it must go out during the read, not after the frame.
+        $frame = $this->buildFrame(0x0003, 1, str_repeat('a', 32));
+        $pid = $this->forkSlowWriter($serverSocket, str_split($frame, 8), 0.7);
+
+        try {
+            $connection->readFrame(6.0);
+        } finally {
+            pcntl_waitpid($pid, $status);
+        }
+
+        stream_set_blocking($serverSocket, false);
+        $sent = stream_get_contents($serverSocket);
+        self::assertIsString($sent);
+        self::assertGreaterThanOrEqual(8, strlen($sent));
+        $key = unpack('n', substr($sent, 4, 2));
+        self::assertIsArray($key);
+        self::assertSame(KeyEnum::HEARTBEAT->value, $key[1]);
+
+        fclose($serverSocket);
+    }
+
     public function testReadFrameReturnsNullAtAFrameBoundaryWithNoData(): void
     {
         [$serverSocket, $clientSocket] = $this->createSocketPair();
@@ -2868,6 +2958,39 @@ class StreamConnectionTest extends TestCase
     {
         $payload = pack('nn', $key, $version) . $content;
         return pack('N', strlen($payload)) . $payload;
+    }
+
+    /**
+     * Fork a child that writes $chunks to $serverSocket with $gap seconds
+     * between them. The parent must pcntl_waitpid() the returned pid.
+     *
+     * @param resource $serverSocket
+     * @param string[] $chunks
+     */
+    private function forkSlowWriter($serverSocket, array $chunks, float $gap): int
+    {
+        if (!function_exists('pcntl_fork') || !function_exists('posix_kill')) {
+            self::markTestSkipped('pcntl and posix extensions required');
+        }
+
+        $pid = pcntl_fork();
+        if ($pid === -1) {
+            self::fail('pcntl_fork() failed');
+        }
+        if ($pid === 0) {
+            foreach ($chunks as $index => $chunk) {
+                if ($index > 0) {
+                    usleep((int) ($gap * 1_000_000));
+                }
+                fwrite($serverSocket, $chunk);
+            }
+            // Skip PHP shutdown: with xdebug loaded, a forked child can hang in
+            // exit(). The parent only needs the child to be gone.
+            posix_kill(posix_getpid(), SIGKILL);
+            exit(1);
+        }
+
+        return $pid;
     }
 
     /**
