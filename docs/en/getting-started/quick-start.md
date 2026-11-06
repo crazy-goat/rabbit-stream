@@ -11,10 +11,14 @@ Before starting, ensure:
 
 Quick start with Docker:
 
-```bash
-docker compose up -d
-sleep 30  # Wait for RabbitMQ to be ready
-```
+1. Start RabbitMQ:
+   ```bash
+   docker compose up -d
+   ```
+2. Check the broker. Repeat this command until the status shows `(healthy)`:
+   ```bash
+   docker compose ps
+   ```
 
 ## Complete Example
 
@@ -153,6 +157,8 @@ Done! Received 4 messages.
 ### 1. Connect to RabbitMQ
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: '127.0.0.1',
     port: 5552,
@@ -248,6 +254,9 @@ The client cannot connect to the RabbitMQ stream endpoint. The exact connection 
 ```bash
 # Start RabbitMQ with Docker
 docker compose up -d
+
+# Wait until the status shows (healthy)
+docker compose ps
 
 # Or check if RabbitMQ is running
 docker ps | grep rabbitmq

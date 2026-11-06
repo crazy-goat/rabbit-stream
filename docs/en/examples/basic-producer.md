@@ -172,6 +172,8 @@ $example->run();
 ### Connection Creation
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: '127.0.0.1',
     port: 5552,

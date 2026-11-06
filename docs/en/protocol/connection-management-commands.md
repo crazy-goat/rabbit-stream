@@ -477,6 +477,8 @@ try {
 } catch (ConnectionException $e) {
     if (strpos($e->getMessage(), 'closed by server') !== false) {
         // Server closed connection - may need to reconnect
+        $code = $e->getServerCloseCode();   // ClosingCode from the Close frame
+        $reason = $e->getServerCloseReason(); // ClosingReason from the Close frame
     }
 }
 ```

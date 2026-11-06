@@ -649,6 +649,8 @@ $connection->setMaxDeliverFrameSize(0);
 (`null` = default):
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: '127.0.0.1',
     maxDeliverFrameSize: 128 * 1024 * 1024, // raise further if you expect huge chunks
@@ -751,6 +753,7 @@ $conn2 = new StreamConnection(host: '127.0.0.1', port: 5552);
 A TLS connection (`tls: new TlsConfig(...)`, broker port 5551) does the handshake inside
 `connect()`. The handshake has the same `socketTimeout` limit as every other I/O call.
 Reuse one connection for many producers and consumers to pay this cost once.
+For the `TlsConfig` options, see the [TLS transport](../../../README.md#tls-transport-encrypted-connections) section of the README.
 
 ## Performance Benchmarks
 

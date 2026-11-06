@@ -87,6 +87,8 @@ Mechanisms: Array<string>
 | `AMQPLAIN` | AMQP-style username/password |
 | `EXTERNAL` | External authentication (e.g., TLS client certs) |
 
+This library sends PLAIN only.
+
 **PHP Implementation:**
 ```php
 use CrazyGoat\RabbitStream\Request\SaslHandshakeRequestV1;

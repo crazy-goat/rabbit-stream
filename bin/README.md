@@ -50,8 +50,7 @@ bash bin/free-port.sh
 
 ## lint.sh
 
-Runs every lint step (PHPCS, Rector, PHPStan, kb-lint, docs link check, test suite
-coverage, stale ext-sockets reference check, E2E readLoop timeout check, shellcheck); `bin/lint.sh --fix` applies the fixers first. `composer lint`,
+Runs every lint step listed in the script; `bin/lint.sh --fix` applies the fixers first. `composer lint`,
 the pre-push hook and the CI `lint` job all call it. Needs `shellcheck` on `PATH`.
 
 ## check-docs-frame-keys.php

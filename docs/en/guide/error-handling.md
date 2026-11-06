@@ -189,6 +189,7 @@ not advertise `PLAIN`, the only mechanism this client implements. The client
 aborts before sending credentials:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 
 try {
@@ -211,6 +212,7 @@ authenticate with `AUTHENTICATION_FAILURE`, which surfaces as a
 tell "bad password" apart from "the server cannot authenticate us at all":
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
@@ -287,6 +289,31 @@ try {
 ```
 
 Catch order matters: `TimeoutException` extends `ConnectionException`.
+
+#### Server-initiated close
+
+The broker can close the connection with a Close frame. The frame carries a
+code and a reason text. The client throws `ConnectionException` and keeps both
+values. Its message has the form `Connection closed by server: code=<code>,
+reason=<reason>`.
+
+```php
+try {
+    $response = $stream->readMessage();
+} catch (ConnectionException $e) {
+    if ($e->getServerCloseCode() !== null) {
+        error_log(sprintf(
+            'Broker closed the connection: code=%d, reason=%s',
+            $e->getServerCloseCode(),
+            $e->getServerCloseReason()
+        ));
+        // Re-establish the connection with Connection::create().
+    }
+}
+```
+
+`getServerCloseCode()` returns `null` for a `ConnectionException` that the
+client did not get from a Close frame.
 
 #### Publisher/subscription id exhaustion
 
@@ -506,6 +533,7 @@ function connectWithRetry(string $host, int $port, string $user, string $pass): 
 Handle various authentication scenarios:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Exception\AuthenticationException;
 use CrazyGoat\RabbitStream\Exception\ProtocolException;
 use CrazyGoat\RabbitStream\Enum\ResponseCodeEnum;
