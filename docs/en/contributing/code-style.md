@@ -5,8 +5,8 @@ This project follows strict coding standards to maintain consistency and quality
 ## Standards Overview
 
 - **PSR-12** — Base PHP coding standard
-- **PHP-CS-Fixer** — Formats the code. Its rules are in `.php-cs-fixer.dist.php`
-- **PHP_CodeSniffer** — Checks the naming, line length and side-effect rules. Its rules are in `phpcs.xml.dist`
+- **PHP-CS-Fixer** — Formats the code and covers the former Slevomat rules. Its rules are in `.php-cs-fixer.dist.php`
+- **PHP_CodeSniffer** — Checks the full PSR-12 standard. Its rules are in `phpcs.xml.dist`
 
 ## QA Commands
 

@@ -53,8 +53,8 @@ bash bin/free-port.sh
 Runs every lint step listed in the script; `bin/lint.sh --fix` applies the fixers first. `composer lint`,
 the pre-push hook and the CI `lint` job all call it. Needs `shellcheck` on `PATH`.
 
-The `php-cs-fixer` step checks the formatting with `.php-cs-fixer.dist.php`. The `--fix` run applies
-`php-cs-fixer fix`. The `phpcs` step checks only the rules that PHP-CS-Fixer cannot check, with
+PHP-CS-Fixer formats the code. The `php-cs-fixer` step checks the formatting with `.php-cs-fixer.dist.php`.
+The `--fix` run applies `php-cs-fixer fix`. The `phpcs` step checks the full PSR-12 standard with
 `phpcs.xml.dist`. It has no fixer.
 
 ## check-docs-frame-keys.php

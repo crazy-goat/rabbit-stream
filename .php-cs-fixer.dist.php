@@ -12,7 +12,8 @@ return (new PhpCsFixer\Config())
     ->setRules([
         '@PSR12' => true,
         // The code uses both `fn(` and `fn (`, and both `new class {` and `new class (`.
-        // Keep these spacing rules off, as PHP_CodeSniffer did not check them.
+        // Keep the next two rules off. PHP_CodeSniffer does not check these forms either.
+        // PHP_CodeSniffer checks named functions and classes, so phpcs.xml.dist keeps that check.
         'function_declaration' => false,
         'class_definition' => false,
         'new_with_parentheses' => ['anonymous_class' => false],

@@ -172,7 +172,7 @@ rabbit-stream/
 ├── composer.json     # Dependencies
 ├── phpunit.xml       # Test configuration
 ├── .php-cs-fixer.dist.php  # Code style rules (PHP-CS-Fixer)
-└── phpcs.xml.dist    # Checks that PHP-CS-Fixer does not cover (PHPCS)
+└── phpcs.xml.dist    # Full PSR-12 check (PHPCS)
 ```
 
 ## Next Steps

@@ -1,14 +1,12 @@
 <?xml version="1.0"?>
 <ruleset name="RabbitStream">
-    <description>Checks that php-cs-fixer (.php-cs-fixer.dist.php) does not cover</description>
+    <description>PSR-12 check. php-cs-fixer (.php-cs-fixer.dist.php) formats the code.</description>
 
     <!--
-        This ruleset is the slim remainder of the PHP_CodeSniffer standard.
-        php-cs-fixer checks the formatting: indentation, spacing, braces, imports,
-        strict_types, trailing commas and the other fixers in .php-cs-fixer.dist.php.
-        The sniffs below check naming, line length, namespaces and side effects,
-        which php-cs-fixer does not check. Verified with scratch files (#578).
-        This is the only reason squizlabs/php_codesniffer stays in require-dev.
+        PHP-CS-Fixer formats the code. PHP_CodeSniffer keeps the full PSR-12 check,
+        because php-cs-fixer does not check every PSR-12 rule (for example the spacing
+        of casts, control structures and method declarations).
+        The Slevomat rules are removed: php-cs-fixer covers them.
     -->
 
     <!-- Scan src, tests, examples, and bin directories -->
@@ -21,31 +19,14 @@
     <exclude-pattern>vendor/*</exclude-pattern>
     <exclude-pattern>*.cache</exclude-pattern>
 
-    <!-- Line length (warning) as in PSR-12 -->
-    <rule ref="Generic.Files.LineLength">
-        <properties>
-            <property name="lineLimit" value="120"/>
-            <property name="absoluteLineLimit" value="0"/>
-        </properties>
-    </rule>
-
-    <!-- Naming: camelCase methods, UPPER_CASE class constants, PascalCase class and interface names -->
-    <rule ref="PSR1.Methods.CamelCapsMethodName"/>
-    <rule ref="Generic.NamingConventions.UpperCaseConstantName"/>
-    <rule ref="Squiz.Classes.ValidClassName"/>
-    <rule ref="PSR2.Methods.MethodDeclaration.Underscore"/>
+    <!-- Full PSR-12 standard. It must be the first rule: a single-sniff rule ref
+         that comes before it limits the sniff to one message code. -->
+    <rule ref="PSR12"/>
 
     <!-- Example scripts mirror the docs snippets: they define helper classes and run logic in one file -->
     <rule ref="PSR1.Classes.ClassDeclaration.MissingNamespace">
         <exclude-pattern>examples/*</exclude-pattern>
     </rule>
-
-    <!-- Declare-statement placement and the blank lines of the file header -->
-    <rule ref="PSR12.Files.FileHeader"/>
-
-    <!-- Anonymous class spacing, and no blank line before the closing brace of a class -->
-    <rule ref="PSR12.Classes.AnonClassDeclaration"/>
-    <rule ref="PSR2.Classes.ClassDeclaration.CloseBraceAfterBody"/>
 
     <!--
         Example scripts mirror the docs snippets: they define helper classes and run logic in one file.
