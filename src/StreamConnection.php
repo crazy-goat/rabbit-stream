@@ -2293,7 +2293,24 @@ class StreamConnection
             // progress, so readResponse() or readLoop() runs the heartbeat.
             $midFrame = $mustComplete || $data !== '';
             if ($midFrame) {
-                $this->maintainHeartbeat();
+                try {
+                    $this->maintainHeartbeat();
+                } catch (TimeoutException $exception) {
+                    // The heartbeat write timed out, so the peer is not reading. The
+                    // consumed bytes cannot be pushed back, so close as for a read timeout
+                    // (GitHub #390). A TimeoutException would tell the caller to retry.
+                    $this->close();
+                    throw new ConnectionException(
+                        sprintf(
+                            'Heartbeat write timed out during an incomplete frame (%d of %d bytes read); ' .
+                            'connection closed because the byte stream can no longer be resynchronised',
+                            strlen($data),
+                            $length
+                        ),
+                        0,
+                        $exception
+                    );
+                }
             }
 
             $remainingTime = $deadline - microtime(true);
