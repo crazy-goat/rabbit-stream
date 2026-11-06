@@ -191,7 +191,7 @@ public function read(float $timeout = 5.0): array
 
 #### Exceptions
 
-- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected an earlier credit grant (raised by this call), or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
+- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected a credit grant that the consumer sent earlier, or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
 - `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response, or the `queryOffset()` reply of a single-active-consumer handler is not a QueryOffset response
 - `ConnectionException` - If the socket is not connected, or a read or write fails while the consumer sends one of these frames:
   - credit
@@ -251,7 +251,7 @@ public function readOne(float $timeout = 5.0): ?Message
 
 #### Exceptions
 
-- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected an earlier credit grant (raised by this call), or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
+- `ProtocolException` - If re-establishing a lost subscription fails with a non-retryable broker error, if the broker rejected a credit grant that the consumer sent earlier, or if the `queryOffset()` call of a single-active-consumer handler fails. The handler runs inside the read loop, so its exception reaches this call.
 - `UnexpectedResponseException` - If the StreamStats reply used while re-subscribing is not a StreamStats response, or the `queryOffset()` reply of a single-active-consumer handler is not a QueryOffset response
 - `ConnectionException` - If the socket is not connected, or a read or write fails while the consumer sends one of these frames:
   - credit

@@ -1157,7 +1157,7 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 - `InvalidArgumentException` - If a registered `ConsumerUpdate` callback or handler returns an invalid reply, for example an offset type outside 0 to 5
 - `TimeoutException` - If a reply this loop must send (a heartbeat echo, a server-close acknowledgement or a ConsumerUpdate reply) cannot be written within the socket timeout
 
-An exception that a `ConsumerUpdate` callback or handler throws reaches the caller of `readLoop()`, after the loop sends a `none` reply. For example, a single-active-consumer handler of a `Consumer` can raise `ProtocolException` or `UnexpectedResponseException` from its `queryOffset()` call.
+An exception that a callback throws (heartbeat, publish confirm, publish error, deliver or metadata update) reaches the caller of `readLoop()`. An exception that a `ConsumerUpdate` callback or handler throws also reaches the caller, after the loop sends a `none` reply. For example, a single-active-consumer handler of a `Consumer` can raise `ProtocolException` or `UnexpectedResponseException` from its `queryOffset()` call.
 
 #### Example
 

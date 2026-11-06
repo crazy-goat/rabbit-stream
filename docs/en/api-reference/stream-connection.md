@@ -376,7 +376,7 @@ public function readLoop(?int $maxFrames = null, ?float $timeout = null): int
 - `InvalidArgumentException` if a registered `ConsumerUpdate` callback or handler returns an invalid reply. The cases are listed under `onConsumerUpdate()`.
 - `TimeoutException` if a reply this loop must send cannot be written within the socket timeout
 
-An exception that a `ConsumerUpdate` callback or handler throws reaches the caller of `readLoop()`, after the loop sends a `none` reply.
+An exception that a callback throws (heartbeat, publish confirm, publish error, deliver or metadata update) reaches the caller of `readLoop()`. An exception that a `ConsumerUpdate` callback or handler throws also reaches the caller, after the loop sends a `none` reply.
 
 A signal delivered while the loop waits (`SIGTERM` from a graceful shutdown, `SIGALRM` from a watchdog, …) interrupts `select(2)` with `EINTR`. The loop retries that wait instead of failing, so a handler that calls `stop()` shuts the loop down cleanly. The retry is bounded: a wait that completes resets the count, and an unbroken run of more than 1,000,000 interruptions raises `ConnectionException`. It takes roughly 16,700 signals per second, sustained for a minute, to reach that bound, so no ordinary watchdog, supervisor or shutdown handler can. Each retry blocks in `select(2)` until the next signal rather than spinning, so the wait costs 0.4% of a core at ~875 signals per second and 2.7% at ~14,900/s, rising to 15.8% at a pegged ~136,000/s storm — which the bound then trips after 7.4s. With `$timeout = null` this bound is the only thing that can end the loop, because the loop has no deadline of its own.
 
