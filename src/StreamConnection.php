@@ -1485,18 +1485,12 @@ class StreamConnection
             }
 
             if ($correlationId === null) {
-                // A response frame without a correlation ID (in practice a Credit
-                // error, which the broker only sends for a rejected Credit request,
-                // e.g. after a single-active-consumer handover) cannot be the reply
-                // we are waiting for. Log and keep reading.
+                // A response frame whose correlation ID cannot be read (a payload
+                // under 8 bytes) cannot be the reply we are waiting for. Log and
+                // keep reading. Credit errors (0x8009) never reach this point:
+                // dispatchServerPush() handles them first.
                 $this->logger->warning('Unsolicited response received while awaiting correlated reply', [
                     'response' => $result instanceof ProtocolException ? 'error' : $result::class,
-                    'details' => $result instanceof CreditResponseV1
-                        ? [
-                            'subscriptionId' => $result->getSubscriptionId(),
-                            'responseCode' => $result->getResponseCode(),
-                        ]
-                        : [],
                 ]);
                 continue;
             }
@@ -1846,7 +1840,7 @@ class StreamConnection
             return;
         }
 
-        $this->logger->warning('Credit request rejected for unregistered subscription', $context);
+        $this->logger->debug('Credit request rejected for unregistered subscription', $context);
     }
 
     private function handleServerClose(ReadBuffer $frame): void

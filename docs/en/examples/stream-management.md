@@ -303,15 +303,10 @@ try {
         echo sprintf("  %-20s: %d\n", $key, $value);
     }
     
-    // Calculate derived metrics
-    $firstOffset = $stats['first_offset'] ?? 0;
-    $lastOffset = $stats['last_offset'] ?? 0;
-    $messageCount = $lastOffset - $firstOffset + 1;
-    $chunkCount = $stats['chunk_count'] ?? 0;
-    
-    echo "\n=== Derived Metrics ===\n";
-    echo "  Total messages: $messageCount\n";
-    echo "  Average chunk size: " . ($chunkCount > 0 ? round($messageCount / $chunkCount, 2) : 0) . " messages\n";
+    // The broker does not send a message count. Show the chunk IDs instead.
+    echo "\n=== Chunk IDs ===\n";
+    echo "  First chunk ID: {$stats['first_chunk_id']}\n";
+    echo "  Last chunk ID: {$stats['last_chunk_id']}\n";
     
     // Clean up
     $connection->deleteStream($streamName);
@@ -334,32 +329,28 @@ function getStreamMetrics(Connection $connection, string $streamName): array
 {
     $stats = $connection->getStreamStats($streamName);
     
-    $firstOffset = $stats['first_offset'] ?? 0;
-    $lastOffset = $stats['last_offset'] ?? 0;
-    
     return [
         'name' => $streamName,
-        'message_count' => $lastOffset - $firstOffset + 1,
-        'first_offset' => $firstOffset,
-        'last_offset' => $lastOffset,
-        'chunk_count' => $stats['chunk_count'] ?? 0,
-        'committed_chunk' => $stats['committed_chunk_id'] ?? 0,
+        'first_chunk_id' => $stats['first_chunk_id'],
+        'last_chunk_id' => $stats['last_chunk_id'],
+        'committed_chunk_id' => $stats['committed_chunk_id'],
+        'committed_offset' => $stats['committed_offset'],
     ];
 }
 
 function printMetricsComparison(array $metrics): void
 {
     echo "=== Stream Metrics Comparison ===\n";
-    echo sprintf("%-20s %12s %12s %12s\n", "Stream", "Messages", "Chunks", "Committed");
+    echo sprintf("%-20s %12s %12s %12s\n", "Stream", "First chunk", "Last chunk", "Committed");
     echo str_repeat("-", 60) . "\n";
     
     foreach ($metrics as $m) {
         echo sprintf(
             "%-20s %12d %12d %12d\n",
             $m['name'],
-            $m['message_count'],
-            $m['chunk_count'],
-            $m['committed_chunk']
+            $m['first_chunk_id'],
+            $m['last_chunk_id'],
+            $m['committed_offset']
         );
     }
 }
@@ -476,13 +467,9 @@ try {
         echo "  - $key: $value\n";
     }
     
-    $firstOffset = $stats['first_offset'] ?? 0;
-    $lastOffset = $stats['last_offset'] ?? 0;
-    $messageCount = $lastOffset - $firstOffset + 1;
-    
-    echo "\nDerived metrics:\n";
-    echo "  - Total messages: $messageCount\n";
-    echo "  - Chunk count: " . ($stats['chunk_count'] ?? 0) . "\n";
+    echo "\nChunk IDs:\n";
+    echo "  - First chunk ID: {$stats['first_chunk_id']}\n";
+    echo "  - Last chunk ID: {$stats['last_chunk_id']}\n";
     echo "\n";
     
     // Step 5: Delete stream
@@ -643,7 +630,7 @@ try {
             
             // Do work with the stream...
             $stats = $connection->getStreamStats($streamName);
-            echo "Stream has {$stats['chunk_count']} chunks\n";
+            echo "Last chunk ID: {$stats['last_chunk_id']}\n";
         }
     );
     
@@ -753,7 +740,7 @@ try {
     $info = $manager->getStreamInfo('managed-stream');
     if ($info) {
         echo "Leader: {$info['leader']}\n";
-        echo "Messages: " . (($info['stats']['last_offset'] ?? 0) - ($info['stats']['first_offset'] ?? 0) + 1) . "\n";
+        echo "Last chunk ID: {$info['stats']['last_chunk_id']}\n";
     }
     
     // Clean up
