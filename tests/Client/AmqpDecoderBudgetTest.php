@@ -127,7 +127,7 @@ class AmqpDecoderBudgetTest extends TestCase
         // no bytes per element. The array is bounded by its content bytes, so it must throw.
         $body = $this->amqpValue("\xf0\x00\x00\x00\x05\x00\x02\x00\x00\x40");
         $this->expectException(DeserializationException::class);
-        $this->expectExceptionMessage('Array32 count 131072 exceeds 8 zero-width elements for 1 content bytes');
+        $this->expectExceptionMessage('Array32 count 131072 exceeds the limit of 8 zero-width elements');
 
         AmqpDecoder::decodeMessage($body);
     }

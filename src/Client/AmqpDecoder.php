@@ -53,14 +53,13 @@ class AmqpDecoder
     private const MAX_COMPOUND_ELEMENTS = 131072;
 
     /**
-     * Upper bound on the elements of an array whose constructor takes no bytes per element
-     * (null, boolean, zero numbers, empty list, #924). Such an element costs no wire byte, so
-     * the count is bounded by the content bytes of its array instead: at most this many
-     * elements per content byte. The bound keeps the decoded values of a message
-     * proportional to its wire size, so a few bytes cannot expand into the whole #947 budget.
-     * 8 is generous for real encoders, which send booleans as 0x56 and small arrays.
+     * Upper limit on the elements of an array whose constructor takes no bytes per element
+     * (null, boolean, zero numbers, empty list, #924). The content of such an array is the
+     * constructor byte alone, so the limit is 8 elements. It keeps the decoded values of a
+     * message proportional to its wire size, so a few bytes cannot expand into the whole
+     * #947 budget. 8 is generous for real encoders, which send booleans as 0x56 and small arrays.
      */
-    private const ZERO_WIDTH_ELEMENTS_PER_BYTE = 8;
+    private const MAX_ZERO_WIDTH_ARRAY_ELEMENTS = 8;
 
     /**
      * Decoded-value budget for one message (or one decodeValue() call): the total of
@@ -902,7 +901,7 @@ class AmqpDecoder
      * compound readers do. The element count is guarded by readArrayElements():
      * a non-zero-width element takes at least 1 byte, so the count must fit in
      * the remaining bytes, and a zero-width element is bounded by the content
-     * bytes (ZERO_WIDTH_ELEMENTS_PER_BYTE). Both are capped by MAX_COMPOUND_ELEMENTS.
+     * bytes (MAX_ZERO_WIDTH_ARRAY_ELEMENTS). Both are capped by MAX_COMPOUND_ELEMENTS.
      *
      * @return list<mixed>
      */
@@ -938,10 +937,9 @@ class AmqpDecoder
      * - A non-zero-width element takes at least 1 byte, so the count must not exceed
      *   the content bytes after the constructor.
      * - A zero-width element (null, boolean, zero number, empty list) takes no bytes,
-     *   so the count is bounded by ZERO_WIDTH_ELEMENTS_PER_BYTE per content byte
-     *   of the array instead. Without this bound, a 13-byte array32 of 131072 nulls
-     *   would decode into 131072 values, and the #947 budget would then allow that
-     *   cost for every message.
+     *   so the count is limited to MAX_ZERO_WIDTH_ARRAY_ELEMENTS (8) instead. Without
+     *   this limit, a 13-byte array32 of 131072 nulls would decode into 131072 values,
+     *   and the #947 budget would then allow that cost for every message.
      *
      * @return list<mixed>
      */
@@ -965,19 +963,15 @@ class AmqpDecoder
         if ($position >= $contentEnd) {
             throw new DeserializationException($what . ' constructor is missing');
         }
-
-        $bodyStart = $position;
         $formatCode = ord($data[$position]);
         $position++;
         if (self::isZeroWidthConstructor($formatCode)) {
-            $maxCount = self::ZERO_WIDTH_ELEMENTS_PER_BYTE * ($contentEnd - $bodyStart);
-            if ($count > $maxCount) {
+            if ($count > self::MAX_ZERO_WIDTH_ARRAY_ELEMENTS) {
                 throw new DeserializationException(sprintf(
-                    '%s count %d exceeds %d zero-width elements for %d content bytes',
+                    '%s count %d exceeds the limit of %d zero-width elements',
                     $what,
                     $count,
-                    self::ZERO_WIDTH_ELEMENTS_PER_BYTE,
-                    $contentEnd - $bodyStart
+                    self::MAX_ZERO_WIDTH_ARRAY_ELEMENTS
                 ));
             }
             // The byte guard of assertCompoundCount() does not apply: a zero-width element has no bytes.
