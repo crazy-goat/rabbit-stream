@@ -1380,7 +1380,7 @@ class ProducerTest extends TestCase
 
         $this->assertSame([0, 1], $seen, 'a throwing callback must not skip the other lost publishes');
         $this->assertSame(2, $producer->getLostConfirmCount());
-        $errors = array_filter($logger->records, static fn (array $r): bool => $r['level'] === 'error');
+        $errors = $logger->errorMessages();
         $this->assertCount(2, $errors, 'each failed callback must be logged');
     }
 
