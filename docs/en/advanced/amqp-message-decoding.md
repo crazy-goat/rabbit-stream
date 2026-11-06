@@ -206,6 +206,9 @@ The Properties section (0x73) contains 13 ordered fields:
 
 *Note: Fields are positional in the list. Null values are skipped.*
 
+The Properties section must be a list (list0, list8 or list32). A map, a scalar or
+null raises a `DeserializationException`.
+
 ### Complete Message Example
 
 Every `size` below is the count byte plus the content bytes — the exact values
@@ -294,7 +297,22 @@ Beyond depth, a payload is rejected (with `DeserializationException`) when:
 | A map's `count` is even | Keys and values are counted separately |
 | A map key is an int or string that does not collide with an earlier key | A non-scalar or float/bool key would be lost or retyped, and a colliding key would overwrite an earlier entry silently |
 | A Data section (0x75) carries binary | Anything else used to be dropped silently, leaving an empty body |
+| A Properties section (0x73) is a list (list0, list8 or list32) | A map, a scalar or null used to give empty properties, or shifted keys read as field indexes, with no error |
 | Every variable-width length fits the frame | Bounds are compared as subtractions, so a 32-bit length cannot overflow the check |
+
+### Tolerated Malformed Input
+
+Some malformed input decodes without an error. The decoder keeps this behaviour,
+so existing consumers do not break. Do not rely on a body from such a message
+being valid AMQP 1.0.
+
+| Input | Result |
+|-------|--------|
+| A Data section (0x75) whose value is `str8` or `sym8`, not binary | The string bytes become the body |
+| An AmqpValue (0x77) or AmqpSequence (0x76) section and Data sections in one message | Data bytes after an AmqpValue string are joined to it, for example `XY`. A Data section before an AmqpValue is replaced by it, for example `X` |
+
+Osiris chunks have two more tolerated forms. See
+[Error Handling](./osiris-chunk-format.md#error-handling).
 
 ### Section Access
 

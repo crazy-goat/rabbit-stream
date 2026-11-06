@@ -34,6 +34,12 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
  * with no bytes behind it is legitimate. Entry parsing is strictly bounded to
  * the data section; bytes outside it (bloom, trailer, padding) are never read.
  *
+ * Tolerated malformed input (issue #944): bytes inside the data section that follow
+ * the last declared entry, or the last declared record of a sub-batch, are ignored
+ * without an error. The chunk CRC covers those bytes, so the CRC does not flag them.
+ * The parser reads only the declared counts, so every entry it yields is one of the
+ * declared entries.
+ *
  * Each entry:
  *   Simple entry: 4-byte header (bit 31 = 0) + size in lower 31 bits + data
  *   Sub-batch entry: 1-byte header (bit 7 = 1, codec in bits 6-4) + numRecords (uint16)
