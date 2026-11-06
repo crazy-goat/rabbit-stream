@@ -288,6 +288,31 @@ try {
 
 Catch order matters: `TimeoutException` extends `ConnectionException`.
 
+#### Server-initiated close
+
+The broker can close the connection with a Close frame. The frame carries a
+code and a reason text. The client throws `ConnectionException` and keeps both
+values. Its message has the form `Connection closed by server: code=<code>,
+reason=<reason>`.
+
+```php
+try {
+    $response = $stream->readMessage();
+} catch (ConnectionException $e) {
+    if ($e->getServerCloseCode() !== null) {
+        error_log(sprintf(
+            'Broker closed the connection: code=%d, reason=%s',
+            $e->getServerCloseCode(),
+            $e->getServerCloseReason()
+        ));
+        // Re-establish the connection with Connection::create().
+    }
+}
+```
+
+`getServerCloseCode()` returns `null` for a `ConnectionException` that the
+client did not get from a Close frame.
+
 #### Publisher/subscription id exhaustion
 
 `ConnectionException` is also thrown when all 256 publisher (or subscription)
