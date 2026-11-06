@@ -943,7 +943,7 @@ try {
     // read() does not throw when $timeout elapses (it returns []); a
     // TimeoutException means a write (credit, heartbeat, auto-commit) timed out.
     echo "Connection lost: {$e->getMessage()}\n";
-    // Reconnect logic here
+    // Reconnect: open a new connection and resume from the stored offset (see reconnect.md)
 } finally {
     $consumer->close();
 }

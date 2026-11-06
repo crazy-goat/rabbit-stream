@@ -20,6 +20,11 @@ Welcome to the RabbitStream documentation! RabbitStream is a PHP library impleme
 - [Offset Tracking](en/guide/offset-tracking.md) - Managing message offsets
 - [Error Handling](en/guide/error-handling.md) - Handling errors and failures
 - [Flow Control](en/guide/flow-control.md) - Managing backpressure and flow control
+- [Security and TLS](en/guide/security-and-tls.md) - Authentication, broker permissions and the TLS transport
+- [PHP Runtime Model](en/guide/php-runtime-model.md) - Connection lifetime in web requests, CLI workers and long-lived processes
+- [Reconnect](en/guide/reconnect.md) - Recover producers and consumers after connection loss
+- [Application Tests](en/guide/application-tests.md) - Test broker, stream clean-up and tests without a broker
+- [Upgrade Notes](en/guide/upgrade-notes.md) - Incompatible changes by release and how to upgrade
 
 ### API Reference
 - [Connection](en/api-reference/connection.md) - StreamConnection class reference
