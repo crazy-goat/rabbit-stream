@@ -260,6 +260,7 @@ $connection = Connection::create(
 
 **Connection with an explicit serializer:**
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Serializer\PhpBinarySerializer;
 
 $connection = Connection::create(
@@ -268,8 +269,9 @@ $connection = Connection::create(
 );
 ```
 
-**Connection with PSR-3 logger:**
+**Connection with PSR-3 logger** (install Monolog first with `composer require monolog/monolog`; the library requires only `psr/log`):
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 
@@ -284,6 +286,8 @@ $connection = Connection::create(
 
 **Connection with custom frame size and heartbeat:**
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: 'localhost',
     requestedFrameMax: 1048576,  // 1MB
@@ -293,6 +297,8 @@ $connection = Connection::create(
 
 **Connection with a raised Deliver frame cap:**
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 // Only needed if you expect broker-coalesced chunks bigger than the 64MB
 // default (see "Deliver frames need their own cap" above).
 $connection = Connection::create(

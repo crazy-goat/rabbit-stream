@@ -14,7 +14,7 @@ interface BinarySerializerInterface
 
     /**
      * Converts a binary frame to a Response object.
-     * Deserializes binary to array, then uses Response::fromArray() to build the object.
+     * The method returns an object. It does not return an array.
      */
     public function deserialize(string $frame): object;
 }

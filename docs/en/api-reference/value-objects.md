@@ -913,8 +913,12 @@ Used in:
 use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Client\ConfirmationStatus;
 
-$connection = new Connection('localhost', 5552);
-$connection->connect();
+$connection = Connection::create(host: 'localhost', port: 5552);
+
+// Create the stream once. Skip this step when the stream exists.
+if (!$connection->streamExists('my-stream')) {
+    $connection->createStream('my-stream');
+}
 
 $producer = $connection->createProducer(
     'my-stream',

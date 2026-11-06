@@ -48,11 +48,15 @@ $connection = Connection::create(
 
 **Local development:**
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create();
 ```
 
 **Production with custom host:**
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: 'rabbitmq.example.com',
     port: 5552,
@@ -64,6 +68,8 @@ $connection = Connection::create(
 
 **With environment variables:**
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: getenv('RABBITMQ_HOST') ?: '127.0.0.1',
     port: (int)(getenv('RABBITMQ_PORT') ?: 5552),
@@ -77,6 +83,12 @@ $connection = Connection::create(
 RabbitStream supports any PSR-3 compatible logger for debugging and monitoring.
 
 ### Using Monolog
+
+The library requires only `psr/log`. Install Monolog first:
+
+```bash
+composer require monolog/monolog
+```
 
 ```php
 use CrazyGoat\RabbitStream\Client\Connection;
@@ -110,6 +122,7 @@ $logger = new NullLogger();
 Implement `Psr\Log\LoggerInterface` for custom logging:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 
@@ -156,18 +169,20 @@ $serializer = new PhpBinarySerializer();
 Implement `BinarySerializerInterface` for custom serialization:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use CrazyGoat\RabbitStream\Serializer\BinarySerializerInterface;
 
 class JsonSerializer implements BinarySerializerInterface
 {
-    public function serialize(mixed $data): string
+    public function serialize(object $request): string
     {
-        return json_encode($data);
+        return json_encode($request);
     }
-    
-    public function deserialize(string $data): mixed
+
+    public function deserialize(string $frame): object
     {
-        return json_decode($data, true);
+        // The interface returns an object, so wrap the decoded JSON in one.
+        return (object) json_decode($frame, true);
     }
 }
 
@@ -182,8 +197,8 @@ $connection = Connection::create(
 ```php
 interface BinarySerializerInterface
 {
-    public function serialize(mixed $data): string;
-    public function deserialize(string $data): mixed;
+    public function serialize(object $request): string;
+    public function deserialize(string $frame): object;
 }
 ```
 
@@ -204,6 +219,8 @@ RabbitStream examples and tests use environment variables for flexible configura
 ### Using Environment Variables
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: getenv('RABBITMQ_HOST') ?: '127.0.0.1',
     port: (int)(getenv('RABBITMQ_PORT') ?: 5552),
@@ -256,6 +273,8 @@ services:
 Control the maximum frame size for network efficiency:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     requestedFrameMax: 65536,  // 64KB frames
 );
@@ -270,6 +289,8 @@ $connection = Connection::create(
 Keep connections alive with heartbeats:
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     requestedHeartbeat: 30,  // Send heartbeat every 30 seconds
 );
@@ -282,6 +303,7 @@ $connection = Connection::create(
 ### Complete Tuning Example
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 
@@ -328,6 +350,8 @@ $connection->createStream('my-stream', [
 ### Production Configuration
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: $_ENV['RABBITMQ_HOST'],
     port: (int)$_ENV['RABBITMQ_PORT'],
@@ -342,6 +366,9 @@ $connection = Connection::create(
 ### Development Configuration
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+use Monolog\Logger;
+
 $connection = Connection::create(
     host: '127.0.0.1',
     logger: new Logger('dev'),     // Verbose logging
@@ -351,6 +378,8 @@ $connection = Connection::create(
 ### Testing Configuration
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 // Use environment variables for CI/CD flexibility
 $connection = Connection::create(
     host: getenv('RABBITMQ_HOST') ?: '127.0.0.1',

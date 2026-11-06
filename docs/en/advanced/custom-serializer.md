@@ -268,7 +268,7 @@ class MessagePackSerializer implements BinarySerializerInterface
 
 **Problem:** Binary protocol is hard to inspect during tests
 
-**Solution:** Use DebugSerializer to log all frames
+**Solution:** Use DebugSerializer to log all frames. Install Monolog first with `composer require monolog/monolog`. The library requires only `psr/log`.
 
 ```php
 use MyApp\Serializer\DebugSerializer;

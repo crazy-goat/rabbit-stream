@@ -649,6 +649,8 @@ $connection->setMaxDeliverFrameSize(0);
 (`null` = default):
 
 ```php
+use CrazyGoat\RabbitStream\Client\Connection;
+
 $connection = Connection::create(
     host: '127.0.0.1',
     maxDeliverFrameSize: 128 * 1024 * 1024, // raise further if you expect huge chunks
