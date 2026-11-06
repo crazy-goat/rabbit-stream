@@ -242,6 +242,7 @@ None
 - `DeserializationException` - If a response or server-push frame read while draining confirms cannot be deserialized
 - `ProtocolException` - If the `DeletePublisher` response has an unexpected version or command
 - `TimeoutException` - If the `DeletePublisher` response does not arrive in time
+- An exception thrown by a user callback during the `DeletePublisher` exchange also reaches the caller. `close()` rethrows that exception.
 
 #### Example
 
@@ -262,6 +263,7 @@ try {
 - Does not close the underlying connection
 - Safe to call multiple times (idempotent)
 - Keeps the confirm callback registered through the `DeletePublisher` exchange and drains any still-in-flight confirms (bounded); anything not drained in time is counted by [`getLostConfirmCount()`](#getlostconfirmcount)
+- If the `DeletePublisher` exchange fails, each unconfirmed publish is reported once through `onConfirm` as failed with `Producer::CONNECTION_LOST_ERROR_CODE` (`0x10000`), counted by `getLostConfirmCount()`, and logged in one warning. `close()` then rethrows the exception from the `DeletePublisher` exchange.
 
 ---
 
@@ -417,8 +419,11 @@ echo $producer->getPendingConfirms(); // 0
 
 ### getLostConfirmCount()
 
-Cumulative number of publishes whose confirms were abandoned by the bounded
-`close()` drain timeout (since #522).
+Cumulative number of publishes whose outcomes became unknowable to this producer.
+This includes publishes lost on connection loss, publisher loss (the stream was
+deleted or the broker forgot the publisher), a failed `DeletePublisher` exchange in
+`close()`, and publishes whose confirms were
+abandoned by the bounded `close()` drain timeout (since #522).
 
 ```php
 public function getLostConfirmCount(): int
@@ -430,8 +435,8 @@ None
 
 #### Return Value
 
-`int` - Total number of publishes lost to drain timeouts over this producer's
-lifetime (0 in normal operation)
+`int` - Total number of publishes lost over this producer's lifetime, for any of
+the causes above (0 in normal operation)
 
 #### Example
 
@@ -440,25 +445,31 @@ $producer->send('Message 1');
 $producer->close();
 
 if ($producer->getLostConfirmCount() > 0) {
-    // The broker stopped confirming before the 2 s drain expired: these
-    // publishes may or may not have reached the broker.
+    // Some publishes have an unknown outcome: the broker did not confirm them
+    // in time, or the connection failed. They may or may not have reached the broker.
 }
 ```
 
 #### Notes
 
-- `close()` waits up to 2 s (`CLOSE_CONFIRM_DRAIN_TIMEOUT`) for in-flight
-  `PublishConfirm`/`PublishError` frames. Anything still outstanding when that
-  expires can never be confirmed, because the publisher id is released — the
-  confirms are lost. Previously this happened silently (#522).
-- Each timeout also emits a `warning` log line naming the producer and stream,
+- `close()` waits up to the `$closeConfirmDrainTimeout` constructor argument for
+  in-flight `PublishConfirm`/`PublishError` frames. Its default is
+  `Producer::DEFAULT_CLOSE_CONFIRM_DRAIN_TIMEOUT` (2.0 s). Anything still
+  outstanding when that expires can never be confirmed, because the publisher id
+  is released — the confirms are lost. Previously this happened silently (#522).
+- Each drain timeout emits a `warning` log line naming the producer and stream,
   the number of affected publishing ids, and a bounded prefix of them (at most
   10 ids in the log context, regardless of how many were outstanding), so
   operators can tell "the broker stopped confirming" from "everything drained".
+- Connection-loss, publisher-loss and failed-`DeletePublisher` ids are reported
+  through `onConfirm` as failed and removed from `getPendingConfirms()`. Connection
+  loss and a failed `DeletePublisher` use `Producer::CONNECTION_LOST_ERROR_CODE`
+  (`0x10000`); publisher loss uses the broker response code. Each of these ids is
+  also counted here.
 - The counter is not reset by `close()`; `close()` is idempotent, so it cannot
   double-count.
-- The stranded ids are still visible through `getPendingConfirms()` after
-  `close()`.
+- After a drain timeout, the stranded ids are still visible through
+  `getPendingConfirms()` after `close()`.
 - `waitForConfirms()` timing out does **not** increment this counter: those
   confirms belong to a still-open producer and can still arrive.
 

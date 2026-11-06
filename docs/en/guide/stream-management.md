@@ -158,26 +158,20 @@ foreach ($stats as $key => $value) {
 
 ### Available Statistics
 
+The broker sends these keys:
+
 | Statistic | Description |
 |-----------|-------------|
-| `first_offset` | Offset of the first message in the stream |
-| `last_offset` | Offset of the last message in the stream |
-| `committed_chunk_id` | ID of the last committed chunk |
-| `committed_offset` | Offset of the last committed message in the stream |
-| `chunk_count` | Total number of chunks in the stream |
+| `first_chunk_id` | Offset of the first message in the first chunk of the stream |
+| `last_chunk_id` | Offset of the first message in the last chunk of the stream |
+| `committed_chunk_id` | ID of the last committed chunk. A chunk ID is the offset of the first message in that chunk. A chunk is committed when a quorum of replicas confirms it. |
+| `committed_offset` | Offset of the last entry in the committed chunk. This is not a consumer's stored offset. The last entry can be an offset-tracking record, not a user message. |
 
-### Calculating Message Count
+A new stream with no messages returns `-1` for each key.
 
-```php
-$stats = $connection->getStreamStats('my-stream');
+### Message Count
 
-$firstOffset = $stats['first_offset'] ?? 0;
-$lastOffset = $stats['last_offset'] ?? 0;
-$messageCount = $lastOffset - $firstOffset + 1;
-
-echo "Stream contains $messageCount messages\n";
-echo "Number of chunks: " . ($stats['chunk_count'] ?? 0) . "\n";
-```
+A chunk ID is the offset of the first message in that chunk. A chunk holds one or more messages, so `last_chunk_id` is not the offset of the last message. The broker does not send a message count. Do not calculate a message count from these values.
 
 ## Stream Metadata
 
@@ -332,9 +326,9 @@ try {
     
     // 4. Get statistics
     $stats = $connection->getStreamStats($streamName);
-    echo "First offset: {$stats['first_offset']}\n";
-    echo "Last offset: {$stats['last_offset']}\n";
-    echo "Chunk count: {$stats['chunk_count']}\n";
+    echo "First chunk ID: {$stats['first_chunk_id']}\n";
+    echo "Last chunk ID: {$stats['last_chunk_id']}\n";
+    echo "Committed offset: {$stats['committed_offset']}\n";
     
     // 5. Delete stream
     echo "Deleting stream...\n";

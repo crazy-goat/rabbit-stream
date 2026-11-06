@@ -429,11 +429,13 @@ public function getStreamStats(string $name): array
 
 #### Return Value
 
-`array<string, int>` - Associative array of statistics. Common keys include:
-- `publishers` - Number of active publishers
-- `consumers` - Number of active consumers
-- `messages` - Total number of messages in the stream
-- `bytes` - Total size of the stream in bytes
+`array<string, int>` - Associative array of statistics. The broker sends these keys:
+- `first_chunk_id` - Offset of the first message in the first chunk of the stream
+- `last_chunk_id` - Offset of the first message in the last chunk of the stream
+- `committed_chunk_id` - ID of the last committed chunk. A chunk ID is the offset of the first message in that chunk. A chunk is committed when a quorum of replicas confirms it.
+- `committed_offset` - Offset of the last entry in the committed chunk. This is not a consumer's stored offset. The last entry can be an offset-tracking record, not a user message.
+
+A new stream with no messages returns `-1` for each key.
 
 #### Exceptions
 
@@ -444,10 +446,9 @@ public function getStreamStats(string $name): array
 
 ```php
 $stats = $connection->getStreamStats('my-stream');
-echo "Messages: {$stats['messages']}\n";
-echo "Size: {$stats['bytes']} bytes\n";
-echo "Publishers: {$stats['publishers']}\n";
-echo "Consumers: {$stats['consumers']}\n";
+echo "First chunk ID: {$stats['first_chunk_id']}\n";
+echo "Last chunk ID: {$stats['last_chunk_id']}\n";
+echo "Committed offset: {$stats['committed_offset']}\n";
 ```
 
 ---
@@ -1360,7 +1361,7 @@ if (!$connection->streamExists($streamName)) {
 
 // Get stream statistics
 $stats = $connection->getStreamStats($streamName);
-echo "Stream has {$stats['messages']} messages\n";
+echo "Last chunk ID: {$stats['last_chunk_id']}\n";
 
 // Cleanup when needed
 // $connection->deleteStream($streamName);

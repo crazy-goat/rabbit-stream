@@ -685,8 +685,10 @@ class Producer implements ProducerInterface
      * DeletePublisher exchange fails (also when a callback that runs during it
      * throws, because request() rethrows that exception): the in-flight IDs are
      * reported as failed (with CONNECTION_LOST_ERROR_CODE), logged once with the
-     * reason "DeletePublisher failed in close()", and the DeletePublisher
-     * exception is rethrown.
+     * reason "DeletePublisher failed in close()", and the exception from the
+     * DeletePublisher exchange is rethrown. When the drain timeout expires
+     * first, the IDs still unconfirmed are counted by getLostConfirmCount() and
+     * logged, and they stay in getPendingConfirms().
      *
      * @throws ConnectionException If the socket is not connected or the
      *                          DeletePublisher write or read fails.
@@ -901,8 +903,10 @@ class Producer implements ProducerInterface
      * Grows on each successful send/sendBatch/sendWithFilter and shrinks as
      * PublishConfirm/PublishError frames are dispatched (via waitForConfirms(),
      * readLoop(), the maxPendingConfirms back-pressure drain or close()). On
-     * connection loss, any remaining ids are reported failed and removed from
-     * this count; see getLostConfirmCount() for cumulative loss accounting.
+     * connection loss, publisher loss (the stream was deleted or the broker
+     * forgot the publisher) or a failed DeletePublisher in close(), any
+     * remaining ids are reported failed and removed from this count; see
+     * getLostConfirmCount() for cumulative loss accounting.
      *
      * @return int Current number of outstanding (unconfirmed) publishes.
      */
@@ -915,12 +919,14 @@ class Producer implements ProducerInterface
      * Cumulative number of publishes whose outcomes became unknowable to this producer.
      *
      * Includes ids failed because the connection was lost (also when another
-     * object detected that loss), the broker forgot the publisher, or the
-     * bounded close() confirm drain expired. In each case the count increases
-     * only for ids still outstanding; completed confirms/errors are excluded.
-     * Connection-loss and broker-side publisher-loss IDs are reported through
-     * onConfirm and removed from getPendingConfirms(); IDs left after a local
-     * close drain timeout remain visible in getPendingConfirms() for compatibility.
+     * object detected that loss), the broker forgot the publisher, a
+     * DeletePublisher exchange in close() failed, or the bounded close() confirm
+     * drain expired. In each case the count increases only for ids still
+     * outstanding; completed confirms/errors are excluded.
+     * Connection-loss, broker-side publisher-loss and failed-DeletePublisher IDs
+     * are reported through onConfirm and removed from getPendingConfirms(); IDs
+     * left after a local close drain timeout remain visible in
+     * getPendingConfirms() for compatibility.
      *
      * @return int Cumulative number of publishes reported lost (0 in normal
      *             operation).
