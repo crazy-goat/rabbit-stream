@@ -135,7 +135,7 @@ class OsirisChunkParserE2ETest extends E2ETestCase
             }
         );
 
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
         $this->assertCount(1, $confirmedIds);
 
         $receivedEntries = [];
@@ -150,7 +150,7 @@ class OsirisChunkParserE2ETest extends E2ETestCase
         $connection->sendMessage(new SubscribeRequestV1(1, $streamName, OffsetSpec::first(), 10));
         $connection->readMessage();
         $connection->sendMessage(new CreditRequestV1(1, 10));
-        $connection->readLoop(maxFrames: 1);
+        $this->assertSame(1, $connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one server-push frame');
 
         $this->assertCount(1, $receivedEntries);
         $this->assertSame(0, $receivedEntries[0]->getOffset());

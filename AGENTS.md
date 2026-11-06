@@ -338,10 +338,20 @@ The generic flow is in [docs/workflow.md](docs/workflow.md). On top of it:
 ### Worktrees and E2E ports
 
 `docker-compose.yml` publishes the broker on `${RABBITMQ_PORT:-5552}` (stream),
-`${RABBITMQ_AMQP_PORT:-5672}` and `${RABBITMQ_MANAGEMENT_PORT:-15672}`. `bin/worktree.sh`
-writes free ports and a unique `COMPOSE_PROJECT_NAME` to `.env.worktree`; `./run-e2e.sh`
-loads that file when it exists. E2E tests read `RABBITMQ_HOST`, `RABBITMQ_PORT` and
-`RABBITMQ_MANAGEMENT_PORT`. `bin/worktree-setup.sh` runs `composer install`;
+`${RABBITMQ_AMQP_PORT:-5672}` and `${RABBITMQ_MANAGEMENT_PORT:-15672}`.
+`docker-compose.tls.yml` adds the TLS stream listener on `${RABBITMQ_TLS_PORT:-5551}`.
+Its broker config is `docker/rabbitmq-tls.conf`.
+`bin/worktree.sh` writes free ports for every port variable in the compose files, and a
+unique `COMPOSE_PROJECT_NAME`, to `.env.worktree`. `./run-e2e.sh` loads that file when it exists.
+
+`./run-e2e.sh` starts the TLS broker too. It sets `COMPOSE_FILE` to both compose files. It
+generates the test certificates at run time with `bin/gen-e2e-certs.sh`, and it deletes them
+at exit. The certificates go to a gitignored `.e2e-tls.*` directory.
+
+E2E tests read `RABBITMQ_HOST`, `RABBITMQ_PORT` and `RABBITMQ_MANAGEMENT_PORT`. The TLS test,
+`tests/E2E/TlsConnectionE2ETest.php`, reads `RABBITMQ_TLS_PORT`, `RABBITMQ_TLS_CERT_DIR` and
+`RABBITMQ_TLS_PASSPHRASE`. It skips when these are not set.
+`bin/worktree-setup.sh` runs `composer install`;
 `bin/worktree-teardown.sh` runs `docker compose down -v`.
 
 ### Knowledge base (`docs/helpers/`)

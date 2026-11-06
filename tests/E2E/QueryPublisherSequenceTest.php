@@ -87,7 +87,8 @@ class QueryPublisherSequenceTest extends E2ETestCase
 
         // Publish a message with publishingId = 5
         $this->connection->sendMessage(new PublishRequestV1(1, new PublishedMessage(5, 'test message')));
-        $this->connection->readLoop(maxFrames: 1); // Wait for PublishConfirm
+        // Wait for PublishConfirm
+        $this->assertSame(1, $this->connection->readLoop(maxFrames: 1, timeout: 5.0), 'Expected one PublishConfirm');
 
         // Query sequence - should return 5
         $this->connection->sendMessage(new QueryPublisherSequenceRequestV1($publisherRef, $this->streamName));
