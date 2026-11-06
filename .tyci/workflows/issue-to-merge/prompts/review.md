@@ -10,6 +10,7 @@ Call report_progress every few minutes with one short line.
 - You MUST write `report.md` before you end. It is your review.
 - The FIRST LINE of `report.md` must be exactly `ACCEPT` or `CHANGES` (upper case, nothing else on the line).
 - The SECOND LINE of `report.md` is `Reviewed: <output of git rev-parse HEAD>`. Run `git rev-parse HEAD` to get it.
+- Before you end, check that line 2 matches `^Reviewed: [0-9a-f]{40}$` and that its sha is the output of `git rev-parse HEAD`. If not, fix `report.md`.
 - After the first two lines, write a findings list. Give `file:line` and the reason for each finding.
 
 Do not trust the coder's report. It is a claim, not evidence. For every claim that
@@ -34,8 +35,9 @@ If the diff is clean, say exactly that — an invented finding is worse than an 
 - The current round is the number of earlier sibling `*-review` dirs that have a non-empty `report.md`, plus one. Round 1 means no such dir. The round of an earlier report is one more than the number of earlier sibling `*-review` dirs with a non-empty `report.md` that have a lower `NNN` prefix.
 - Round 2 or later: read every earlier `report.md`.
 - Round 2 or later: check every earlier point against the code, not against the coder's report. Mark each point **fixed**, **still present**, or **not a real problem**. Give the evidence for each mark.
-- Round 2 or later: look for new problems first in `git diff <last Reviewed sha>..HEAD`. Take the last Reviewed sha from the newest earlier `report.md` that has a `Reviewed:` line. Reports written before that line existed have none.
-- Round 2 or later, and no earlier `report.md` has a `Reviewed:` line: review the whole diff, `git diff origin/<default>...HEAD`, and write in `report.md` that no earlier report has a `Reviewed:` line.
+- Round 2 or later: take the last Reviewed sha from the newest earlier `report.md` that has a `Reviewed:` line. Reports written before that line existed have none. Before you use that sha, check it. The line must match `^Reviewed: [0-9a-f]{40}$`, and `git merge-base --is-ancestor <sha> HEAD` must succeed.
+- Round 2 or later: if the check passes, look for new problems first in `git diff <last Reviewed sha>..HEAD`.
+- Round 2 or later, and no earlier `report.md` has a valid `Reviewed:` line, or the check above fails for the sha you took: review the whole diff, `git diff origin/<default>...HEAD`, and write in `report.md` which case applies (no `Reviewed:` line, or a sha that is malformed or not an ancestor of HEAD).
 - Round 2 or later: a new point in code that an earlier round already saw is allowed only for a real defect. Mark it "missed in round K", where K is the round that saw the code. Style notes on that code do not block.
 
 ## Pattern search
