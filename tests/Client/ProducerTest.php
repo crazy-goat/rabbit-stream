@@ -1380,7 +1380,7 @@ class ProducerTest extends TestCase
 
         $this->assertSame([0, 1], $seen, 'a throwing callback must not skip the other lost publishes');
         $this->assertSame(2, $producer->getLostConfirmCount());
-        $errors = array_filter($logger->records, static fn (array $r): bool => $r['level'] === 'error');
+        $errors = $logger->errorMessages();
         $this->assertCount(2, $errors, 'each failed callback must be logged');
     }
 
@@ -1958,6 +1958,56 @@ class ProducerTest extends TestCase
         }
 
         $this->assertSame(["0:$code", "1:$code", "2:$code"], $seen, 'every failed id must reach the callback');
+        $stale = new \ReflectionProperty($producer, 'stale');
+        $this->assertTrue(
+            $stale->getValue($producer),
+            'a fatal error must mark the publisher stale before the rethrow'
+        );
+    }
+
+    public function testFirstExceptionWinsWhenPublishErrorAndLostCallbacksBothThrow(): void
+    {
+        $connection = $this->createProducerStreamConnectionMock();
+
+        /** @var callable|null $onError */
+        $onError = null;
+        $connection->expects($this->once())
+            ->method('registerPublisher')
+            ->willReturnCallback(function ($id, $confirm, $error) use (&$onError): void {
+                $onError = $error;
+            });
+        $connection->expects($this->any())->method('sendMessage');
+
+        /** @var string[] $seen */
+        $seen = [];
+        $producer = new Producer(
+            $connection,
+            'test-stream',
+            1,
+            onConfirm: function (ConfirmationStatus $status) use (&$seen): void {
+                $seen[] = $status->getPublishingId() . ':' . $status->getErrorCode();
+                if ($status->getPublishingId() === 0) {
+                    throw new \RuntimeException('publish error callback failed');
+                }
+                if ($status->getPublishingId() === 1) {
+                    throw new \LogicException('lost publish callback failed');
+                }
+            },
+        );
+        $producer->sendBatch(['m0', 'm1', 'm2']);
+
+        $this->assertNotNull($onError, 'registerPublisher callback must have been called');
+        $code = ResponseCodeEnum::PUBLISHER_NOT_EXIST->value;
+        try {
+            // Only id 0 is in the frame. Ids 1 and 2 are still pending, so
+            // markStale() reports them as lost after the publish error.
+            $onError([new PublishingError(0, $code)]);
+            self::fail('The exception of the publish error callback must reach the caller.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('publish error callback failed', $exception->getMessage());
+        }
+
+        $this->assertSame(["0:$code", "1:$code", "2:$code"], $seen, 'every id must reach the callback');
         $stale = new \ReflectionProperty($producer, 'stale');
         $this->assertTrue(
             $stale->getValue($producer),

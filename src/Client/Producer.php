@@ -446,7 +446,13 @@ class Producer implements ProducerInterface
                 // read yet): re-declare before the next publish. This runs before
                 // the rethrow, so a throwing callback cannot skip it.
                 if ($fatal !== null && !$this->stale) {
-                    $this->markStale($fatal);
+                    try {
+                        $this->markStale($fatal);
+                    } catch (\Throwable $exception) {
+                        // The lost-publish callbacks have all run. Keep the
+                        // first exception, as for the publish error callbacks.
+                        $failure ??= $exception;
+                    }
                 }
                 if ($failure instanceof \Throwable) {
                     throw $failure;
