@@ -10,7 +10,10 @@ use CrazyGoat\RabbitStream\Client\OsirisChunkParser;
 use CrazyGoat\RabbitStream\Exception\DeserializationException;
 use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
 use CrazyGoat\RabbitStream\Tests\Support\AmqpFixtures;
+use DeflateContext;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
 class OsirisChunkParserTest extends TestCase
@@ -261,7 +264,7 @@ class OsirisChunkParserTest extends TestCase
     public function testCompressedSubBatchThrowsException(): void
     {
         $this->expectException(DeserializationException::class);
-        $this->expectExceptionMessage('Compressed sub-batches not supported yet');
+        $this->expectExceptionMessage('Unsupported sub-batch codec 2 (SNAPPY)');
 
         $chunk = $this->createChunk(
             numEntries: 1,
@@ -269,7 +272,7 @@ class OsirisChunkParserTest extends TestCase
             timestamp: 1234567890,
             chunkFirstOffset: 0,
             entries: [
-                ['type' => 'subbatch', 'codec' => 1, 'entries' => [['data' => 'test']]],
+                ['type' => 'subbatch', 'codec' => 2, 'entries' => [['data' => 'test']]],
             ]
         );
 
@@ -305,7 +308,7 @@ class OsirisChunkParserTest extends TestCase
     public function testCompressedSubBatchZstdThrowsException(): void
     {
         $this->expectException(DeserializationException::class);
-        $this->expectExceptionMessage('Compressed sub-batches not supported yet (codec: 4)');
+        $this->expectExceptionMessage('Unsupported sub-batch codec 4 (ZSTD): only NONE (0) and GZIP (1) are supported');
 
         $chunk = $this->createChunk(
             numEntries: 1,
@@ -318,6 +321,306 @@ class OsirisChunkParserTest extends TestCase
         );
 
         OsirisChunkParser::parse($chunk);
+    }
+
+    public function testGzipSubBatchDecodesToSameRecordsAsUncompressedSubBatch(): void
+    {
+        $this->requireZlib();
+        $records = [
+            $this->encodeAmqpData('first'),
+            $this->encodeAmqpData('second'),
+            $this->encodeAmqpData('third'),
+        ];
+        $inner = $this->innerRecords($records);
+
+        $gzipChunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, count($records), strlen($inner), self::gzipBytes($inner)),
+            numEntries: 1,
+            numRecords: count($records)
+        );
+        $plainChunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(0, count($records), strlen($inner), $inner),
+            numEntries: 1,
+            numRecords: count($records)
+        );
+
+        $expected = OsirisChunkParser::parse($plainChunk);
+        $entries = OsirisChunkParser::parse($gzipChunk);
+
+        $this->assertCount(3, $entries);
+        foreach ($expected as $i => $expectedEntry) {
+            $this->assertSame($expectedEntry->getOffset(), $entries[$i]->getOffset());
+            $this->assertSame($expectedEntry->getData(), $entries[$i]->getData());
+            $this->assertSame($expectedEntry->getTimestamp(), $entries[$i]->getTimestamp());
+        }
+
+        $messages = iterator_to_array(OsirisChunkParser::parseMessages($gzipChunk), false);
+
+        $this->assertCount(3, $messages);
+        $offsets = [];
+        $bodies = [];
+        foreach ($messages as $message) {
+            $offsets[] = $message->getOffset();
+            $bodies[] = $message->getBody();
+        }
+        $this->assertSame(['first', 'second', 'third'], $bodies);
+        $this->assertSame([0, 1, 2], $offsets);
+        $this->assertSame(1234567890, $messages[0]->getTimestamp());
+    }
+
+    public function testGzipSubBatchMixedWithSimpleEntriesKeepsOffsetsInOrder(): void
+    {
+        $this->requireZlib();
+        $inner = $this->innerRecords([$this->encodeAmqpData('Batch 1'), $this->encodeAmqpData('Batch 2')]);
+        $dataSection = $this->simpleEntry($this->encodeAmqpData('First'))
+            . $this->subBatchEntry(1, 2, strlen($inner), self::gzipBytes($inner))
+            . $this->simpleEntry($this->encodeAmqpData('Last'));
+
+        $chunk = $this->chunkWithDataSection($dataSection, numEntries: 3, numRecords: 4);
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(4, $entries);
+        $entryOffsets = [];
+        $entryData = [];
+        foreach ($entries as $entry) {
+            $entryOffsets[] = $entry->getOffset();
+            $entryData[] = $entry->getData();
+        }
+        $this->assertSame([0, 1, 2, 3], $entryOffsets);
+        $this->assertSame(
+            [
+                $this->encodeAmqpData('First'),
+                $this->encodeAmqpData('Batch 1'),
+                $this->encodeAmqpData('Batch 2'),
+                $this->encodeAmqpData('Last'),
+            ],
+            $entryData
+        );
+
+        $messages = iterator_to_array(OsirisChunkParser::parseMessages($chunk), false);
+
+        $messageOffsets = [];
+        $bodies = [];
+        foreach ($messages as $message) {
+            $messageOffsets[] = $message->getOffset();
+            $bodies[] = $message->getBody();
+        }
+        $this->assertSame([0, 1, 2, 3], $messageOffsets);
+        $this->assertSame(['First', 'Batch 1', 'Batch 2', 'Last'], $bodies);
+    }
+
+    public function testGzipSubBatchWithManySmallRecordsIsNotRejectedByCompressedSizeCheck(): void
+    {
+        $this->requireZlib();
+        // 200 zero-size records: 800 bytes of records, but gzip shrinks them well below
+        // 4 bytes per record, which must not trip the codec-0 minimum-size check.
+        $inner = $this->innerRecords(array_fill(0, 200, ''));
+        $body = self::gzipBytes($inner);
+        $this->assertLessThan(4 * 200, strlen($body));
+
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 200, strlen($inner), $body),
+            numEntries: 1,
+            numRecords: 200
+        );
+
+        $entries = OsirisChunkParser::parse($chunk);
+
+        $this->assertCount(200, $entries);
+        $this->assertSame(199, $entries[199]->getOffset());
+    }
+
+    public function testGzipSubBatchWithZeroRecordsAndZeroSizeParsesToNoEntries(): void
+    {
+        $this->requireZlib();
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 0, 0, self::gzipBytes('')),
+            numEntries: 1,
+            numRecords: 0
+        );
+
+        $this->assertSame([], OsirisChunkParser::parse($chunk));
+    }
+
+    public function testGzipSubBatchInflatingPastZeroDeclaredSizeIsRejected(): void
+    {
+        $this->requireZlib();
+        // A declared size of 0 must not disable the cap: gzdecode() reads a max length
+        // of 0 as no limit. The body inflates to 1 byte, which must be rejected.
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 0, 0, self::gzipBytes('x')),
+            numEntries: 1,
+            numRecords: 0
+        );
+
+        $this->assertDecodeFailsOnBothPaths($chunk, 'inflates to 1 bytes but declares uncompressedSize 0');
+    }
+
+    /**
+     * @return iterable<string, array{0: int, 1: string}>
+     */
+    public static function unsupportedCodecProvider(): iterable
+    {
+        yield 'snappy' => [2, 'Unsupported sub-batch codec 2 (SNAPPY): only NONE (0) and GZIP (1) are supported'];
+        yield 'lz4' => [3, 'Unsupported sub-batch codec 3 (LZ4): only NONE (0) and GZIP (1) are supported'];
+        yield 'reserved 5' => [5, 'Unsupported sub-batch codec 5 (UNKNOWN): only NONE (0) and GZIP (1) are supported'];
+        yield 'reserved 7' => [7, 'Unsupported sub-batch codec 7 (UNKNOWN): only NONE (0) and GZIP (1) are supported'];
+    }
+
+    #[DataProvider('unsupportedCodecProvider')]
+    public function testUnsupportedSubBatchCodecIsNamedOnBothPaths(int $codec, string $expectedMessage): void
+    {
+        $inner = $this->innerRecords(['test']);
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry($codec, 1, strlen($inner), $inner),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        $this->assertDecodeFailsOnBothPaths($chunk, $expectedMessage);
+    }
+
+    /**
+     * @return iterable<string, array{0: int, 1: string}>
+     */
+    public static function gzipSizeMismatchProvider(): iterable
+    {
+        // The body inflates to 8 bytes. A larger declared size fails the length check.
+        yield 'declared larger than inflated' => [12, 'inflates to 8 bytes but declares uncompressedSize 12'];
+        // A smaller declared size stops the inflate at the cap, which fails as corrupt.
+        yield 'declared smaller than inflated' => [4, 'corrupt or inflates to more than its uncompressedSize 4'];
+    }
+
+    #[DataProvider('gzipSizeMismatchProvider')]
+    public function testGzipSubBatchSizeMismatchIsRejectedOnBothPaths(int $declaredSize, string $expectedMessage): void
+    {
+        $this->requireZlib();
+        $inner = $this->innerRecords(['test']);
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 1, $declaredSize, self::gzipBytes($inner)),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        $this->assertDecodeFailsOnBothPaths($chunk, $expectedMessage);
+    }
+
+    /**
+     * @return iterable<string, array{0: string}>
+     */
+    public static function corruptGzipBodyProvider(): iterable
+    {
+        yield 'not a gzip stream' => ['this is not gzip data at all'];
+        yield 'truncated gzip stream' => [substr(self::gzipBytes(str_repeat('a', 200)), 0, 20)];
+    }
+
+    #[DataProvider('corruptGzipBodyProvider')]
+    public function testCorruptGzipSubBatchIsRejectedOnBothPaths(string $body): void
+    {
+        $this->requireZlib();
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 1, 256, $body),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        $this->assertDecodeFailsOnBothPaths(
+            $chunk,
+            'GZIP sub-batch is corrupt or inflates to more than its uncompressedSize 256'
+        );
+    }
+
+    /**
+     * The memory limit is changed below, so the test runs in its own process. A failed
+     * run then cannot leave the limit changed for the other tests.
+     */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testGzipDecompressionBombIsCappedByDeclaredSize(): void
+    {
+        $this->requireZlib();
+        // 20 MiB of zeros compresses to roughly 20 KB. The sub-batch declares 1 KiB.
+        $bomb = $this->gzipZeros(20 * 1024 * 1024);
+        $this->assertLessThan(64 * 1024, strlen($bomb));
+
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 1, 1024, $bomb),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        // Cap the memory limit a little above the current usage. An uncapped inflate of
+        // 20 MiB then exhausts it. A capped inflate stops near 1 KiB and stays well under it.
+        $previousLimit = ini_set('memory_limit', (string) (memory_get_usage(true) + 8 * 1024 * 1024));
+        try {
+            $this->assertDecodeFailsOnBothPaths(
+                $chunk,
+                'GZIP sub-batch is corrupt or inflates to more than its uncompressedSize 1024'
+            );
+        } finally {
+            ini_set('memory_limit', is_string($previousLimit) ? $previousLimit : '-1');
+        }
+    }
+
+    public function testGzipSubBatchOverPerChunkBudgetIsRejectedBeforeInflate(): void
+    {
+        $this->requireZlib();
+        $budget = 32 * 1024 * 1024;
+        // The declared size is one byte over the budget and the body is tiny. An inflate
+        // would fail with a size mismatch instead, so the budget message shows that the
+        // size check runs before the inflate.
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 1, $budget + 1, self::gzipBytes('tiny')),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        $this->assertDecodeFailsOnBothPaths(
+            $chunk,
+            'GZIP sub-batch declares uncompressedSize 33554433; the chunk total of declared GZIP sizes ' .
+            'would be 33554433, above the per-chunk budget of 33554432 bytes'
+        );
+    }
+
+    public function testGzipSubBatchesEachWithinBudgetThatTogetherExceedItAreRejectedOnBothPaths(): void
+    {
+        $this->requireZlib();
+        $size = 17 * 1024 * 1024;
+        // Each sub-batch fits the budget alone. The first inflates to 17 MiB of zeros. Its one
+        // record is 0 bytes long, and the parser does not read the other zeros.
+        $first = $this->subBatchEntry(1, 1, $size, $this->gzipZeros($size));
+        $this->assertCount(
+            1,
+            OsirisChunkParser::parse($this->chunkWithDataSection($first, numEntries: 1, numRecords: 1))
+        );
+
+        // The second body is tiny. The budget check must reject it before any inflate.
+        $second = $this->subBatchEntry(1, 1, $size, self::gzipBytes('tiny'));
+        $chunk = $this->chunkWithDataSection($first . $second, numEntries: 2, numRecords: 2);
+
+        $this->assertDecodeFailsOnBothPaths(
+            $chunk,
+            'GZIP sub-batch declares uncompressedSize 17825792; the chunk total of declared GZIP sizes ' .
+            'would be 35651584, above the per-chunk budget of 33554432 bytes'
+        );
+    }
+
+    public function testGzipSubBatchAtExactlyTheBudgetParsesOnBothPaths(): void
+    {
+        $this->requireZlib();
+        $budget = 32 * 1024 * 1024;
+        // The sub-batch inflates to exactly the budget. Its one record is 0 bytes long, and
+        // the other inflated bytes are not read, as in
+        // testExtraBytesInsideSubBatchAfterTheDeclaredRecordAreIgnoredTolerantly.
+        $chunk = $this->chunkWithDataSection(
+            $this->subBatchEntry(1, 1, $budget, $this->gzipZeros($budget)),
+            numEntries: 1,
+            numRecords: 1
+        );
+
+        $this->assertCount(1, OsirisChunkParser::parse($chunk));
+        $this->assertCount(1, iterator_to_array(OsirisChunkParser::parseMessages($chunk), false));
     }
 
     public function testTruncatedSimpleEntryThrowsException(): void
@@ -842,6 +1145,107 @@ class OsirisChunkParserTest extends TestCase
     private function encodeAmqpData(string $body): string
     {
         return "\x00\x53\x75\xb0" . pack('N', strlen($body)) . $body;
+    }
+
+    private function requireZlib(): void
+    {
+        if (!function_exists('gzencode')) {
+            self::markTestSkipped('ext-zlib is needed to build gzip sub-batch fixtures');
+        }
+    }
+
+    /**
+     * @param list<string> $records Record bytes; each is written with a uint32 size prefix.
+     */
+    private function innerRecords(array $records): string
+    {
+        $inner = '';
+        foreach ($records as $record) {
+            $inner .= pack('N', strlen($record)) . $record;
+        }
+
+        return $inner;
+    }
+
+    private function simpleEntry(string $data): string
+    {
+        return pack('N', strlen($data)) . $data;
+    }
+
+    /**
+     * One sub-batch entry with the given header fields and body bytes, written as is.
+     */
+    private function subBatchEntry(int $codec, int $numRecords, int $uncompressedSize, string $body): string
+    {
+        return pack('C', 0x80 | (($codec & 0x07) << 4))
+            . pack('n', $numRecords)
+            . pack('N', $uncompressedSize)
+            . pack('N', strlen($body))
+            . $body;
+    }
+
+    /**
+     * Streams $size zero bytes through a gzip encoder in small pieces, so the test
+     * itself never holds the uncompressed payload in memory.
+     */
+    private function gzipZeros(int $size): string
+    {
+        $context = deflate_init(ZLIB_ENCODING_GZIP);
+        if ($context === false) {
+            self::fail('deflate_init() failed');
+        }
+        $piece = str_repeat("\0", 65536);
+        $output = '';
+        for ($written = 0; $written < $size; $written += strlen($piece)) {
+            $output .= $this->deflateStep($context, $piece, ZLIB_NO_FLUSH);
+        }
+
+        return $output . $this->deflateStep($context, '', ZLIB_FINISH);
+    }
+
+    private function deflateStep(DeflateContext $context, string $data, int $flush): string
+    {
+        $chunk = deflate_add($context, $data, $flush);
+        if ($chunk === false) {
+            self::fail('deflate_add() failed');
+        }
+
+        return $chunk;
+    }
+
+    /**
+     * RFC 1952 gzip stream, as the Java client's GZIPOutputStream writes it.
+     */
+    private static function gzipBytes(string $data): string
+    {
+        $encoded = gzencode($data);
+        if ($encoded === false) {
+            self::fail('gzencode() failed');
+        }
+
+        return $encoded;
+    }
+
+    /**
+     * Both parse paths must reject the chunk with a DeserializationException whose
+     * message contains $expectedMessage.
+     */
+    private function assertDecodeFailsOnBothPaths(string $chunk, string $expectedMessage): void
+    {
+        $decoders = [
+            'parse' => static fn (string $bytes): array => OsirisChunkParser::parse($bytes),
+            'parseMessages' => static fn (string $bytes): array =>
+                iterator_to_array(OsirisChunkParser::parseMessages($bytes), false),
+        ];
+
+        foreach ($decoders as $path => $decode) {
+            try {
+                $decode($chunk);
+                self::fail(sprintf('%s accepted a chunk that must be rejected', $path));
+            } catch (DeserializationException $exception) {
+                self::assertStringContainsString($expectedMessage, $exception->getMessage(), $path);
+            }
+        }
     }
 
     public function testParseMessagesYieldsMessagesEquivalentToParseEntries(): void

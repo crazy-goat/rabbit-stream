@@ -1160,7 +1160,7 @@ class ConsumerTest extends TestCase
         $chunk = $this->buildOneEntryChunk('first');
         $data = substr($chunk, 48);
         $inner = pack('N', 4) . 'test';
-        $data .= pack('C', 0x80 | (1 << 4)); // gzip-compressed sub-batch
+        $data .= pack('C', 0x80 | (2 << 4)); // snappy-compressed sub-batch (not decoded)
         $data .= pack('n', 1);
         $data .= pack('N', strlen($inner));
         $data .= pack('N', strlen($inner));
@@ -1183,7 +1183,7 @@ class ConsumerTest extends TestCase
             $deliver($this->deliverOf($chunk));
             self::fail('Expected a compressed sub-batch to be rejected');
         } catch (DeserializationException $exception) {
-            $this->assertStringContainsString('Compressed sub-batches not supported', $exception->getMessage());
+            $this->assertStringContainsString('Unsupported sub-batch codec 2 (SNAPPY)', $exception->getMessage());
         }
 
         $this->assertFalse($consumer->hasUnread(), 'A failed chunk must not expose its successfully parsed prefix');

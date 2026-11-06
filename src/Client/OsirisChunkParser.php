@@ -45,11 +45,37 @@ use CrazyGoat\RabbitStream\Exception\InvalidArgumentException;
  *   Sub-batch entry: 1-byte header (bit 7 = 1, codec in bits 6-4) + numRecords (uint16)
  *                    + uncompressedSize (uint32) + compressedSize (uint32) + sub-batch data
  *
+ * Sub-batch codecs: 0 (NONE) and 1 (GZIP, RFC 1952 gzip stream) are decoded. Codecs 2 to 7
+ * (SNAPPY, LZ4, ZSTD, and reserved values) throw DeserializationException. A gzip sub-batch
+ * must inflate to exactly its declared uncompressedSize, and the inflate stops at that size
+ * (issue #399). The declared uncompressedSize values of all gzip sub-batches in one chunk
+ * total at most 32 MiB (33 554 432 bytes). The parser checks this total before it inflates
+ * anything, so one chunk cannot make it allocate more than that budget. Decoding gzip needs
+ * the ext-zlib extension.
+ *
  * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/rabbitmq_stream/docs/PROTOCOL.adoc
  * @see https://github.com/rabbitmq/rabbitmq-server/blob/main/deps/osiris/src/osiris_log.erl
  */
 class OsirisChunkParser
 {
+    /**
+     * Sub-batch codec values, from com.rabbitmq.stream.compression.Compression in the
+     * RabbitMQ Stream Java client (NONE=0, GZIP=1, SNAPPY=2, LZ4=3, ZSTD=4).
+     *
+     * @see https://github.com/rabbitmq/rabbitmq-stream-java-client/blob/main/src/main/java/com/rabbitmq/stream/compression/Compression.java
+     */
+    private const CODEC_NONE = 0;
+    private const CODEC_GZIP = 1;
+    private const CODEC_NAMES = ['NONE', 'GZIP', 'SNAPPY', 'LZ4', 'ZSTD'];
+
+    /**
+     * Budget for the declared uncompressedSize of all gzip sub-batches in one chunk: 32 MiB.
+     *
+     * The declared size comes from the chunk and can be up to 4 GiB, so it cannot bound the
+     * memory that an inflate uses. This budget does. It is private and is not configurable.
+     */
+    private const MAX_GZIP_UNCOMPRESSED_PER_CHUNK = 33554432;
+
     /**
      * Default ceiling for entries produced from a single chunk.
      *
@@ -138,11 +164,14 @@ class OsirisChunkParser
      * $chunkBytes: each Message is built via {@see Message::fromChunkView()} as a
      * zero-copy view sharing $chunkBytes (PHP strings are refcounted, so every
      * Message from one chunk just bumps that one buffer's refcount instead of
-     * substr()-copying its own entry out of it) — including sub-batch entries,
-     * whose inner records are views into $chunkBytes too, not into a copied
-     * sub-batch buffer. This is the hot path for Consumer's deliver callback: for
+     * substr()-copying its own entry out of it) — including the inner records of
+     * an uncompressed sub-batch. This is the hot path for Consumer's deliver callback: for
      * every entry it saves one ChunkEntry object, one payload copy, plus the extra
      * indirection of AmqpMessageDecoder::decode() per message.
+     *
+     * The views share $chunkBytes, except for the records of a gzip sub-batch. Those
+     * records are views into the inflated buffer that the sub-batch owns, so their
+     * Messages share that buffer instead of $chunkBytes.
      *
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
@@ -166,8 +195,8 @@ class OsirisChunkParser
         bool $verifyCrc = true,
     ): \Generator {
         $views = self::parseRawViews($chunkBytes, $maxEntriesPerChunk, $offset, $length, $verifyCrc);
-        foreach ($views as [$entryOffset, $timestamp, $start, $len]) {
-            yield Message::fromChunkView($entryOffset, $timestamp, $chunkBytes, $start, $len, $stream, $maxDepth);
+        foreach ($views as [$entryOffset, $timestamp, $buffer, $start, $len]) {
+            yield Message::fromChunkView($entryOffset, $timestamp, $buffer, $start, $len, $stream, $maxDepth);
         }
     }
 
@@ -200,6 +229,7 @@ class OsirisChunkParser
         $entryCount = 0;
         $recordCount = 0;
         $currentOffset = $chunkFirstOffset;
+        $gzipDeclaredTotal = 0;
 
         for ($i = 0; $i < $numEntries; $i++) {
             if ($entryCount >= $maxEntriesPerChunk) {
@@ -221,26 +251,21 @@ class OsirisChunkParser
                 $currentOffset++;
             } else {
                 $codec = ($entryType >> 4) & 0x07;
-
-                if ($codec !== 0) {
-                    throw new DeserializationException(sprintf(
-                        'Compressed sub-batches not supported yet (codec: %d)',
-                        $codec
-                    ));
-                }
+                self::assertSupportedCodec($codec);
 
                 $subBatchRecords = self::readUint16At($chunkBytes, $dataEnd, $pos);
                 $uncompressedSize = self::readUint32At($chunkBytes, $dataEnd, $pos);
 
-                // Each record costs at least 4 bytes both in the bytes actually
-                // present and in the declared uncompressed size (a uint32 size
-                // prefix). The broker enforces the latter on publish
-                // (rabbit_stream_utils.erl check_message_count_fits_uncompressed_size)
-                // but NOT that uncompressedSize equals the on-wire body size
-                // (compressedSize), so equality is deliberately not required.
+                // Each record costs at least 4 bytes in the declared uncompressed size
+                // (a uint32 size prefix). The broker enforces that on publish
+                // (rabbit_stream_utils.erl check_message_count_fits_uncompressed_size).
+                // For codec 0 the bytes on the wire are the records, so they must
+                // hold 4 bytes per record as well. A gzip body can be far smaller than
+                // its records, so that check does not apply to it. Equality of
+                // uncompressedSize and compressedSize is never required here.
                 $compressedSize = self::readUint32At($chunkBytes, $dataEnd, $pos);
 
-                if ($subBatchRecords * 4 > $compressedSize) {
+                if ($codec === self::CODEC_NONE && $subBatchRecords * 4 > $compressedSize) {
                     throw new DeserializationException(sprintf(
                         'Sub-batch declares %d records but only %d bytes of data (minimum 4 bytes per record)',
                         $subBatchRecords,
@@ -262,7 +287,12 @@ class OsirisChunkParser
                 // substr() removed above, it is proportional to real message bytes.
                 $subBatchData = self::readBytesAt($chunkBytes, $dataEnd, $pos, $compressedSize);
 
-                $subLen = $compressedSize;
+                if ($codec === self::CODEC_GZIP) {
+                    $gzipDeclaredTotal = self::reserveGzipBudget($gzipDeclaredTotal, $uncompressedSize);
+                    $subBatchData = self::decompressGzip($subBatchData, $uncompressedSize);
+                }
+
+                $subLen = strlen($subBatchData);
                 $subPos = 0;
                 for ($j = 0; $j < $subBatchRecords; $j++) {
                     if ($entryCount >= $maxEntriesPerChunk) {
@@ -413,19 +443,20 @@ class OsirisChunkParser
     }
 
     /**
-     * Same wire-format parsing as parseRaw(), but yields [offset, timestamp, start,
-     * length] VIEWS into $chunkBytes instead of extracted [offset, data, timestamp]
-     * tuples: no entry's bytes are ever substr()-copied out of $chunkBytes here,
-     * plain entries and sub-batch inner entries alike (unlike parseRaw(), which
-     * still substr()s the sub-batch payload since ChunkEntry needs real strings).
-     * This is what lets parseMessages() build one Message per entry that shares
-     * the whole chunk buffer instead of copying its own payload out of it.
+     * Same wire-format parsing as parseRaw(), but yields [offset, timestamp, buffer,
+     * start, length] VIEWS instead of extracted [offset, data, timestamp] tuples: no
+     * entry's bytes are ever substr()-copied out of its buffer here, plain entries and
+     * sub-batch inner entries alike (unlike parseRaw(), which still substr()s the
+     * sub-batch payload since ChunkEntry needs real strings). The buffer is $chunkBytes,
+     * except for a gzip sub-batch: its inflated records are yielded as views into the
+     * inflated buffer. This is what lets parseMessages() build one Message per entry
+     * that shares a buffer instead of copying its own payload out of it.
      *
      * @param int $maxEntriesPerChunk See parse().
      * @param int $offset See parse().
      * @param ?int $length See parse().
      * @param bool $verifyCrc See parse().
-     * @return \Generator<int, array{0: int, 1: int, 2: int, 3: int}>
+     * @return \Generator<int, array{0: int, 1: int, 2: string, 3: int, 4: int}>
      * @throws DeserializationException See parse().
      * @throws InvalidArgumentException See parse().
      */
@@ -442,6 +473,7 @@ class OsirisChunkParser
         $entryCount = 0;
         $recordCount = 0;
         $currentOffset = $chunkFirstOffset;
+        $gzipDeclaredTotal = 0;
 
         for ($i = 0; $i < $numEntries; $i++) {
             if ($entryCount >= $maxEntriesPerChunk) {
@@ -457,25 +489,19 @@ class OsirisChunkParser
                     | self::readUint8At($chunkBytes, $dataEnd, $pos);
                 $entryStart = self::checkBytesAt($dataEnd, $pos, $entrySize);
                 self::assertOffsetFits($recordCount, $chunkFirstOffset);
-                yield [$currentOffset, $timestamp, $entryStart, $entrySize];
+                yield [$currentOffset, $timestamp, $chunkBytes, $entryStart, $entrySize];
                 $entryCount++;
                 $recordCount++;
                 $currentOffset++;
             } else {
                 $codec = ($entryType >> 4) & 0x07;
-
-                if ($codec !== 0) {
-                    throw new DeserializationException(sprintf(
-                        'Compressed sub-batches not supported yet (codec: %d)',
-                        $codec
-                    ));
-                }
+                self::assertSupportedCodec($codec);
 
                 $subBatchRecords = self::readUint16At($chunkBytes, $dataEnd, $pos);
                 $uncompressedSize = self::readUint32At($chunkBytes, $dataEnd, $pos);
                 $compressedSize = self::readUint32At($chunkBytes, $dataEnd, $pos);
 
-                if ($subBatchRecords * 4 > $compressedSize) {
+                if ($codec === self::CODEC_NONE && $subBatchRecords * 4 > $compressedSize) {
                     throw new DeserializationException(sprintf(
                         'Sub-batch declares %d records but only %d bytes of data (minimum 4 bytes per record)',
                         $subBatchRecords,
@@ -492,25 +518,38 @@ class OsirisChunkParser
                     ));
                 }
 
-                // No substr() here: the sub-batch payload is addressed as a range
-                // [$subBatchStart, $subBatchEnd) inside $chunkBytes itself, so inner
-                // entries stay zero-copy views into the very same chunk buffer.
+                // $pos now sits past the whole sub-batch (checkBytesAt advances it), which
+                // is where the outer loop resumes once this inner loop is done. The inner
+                // loop uses its own cursor, $subPos, over $subBuffer up to $subEnd.
                 $subBatchStart = self::checkBytesAt($dataEnd, $pos, $compressedSize);
-                $subBatchEnd = $subBatchStart + $compressedSize;
-                // $pos now sits at $subBatchEnd (checkBytesAt already advanced it past
-                // the whole sub-batch), correctly positioned for the outer loop once
-                // this inner loop is done; the inner loop cursors separately with
-                // $subPos, starting back at $subBatchStart.
-                $subPos = $subBatchStart;
+
+                if ($codec === self::CODEC_GZIP) {
+                    // The inflated records are not in $chunkBytes, so they form their own
+                    // buffer. The inner entries are views into that buffer.
+                    $gzipDeclaredTotal = self::reserveGzipBudget($gzipDeclaredTotal, $uncompressedSize);
+                    $subBuffer = self::decompressGzip(
+                        substr($chunkBytes, $subBatchStart, $compressedSize),
+                        $uncompressedSize
+                    );
+                    $subEnd = strlen($subBuffer);
+                    $subPos = 0;
+                } else {
+                    // No substr() here: the sub-batch payload is addressed as a range
+                    // [$subBatchStart, $subEnd) inside $chunkBytes itself, so inner
+                    // entries stay zero-copy views into the very same chunk buffer.
+                    $subBuffer = $chunkBytes;
+                    $subEnd = $subBatchStart + $compressedSize;
+                    $subPos = $subBatchStart;
+                }
 
                 for ($j = 0; $j < $subBatchRecords; $j++) {
                     if ($entryCount >= $maxEntriesPerChunk) {
                         throw self::entryLimitExceeded($maxEntriesPerChunk);
                     }
-                    $innerSize = self::readUint32At($chunkBytes, $subBatchEnd, $subPos);
-                    $innerStart = self::checkBytesAt($subBatchEnd, $subPos, $innerSize);
+                    $innerSize = self::readUint32At($subBuffer, $subEnd, $subPos);
+                    $innerStart = self::checkBytesAt($subEnd, $subPos, $innerSize);
                     self::assertOffsetFits($recordCount, $chunkFirstOffset);
-                    yield [$currentOffset, $timestamp, $innerStart, $innerSize];
+                    yield [$currentOffset, $timestamp, $subBuffer, $innerStart, $innerSize];
                     $entryCount++;
                     $recordCount++;
                     $currentOffset++;
@@ -519,6 +558,97 @@ class OsirisChunkParser
         }
 
         self::assertRecordCount($recordCount, $numRecords);
+    }
+
+    /**
+     * Adds the declared uncompressedSize of one gzip sub-batch to the total of its chunk
+     * and returns the new total. Call it before decompressGzip(), so a chunk that goes over
+     * MAX_GZIP_UNCOMPRESSED_PER_CHUNK is rejected without any inflate.
+     *
+     * @param int $declaredTotal Sum of the uncompressedSize values of the earlier gzip
+     *                           sub-batches of the same chunk.
+     * @return int The new total, including $uncompressedSize.
+     * @throws DeserializationException If the new total is above the per-chunk budget.
+     */
+    private static function reserveGzipBudget(int $declaredTotal, int $uncompressedSize): int
+    {
+        $newTotal = $declaredTotal + $uncompressedSize;
+        if ($newTotal > self::MAX_GZIP_UNCOMPRESSED_PER_CHUNK) {
+            throw new DeserializationException(sprintf(
+                'GZIP sub-batch declares uncompressedSize %d; the chunk total of declared GZIP sizes ' .
+                'would be %d, above the per-chunk budget of %d bytes (32 MiB)',
+                $uncompressedSize,
+                $newTotal,
+                self::MAX_GZIP_UNCOMPRESSED_PER_CHUNK
+            ));
+        }
+
+        return $newTotal;
+    }
+
+    /**
+     * Accepts only the codecs this parser decodes: NONE and GZIP.
+     *
+     * @throws DeserializationException For every other codec value (2 to 7).
+     */
+    private static function assertSupportedCodec(int $codec): void
+    {
+        if ($codec === self::CODEC_NONE || $codec === self::CODEC_GZIP) {
+            return;
+        }
+
+        throw new DeserializationException(sprintf(
+            'Unsupported sub-batch codec %d (%s): only NONE (0) and GZIP (1) are supported',
+            $codec,
+            self::CODEC_NAMES[$codec] ?? 'UNKNOWN'
+        ));
+    }
+
+    /**
+     * Inflates a gzip sub-batch body (RFC 1952 gzip stream, as the Java client's
+     * GZIPOutputStream writes it) to exactly $uncompressedSize bytes.
+     *
+     * The inflate stops at $uncompressedSize, so a small body cannot expand past the
+     * size the sub-batch declares (issue #399). gzdecode() treats a max length of 0
+     * as no limit, so the cap is at least 1. A declared size of 0 then fails only
+     * when the body inflates to a non-empty result.
+     *
+     * @throws DeserializationException If ext-zlib is missing, the body is corrupt,
+     *                                  or the inflated size is not $uncompressedSize
+     */
+    private static function decompressGzip(string $compressed, int $uncompressedSize): string
+    {
+        if (!function_exists('gzdecode')) {
+            throw new DeserializationException(
+                'Reading a GZIP sub-batch needs the ext-zlib PHP extension, which is not loaded'
+            );
+        }
+
+        // gzdecode() reports corrupt data and an over-long result with a PHP warning.
+        // Suppress it here, so that a user error handler cannot turn it into an unrelated exception.
+        set_error_handler(static fn (): bool => true);
+        try {
+            $decoded = gzdecode($compressed, max(1, $uncompressedSize));
+        } finally {
+            restore_error_handler();
+        }
+
+        if ($decoded === false) {
+            throw new DeserializationException(sprintf(
+                'GZIP sub-batch is corrupt or inflates to more than its uncompressedSize %d',
+                $uncompressedSize
+            ));
+        }
+
+        if (strlen($decoded) !== $uncompressedSize) {
+            throw new DeserializationException(sprintf(
+                'GZIP sub-batch inflates to %d bytes but declares uncompressedSize %d',
+                strlen($decoded),
+                $uncompressedSize
+            ));
+        }
+
+        return $decoded;
     }
 
     /**
