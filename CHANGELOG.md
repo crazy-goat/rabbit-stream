@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Docs: replace StreamConnection pseudo-code fences with accurate prose (#1020)**
+
 ## [1.15.0] - 2026-11-06
 
 ### Added

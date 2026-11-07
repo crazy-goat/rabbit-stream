@@ -28,6 +28,7 @@ CorrelationId**.
 **Behavior:**
 
 1. **Server sends heartbeat** to client at intervals (heartbeat/2 seconds)
+1. **Server sends heartbeat** to client only when it sent no other data in the last heartbeat interval
 2. **Client must echo** the heartbeat back immediately
 3. **The client closes the connection** after two heartbeat intervals without inbound data.
 
@@ -41,27 +42,35 @@ Client → Server: Heartbeat (0x0017)  [identical frame echoed back]
 
 **Automatic Handling:**
 
-The `StreamConnection` class handles heartbeats transparently:
+The `StreamConnection` class handles heartbeats transparently. When `readMessage()`,
+`request()` or `readLoop()` reads a Heartbeat frame, `dispatchServerPush()` passes it to
+an internal handler. The handler echoes a Heartbeat frame back to the server and then
+runs the callback registered with `onHeartbeat()`, if any.
+
+The client also sends its own heartbeats. While a library call waits for data, the client
+sends a Heartbeat frame when it wrote nothing to the server for one heartbeat interval. It
+closes the connection and throws `ConnectionException` after two heartbeat intervals
+without inbound data.
+
+Your application code never sees heartbeat frames - they are handled internally. To
+observe them, register a callback (it runs after each echo):
 
 ```php
-// In readMessage() - heartbeats are automatically echoed
-if ($key === KeyEnum::HEARTBEAT->value) {
-    HeartbeatRequestV1::fromStreamBuffer($frame);
-    $heartbeat = new HeartbeatRequestV1();
-    $content = $this->serializer->serialize($heartbeat);
-    $this->sendFrame(...);  // Echo back
-    continue;  // Keep reading for actual response
-}
-```
+$stream->onHeartbeat(function (): void {
+    echo "Heartbeat echoed\n";
+});
 
-Your application code never sees heartbeat frames - they are handled internally.
+$stream->readLoop();
+```
 
 **Manual Heartbeat (if needed):**
 
 ```php
 use CrazyGoat\RabbitStream\Request\HeartbeatRequestV1;
 
-// Send a heartbeat (rarely needed - automatic in readMessage)
+// Send a heartbeat (rarely needed - the client sends and echoes heartbeats automatically)
+$stream->sendMessage(new HeartbeatRequestV1());
+```
 $stream->sendMessage(new HeartbeatRequestV1());
 ```
 
@@ -162,41 +171,16 @@ ResponseCode:  uint16 (0x0001 = OK)
 
 **Automatic Handling:**
 
-`StreamConnection::dispatchServerPush()` handles server-initiated closes:
+`StreamConnection` handles server-initiated closes internally. When `readMessage()`,
+`request()` or `readLoop()` reads a Close frame, `dispatchServerPush()` passes it to an
+internal handler. The handler reads the correlation ID, the closing code and the closing
+reason, and stores the code and the reason. It sends a `CloseResponse` (`0x8016`) with the
+server's correlation ID and response code `0x0001` (OK), and then closes the socket.
 
-```php
-private function dispatchServerPush(ReadBuffer $frame): void
-{
-    switch ($key) {
-        case KeyEnum::CLOSE->value:
-            // Read close details
-            $frame->getUint16(); // key
-            $frame->getUint16(); // version
-            $correlationId = $frame->getUint32();
-            $closingCode = $frame->getUint16();
-            $closingReason = $frame->getString();
-            
-            // Log the close reason
-            $this->logger->debug(sprintf(
-                'Server-initiated close: code=%d, reason=%s',
-                $closingCode,
-                $closingReason ?? ''
-            ));
-            
-            // Send close response with OK
-            $response = (new WriteBuffer())
-                ->addUInt16(KeyEnum::CLOSE_RESPONSE->value)
-                ->addUInt16(1) // version
-                ->addUInt32($correlationId)
-                ->addUInt16(0x0001); // OK
-            $this->sendFrame(...);
-            
-            // Close the connection
-            $this->close();
-            break;
-    }
-}
-```
+After that, `readMessage()` and `request()` throw a `ConnectionException`, and `readLoop()`
+returns. The exception gives the closing code and the reason through
+`getServerCloseCode()` and `getServerCloseReason()` (see "Handle Server-Initiated Closes"
+under Best Practices below).
 
 **Reasons for Server-Initiated Close:**
 - Administrator forced close
