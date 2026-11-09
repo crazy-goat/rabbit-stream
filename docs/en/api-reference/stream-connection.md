@@ -778,6 +778,8 @@ Register a handler for a rejected Credit request on a subscription.
 
 A handler that returns `false` ignores the response as stale. The library then logs it at debug level instead of warning level. Any other return value means the error was recorded and is logged as a warning.
 
+If no handler is registered for the subscription, a credit error is logged at debug level only, so a logger at warning level does not show it. Register a handler to observe credit errors.
+
 ```php
 public function registerCreditErrorHandler(int $subscriptionId, callable $handler): void
 ```

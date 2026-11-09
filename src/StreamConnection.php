@@ -1046,6 +1046,10 @@ class StreamConnection
      * logged at debug level. Any other return value means the error was recorded and
      * it is logged at warning level.
      *
+     * If no handler is registered for the subscription, the library logs the credit
+     * error at debug level instead, so a logger at warning level never shows it.
+     * Register a handler to observe credit errors.
+     *
      * @param int $subscriptionId Subscription ID as declared with the server
      * @param callable(CreditResponseV1): (bool|void) $handler Called with (CreditResponseV1 $response)
      */
